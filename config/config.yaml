@@ -8,7 +8,7 @@ random_seed: 42
 debug: True
 
 data:
-  GNSS_data_path: "/home/space/data/IONO/STEC_DB"
+  GNSS_data_path: "/home/space/data/IONO/STEC_DB_CASDCB"
   sampling: all # all semi medium hard extreme ultra
   SH_degree: 0
   min_elevation: 5.0

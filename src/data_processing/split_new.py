@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from itertools import chain
 
+# fix seeds
+np.random.seed(42)
+
 def download_igs_station_list(url, output_file):
     """Download IGS station list from a URL and save it to a file."""
     response = requests.get(url)
@@ -16,14 +19,12 @@ def download_igs_station_list(url, output_file):
     else:
         raise RuntimeError(f"Failed to download. HTTP Status Code: {response.status_code}")
 
-
 def load_stations(file_path):
     """Load station data from a CSV file."""
     df = pd.read_csv(file_path, usecols=['#StationName', 'Latitude', 'Longitude'])
     df.columns = ['name', 'lat', 'lon']
     df['name'] = df['name'].str[:4]
     return df
-
 
 def create_grid(grid_width, grid_height):
     """Create a grid dividing the map into cells."""
@@ -58,7 +59,6 @@ def spatial_split(stations, train_frac=0.7, val_frac=0.15, seed=42):
 
     return train_data, val_data, test_data
 
-
 def count_stations_in_grid(grid, stations):
     """Count the number of stations in each grid cell."""
     station_counts = [[0] * len(grid[0]) for _ in range(len(grid))]
@@ -74,17 +74,16 @@ def count_stations_in_grid(grid, stations):
     stations['grid'] = grid_num
     return station_counts
 
-
 def split_data_by_grid(data, station_counts, train_fraction=0.7, val_fraction=0.15, random_seed=72):
     """Split station data into training, validation, and testing sets based on grid."""
     train_stations, val_stations, test_stations = [], [], []
 
-    for grid_id, count in enumerate(np.unique(data['grid'])):
-        if count == 0:
-            continue
+    for grid_id in np.unique(data['grid']):
         grid_data = data[data['grid'] == grid_id].sample(frac=1, random_state=random_seed)
-        n_train = int(len(grid_data) * train_fraction)
-        n_val = int(len(grid_data) * val_fraction)
+        if len(grid_data) == 0:
+            continue
+        n_train = round(len(grid_data) * train_fraction)
+        n_val = round(len(grid_data) * val_fraction)
 
         train_stations.extend(grid_data.iloc[:n_train].to_dict(orient='records'))
         val_stations.extend(grid_data.iloc[n_train:n_train + n_val].to_dict(orient='records'))
@@ -99,7 +98,6 @@ def save_to_files(train_stations, val_stations, test_stations, output_dir):
     np.savetxt(os.path.join(output_dir, "train_station.list"), train_stations['name'].values, fmt='%s')
     np.savetxt(os.path.join(output_dir, "val_station.list"), val_stations['name'].values, fmt='%s')
     np.savetxt(os.path.join(output_dir, "test_station.list"), test_stations['name'].values, fmt='%s')
-
 
 def plot_station_distribution(train_stations, val_stations, test_stations, output_file):
     """Plot training, validation, and testing station distributions on a world map."""
@@ -188,15 +186,51 @@ if __name__ == "__main__":
     csv_file = os.path.join(cwd, output_filename)
     grid_width, grid_height = 60, 30
 
+    # Define the list of stations for PVT testing
+    PVT_test_station = [
+        "REYK","ALGO","WROC","URUM","BIK0","JPLM","CPVG","LMMF",
+        "POVE","CHPG","NKLG","RGDG","CAS1","FAA1","ULAB","WUH2",
+        "SOLO","NNOR"
+    ]
+
     # Download and load station data
     download_igs_station_list(csv_url, csv_file)
     stations = load_stations(csv_file)
 
-    # Process station data
-    grid = create_grid(grid_width, grid_height)
-    station_counts = count_stations_in_grid(grid, stations)
-    print(f"Number of stations in each grid cell: {list(chain(*station_counts))}")
-    train_data, val_data, test_data = split_data_by_grid(stations, station_counts)
+    # pull the PVT stations out
+    forced_test = stations[stations['name'].isin(PVT_test_station)].copy()
+    # keep the rest for spatial splitting
+    remaining = stations[~stations['name'].isin(PVT_test_station)].copy()
+
+    use_grid = False  # Set to False if you want to skip grid-based splitting
+    if use_grid:
+        train_fraction = 0.725
+        val_frac_eff = 0.16
+        # Process station data by grid
+        grid = create_grid(grid_width, grid_height)
+        station_counts = count_stations_in_grid(grid, remaining)
+        print(f"Number of stations in each grid cell: {list(chain(*station_counts))}")
+        train_data, val_data, test_data = split_data_by_grid(remaining, station_counts,
+                                                        train_fraction=train_fraction, val_fraction=val_frac_eff)
+    else:
+        # If not using grid, just split the remaining stations randomly
+        train_fraction = 0.725
+        val_frac_eff = 0.56
+        train_data = remaining.sample(frac=train_fraction, random_state=42)
+        remaining = remaining.drop(train_data.index)
+        val_data = remaining.sample(frac=val_frac_eff, random_state=42)
+        test_data = remaining.drop(val_data.index)
+
+    # now stick the forced-test stations back onto the test set
+    test_data = pd.concat([test_data, forced_test], ignore_index=True)
+
+    # (just to be safe, drop any of those names from train/val if something slipped)
+    train_data = train_data[~train_data['name'].isin(PVT_test_station)]
+    val_data   = val_data[~val_data['name'].isin(PVT_test_station)]
+
+    print(f"Train stations: {len(train_data)} ({round((len(train_data)/len(stations))*100, 1)}%), \
+            Validation stations: {len(val_data)} ({round((len(val_data)/len(stations))*100, 1)}%), \
+            Test stations: {len(test_data)} ({round((len(test_data)/len(stations))*100, 1)}%)")
 
     # Save and plot results
     save_to_files(train_data, val_data, test_data, cwd)

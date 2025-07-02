@@ -5,7 +5,7 @@ import pandas as pd
 import os
 from spacepy.coordinates import Coords
 from spacepy.time import Ticktock
-from datetime import datetime
+from datetime import datetime, timedelta
 from tqdm import tqdm
 
 # --- Modular Helper Functions ---
@@ -190,9 +190,9 @@ def filter_and_save(config, h5_file_path, save_dir):
     else:
         print(f"Preprocessing {year} {doy}...")
 
-    train_stations = set(np.loadtxt('./src/data_processing/train.list', dtype=str))
-    val_stations = set(np.loadtxt('./src/data_processing/val.list', dtype=str))
-    test_stations = set(np.loadtxt('./src/data_processing/test.list', dtype=str))
+    train_stations = set(np.loadtxt('./src/data_processing/train_station.list', dtype=str))
+    val_stations = set(np.loadtxt('./src/data_processing/val_station.list', dtype=str))
+    test_stations = set(np.loadtxt('./src/data_processing/test_station.list', dtype=str))
 
     with tables.open_file(h5_file_path, mode='r') as in_file, \
         h5py.File(save_path, mode='w') as out_file:
@@ -224,10 +224,37 @@ def filter_and_save(config, h5_file_path, save_dir):
 
     print(f"Saved {year} {doy} to {save_path}")
 
+def generate_dates(months):
+        dates = []
+        for month in months:
+            year, month = map(int, month.split('-'))
+            start_date = datetime(year, month, 1)
+            end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            current_date = start_date
+            while current_date <= end_date:
+                dates.append(current_date)
+                current_date += timedelta(days=1)
+        return dates
+
 def get_file_lists(config, year, doy):
     gnss_path = config['data']['GNSS_data_path']
     finetune_date = pd.to_datetime(f"{year}-{doy}", format="%Y-%j")
-    all_dates = pd.read_csv('./src/data_processing/train_dates.csv', header=None, squeeze=True)
+
+    train_months = sorted(set(np.loadtxt('./src/data_processing/train_dates.list', dtype=str)))
+    val_months = sorted(set(np.loadtxt('./src/data_processing/val_dates.list', dtype=str)))
+    test_months = sorted(set(np.loadtxt('./src/data_processing/test_dates.list', dtype=str)))
+
+    train_dates = generate_dates(train_months)
+    val_dates = generate_dates(val_months)
+    test_dates = generate_dates(test_months)
+
+    # Debugging: only take a subset of dates for testing
+    train_dates = train_dates[::400]
+    val_dates = val_dates[::400]
+    test_dates = test_dates[::400]
+
+    all_dates = pd.DatetimeIndex(train_dates + val_dates + test_dates)
+
     if finetune_date not in all_dates:
         all_dates = all_dates.append(pd.DatetimeIndex([finetune_date]))
     file_paths = []

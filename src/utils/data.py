@@ -11,6 +11,7 @@ from utils.locationencoder.pe import SphericalHarmonics
 import tables
 
 import warnings
+from datetime import datetime, timedelta
 warnings.filterwarnings("ignore")
 
 torch.multiprocessing.set_start_method('fork', force=True)
@@ -130,17 +131,34 @@ class CollateWithSH:
         x_out = self.SH_transform(raw, norm)
         return x_out, y
 
+def generate_dates(months):
+        dates = []
+        for month in months:
+            year, month = map(int, month.split('-'))
+            start_date = datetime(year, month, 1)
+            end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            current_date = start_date
+            while current_date <= end_date:
+                dates.append(current_date)
+                current_date += timedelta(days=1)
+        return dates
 
 def get_split_file_lists(config, year, doy):
     gnss_path = config['data']['GNSS_data_path']   
     sampling = config['data']['sampling']
 
-    start_date = pd.to_datetime(config['pretrain']['pretrain_start_date'])
-    end_date = pd.to_datetime(config['pretrain']['pretrain_end_date'])
+    train_months = sorted(set(np.loadtxt('./src/data_processing/train_dates.list', dtype=str)))
+    val_months = sorted(set(np.loadtxt('./src/data_processing/val_dates.list', dtype=str)))
+    test_months = sorted(set(np.loadtxt('./src/data_processing/test_dates.list', dtype=str)))
 
-    all_dates = pd.date_range(start_date, end_date)
-    test_dates = all_dates[:1]
-    train_dates, val_dates = np.split(all_dates[1:], [int(0.8 * (len(all_dates)-len(test_dates)))])
+    train_dates = generate_dates(train_months)
+    val_dates = generate_dates(val_months)
+    test_dates = generate_dates(test_months)
+
+    # Debugging: only take a subset of dates for testing
+    train_dates = train_dates[::400]
+    val_dates = val_dates[::400]
+    test_dates = test_dates[::400]
 
     def get_file_paths(dates):
         file_paths = []
