@@ -1,0 +1,26 @@
+# Ignore Python cache, virtual environments and wandb files
+**/__pycache__/
+*.pyc
+.vscode/
+launch.json
+env/
+wandb/
+*data/
+
+# Ignore logs and temp files
+*.log
+*.tmp
+temp/
+**/temp_data/
+**/logs/
+
+# Ignore specific files
+experiments/
+src/data_processing/plots/
+Shuyins_code/
+*/old/
+**/plots/
+**/dSTEC/
+
+# Ignore some config files.
+config/*_*.yaml

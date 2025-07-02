@@ -1,0 +1,139 @@
+import os
+import requests
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+from itertools import chain
+
+def download_igs_station_list(url, output_file):
+    """Download IGS station list from a URL and save it to a file."""
+    response = requests.get(url)
+    if response.status_code == 200:
+        with open(output_file, 'wb') as file:
+            file.write(response.content)
+        print(f"Downloaded station list to {output_file}.")
+    else:
+        raise RuntimeError(f"Failed to download. HTTP Status Code: {response.status_code}")
+
+
+def load_stations(file_path):
+    """Load station data from a CSV file."""
+    df = pd.read_csv(file_path, usecols=['#StationName', 'Latitude', 'Longitude'])
+    df.columns = ['name', 'lat', 'lon']
+    df['name'] = df['name'].str[:4]
+    return df
+
+
+def create_grid(grid_width, grid_height):
+    """Create a grid dividing the map into cells."""
+    num_columns = 360 // grid_width
+    num_rows = 180 // grid_height
+    grid = [
+        [
+            (-180 + col * grid_width, -90 + row * grid_height, 
+             -180 + (col + 1) * grid_width, -90 + (row + 1) * grid_height)
+            for col in range(num_columns)
+        ]
+        for row in range(num_rows)
+    ]
+    return grid
+
+def spatial_split(stations, train_frac=0.7, val_frac=0.15, seed=42):
+    """Split stations spatially into training, validation, and test sets."""
+    np.random.seed(seed)
+    unique_grids = list(set(stations['grid']))
+    np.random.shuffle(unique_grids)
+
+    num_train = int(len(unique_grids) * train_frac)
+    num_val = int(len(unique_grids) * val_frac)
+
+    train_grids = unique_grids[:num_train]
+    val_grids = unique_grids[num_train:num_train + num_val]
+    test_grids = unique_grids[num_train + num_val:]
+
+    train_data = stations[stations['grid'].isin(train_grids)]
+    val_data = stations[stations['grid'].isin(val_grids)]
+    test_data = stations[stations['grid'].isin(test_grids)]
+
+    return train_data, val_data, test_data
+
+
+def count_stations_in_grid(grid, stations):
+    """Count the number of stations in each grid cell."""
+    station_counts = [[0] * len(grid[0]) for _ in range(len(grid))]
+    grid_num = np.zeros(len(stations))
+
+    for i, (lat, lon) in enumerate(zip(stations['lat'], stations['lon'])):
+        for row_idx, row in enumerate(grid):
+            for col_idx, (x1, y1, x2, y2) in enumerate(row):
+                if x1 <= lon <= x2 and y1 <= lat <= y2:
+                    station_counts[row_idx][col_idx] += 1
+                    grid_num[i] = row_idx * len(grid[0]) + col_idx
+                    break
+    stations['grid'] = grid_num
+    return station_counts
+
+
+def split_data_by_grid(data, station_counts, train_fraction=0.7, val_fraction=0.15, random_seed=72):
+    """Split station data into training, validation, and testing sets based on grid."""
+    train_stations, val_stations, test_stations = [], [], []
+
+    for grid_id, count in enumerate(np.unique(data['grid'])):
+        if count == 0:
+            continue
+        grid_data = data[data['grid'] == grid_id].sample(frac=1, random_state=random_seed)
+        n_train = int(len(grid_data) * train_fraction)
+        n_val = int(len(grid_data) * val_fraction)
+
+        train_stations.extend(grid_data.iloc[:n_train].to_dict(orient='records'))
+        val_stations.extend(grid_data.iloc[n_train:n_train + n_val].to_dict(orient='records'))
+        test_stations.extend(grid_data.iloc[n_train + n_val:].to_dict(orient='records'))
+
+    return pd.DataFrame(train_stations), pd.DataFrame(val_stations), pd.DataFrame(test_stations)
+
+def save_to_files(train_stations, val_stations, test_stations, output_dir):
+    """Save training, validation, and testing stations data and lists to files."""
+    os.makedirs(output_dir, exist_ok=True)
+
+    np.savetxt(os.path.join(output_dir, "train_station.list"), train_stations['name'].values, fmt='%s')
+    np.savetxt(os.path.join(output_dir, "val_station.list"), val_stations['name'].values, fmt='%s')
+    np.savetxt(os.path.join(output_dir, "test_station.list"), test_stations['name'].values, fmt='%s')
+
+
+def plot_station_distribution(train_stations, val_stations, test_stations, output_file):
+    """Plot training, validation, and testing station distributions on a world map."""
+    fig, ax = plt.subplots(figsize=(10, 6), subplot_kw={'projection': ccrs.PlateCarree()})
+    ax.coastlines()
+    ax.stock_img()
+    gl = ax.gridlines(draw_labels=True, linewidth=1, color='gray', alpha=0.5, linestyle='--')
+    gl.top_labels, gl.right_labels = False, False
+
+    ax.scatter(train_stations['lon'], train_stations['lat'], s=20, c='blue', label='Train', zorder=2)
+    ax.scatter(val_stations['lon'], val_stations['lat'], s=20, c='green', label='Validation', zorder=3)
+    ax.scatter(test_stations['lon'], test_stations['lat'], s=20, c='red', label='Test', zorder=4)
+    ax.legend()
+    plt.savefig(output_file, bbox_inches='tight', dpi=300)
+    plt.close()
+
+if __name__ == "__main__":
+    # Define constants
+    csv_url = "https://files.igs.org/pub/station/general/IGSNetwork.csv"
+    cwd = os.path.join(os.getcwd(), "src/data_processing")
+    output_filename = "./IGSNetwork.csv"
+    csv_file = os.path.join(cwd, output_filename)
+    grid_width, grid_height = 60, 30
+
+    # Download and load station data
+    download_igs_station_list(csv_url, csv_file)
+    stations = load_stations(csv_file)
+
+    # Process station data
+    grid = create_grid(grid_width, grid_height)
+    station_counts = count_stations_in_grid(grid, stations)
+    print(f"Number of stations in each grid cell: {list(chain(*station_counts))}")
+    train_data, val_data, test_data = split_data_by_grid(stations, station_counts)
+
+    # Save and plot results
+    save_to_files(train_data, val_data, test_data, cwd)
+    plot_station_distribution(train_data, val_data, test_data, os.path.join(cwd, "stations.png"))

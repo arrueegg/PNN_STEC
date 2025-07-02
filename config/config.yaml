@@ -1,0 +1,52 @@
+# General configuration
+project_name: "PNN_STEC"
+output_dir: "experiments/"
+year: 2023
+doy: 31
+mode: pretrain # pretrain, finetune
+random_seed: 42
+debug: True
+
+data:
+  GNSS_data_path: "/home/space/data/IONO/STEC_DB"
+  sampling: all # all semi medium hard extreme ultra
+  SH_degree: 0
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+
+split:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+
+model:
+  model_type: BNN_NLL # BNN_NLL, BNN_mse, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
+  
+training:
+  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, HuberLoss, LaplaceLoss, GaussianNLLLoss,ProfileLoss
+  loss_weight: 1.0
+  optimizer: "Adam"             # SGD, Adam, AdamW
+  weight_decay: 0.0             # Weight decay for regularization
+
+pretrain:
+  epochs: 2
+  batchsize: 8192
+  num_workers: 8
+  learning_rate: 0.001
+  scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
+  scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
+
+  early_stopping: true          # Whether to use early stopping
+  patience: 5                   # Patience for early stopping
+  save_model_every_epoch: False # Whether to save the model every epoch
+
+finetune:
+  epochs: 5
+  batch_size: 2048
+  num_workers: 8
+  learning_rate: 0.001
+  scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
+  scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
+
+
