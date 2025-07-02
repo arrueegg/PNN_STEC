@@ -116,6 +116,70 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
     plt.savefig(output_file, bbox_inches='tight', dpi=300)
     plt.close()
 
+def temporal_split():
+    """Create temporal splits for training, validation, and testing datasets."""
+    
+    # 1) build the per-year, per-split month mapping
+    #    months are numbered 1=Jan ... 12=Dec
+    temp_split_map = {
+        2010: {'train': list(range(3,13)),        'val': [2], 'test': [1]},
+        2011: {'train': [m for m in range(1,13) if m not in (4,5)],  'val': [5], 'test': [4]},
+        2012: {'train': [m for m in range(1,13) if m not in (7,8)],  'val': [8], 'test': [7]},
+        2013: {'train': [m for m in range(1,13) if m not in (10,11)],'val': [11],'test': [10]},
+        2014: {'train': [m for m in range(1,13) if m not in (6,7)],  'val': [7], 'test': [6]},
+        2015: {'train': [m for m in range(1,13) if m not in (9,10)], 'val': [10],'test': [9]},
+        2016: {'train': [m for m in range(1,13) if m not in (12,1)], 'val': [1], 'test': [12]},
+        2017: {'train': [m for m in range(1,13) if m not in (3,4)],  'val': [4], 'test': [3]},
+        2018: {'train': [m for m in range(1,13) if m not in (11,12)],'val': [12],'test': [11]},
+        2019: {'train': [m for m in range(1,13) if m not in (2,3)],  'val': [3], 'test': [2]},
+        2020: {'train': [m for m in range(1,13) if m not in (5,6)],  'val': [6], 'test': [5]},
+        2021: {'train': [m for m in range(1,13) if m not in (8,9)],  'val': [9], 'test': [8]},
+        2022: {'train': [m for m in range(1,13) if m not in (11,12)],'val': [11],'test': [12]},
+        2023: {'train': [m for m in range(1,13) if m not in (7,8)],  'val': [7], 'test': [8]},
+        2024: {'train': [1,2,3],                     'val': [4], 'test': list(range(5,13))},
+    }
+
+    # 2) build the list of all months in your full span
+    all_months = pd.period_range("2010-01", "2024-12", freq="M")
+
+    # 3) assign each month to train/val/test
+    train_months = []
+    val_months   = []
+    test_months  = []
+
+    for p in all_months:
+        year, m = p.year, p.month
+        cfg = temp_split_map.get(year)
+        if cfg is None:
+            continue
+        if   m in cfg['train']:
+            train_months.append(p)
+        elif m in cfg['val']:
+            val_months.append(p)
+        elif m in cfg['test']:
+            test_months.append(p)
+
+    # optional: turn into strings “YYYY-MM”
+    train_str = [str(p) for p in train_months]
+    val_str   = [str(p) for p in val_months]
+    test_str  = [str(p) for p in test_months]
+
+    # 4) save to files
+    outdir = "./src/data_processing"
+    os.makedirs(outdir, exist_ok=True)
+
+    with open(os.path.join(outdir, "train_dates.list"), "w") as f:
+        f.write("\n".join(train_str))
+
+    with open(os.path.join(outdir, "val_dates.list"), "w") as f:
+        f.write("\n".join(val_str))
+
+    with open(os.path.join(outdir, "test_dates.list"), "w") as f:
+        f.write("\n".join(test_str))
+
+    print(f"Temporal splits: train={len(train_str)} months, val={len(val_str)}, test={len(test_str)}")
+
+
 if __name__ == "__main__":
     # Define constants
     csv_url = "https://files.igs.org/pub/station/general/IGSNetwork.csv"
@@ -137,3 +201,5 @@ if __name__ == "__main__":
     # Save and plot results
     save_to_files(train_data, val_data, test_data, cwd)
     plot_station_distribution(train_data, val_data, test_data, os.path.join(cwd, "stations.png"))
+
+    temporal_split()

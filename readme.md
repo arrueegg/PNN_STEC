@@ -15,7 +15,7 @@ The project focuses on STEC modelling with Baysian Neural Networks (BNN).
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/PNN_STEC.git
+    git clone https://github.com/arrueegg/PNN_STEC.git
     ```
 2. Install dependencies:
     ```bash
