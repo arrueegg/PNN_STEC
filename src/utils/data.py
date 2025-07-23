@@ -27,7 +27,7 @@ class PyTablesDatasetSplit(Dataset):
         self.split = split
         self.file = tables.open_file(h5_file_path, mode='r')
         self.data = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_data')
-        self.length = 1000 #len(self.data)
+        self.length = len(self.data)
 
     def __len__(self):
         return self.length
@@ -48,6 +48,10 @@ class PyTablesDatasetSplit(Dataset):
 
         # Return features and label separately
         label = torch.tensor(row['stec'], dtype=torch.float32)
+
+        # Check for NaN or similar in features or label
+        if torch.isnan(features).any() or torch.isnan(label):
+            raise ValueError(f"NaN detected in features or label at index {idx}")
 
         return features, label
 
@@ -163,7 +167,7 @@ def get_split_file_lists(config, year, doy):
     def get_file_paths(dates):
         file_paths = []
         for date in dates:
-            file_path = os.path.join(gnss_path, f'Split_{date.year}{date.dayofyear:03d}_30_5_subsampled_{sampling}.h5')
+            file_path = os.path.join(gnss_path, f'Split_{date.year}{date.timetuple().tm_yday:03d}_30_5_subsampled_{sampling}.h5')
             if os.path.exists(file_path):
                 file_paths.append(file_path)
         return file_paths

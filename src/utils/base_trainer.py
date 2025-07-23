@@ -223,11 +223,11 @@ class BaseTrainer:
             wandb.log(test_metrics)
             wandb.finish()
 
-        all_predictions.append(test_outputs)
+        """all_predictions.append(test_outputs)
         all_targets.append(test_targets)
 
         # Ensemble testing: average predictions from each model.
         self.logger.info("Testing ensemble models...")
         ensemble_predictions = torch.mean(torch.stack(all_predictions), dim=0)
         ensemble_test_metrics = calculate_metrics(ensemble_predictions, all_targets[0], prefix="test")
-        self.logger.info(f"Ensemble Test Metrics: " + ", ".join(f"{k}: {v:.2f}" for k, v in ensemble_test_metrics.items()))
+        self.logger.info(f"Ensemble Test Metrics: " + ", ".join(f"{k}: {v:.2f}" for k, v in ensemble_test_metrics.items()))"""
