@@ -155,6 +155,11 @@ def get_split_file_lists(config, year, doy):
     val_months = sorted(set(np.loadtxt('./src/data_processing/val_dates.list', dtype=str)))
     test_months = sorted(set(np.loadtxt('./src/data_processing/test_dates.list', dtype=str)))
 
+    # Filter dates to be only after 2019 for debuging
+    #train_months = [m for m in train_months if int(m.split('-')[0]) >= 2019]
+    #val_months = [m for m in val_months if int(m.split('-')[0]) >= 2019]
+    #test_months = [m for m in test_months if int(m.split('-')[0]) >= 2019]
+
     train_dates = generate_dates(train_months)
     val_dates = generate_dates(val_months)
     test_dates = generate_dates(test_months)
