@@ -9,8 +9,10 @@ debug: True
 
 data:
   GNSS_data_path: "/home/space/data/IONO/STEC_DB_CASDCB"
+  SWI_data_path: "/home/space/data/IONO/SWI/"
   sampling: all # all semi medium hard extreme ultra
-  SH_degree: 0
+  use_SWI: True # Whether to use Space Weather Indices as input data
+  SH_degree: 5
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True

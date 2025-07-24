@@ -46,16 +46,11 @@ def calculate_metrics(predictions, targets, prefix):
             f'{prefix}_MAE': mae(stec, targets),
             f'{prefix}_RMSE': rmse(stec, targets),
             f'{prefix}_MAPE': mape(stec, targets),
-            f'{prefix}_R2': r2_score(stec, targets),
-            #f'{prefix}_residual_std': residual_std(stec, targets),
-            #f'{prefix}_residual_iqr': residual_iqr(stec, targets),
         })
 
         if uncertainty is not None:  # If there is an uncertainty column
             metrics.update({
-                f'{prefix}_uncertainty_mean': uncertainty.mean().item(),
-                f'{prefix}_uncertainty_std': uncertainty.std().item(),
-                f'{prefix}_uncertainty_median': uncertainty.median().item()
+                f'{prefix}_uncertainty_mean': uncertainty.mean().item()
             })
 
     return metrics

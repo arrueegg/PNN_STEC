@@ -119,6 +119,98 @@ class BaseTrainer:
                 all_targets.append(targets.cpu())
         return torch.cat(all_outputs), torch.cat(all_targets)
 
+    def bayesian_inference(self, model, dataloader, num_samples=100):
+        """Memory-efficient Monte Carlo sampling"""
+        model.eval()
+        
+        # Pre-allocate lists for batch-wise processing
+        batch_means = []
+        batch_stds = []
+        all_targets = []
+        
+        with torch.no_grad():
+            for inputs, targets in dataloader:
+                inputs = inputs.to(self.device)
+                batch_predictions = []
+                
+                # Sample predictions for this batch
+                for _ in range(num_samples):
+                    outputs = model(inputs)
+                    stec, _ = self.compute_stec_unc(outputs)
+                    batch_predictions.append(stec.cpu())
+                
+                # Stack and compute statistics for this batch
+                batch_predictions = torch.stack(batch_predictions, dim=0)
+                batch_mean = batch_predictions.mean(dim=0)
+                batch_std = batch_predictions.std(dim=0)
+                
+                batch_means.append(batch_mean)
+                batch_stds.append(batch_std)
+                all_targets.append(targets.cpu())
+        
+        # Concatenate across batches
+        mean = torch.cat(batch_means)
+        std = torch.cat(batch_stds)
+        targets = torch.cat(all_targets)
+        
+        return mean, std, targets
+
+    def bayesian_inference_total_uncertainty(self, model, dataloader, num_samples=100):
+        """Compute total uncertainty = epistemic + aleatoric"""
+        model.eval()
+        
+        batch_means = []
+        batch_epistemic_vars = []
+        batch_aleatoric_vars = []
+        all_targets = []
+        
+        with torch.no_grad():
+            for inputs, targets in dataloader:
+                inputs = inputs.to(self.device)
+                batch_stec_predictions = []
+                batch_aleatoric_uncertainties = []
+                
+                # Sample predictions for this batch
+                for _ in range(num_samples):
+                    outputs = model(inputs)
+                    stec, uncertainty = self.compute_stec_unc(outputs)
+                    batch_stec_predictions.append(stec.cpu())
+                    batch_aleatoric_uncertainties.append(uncertainty.cpu())
+                
+                # Stack predictions
+                batch_stec_predictions = torch.stack(batch_stec_predictions, dim=0)
+                batch_aleatoric_uncertainties = torch.stack(batch_aleatoric_uncertainties, dim=0)
+                
+                # Compute uncertainties
+                stec_mean = batch_stec_predictions.mean(dim=0)
+                epistemic_var = batch_stec_predictions.var(dim=0)  # Variance across samples
+                aleatoric_var = batch_aleatoric_uncertainties.mean(dim=0)  # Mean predicted variance
+                
+                batch_means.append(stec_mean)
+                batch_epistemic_vars.append(epistemic_var)
+                batch_aleatoric_vars.append(aleatoric_var)
+                all_targets.append(targets.cpu())
+        
+        # Concatenate across batches
+        mean = torch.cat(batch_means).squeeze()
+        epistemic_var = torch.cat(batch_epistemic_vars)
+        aleatoric_var = torch.cat(batch_aleatoric_vars)
+        targets = torch.cat(all_targets)
+        
+        # Total uncertainty
+        total_var = epistemic_var + aleatoric_var
+        total_std = torch.sqrt(total_var)
+
+        return {
+            'baysian_mae': torch.mean(torch.abs(mean - targets)),
+            'baysian_mse': torch.mean((mean - targets) ** 2),
+            'mean': mean,
+            'epistemic_std': torch.sqrt(epistemic_var),
+            'aleatoric_std': torch.sqrt(aleatoric_var),
+            'total_std': total_std,
+            'targets': targets
+        }
+
     def save_checkpoint(self, config, model, optimizer, epoch, val_loss, best_loss, checkpoint_dir, model_seed):
         self.logger.info(f"Validation loss improved from {best_loss:.2f} to {val_loss:.2f}. Saving checkpoint.")
         if config['mode'] == 'finetune':
@@ -146,8 +238,6 @@ class BaseTrainer:
         seed = self.config['random_seed']
         model_dir = os.path.join(self.config['output_dir'], 'model')
         os.makedirs(model_dir, exist_ok=True)
-        all_predictions = []
-        all_targets = []
 
         self.logger.info(f"Training model...")
 
@@ -219,8 +309,24 @@ class BaseTrainer:
         test_metrics = calculate_metrics(test_outputs, test_targets, prefix="test")
         self.logger.info(f"Test metrics: " +
                             ", ".join(f"{k}: {v:.2f}" for k, v in test_metrics.items()))
+
+        bayesian_results = self.bayesian_inference_total_uncertainty(model, test_loader, num_samples=100)
+
+        self.logger.info(f"Test MAE: {(bayesian_results['baysian_mae']):.2f}")
+        self.logger.info(f"Test MSE: {(bayesian_results['baysian_mse']):.2f}")
+        self.logger.info(f"Epistemic uncertainty (mean): {bayesian_results['epistemic_std'].mean():.2f}")
+        self.logger.info(f"Aleatoric uncertainty (mean): {bayesian_results['aleatoric_std'].mean():.2f}")
+        self.logger.info(f"Total uncertainty (mean): {bayesian_results['total_std'].mean():.2f}")
+
         if not self.config["debug"]:
-            wandb.log(test_metrics)
+            wandb.log({
+                **test_metrics,
+                'test_baysian_mae': (bayesian_results['baysian_mae']),
+                'test_baysian_mse': (bayesian_results['baysian_mse']),
+                'test_epistemic_uncertainty': bayesian_results['epistemic_std'].mean().item(),
+                'test_aleatoric_uncertainty': bayesian_results['aleatoric_std'].mean().item(),
+                'test_total_uncertainty': bayesian_results['total_std'].mean().item(),
+            })
             wandb.finish()
 
         """all_predictions.append(test_outputs)

@@ -25,9 +25,21 @@ class PyTablesDatasetSplit(Dataset):
         self.doy = self.h5_file_path.split('/')[-1].split('_')[1][4:]
         self.year = self.h5_file_path.split('/')[-1].split('_')[1][:4]
         self.split = split
+        self.SWI_data = self.load_SWI()
+        self.SWI_cols = self.SWI_data.columns if self.SWI_data is not None else []
         self.file = tables.open_file(h5_file_path, mode='r')
         self.data = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_data')
-        self.length = len(self.data)
+        self.length = 100_000  # len(self.data)
+    
+    def load_SWI(self):
+        if self.config['data']['use_SWI']:
+            filename = os.path.join(self.config['data']['SWI_data_path'], f'omni_hourly_2010-2025.h5')
+            if not os.path.exists(filename):
+                raise FileNotFoundError(f"SWI data file not found: {filename}")
+            with h5py.File(filename, "r") as f:
+                data = f[str(self.year)][str(self.doy).zfill(3)][:]
+                columns = [c.decode() for c in f[str(self.year)][str(self.doy).zfill(3)].attrs['columns']]
+            return pd.DataFrame(data, columns=columns)
 
     def __len__(self):
         return self.length
@@ -45,7 +57,14 @@ class PyTablesDatasetSplit(Dataset):
             row['lat_ipp_450'],
             row['lon_ipp_450'],],
             dtype=torch.float32)
-
+        
+        if self.config['data']['use_SWI']:
+            # Add SWI features if available
+            swi_idx = (row['sod'] / 3600).astype(int)  # Convert seconds to hours
+            swi_row = self.SWI_data.iloc[swi_idx]
+            swi_features = torch.tensor(swi_row[self.SWI_cols].values, dtype=torch.float32)
+            features = torch.cat((features, swi_features), dim=0)
+        
         # Return features and label separately
         label = torch.tensor(row['stec'], dtype=torch.float32)
 
@@ -58,7 +77,6 @@ class PyTablesDatasetSplit(Dataset):
     def __del__(self):
         self.file.close()  # Ensure the file is closed properly
 
-
 class CollateWithSH:
     def __init__(self, config):
         # SH degree and flag
@@ -67,12 +85,14 @@ class CollateWithSH:
         if self.sh_enabled:
             self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree)
 
+        self.num_core_features = 7
+
     def transform(self, features):
         """
         Normalize and transform the batch of features (one IPP point).
         """
         # raw feature indices
-        LAT_STA, LON_STA, AZI, ELE, SOD, IPP_LAT, IPP_LON = range(7)
+        LAT_STA, LON_STA, AZI, ELE, SOD, IPP_LAT, IPP_LON = range(self.num_core_features)
 
         # --- time of day ---
         t      = features[:, SOD] / 86400 * (2 * torch.pi)
@@ -103,6 +123,48 @@ class CollateWithSH:
         ], dim=1)
 
         return x_out
+    
+    def norm_SWI(self, swi_features):
+        """
+        Normalize SWI features to [0, 1] range for each column by specified min/max values.
+        """
+        swi_features = swi_features.float()
+        # Define min and max values for normalization
+        min_max_values = {
+            "Bartels_rotation_number": (2407, 3000),
+            "Scalar_B,_nT": (0, 70),
+            "Vector_B_Magnitude,nT": (0.0, 70),
+            "Lat_Angle_of_B_GSE": (-90, 90),
+            "Long_Angle_of_B_GSE": (0.0, 360.0),
+            "BZ,_nT_GSE": (-50, 35),
+            "BZ,_nT_GSM": (-50, 35),
+            "SW_Plasma_Speed,_km/s": (240.0, 1100.0),
+            "Flow_pressure": (0, 60),
+            "E_elecrtric_field": (-20, 30),
+            "Alfen_mach_number": (0, 120),
+            "Kp_index": (0.0, 100.0),
+            "R_Sunspot_No": (0.0, 300.0),
+            "Dst-index,_nT": (-450, 100),
+            "AE-index,_nT": (0.0, 2500.0),
+            "ap_index,_nT": (0.0, 300.0),
+            "f107_index": (62, 420),
+            "pc-index": (-6, 16),
+            "AL-index,_nT": (-2000.0, 20.0),
+            "AU-index,_nT": (-200.0, 1200.0),
+            "Magnetosonic_Much_num": (0, 15),
+            "Lyman_alpha": (0, 0.015),
+        }
+
+        # Normalize each column using min-max scaling
+        normalized_features = []
+        for i in range(swi_features.shape[1]):
+            column_name = list(min_max_values.keys())[i]
+            min_val, max_val = min_max_values[column_name]
+            normalized_column = (swi_features[:, i] - min_val) / (max_val - min_val)
+            normalized_features.append(normalized_column.unsqueeze(1))
+
+        # Concatenate normalized columns
+        return torch.cat(normalized_features, dim=1)
 
     def SH_transform(self, raw, norm):
         """
@@ -122,7 +184,7 @@ class CollateWithSH:
 
         # combine normalized + SH features
         return torch.cat([norm, sh_sta, sh_ipp], dim=1)
-
+    
     def __call__(self, batch):
         """
         Process and collate a batch of (raw_features, labels).
@@ -131,10 +193,21 @@ class CollateWithSH:
         raw = torch.stack(feats, dim=0)
         y   = torch.stack(labels, dim=0)
 
-        norm  = self.transform(raw)
-        x_out = self.SH_transform(raw, norm)
-        return x_out, y
+        # Split core features and SWI features
+        core = raw[:, :self.num_core_features]
+        swi  = raw[:, self.num_core_features:]
 
+        # Normalize features
+        norm_core  = self.transform(core)
+        x_out = self.SH_transform(core, norm_core)
+        norm_swi = self.norm_SWI(swi) if swi.shape[1] > 0 else None
+
+        # Append SWI features (raw or normalized if needed)
+        if norm_swi:
+            x_out = torch.cat([x_out, norm_swi], dim=1)
+
+        return x_out, y
+    
 def generate_dates(months):
         dates = []
         for month in months:
