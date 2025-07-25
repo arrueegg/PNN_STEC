@@ -248,10 +248,12 @@ def get_file_lists(config, year, doy):
     val_dates = generate_dates(val_months)
     test_dates = generate_dates(test_months)
 
+    ####################################################
     # Debugging: only take a subset of dates for testing
     train_dates = train_dates[::400]
     val_dates = val_dates[::400]
     test_dates = test_dates[::400]
+    ####################################################
 
     all_dates = pd.DatetimeIndex(train_dates + val_dates + test_dates)
 

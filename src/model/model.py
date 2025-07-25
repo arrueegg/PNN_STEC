@@ -201,7 +201,7 @@ def get_model(config):
     model_type = config['model']['model_type']
     in_features = 6 + 4 + 2 * config['data']['SH_degree']**2 # 6 azi/ele + 4 sta/ipp coords + SH embeddings
     if config['data']['use_SWI']:
-        in_features += 59  # Add SWI features
+        in_features += 22  # Add SWI features
     if model_type == 'MLP':
         return MLP(n_in=in_features)
     elif model_type == 'MLP_DE':

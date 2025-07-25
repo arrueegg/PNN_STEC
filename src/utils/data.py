@@ -8,6 +8,7 @@ from spacepy.coordinates import Coords
 from spacepy.time import Ticktock
 from torch.utils.data import RandomSampler, Dataset, DataLoader, random_split
 from utils.locationencoder.pe import SphericalHarmonics
+from src.data_processing.download_solar_indices import OmniDownloader
 import tables
 
 import warnings
@@ -26,20 +27,23 @@ class PyTablesDatasetSplit(Dataset):
         self.year = self.h5_file_path.split('/')[-1].split('_')[1][:4]
         self.split = split
         self.SWI_data = self.load_SWI()
-        self.SWI_cols = self.SWI_data.columns if self.SWI_data is not None else []
         self.file = tables.open_file(h5_file_path, mode='r')
         self.data = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_data')
-        self.length = 100_000  # len(self.data)
-    
+        self.length = len(self.data)
+        
     def load_SWI(self):
         if self.config['data']['use_SWI']:
             filename = os.path.join(self.config['data']['SWI_data_path'], f'omni_hourly_2010-2025.h5')
             if not os.path.exists(filename):
-                raise FileNotFoundError(f"SWI data file not found: {filename}")
+                downloader = OmniDownloader(self.config['data']['SWI_data_path'], "20100101", "20250625")
+                downloader.run()
             with h5py.File(filename, "r") as f:
                 data = f[str(self.year)][str(self.doy).zfill(3)][:]
                 columns = [c.decode() for c in f[str(self.year)][str(self.doy).zfill(3)].attrs['columns']]
-            return pd.DataFrame(data, columns=columns)
+            # Convert to NumPy
+            mask = [col not in ['YEAR', 'DOY', 'HR'] for col in columns]
+            self.SWI_cols = mask
+            return torch.tensor(np.array(data)[:, mask], dtype=torch.float32)
 
     def __len__(self):
         return self.length
@@ -61,8 +65,7 @@ class PyTablesDatasetSplit(Dataset):
         if self.config['data']['use_SWI']:
             # Add SWI features if available
             swi_idx = (row['sod'] / 3600).astype(int)  # Convert seconds to hours
-            swi_row = self.SWI_data.iloc[swi_idx]
-            swi_features = torch.tensor(swi_row[self.SWI_cols].values, dtype=torch.float32)
+            swi_features = self.SWI_data[swi_idx]
             features = torch.cat((features, swi_features), dim=0)
         
         # Return features and label separately
@@ -129,42 +132,42 @@ class CollateWithSH:
         Normalize SWI features to [0, 1] range for each column by specified min/max values.
         """
         swi_features = swi_features.float()
-        # Define min and max values for normalization
-        min_max_values = {
-            "Bartels_rotation_number": (2407, 3000),
-            "Scalar_B,_nT": (0, 70),
-            "Vector_B_Magnitude,nT": (0.0, 70),
-            "Lat_Angle_of_B_GSE": (-90, 90),
-            "Long_Angle_of_B_GSE": (0.0, 360.0),
-            "BZ,_nT_GSE": (-50, 35),
-            "BZ,_nT_GSM": (-50, 35),
-            "SW_Plasma_Speed,_km/s": (240.0, 1100.0),
-            "Flow_pressure": (0, 60),
-            "E_elecrtric_field": (-20, 30),
-            "Alfen_mach_number": (0, 120),
-            "Kp_index": (0.0, 100.0),
-            "R_Sunspot_No": (0.0, 300.0),
-            "Dst-index,_nT": (-450, 100),
-            "AE-index,_nT": (0.0, 2500.0),
-            "ap_index,_nT": (0.0, 300.0),
-            "f107_index": (62, 420),
-            "pc-index": (-6, 16),
-            "AL-index,_nT": (-2000.0, 20.0),
-            "AU-index,_nT": (-200.0, 1200.0),
-            "Magnetosonic_Much_num": (0, 15),
-            "Lyman_alpha": (0, 0.015),
-        }
 
-        # Normalize each column using min-max scaling
-        normalized_features = []
-        for i in range(swi_features.shape[1]):
-            column_name = list(min_max_values.keys())[i]
-            min_val, max_val = min_max_values[column_name]
-            normalized_column = (swi_features[:, i] - min_val) / (max_val - min_val)
-            normalized_features.append(normalized_column.unsqueeze(1))
+        # Define min and max values as tensors (matching column order)
+        min_max_values = [
+            (2407, 3000),  # Bartels_rotation_number
+            (0, 70),       # Scalar_B,_nT
+            (0.0, 70),     # Vector_B_Magnitude,nT
+            (-90, 90),     # Lat_Angle_of_B_GSE
+            (0.0, 360.0),  # Long_Angle_of_B_GSE
+            (-50, 35),     # BZ,_nT_GSE
+            (-50, 35),     # BZ,_nT_GSM
+            (240.0, 1100.0), # SW_Plasma_Speed,_km/s
+            (0, 60),       # Flow_pressure
+            (-20, 30),     # E_elecrtric_field
+            (0, 120),      # Alfen_mach_number
+            (0.0, 100.0),  # Kp_index
+            (0.0, 300.0),  # R_Sunspot_No
+            (-450, 100),   # Dst-index,_nT
+            (0.0, 2500.0), # AE-index,_nT
+            (0.0, 300.0),  # ap_index,_nT
+            (62, 420),     # f107_index
+            (-6, 16),      # pc-index
+            (-2000.0, 20.0), # AL-index,_nT
+            (-200.0, 1200.0), # AU-index,_nT
+            (0, 15),       # Magnetosonic_Much_num
+            (0, 0.015),    # Lyman_alpha
+        ]
+
+        # Convert min and max to tensors
+        min_vals = torch.tensor([m[0] for m in min_max_values], dtype=torch.float32, device=swi_features.device)
+        max_vals = torch.tensor([m[1] for m in min_max_values], dtype=torch.float32, device=swi_features.device)
+
+        # Vectorized min-max normalization
+        normalized_features = (swi_features - min_vals) / (max_vals - min_vals)
 
         # Concatenate normalized columns
-        return torch.cat(normalized_features, dim=1)
+        return normalized_features
 
     def SH_transform(self, raw, norm):
         """
@@ -203,7 +206,7 @@ class CollateWithSH:
         norm_swi = self.norm_SWI(swi) if swi.shape[1] > 0 else None
 
         # Append SWI features (raw or normalized if needed)
-        if norm_swi:
+        if norm_swi is not None:
             x_out = torch.cat([x_out, norm_swi], dim=1)
 
         return x_out, y
@@ -268,15 +271,17 @@ def get_data_loaders(config):
         combined_ds = torch.utils.data.ConcatDataset(datasets)
         print(f"Combined dataset into one. Total length: {len(combined_ds)}")
         
-        #sampler = RandomSampler(combined_ds, num_samples=int(len(combined_ds)/30))
+        sampler = None
+        if config['data'].get('subset_per_epoch') < len(combined_ds):
+            sampler = RandomSampler(combined_ds, replacement=False, num_samples=config['data']['subset_per_epoch'])
         
         loaders[split] = DataLoader(
             combined_ds,
-            batch_size=config['finetune']['batch_size'],
-            num_workers=config['finetune']['num_workers'],
+            batch_size=config['pretrain']['batchsize'],
+            num_workers=config['pretrain']['num_workers'],
             prefetch_factor=2,
             collate_fn=collate_fn,
-            shuffle=True if split == 'train' else False,
-            #sampler=sampler if split == 'train' else None
+            shuffle=(split == 'train' and sampler is None),
+            sampler=sampler
         )
     return loaders['train'], loaders['val'], loaders['test']

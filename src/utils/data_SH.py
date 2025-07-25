@@ -414,8 +414,8 @@ def get_multi_data_loaders(config):
         
         loaders[split] = DataLoader(
             combined_ds,
-            batch_size=config['finetune']['batch_size'],
-            num_workers=config['finetune']['num_workers'],
+            batch_size=config['pretrain']['batch_size'],
+            num_workers=config['pretrain']['num_workers'],
             prefetch_factor=2,
             collate_fn=collate_fn,
             shuffle=True if split == 'train' else False,
@@ -438,8 +438,8 @@ def get_single_data_loaders(config):
 
         loaders[split] = DataLoader(
             dataset,
-            batch_size=config['finetune']['batch_size'],
-            num_workers=config['finetune']['num_workers'],
+            batch_size=config['pretrain']['batch_size'],
+            num_workers=config['pretrain']['num_workers'],
             prefetch_factor=4,
             collate_fn=collate_fn,
             shuffle=True if split == 'train' else False

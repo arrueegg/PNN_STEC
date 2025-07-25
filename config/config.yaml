@@ -16,6 +16,7 @@ data:
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True
+  subset_per_epoch: 10_000_000 # Number of samples to use per epoch
 
 split:
   train_ratio: 0.8
@@ -33,7 +34,7 @@ training:
 
 pretrain:
   epochs: 2
-  batchsize: 8192
+  batchsize: 512
   num_workers: 8
   learning_rate: 0.001
   scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
@@ -45,7 +46,6 @@ pretrain:
 
 finetune:
   epochs: 5
-  batch_size: 2048
   num_workers: 8
   learning_rate: 0.001
   scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
