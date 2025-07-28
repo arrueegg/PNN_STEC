@@ -8,7 +8,7 @@ from spacepy.coordinates import Coords
 from spacepy.time import Ticktock
 from torch.utils.data import RandomSampler, Dataset, DataLoader, random_split
 from utils.locationencoder.pe import SphericalHarmonics
-from src.data_processing.download_solar_indices import OmniDownloader
+from data_processing.download_solar_indices import OmniDownloader
 import tables
 
 import warnings
@@ -53,7 +53,7 @@ class PyTablesDatasetSplit(Dataset):
 
         # Encode strings and combine with numeric features
         features = torch.tensor([
-            self.doy,
+            int(self.doy),
             row['sod'],
             row['sm_lat_sta'],
             row['sm_lon_sta'],
@@ -89,7 +89,7 @@ class CollateWithSH:
         if self.sh_enabled:
             self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree)
 
-        self.num_core_features = 7
+        self.num_core_features = 8
 
     def transform(self, features):
         """
@@ -99,9 +99,9 @@ class CollateWithSH:
         DOY, SOD, LAT_STA, LON_STA, AZI, ELE, IPP_LAT, IPP_LON = range(self.num_core_features)
 
         # --- day of year ---
-        doy_norm = ((features[:, DOY] - 1) / 366).unsqueeze(1)  # Normalize DOY to [0, 1]
-        doy_sin = torch.sin(doy_norm * 2 * torch.pi).unsqueeze(1)
-        doy_cos = torch.cos(doy_norm * 2 * torch.pi).unsqueeze(1)
+        doy_norm = ((features[:, DOY] - 1) / 365).unsqueeze(1)  # Normalize DOY to [0, 1]
+        doy_sin = torch.sin(doy_norm * 2 * torch.pi)
+        doy_cos = torch.cos(doy_norm * 2 * torch.pi)
 
         # --- time of day ---
         t      = features[:, SOD] / 86400 * (2 * torch.pi)

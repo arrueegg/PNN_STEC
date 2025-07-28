@@ -125,6 +125,15 @@ def plot_observations(dates, counts, title="Observations per Day (2010–2025)")
     plt.savefig("plots/daily_observations_heatmap.png", dpi=300)
 
 
+    ###################################
+    # Total observations
+    total_observations = sum(counts)
+    print(f"Total number of observations: {total_observations:,}")
+    if total_observations >= 1_000_000_000:
+        print(f"Total number of observations: {total_observations / 1_000_000_000:.2f} billion")
+    elif total_observations >= 1_000_000:
+        print(f"Total number of observations: {total_observations / 1_000_000:.2f} million")    
+
 def main():
     DATA_ROOT = "/home/space/data/IONO/STEC_DB_CASDCB/"
     dates, counts = scan_database(DATA_ROOT)

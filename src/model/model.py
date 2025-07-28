@@ -267,8 +267,8 @@ class Branch_BNN_NLL(nn.Module):
         )
     
     def forward(self, x):
-        spatial_features = x[:, :self.split]  # Spatial features
-        temporal_features = x[:, self.split:]  # Temporal features
+        spatial_features = x[:, self.split:]  # Spatial features
+        temporal_features = x[:, :self.split]  # Temporal features
         s_out = self.spatial_net(spatial_features)
         t_out = self.temporal_net(temporal_features)
         x = torch.cat([s_out, t_out], dim=-1)
@@ -304,6 +304,8 @@ def get_model(config):
         return BNN_mse(n_in=in_features)
     elif model_type == 'BNN_NLL':
         return BNN_NLL(n_in=in_features)
+    elif model_type == 'Branch_BNN_NLL':
+        return Branch_BNN_NLL(n_in=in_features, num_SWI_params=num_SWI_params)
     else:
         raise ValueError(f"Model type {model_type} is not recognized. Please select from ['MLP', 'RNN']")
 
