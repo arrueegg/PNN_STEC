@@ -53,14 +53,15 @@ class PyTablesDatasetSplit(Dataset):
 
         # Encode strings and combine with numeric features
         features = torch.tensor([
+            self.doy,
+            row['sod'],
             row['sm_lat_sta'],
             row['sm_lon_sta'],
             row['satazi'],
             row['satele'],
-            row['sod'],
             row['lat_ipp_450'],
-            row['lon_ipp_450'],],
-            dtype=torch.float32)
+            row['lon_ipp_450']
+            ], dtype=torch.float32)
         
         if self.config['data']['use_SWI']:
             # Add SWI features if available
@@ -95,7 +96,12 @@ class CollateWithSH:
         Normalize and transform the batch of features (one IPP point).
         """
         # raw feature indices
-        LAT_STA, LON_STA, AZI, ELE, SOD, IPP_LAT, IPP_LON = range(self.num_core_features)
+        DOY, SOD, LAT_STA, LON_STA, AZI, ELE, IPP_LAT, IPP_LON = range(self.num_core_features)
+
+        # --- day of year ---
+        doy_norm = ((features[:, DOY] - 1) / 366).unsqueeze(1)  # Normalize DOY to [0, 1]
+        doy_sin = torch.sin(doy_norm * 2 * torch.pi).unsqueeze(1)
+        doy_cos = torch.cos(doy_norm * 2 * torch.pi).unsqueeze(1)
 
         # --- time of day ---
         t      = features[:, SOD] / 86400 * (2 * torch.pi)
@@ -119,9 +125,10 @@ class CollateWithSH:
 
         # concatenate core normalized features
         x_out = torch.cat([
+            doy_sin, doy_cos, doy_norm,
+            sin_t, cos_t, norm_t,
             sm_lat_norm, sm_lon_norm,
             sin_a, cos_a, norm_e,
-            sin_t, cos_t, norm_t,
             ipp_lat_norm, ipp_lon_norm
         ], dim=1)
 
@@ -207,7 +214,7 @@ class CollateWithSH:
 
         # Append SWI features (raw or normalized if needed)
         if norm_swi is not None:
-            x_out = torch.cat([x_out, norm_swi], dim=1)
+            x_out = torch.cat([norm_swi, x_out], dim=1)
 
         return x_out, y
     
