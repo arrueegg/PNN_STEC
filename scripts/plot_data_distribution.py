@@ -56,7 +56,7 @@ def scan_database(data_root, start_year=2010, end_year=2025):
     return dates, counts
 
 
-def plot_observations(dates, counts, title="Observations per Day (2010–2025)"):
+def plot_observations(dates, counts):
     """
     Plot the number of observations per day.
     """
@@ -83,7 +83,7 @@ def plot_observations(dates, counts, title="Observations per Day (2010–2025)")
     plt.bar(years, total_counts, width=0.8, align='center')
     plt.xlabel("Year")
     plt.ylabel("Total Number of Observations")
-    plt.title(title)
+    plt.title("Yearly Observation Counts")
     plt.xticks(years, rotation=45)
     plt.tight_layout()
     plt.savefig("plots/yearly_observations.png", dpi=300)
@@ -101,7 +101,7 @@ def plot_observations(dates, counts, title="Observations per Day (2010–2025)")
     plt.bar(months, total_monthly_counts, width=0.8, align='center')
     plt.xlabel("Month")
     plt.ylabel("Total Number of Observations")
-    plt.title(title)
+    plt.title("Monthly Observation Counts")
     plt.xticks(months, rotation=90)
     plt.tight_layout()
     plt.savefig("plots/monthly_observations.png", dpi=300)

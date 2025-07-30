@@ -1,13 +1,14 @@
 # base_trainer.py
 import os
 import torch
-import torchbnn as bnn
+import pandas as pd
 from datetime import datetime
 from tqdm import tqdm
 import wandb  # if you use wandb logging
 from utils.loss_function import get_criterion
 from utils.optimizers import get_optimizer, get_scheduler
 from utils.metrics import calculate_metrics
+from utils.plot import plot_test_metrics
 
 class BaseTrainer:
     def __init__(self, config, logger):
@@ -159,6 +160,8 @@ class BaseTrainer:
         """Compute total uncertainty = epistemic + aleatoric"""
         model.eval()
         
+        final_df = pd.DataFrame()
+
         batch_means = []
         batch_epistemic_vars = []
         batch_aleatoric_vars = []
@@ -190,6 +193,19 @@ class BaseTrainer:
                 batch_epistemic_vars.append(epistemic_var)
                 batch_aleatoric_vars.append(aleatoric_var)
                 all_targets.append(targets.cpu())
+
+                # Concatenate inputs, targets, and predictions for the current batch
+                batch_df = pd.DataFrame(
+                    torch.cat([
+                        inputs.cpu().view(-1, 1),
+                        targets.cpu().view(-1, 1),
+                        stec_mean.cpu().view(-1, 1),
+                        torch.sqrt(epistemic_var).cpu().view(-1, 1),
+                        torch.sqrt(aleatoric_var).cpu().view(-1, 1),
+                        torch.sqrt(epistemic_var + aleatoric_var).cpu().view(-1, 1)
+                    ], dim=1).numpy()
+                )
+                final_df = pd.concat([final_df, batch_df], ignore_index=True)
         
         # Concatenate across batches
         mean = torch.cat(batch_means).squeeze()
@@ -209,7 +225,7 @@ class BaseTrainer:
             'aleatoric_std': torch.sqrt(aleatoric_var),
             'total_std': total_std,
             'targets': targets
-        }
+        }, final_df
 
     def save_checkpoint(self, config, model, optimizer, epoch, val_loss, best_loss, checkpoint_dir, model_seed):
         self.logger.info(f"Validation loss improved from {best_loss:.2f} to {val_loss:.2f}. Saving checkpoint.")
@@ -310,7 +326,10 @@ class BaseTrainer:
         self.logger.info(f"Test metrics: " +
                             ", ".join(f"{k}: {v:.2f}" for k, v in test_metrics.items()))
 
-        bayesian_results = self.bayesian_inference_total_uncertainty(model, test_loader, num_samples=100)
+        bayesian_results, test_res_df = self.bayesian_inference_total_uncertainty(model, test_loader, num_samples=100)
+
+        # Plotting test metrics from bayesian inference
+        plot_test_metrics(test_res_df, output_dir=self.config['output_dir'])
 
         self.logger.info(f"Test MAE: {(bayesian_results['baysian_mae']):.2f}")
         self.logger.info(f"Test MSE: {(bayesian_results['baysian_mse']):.2f}")

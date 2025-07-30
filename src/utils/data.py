@@ -1,12 +1,8 @@
 import os
 import h5py
-import pandas as pd
 import torch
 import numpy as np
-import spacepy.toolbox
-from spacepy.coordinates import Coords
-from spacepy.time import Ticktock
-from torch.utils.data import RandomSampler, Dataset, DataLoader, random_split
+from torch.utils.data import RandomSampler, Dataset, DataLoader
 from utils.locationencoder.pe import SphericalHarmonics
 from data_processing.download_solar_indices import OmniDownloader
 import tables
@@ -248,9 +244,9 @@ def get_split_file_lists(config, year, doy):
     test_dates = generate_dates(test_months)
 
     # Debugging: only take a subset of dates for testing
-    train_dates = train_dates[::400]
-    val_dates = val_dates[::400]
-    test_dates = test_dates[::400]
+    train_dates = train_dates[::40]
+    val_dates = val_dates[::40]
+    test_dates = test_dates[::40]
 
     def get_file_paths(dates):
         file_paths = []

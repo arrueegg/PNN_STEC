@@ -10,7 +10,7 @@ debug: True
 data:
   GNSS_data_path: "/home/space/data/IONO/STEC_DB_CASDCB"
   SWI_data_path: "/home/space/data/IONO/SWI/"
-  sampling: all # all semi medium hard extreme ultra
+  sampling: ultra # all semi medium hard extreme ultra
   use_SWI: True # Whether to use Space Weather Indices as input data
   SH_degree: 5
   min_elevation: 5.0
@@ -33,7 +33,7 @@ training:
   weight_decay: 0.0             # Weight decay for regularization
 
 pretrain:
-  epochs: 2
+  epochs: 5
   batchsize: 512
   num_workers: 8
   learning_rate: 0.001

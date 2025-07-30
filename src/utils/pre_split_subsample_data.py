@@ -3,8 +3,6 @@ import h5py
 import numpy as np
 import pandas as pd
 import os
-from spacepy.coordinates import Coords
-from spacepy.time import Ticktock
 from datetime import datetime, timedelta
 from tqdm import tqdm
 
@@ -45,73 +43,88 @@ def subsample_arc(arc_records, sampling):
     Subsamples records within an arc based on the average latitude.
     Lower latitudes (closer to equator) use a higher retention rate.
     """
-    if sampling == "all":
-        return arc_records
-    elif sampling == "semi":
-        subsampled_records = []
-        for rec in arc_records:
-            lat = rec['lat_sta']
-            if abs(lat) < 30:
-                subsample_rate = 0.8
-            elif abs(lat) < 60:
-                subsample_rate = 0.6
-            else:
-                subsample_rate = 0.4
-            if np.random.rand() < subsample_rate:
-                subsampled_records.append(rec)
-        return subsampled_records
-    elif sampling == "medium":
-        subsampled_records = []
-        for rec in arc_records:
-            lat = rec['lat_sta']
-            if abs(lat) < 30:
-                subsample_rate = 0.6
-            elif abs(lat) < 60:
-                subsample_rate = 0.4
-            else:
-                subsample_rate = 0.2
-            if np.random.rand() < subsample_rate:
-                subsampled_records.append(rec)
-        return subsampled_records
-    elif sampling == "hard":
-        subsampled_records = []
-        for rec in arc_records:
-            lat = rec['lat_sta']
-            if abs(lat) < 30:
-                subsample_rate = 0.2
-            elif abs(lat) < 60:
-                subsample_rate = 0.1
-            else:
-                subsample_rate = 0.05
-            if np.random.rand() < subsample_rate:
-                subsampled_records.append(rec)
-        return subsampled_records
-    elif sampling == "extreme":
-        subsampled_records = []
-        for rec in arc_records:
-            lat = rec['lat_sta']
-            if abs(lat) < 30:
-                subsample_rate = 0.1
-            elif abs(lat) < 60:
-                subsample_rate = 0.05
-            else:
-                subsample_rate = 0.025
-            if np.random.rand() < subsample_rate:
-                subsampled_records.append(rec)
-        return subsampled_records
-    elif sampling == "ultra":
-        subsampled_records = []
-        for rec in arc_records:
-            lat = rec['lat_sta']
-            if abs(lat) < 30:
-                subsample_rate = 0.02
-            elif abs(lat) < 60:
-                subsample_rate = 0.01
-            else:
-                subsample_rate = 0.005
-            if np.random.rand() < subsample_rate:
-                subsampled_records.append(rec)
-        return subsampled_records
+    approach = 'random'  # random, latitude_dependent
+    if approach == 'latitude_dependent':
+        if sampling == "all":
+            return arc_records
+        elif sampling == "semi":
+            subsampled_records = []
+            for rec in arc_records:
+                lat = rec['lat_sta']
+                if abs(lat) < 30:
+                    subsample_rate = 0.8
+                elif abs(lat) < 60:
+                    subsample_rate = 0.6
+                else:
+                    subsample_rate = 0.4
+                if np.random.rand() < subsample_rate:
+                    subsampled_records.append(rec)
+            return subsampled_records
+        elif sampling == "medium":
+            subsampled_records = []
+            for rec in arc_records:
+                lat = rec['lat_sta']
+                if abs(lat) < 30:
+                    subsample_rate = 0.6
+                elif abs(lat) < 60:
+                    subsample_rate = 0.4
+                else:
+                    subsample_rate = 0.2
+                if np.random.rand() < subsample_rate:
+                    subsampled_records.append(rec)
+            return subsampled_records
+        elif sampling == "hard":
+            subsampled_records = []
+            for rec in arc_records:
+                lat = rec['lat_sta']
+                if abs(lat) < 30:
+                    subsample_rate = 0.2
+                elif abs(lat) < 60:
+                    subsample_rate = 0.1
+                else:
+                    subsample_rate = 0.05
+                if np.random.rand() < subsample_rate:
+                    subsampled_records.append(rec)
+            return subsampled_records
+        elif sampling == "extreme":
+            subsampled_records = []
+            for rec in arc_records:
+                lat = rec['lat_sta']
+                if abs(lat) < 30:
+                    subsample_rate = 0.1
+                elif abs(lat) < 60:
+                    subsample_rate = 0.05
+                else:
+                    subsample_rate = 0.025
+                if np.random.rand() < subsample_rate:
+                    subsampled_records.append(rec)
+            return subsampled_records
+        elif sampling == "ultra":
+            subsampled_records = []
+            for rec in arc_records:
+                lat = rec['lat_sta']
+                if abs(lat) < 30:
+                    subsample_rate = 0.02
+                elif abs(lat) < 60:
+                    subsample_rate = 0.01
+                else:
+                    subsample_rate = 0.005
+                if np.random.rand() < subsample_rate:
+                    subsampled_records.append(rec)
+            return subsampled_records
+    elif approach == 'random':
+        if sampling == "all":
+            return arc_records
+        elif sampling == "semi":
+            return np.random.choice(arc_records, size=int(len(arc_records) * 0.5), replace=False).tolist()
+        elif sampling == "medium":
+            return np.random.choice(arc_records, size=int(len(arc_records) * 0.2), replace=False).tolist()
+        elif sampling == "hard":
+            return np.random.choice(arc_records, size=int(len(arc_records) * 0.05), replace=False).tolist()
+        elif sampling == "extreme":
+            return np.random.choice(arc_records, size=int(len(arc_records) * 0.01), replace=False).tolist()
+        elif sampling == "ultra":
+            return np.random.choice(arc_records, size=int(len(arc_records) * 0.005), replace=False).tolist()
 
 def assign_arc_records(key, records, train_stations, val_stations, test_stations, 
                          train_records, val_records, test_records):
@@ -185,7 +198,6 @@ def filter_and_save(config, h5_file_path, save_dir):
     sampling = config['data']['sampling']
     save_path = os.path.join(save_dir, f"Split_{year}{doy}_30_5_subsampled_{sampling}.h5")
     if os.path.exists(save_path):
-        print(f"{save_path} already exists.")
         return
     else:
         print(f"Preprocessing {year} {doy}...")
@@ -250,9 +262,10 @@ def get_file_lists(config, year, doy):
 
     ####################################################
     # Debugging: only take a subset of dates for testing
-    train_dates = train_dates[::400]
-    val_dates = val_dates[::400]
-    test_dates = test_dates[::400]
+    interval = 40
+    train_dates = train_dates[::interval]
+    val_dates = val_dates[::interval]
+    test_dates = test_dates[::interval]
     ####################################################
 
     all_dates = pd.DatetimeIndex(train_dates + val_dates + test_dates)
