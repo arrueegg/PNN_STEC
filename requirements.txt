@@ -58,6 +58,7 @@ pytz==2025.2
 PyYAML==6.0.2
 requests==2.32.3
 scipy==1.15.3
+seaborn==0.13.2
 sentry-sdk==2.29.1
 setproctitle==1.3.6
 shapely==2.1.1
@@ -67,6 +68,7 @@ spacepy==0.7.0
 sympy==1.14.0
 tables==3.10.1
 torch==2.7.0
+torch_harmonics==0.8.0
 torchbnn==1.2
 tqdm==4.67.1
 triton==3.3.0
