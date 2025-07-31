@@ -6,6 +6,7 @@ import os
 
 from utils.config_parser import parse_config
 from utils.pre_split_subsample_data import split
+from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner
 
@@ -35,10 +36,14 @@ def main():
     torch.cuda.empty_cache()
 
     # Split data into train, validation, and test sets
-    splited_data_path = "./temp_data/"
-    os.makedirs(splited_data_path, exist_ok=True)
-    split(config, splited_data_path)
-    config['data']['GNSS_data_path'] = splited_data_path
+    #data_path = "./temp_data/"
+    #os.makedirs(data_path, exist_ok=True)
+    #split(config, data_path)
+    #config['data']['GNSS_data_path'] = data_path
+
+    # Add split indices to the data
+    add_split_indices(config)
+    data_path = config['data']['GNSS_data_path']
 
     logger.info(f"Starting model training in {config['mode']} mode.")
     
@@ -51,9 +56,9 @@ def main():
         if not model_path:
             logging.info(f"Pretrained model not found.")
             logging.info('Starting pretraining...')
-            config = parse_config(mode='pretrain', device=device, data_path=splited_data_path)
+            config = parse_config(mode='pretrain', device=device, data_path=data_path)
             Pretrainer(config, logger)
-            config = parse_config(mode='finetune', device=device, data_path=splited_data_path)
+            config = parse_config(mode='finetune', device=device, data_path=data_path)
         logging.info('Starting finetuning...')
         Finetuner(config, logger)
     else:

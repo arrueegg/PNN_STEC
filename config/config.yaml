@@ -2,7 +2,7 @@
 project_name: "PNN_STEC"
 output_dir: "experiments/"
 year: 2023
-doy: 31
+doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
 debug: True
@@ -24,7 +24,7 @@ split:
   test_ratio: 0.1
 
 model:
-  model_type: Branch_BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
+  model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, HuberLoss, LaplaceLoss, GaussianNLLLoss,ProfileLoss
@@ -33,7 +33,7 @@ training:
   weight_decay: 0.0             # Weight decay for regularization
 
 pretrain:
-  epochs: 5
+  epochs: 1
   batchsize: 512
   num_workers: 8
   learning_rate: 0.001

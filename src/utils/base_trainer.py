@@ -156,6 +156,140 @@ class BaseTrainer:
         
         return mean, std, targets
 
+    def get_feature_indices(self):
+        """
+        Returns a dictionary of feature indices in the input tensor.
+        """
+
+        use_swi = self.config['data'].get('use_SWI', False)
+
+        # Define SWI column names (after removing YEAR, DOY, HR)
+        swi_columns = [
+            'Bartels_rotation_number',         # 0
+            'Scalar_B,_nT',                    # 1
+            'Vector_B_Magnitude,nT',           # 2
+            'Lat_Angle_of_B_GSE',              # 3
+            'Long_Angle_of_B_GSE',             # 4
+            'BZ,_nT_GSE',                      # 5
+            'BZ,_nT_GSM',                      # 6
+            'SW_Plasma_Speed,_km/s',           # 7
+            'Flow_pressure',                   # 8
+            'E_elecrtric_field',               # 9
+            'Alfen_mach_number',               # 10
+            'Kp_index',                        # 11
+            'R_Sunspot_No',                    # 12
+            'Dst-index,_nT',                   # 13
+            'AE-index,_nT',                    # 14
+            'ap_index,_nT',                    # 15
+            'f107_index',                      # 16
+            'pc-index',                        # 17
+            'AL-index,_nT',                    # 18
+            'AU-index,_nT',                    # 19
+            'Magnetosonic_Much_num',           # 20
+            'Lyman_alpha',                     # 21
+        ]
+
+        indices = {}
+
+        swi_offset = len(swi_columns) if use_swi else 0
+
+        # Core feature indices
+        indices.update({
+            'DOY':        swi_offset + 0,
+            'SOD':        swi_offset + 1,
+            'SM_Lat_sta': swi_offset + 2,
+            'SM_Lon_sta': swi_offset + 3,
+            'Lat_sta':    swi_offset + 2,  # Alias
+            'Lon_sta':    swi_offset + 3,  # Alias
+            'Azimuth':    swi_offset + 4,
+            'Elevation':  swi_offset + 5,
+        })
+
+        if use_swi:
+            # Map important SWI feature names to their absolute indices
+            indices['Kp_index']         = swi_columns.index('Kp_index')
+            indices['Dst_index']       = swi_columns.index('Dst-index,_nT')
+            indices['f107']            = swi_columns.index('f107_index')
+            indices['R_sunspot_number'] = swi_columns.index('R_Sunspot_No')
+        else:
+            # Not present in input tensor
+            indices['Kp_index']         = None
+            indices['Dst_index']        = None
+            indices['f107']             = None
+            indices['R_sunspot_number'] = None
+
+        return indices
+    
+    def inverse_transform_features(self, x):
+        """
+        Inverse-transform normalized features back to original physical units.
+        
+        Args:
+            x: Tensor of shape (N, D), the full model input (normalized + SWI + SH if used).
+        
+        Returns:
+            Tensor of shape (N, 8 [+ SWI]), same column order as before normalization.
+        """
+        use_swi = self.config['data'].get('use_SWI', False)
+        sh_degree = self.config['data'].get("SH_degree", 0) or 0
+        sh_dim = (sh_degree + 1) ** 2
+
+        swi_cols = [
+            'Bartels_rotation_number', 'Scalar_B,_nT', 'Vector_B_Magnitude,nT', 'Lat_Angle_of_B_GSE',
+            'Long_Angle_of_B_GSE', 'BZ,_nT_GSE', 'BZ,_nT_GSM', 'SW_Plasma_Speed,_km/s',
+            'Flow_pressure', 'E_elecrtric_field', 'Alfen_mach_number', 'Kp_index',
+            'R_Sunspot_No', 'Dst-index,_nT', 'AE-index,_nT', 'ap_index,_nT', 'f107_index',
+            'pc-index', 'AL-index,_nT', 'AU-index,_nT', 'Magnetosonic_Much_num', 'Lyman_alpha'
+        ]
+        swi_minmax = [
+            (2407, 3000), (0, 70), (0.0, 70), (-90, 90), (0.0, 360.0), (-50, 35), (-50, 35),
+            (240.0, 1100.0), (0, 60), (-20, 30), (0, 120), (0.0, 100.0), (0.0, 300.0), (-450, 100),
+            (0.0, 2500.0), (0.0, 300.0), (62, 420), (-6, 16), (-2000.0, 20.0), (-200.0, 1200.0),
+            (0, 15), (0, 0.015)
+        ]
+
+        idx = 0
+        rescaled_parts = []
+
+        # --- SWI features ---
+        if use_swi:
+            swi_tensor = x[:, :len(swi_cols)]
+            for i, (min_val, max_val) in enumerate(swi_minmax):
+                rescaled = swi_tensor[:, i] * (max_val - min_val) + min_val
+                rescaled_parts.append(rescaled.unsqueeze(1))
+            idx += len(swi_cols)
+
+        # --- Core features (13 after transform) ---
+        # [doy_sin, doy_cos, doy_norm, sin_t, cos_t, norm_t,
+        #  sm_lat_norm, sm_lon_norm, sin_az, cos_az, norm_el,
+        #  ipp_lat_norm, ipp_lon_norm]
+        doy_norm = x[:, idx + 2]
+        sod_norm = (x[:, idx + 5] + 1) * 86400 / 2
+        sm_lat   = (x[:, idx + 6] + 1) * 90 - 90
+        sm_lon   = (x[:, idx + 7] + 1) * 180 - 180
+        azimuth  = torch.atan2(x[:, idx + 8], x[:, idx + 9]) * 180 / torch.pi % 360
+        elevation = (x[:, idx + 10] + 1) * 90 / 2
+        ipp_lat  = (x[:, idx + 11] + 1) * 90 - 90
+        ipp_lon  = (x[:, idx + 12] + 1) * 180 - 180
+        doy      = doy_norm * 365 + 1
+
+        # Append in original column order
+        rescaled_parts.extend([
+            doy.unsqueeze(1),
+            sod_norm.unsqueeze(1),
+            sm_lat.unsqueeze(1),
+            sm_lon.unsqueeze(1),
+            azimuth.unsqueeze(1),
+            elevation.unsqueeze(1),
+            ipp_lat.unsqueeze(1),
+            ipp_lon.unsqueeze(1)
+        ])
+
+        return torch.cat(rescaled_parts, dim=1)
+
+
+
+
     def bayesian_inference_total_uncertainty(self, model, dataloader, num_samples=100):
         """Compute total uncertainty = epistemic + aleatoric"""
         model.eval()
@@ -169,6 +303,7 @@ class BaseTrainer:
         
         with torch.no_grad():
             for inputs, targets in dataloader:
+                bs = inputs.size(0)
                 inputs = inputs.to(self.device)
                 batch_stec_predictions = []
                 batch_aleatoric_uncertainties = []
@@ -194,16 +329,32 @@ class BaseTrainer:
                 batch_aleatoric_vars.append(aleatoric_var)
                 all_targets.append(targets.cpu())
 
+                # Prepare DataFrame for this batch
+                # Inverse-transform selected features
+                inputs = self.inverse_transform_features(inputs)
+
+                # Get feature indices
+                indices = self.get_feature_indices()
+                
+                # Filter inputs tensor to include only columns specified in indices
+                selected_columns = [indices[key] for key in indices if indices[key] is not None]
+                filtered_inputs = inputs[:, selected_columns]
+
                 # Concatenate inputs, targets, and predictions for the current batch
                 batch_df = pd.DataFrame(
                     torch.cat([
-                        inputs.cpu().view(-1, 1),
-                        targets.cpu().view(-1, 1),
-                        stec_mean.cpu().view(-1, 1),
-                        torch.sqrt(epistemic_var).cpu().view(-1, 1),
-                        torch.sqrt(aleatoric_var).cpu().view(-1, 1),
-                        torch.sqrt(epistemic_var + aleatoric_var).cpu().view(-1, 1)
-                    ], dim=1).numpy()
+                        filtered_inputs.cpu().view(bs, -1),
+                        targets.cpu().view(bs, -1),
+                        stec_mean.cpu().view(bs, -1),
+                        torch.sqrt(epistemic_var).cpu().view(bs, -1),
+                        torch.sqrt(aleatoric_var).cpu().view(bs, -1),
+                        torch.sqrt(epistemic_var + aleatoric_var).cpu().view(bs, -1)
+                    ], dim=1).numpy(),
+                    columns=[
+                        *[key for key in indices if indices[key] is not None],
+                        'target_stec', 'pred_stec', 
+                        'pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc'
+                    ]
                 )
                 final_df = pd.concat([final_df, batch_df], ignore_index=True)
         

@@ -24,8 +24,9 @@ class PyTablesDatasetSplit(Dataset):
         self.split = split
         self.SWI_data = self.load_SWI()
         self.file = tables.open_file(h5_file_path, mode='r')
-        self.data = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_data')
-        self.length = len(self.data)
+        self.data = self.file.get_node(f'/{self.year}/{self.doy}/all_data')
+        self.indices = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_idx')[:]
+        self.length = len(self.indices)
         
     def load_SWI(self):
         if self.config['data']['use_SWI']:
@@ -45,7 +46,7 @@ class PyTablesDatasetSplit(Dataset):
         return self.length
 
     def __getitem__(self, idx):
-        row = self.data[idx]
+        row = self.data[self.indices[idx]]
 
         # Encode strings and combine with numeric features
         features = torch.tensor([
@@ -55,8 +56,8 @@ class PyTablesDatasetSplit(Dataset):
             row['sm_lon_sta'],
             row['satazi'],
             row['satele'],
-            row['lat_ipp_450'],
-            row['lon_ipp_450']
+            row['lat_ipp'],
+            row['lon_ipp']
             ], dtype=torch.float32)
         
         if self.config['data']['use_SWI']:
@@ -244,14 +245,22 @@ def get_split_file_lists(config, year, doy):
     test_dates = generate_dates(test_months)
 
     # Debugging: only take a subset of dates for testing
-    train_dates = train_dates[::40]
-    val_dates = val_dates[::40]
-    test_dates = test_dates[::40]
+    #train_dates = train_dates[::40]
+    #val_dates = val_dates[::40]
+    #test_dates = test_dates[::40]
+
+    """train_dates = [datetime(2023, 1, 1)]  # For debugging, only use one day
+    val_dates = [datetime(2023, 1, 2)]    # For debugging, only use one day
+    test_dates = [datetime(2023, 1, 3)]   # For debugging, only use one day
+    ###############################################################################
+    ###############################################################################
+    ######################### Debugging: only use one day #########################"""
 
     def get_file_paths(dates):
         file_paths = []
         for date in dates:
-            file_path = os.path.join(gnss_path, f'Split_{date.year}{date.timetuple().tm_yday:03d}_30_5_subsampled_{sampling}.h5')
+            #file_path = os.path.join(gnss_path, f'Split_{date.year}{date.timetuple().tm_yday:03d}_30_5_subsampled_{sampling}.h5')
+            file_path = os.path.join(gnss_path, str(date.year), f'{date.timetuple().tm_yday:03d}', f'ccl_{date.year}{date.timetuple().tm_yday:03d}_30_5.h5')
             if os.path.exists(file_path):
                 file_paths.append(file_path)
         return file_paths
