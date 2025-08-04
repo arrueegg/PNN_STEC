@@ -136,6 +136,10 @@ def worker(fn):
                             continue
                         col_data = sel[col].astype(float)
 
+                        # special handling for 'sod' column
+                        if col == "sod":
+                            col_data /= 3600  # convert to hours
+
                         # update stats
                         local_stats[split][col].update_batch(col_data)
 
@@ -176,18 +180,23 @@ def main():
                 global_hist[col] += local_hist[col]
 
     # print numeric summary
-    for split in SPLITS:
-        print(f"\n=== Split: {split} ===")
-        for col in COLUMNS:
-            r = global_stats[split][col].finalize()
-            print(
-                f"{col:8s}  "
-                f"count={r['count']:10d}  "
-                f"mean={r['mean']:8.4f}  "
-                f"std={r['std']:8.4f}  "
-                f"min={r['min']:8.4f}  "
-                f"max={r['max']:8.4f}"
-            )
+    with open("plots/dataset_statistics.txt", "w") as f_out:
+        for split in SPLITS:
+            header = f"\n=== Split: {split} ===\n"
+            print(header, end="")
+            f_out.write(header)
+            for col in COLUMNS:
+                r = global_stats[split][col].finalize()
+                line = (
+                    f"{col:8s}  "
+                    f"count={r['count']:10d}  "
+                    f"mean={r['mean']:8.4f}  "
+                    f"std={r['std']:8.4f}  "
+                    f"min={r['min']:8.4f}  "
+                    f"max={r['max']:8.4f}\n"
+                )
+                print(line, end="")
+                f_out.write(line)
 
     # plot overall histograms
     for col in COLUMNS:
@@ -203,7 +212,7 @@ def main():
         plt.xlabel(col)
         plt.ylabel("Count")
         plt.tight_layout()
-        plt.show()
+        plt.savefig(f"plots/histogram_{col}.png")
 
 if __name__ == "__main__":
     main()
