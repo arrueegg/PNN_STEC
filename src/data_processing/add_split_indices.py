@@ -96,16 +96,16 @@ def add_split_indices(config):
         doy  = basename.split('_')[1][4:]
 
         print(f"\nProcessing {basename}...")
-        with h5py.File(path, 'a') as h5f:
+        with h5py.File(path, 'r+') as h5f:
             grp_path = f"{year}/{doy}"
             if grp_path not in h5f:
-                print(f"  ▶ Skipping – group {grp_path} not found.")
+                #print(f"  ▶ Skipping – group {grp_path} not found.")
                 continue
             grp = h5f[grp_path]
 
             # skip if already done
             if all(x in grp for x in ('train_idx','val_idx','test_idx')):
-                print("  ▶ Indices already exist, skipping.")
+                #print("  ▶ Indices already exist, skipping.")
                 continue
 
             data = grp['all_data']
