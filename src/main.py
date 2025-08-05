@@ -42,7 +42,10 @@ def main():
     #config['data']['GNSS_data_path'] = data_path
 
     # Add split indices to the data
-    add_split_indices(config)
+    renew_splits = False
+    if renew_splits:
+        logger.info("Renewing split indices...")
+        add_split_indices(config)
     data_path = config['data']['GNSS_data_path']
 
     logger.info(f"Starting model training in {config['mode']} mode.")

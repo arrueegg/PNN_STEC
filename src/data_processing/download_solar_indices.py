@@ -110,10 +110,10 @@ class OmniDownloader:
 
         # Replace flag values with NaN
         flag_values = np.array([9.9999900e-01, 9.9990000e+00, 9.9999000e+00, 9.0000000e+01,
-                                9.9900000e+01, 9.9990000e+01, 4.0000000e+02, 9.9900000e+02, 9.9990000e+02,
+                                9.9900000e+01, 9.9990000e+01, 9.9900000e+02, 9.9990000e+02,
                                 9.9999000e+02, 9.9990000e+03, 9.9999000e+04, 9.9999990e+04, 9.9999999e+05,
                                 9.9999990e+06])
-        for col in df.columns:
+        for col in [c for c in df.columns if c not in ['YEAR', 'DOY']]:
             df[col] = df[col].mask(np.isin(df[col], flag_values))
 
         # Forward fill NaN values

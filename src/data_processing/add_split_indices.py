@@ -90,12 +90,12 @@ def add_split_indices(config):
     files = get_file_list(config)
     print(f"Found {len(files)} files to process.")
 
-    for path in files:
+    for path in tqdm(files):
         basename = os.path.basename(path)
         year = basename.split('_')[1][:4]
         doy  = basename.split('_')[1][4:]
 
-        print(f"\nProcessing {basename}...")
+        #print(f"\nProcessing {basename}...")
         with h5py.File(path, 'r+') as h5f:
             grp_path = f"{year}/{doy}"
             if grp_path not in h5f:
@@ -147,5 +147,5 @@ if __name__ == '__main__':
     cfg = yaml.safe_load(open(args.config))
     cfg['year'] = args.year
     cfg['doy']  = args.doy
-
+    
     add_split_indices(cfg)
