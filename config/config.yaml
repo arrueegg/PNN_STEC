@@ -9,8 +9,12 @@ debug: True
 
 data:
   GNSS_data_path: "/home/space/data/IONO/STEC_DB_CASDCB"
+  use_agg_h5: True
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
   SWI_data_path: "/home/space/data/IONO/SWI/"
+  move_to_scratch: True # Whether to move data to scratch for faster access
   sampling: ultra # all semi medium hard extreme ultra
+  every_x_doy: 40 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data
   SH_degree: 5
   min_elevation: 5.0

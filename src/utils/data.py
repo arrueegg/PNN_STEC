@@ -1,11 +1,14 @@
 import os
+import shutil
 import h5py
 import torch
 import numpy as np
+import random
 from torch.utils.data import RandomSampler, Dataset, DataLoader
 from utils.locationencoder.pe import SphericalHarmonics
 from data_processing.download_solar_indices import OmniDownloader
 import tables
+from tqdm import tqdm
 
 import warnings
 from datetime import datetime, timedelta
@@ -14,6 +17,91 @@ warnings.filterwarnings("ignore")
 torch.multiprocessing.set_start_method('fork', force=True)
 #spacepy.toolbox.update(leapsecs=True)
 
+# Structured dtype for our “one‐table” HDF5 per split:
+DTYPE = np.dtype([
+    ('station',   'S8'),    # up to 8‐char ASCII
+    ('year',      'i4'),
+    ('doy',       'i4'),
+    ('stec',      'f4'),
+    ('vtec',      'f4'),
+    ('satele',    'f4'),
+    ('satazi',    'f4'),
+    ('lon_ipp',   'f4'),
+    ('lat_ipp',   'f4'),
+    ('sm_lat_ipp','f4'),
+    ('sm_lon_ipp','f4'),
+    ('sod',       'f4'),
+    ('lat_sta',   'f4'),
+    ('lon_sta',   'f4'),
+    ('sm_lat_sta','f4'),
+    ('sm_lon_sta','f4'),
+])
+
+class H5Dataset(Dataset):
+    def __init__(self, config, h5_path, split):
+        self.config = config
+        self.split  = split
+        # open the aggregated split file
+        self.file = h5py.File(h5_path, 'r')
+        self.data = self.file['data']
+        
+        # SWI?
+        self.use_SWI = config['data'].get('use_SWI', False)
+        if self.use_SWI:
+            swi_path = os.path.join(
+                config['data']['SWI_data_path'],
+                "omni_hourly_2010-2025.h5"
+            )
+            self.swi_file = h5py.File(swi_path, 'r')
+            # build mask of SWI columns (drop YEAR, DOY, HR)
+            # we can peek at any day, say first in first year
+            yrs = list(self.swi_file.keys())
+            days = list(self.swi_file[yrs[0]].keys())
+            cols = [c.decode() for c in self.swi_file[yrs[0]][days[0]].attrs['columns']]
+            self.swi_mask = [c not in ('YEAR','DOY','HR') for c in cols]
+
+    def __len__(self):
+        return self.data.shape[0]
+
+    def __getitem__(self, idx):
+        row = self.data[idx]
+        # core features: DOY, SOD, station coords, az/el, IPP coords
+        feat = torch.tensor([
+            row['doy'],
+            row['sod'],
+            row['sm_lat_sta'],
+            row['sm_lon_sta'],
+            row['satazi'],
+            row['satele'],
+            row['lat_ipp'],
+            row['lon_ipp']
+        ], dtype=torch.float32)
+
+        # SWI features?
+        if self.use_SWI:
+            year = str(int(row['year']))
+            doy3 = f"{int(row['doy']):03d}"
+            # read that day's SWI array and pick the hour
+            daily = self.swi_file[year][doy3][:]
+            hour = int(row['sod'] // 3600)
+            swi_row = daily[hour]
+            swi_feat = torch.tensor(swi_row[self.swi_mask], dtype=torch.float32)
+            feat = torch.cat((feat, swi_feat), dim=0)
+
+        # label = stec
+        label = torch.tensor(row['stec'], dtype=torch.float32)
+
+        # guard NaNs
+        if torch.isnan(feat).any() or torch.isnan(label):
+            raise ValueError(f"NaN in H5Dataset at idx {idx}")
+
+        return feat, label
+
+    def __del__(self):
+        # close both files
+        self.file.close()
+        if self.use_SWI:
+            self.swi_file.close()
 
 class PyTablesDatasetSplit(Dataset):
     def __init__(self, config, h5_file_path, split):
@@ -23,10 +111,9 @@ class PyTablesDatasetSplit(Dataset):
         self.year = self.h5_file_path.split('/')[-1].split('_')[1][:4]
         self.split = split
         self.SWI_data = self.load_SWI()
-        self.file = tables.open_file(h5_file_path, mode='r')
-        self.data = self.file.get_node(f'/{self.year}/{self.doy}/all_data')
-        self.indices = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_idx')[:]
-        self.length = len(self.indices)
+        self.file = None
+        with tables.open_file(self.h5_file_path, mode='r') as f:
+            self.length = f.get_node(f'/{self.year}/{self.doy}/{self.split}_idx').shape[0]
         
     def load_SWI(self):
         if self.config['data']['use_SWI']:
@@ -46,6 +133,10 @@ class PyTablesDatasetSplit(Dataset):
         return self.length
 
     def __getitem__(self, idx):
+        if self.file is None:
+            self.file = tables.open_file(self.h5_file_path, mode='r')
+            self.data = self.file.get_node(f'/{self.year}/{self.doy}/all_data')
+            self.indices = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_idx')
         row = self.data[self.indices[idx]]
 
         # Encode strings and combine with numeric features
@@ -76,7 +167,8 @@ class PyTablesDatasetSplit(Dataset):
         return features, label
 
     def __del__(self):
-        self.file.close()  # Ensure the file is closed properly
+        if self.file is not None:
+            self.file.close()  # Ensure the file is closed properly
 
 class CollateWithSH:
     def __init__(self, config):
@@ -227,6 +319,25 @@ def generate_dates(months):
                 current_date += timedelta(days=1)
         return dates
 
+def move_files_to_scratch(config, file_paths):
+    """ Move data files to scratch storage for faster access.
+    """
+    file_paths_scratch = {
+        'train': [],
+        'val': [],
+        'test': []
+    }
+    for split, paths in file_paths.items():
+        for path in paths:
+            year = path.split('/')[-3]
+            doy = path.split('/')[-2]
+            scratch_path = os.path.join(config['data']['scratch_dir'], year, doy, os.path.basename(path))
+            os.makedirs(os.path.dirname(scratch_path), exist_ok=True)
+            if not os.path.exists(scratch_path):
+                shutil.copy(path, scratch_path)
+            file_paths_scratch[split].append(scratch_path)
+    return file_paths_scratch
+
 def get_split_file_lists(config, year, doy):
     gnss_path = config['data']['GNSS_data_path']   
     sampling = config['data']['sampling']
@@ -245,15 +356,14 @@ def get_split_file_lists(config, year, doy):
     test_dates = generate_dates(test_months)
 
     # Debugging: only take a subset of dates for testing
-    #train_dates = train_dates[::40]
-    #val_dates = val_dates[::40]
-    #test_dates = test_dates[::40]
+    every_x_doy = config['data'].get('every_x_doy', 1)
+    train_dates = train_dates[::every_x_doy]
+    val_dates = val_dates[::every_x_doy]
+    test_dates = test_dates[::every_x_doy]
 
     """train_dates = [datetime(2023, 1, 1)]  # For debugging, only use one day
     val_dates = [datetime(2023, 1, 2)]    # For debugging, only use one day
     test_dates = [datetime(2023, 1, 3)]   # For debugging, only use one day
-    ###############################################################################
-    ###############################################################################
     ######################### Debugging: only use one day #########################"""
 
     def get_file_paths(dates):
@@ -264,36 +374,203 @@ def get_split_file_lists(config, year, doy):
             if os.path.exists(file_path):
                 file_paths.append(file_path)
         return file_paths
+    
+    file_paths = {'train': get_file_paths(train_dates),
+                  'val': get_file_paths(val_dates),
+                  'test': get_file_paths(test_dates)
+                  }
+    
+    move_to_scratch = config.get('move_to_scratch', True)
+    if move_to_scratch:
+        file_paths = move_files_to_scratch(config, file_paths)
+    
+    return file_paths
 
-    return {
-        'train': get_file_paths(train_dates),
-        'val': get_file_paths(val_dates),
-        'test': get_file_paths(test_dates)
+def build_split_h5(config):
+    """
+    Streams daily H5 files, applies your time+station splits,
+    and writes train.h5 / val.h5 / test.h5 under config['data']['scratch_dir'].
+    Expects date‐lists in YYYY-MM-DD format.
+    """
+
+    scratch = config['data']['scratch_dir']
+    os.makedirs(scratch, exist_ok=True)
+
+    # 1) load your date‐lists as YYYY-MM-DD strings
+    train_months = sorted(set(np.loadtxt('./src/data_processing/train_dates.list', dtype=str)))
+    val_months   = sorted(set(np.loadtxt('./src/data_processing/val_dates.list',   dtype=str)))
+    test_months  = sorted(set(np.loadtxt('./src/data_processing/test_dates.list',  dtype=str)))
+
+    train_dates = generate_dates(train_months)
+    val_dates = generate_dates(val_months)
+    test_dates = generate_dates(test_months)
+
+    # Debugging: only take a subset of dates for testing
+    every_x_doy = config['data'].get('every_x_doy', 1)
+    train_dates = train_dates[::every_x_doy]
+    val_dates = val_dates[::every_x_doy]
+    test_dates = test_dates[::every_x_doy]
+
+    # 2) load your station splits as ASCII‐bytes
+    t_stns = [s.encode('ascii') for s in np.loadtxt('./src/data_processing/train_station.list', dtype=str)]
+    v_stns = [s.encode('ascii') for s in np.loadtxt('./src/data_processing/val_station.list',   dtype=str)]
+    e_stns = [s.encode('ascii') for s in np.loadtxt('./src/data_processing/test_station.list',  dtype=str)]
+    splits = {
+        'train': (t_stns, train_dates),
+        'val':   (v_stns, val_dates),
+        'test':  (e_stns, test_dates),
     }
 
+    # 3) prepare one structured‐dtype dataset per split
+    out = {}
+    all_exist = True
+    for sp in splits:
+        fn = os.path.join(scratch, f'{sp}.h5')
+        if os.path.exists(fn):
+            out[sp] = {'file': None, 'dset': None, 'count': 0}
+        else:
+            all_exist = False
+            f  = h5py.File(fn, 'w')
+            d  = f.create_dataset(
+                'data',
+                shape=(0,),
+                maxshape=(None,),
+                dtype=DTYPE,
+                chunks=True
+            )
+            out[sp] = {'file': f, 'dset': d, 'count': 0}
+    if all_exist:
+        return
+
+    gnss_root = config['data']['GNSS_data_path']
+    for year in tqdm(sorted(os.listdir(gnss_root)), desc="Processing years"):
+        yp = os.path.join(gnss_root, year)
+        for doy in tqdm(sorted(os.listdir(yp)), desc="Processing days"):
+            dayfile = os.path.join(yp, doy, f'ccl_{year}{doy}_30_5.h5')
+            if not os.path.isfile(dayfile):
+                continue
+
+            # build YYYY-MM-DD string
+            dt = datetime.strptime(f"{year}{doy}", "%Y%j")
+
+            # skip if this day isn't in any date‐list
+            if dt not in train_dates + val_dates + test_dates:
+                continue
+
+            with tables.open_file(dayfile, 'r') as tbl:
+                node = tbl.get_node(f'/{year}/{doy}/all_data')
+
+                # for each split that uses this date
+                for sp, (stn_bytes, date_set) in splits.items():
+                    if dt not in date_set:
+                        continue
+
+                    # for each station in this split, read its contiguous block
+                    for sb in stn_bytes:
+                        # get all row‐indices for this station
+                        idxs = node.get_where_list(f"station == b'{sb.decode()}'")
+                        if len(idxs) == 0:
+                            continue
+
+                        # read one small recarray of only those rows
+                        sub = node.read_coordinates(idxs)
+
+                        # build an output block of shape (n,)
+                        n   = len(sub)
+                        block = np.zeros(n, dtype=DTYPE)
+                        block['station']     = sub['station']
+                        block['year']        = dt.year
+                        block['doy']         = dt.timetuple().tm_yday
+                        block['stec']        = sub['stec']
+                        block['vtec']        = sub['vtec']
+                        block['satele']      = sub['satele']
+                        block['satazi']      = sub['satazi']
+                        block['lon_ipp']     = sub['lon_ipp']
+                        block['lat_ipp']     = sub['lat_ipp']
+                        block['sm_lat_ipp']  = sub['sm_lat_ipp']
+                        block['sm_lon_ipp']  = sub['sm_lon_ipp']
+                        block['sod']         = sub['sod']
+                        block['lat_sta']     = sub['lat_sta']
+                        block['lon_sta']     = sub['lon_sta']
+                        block['sm_lat_sta']  = sub['sm_lat_sta']
+                        block['sm_lon_sta']  = sub['sm_lon_sta']
+
+                        # append the entire block in one go
+                        ds    = out[sp]['dset']
+                        cnt   = out[sp]['count']
+                        ds.resize(cnt + n, axis=0)
+                        ds[cnt:cnt+n] = block
+                        out[sp]['count'] += n
+
+    # close all files
+    for v in out.values():
+        v['file'].close()
+
+    print("✅ Built split H5 files at:", scratch)
+
+
 def get_data_loaders(config):
-
     collate_fn = CollateWithSH(config)
-
-    file_splits = get_split_file_lists(config, config['year'], config['doy'])
-
     loaders = {}
-    for split, file_paths in file_splits.items():
-        datasets = [PyTablesDatasetSplit(config, file_path, split) for file_path in file_paths]
-        combined_ds = torch.utils.data.ConcatDataset(datasets)
-        print(f"Combined dataset into one. Total length: {len(combined_ds)}")
-        
-        sampler = None
-        if config['data'].get('subset_per_epoch') < len(combined_ds):
-            sampler = RandomSampler(combined_ds, replacement=False, num_samples=config['data']['subset_per_epoch'])
-        
-        loaders[split] = DataLoader(
-            combined_ds,
-            batch_size=config['pretrain']['batchsize'],
-            num_workers=config['pretrain']['num_workers'],
-            prefetch_factor=2,
-            collate_fn=collate_fn,
-            shuffle=(split == 'train' and sampler is None),
-            sampler=sampler
-        )
+
+    # build splits if requested
+    if config['data'].get('use_agg_h5', False) and config['data'].get('build_agg_h5', True):
+        build_split_h5(config)
+
+    for split in ['train','val','test']:
+        if config['data'].get('use_agg_h5', False):
+            # move SWI data to scratch if needed
+            swi_scratch_path = os.path.join(
+                config['data']['scratch_dir'],
+                "omni_hourly_2010-2025.h5"
+            )
+            if not os.path.exists(swi_scratch_path):
+                swi_path = os.path.join(
+                    config['data']['SWI_data_path'],
+                    "omni_hourly_2010-2025.h5"
+                )
+                if not os.path.exists(swi_path):
+                    downloader = OmniDownloader(config['data']['SWI_data_path'], "20100101", "20250625")
+                    downloader.run()
+                shutil.copy(swi_path, swi_scratch_path)
+                config['data']['SWI_data_path'] = swi_scratch_path
+
+            # load from our new single-file splits
+            path = os.path.join(config['data']['scratch_dir'], f"{split}.h5")
+            ds   = H5Dataset(config, path, split)
+            sampler = None
+            if split=='train' and config['data'].get('subset_per_epoch') < len(ds):
+                sampler = RandomSampler(ds, replacement=False,
+                                        num_samples=config['data']['subset_per_epoch'])
+            loaders[split] = DataLoader(
+                ds,
+                batch_size   = config['pretrain']['batchsize'],
+                num_workers  = config['pretrain']['num_workers'],
+                prefetch_factor=2,
+                shuffle      = (split=='train' and sampler is None),
+                sampler      = sampler,
+                collate_fn   = collate_fn,
+                pin_memory   = False
+            )
+        else:
+            # your original multi-file PyTables approach
+            file_splits = get_split_file_lists(config, config['year'], config['doy'])
+            datasets = [PyTablesDatasetSplit(config, p, split)
+                        for p in tqdm(file_splits[split], desc=f"Loading {split}")]
+            cd = torch.utils.data.ConcatDataset(datasets)
+            sampler = None
+            if config['data'].get('subset_per_epoch') < len(cd):
+                sampler = RandomSampler(cd, replacement=False,
+                                        num_samples=config['data']['subset_per_epoch'])
+            loaders[split] = DataLoader(
+                cd,
+                batch_size      = config['pretrain']['batchsize'],
+                num_workers     = config['pretrain']['num_workers'],
+                prefetch_factor = 1,
+                shuffle         = (split=='train' and sampler is None),
+                sampler         = sampler,
+                collate_fn      = collate_fn,
+                pin_memory      = False
+            )
+
     return loaders['train'], loaders['val'], loaders['test']

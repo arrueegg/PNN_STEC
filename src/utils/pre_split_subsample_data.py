@@ -262,7 +262,7 @@ def get_file_lists(config, year, doy):
 
     ####################################################
     # Debugging: only take a subset of dates for testing
-    interval = 40
+    interval = config['data'].get('every_x_doy', 1)
     train_dates = train_dates[::interval]
     val_dates = val_dates[::interval]
     test_dates = test_dates[::interval]
