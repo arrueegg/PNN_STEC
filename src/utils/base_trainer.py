@@ -35,7 +35,7 @@ class BaseTrainer:
         all_targets = []
         disable_tqdm = "cluster" in os.environ.get('HOME', '')
         
-        for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader), disable=disable_tqdm):
+        for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader), disable=disable_tqdm, desc="Training"):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             optimizer.zero_grad()
 
@@ -79,7 +79,7 @@ class BaseTrainer:
         all_targets = []
         
         with torch.no_grad():
-            for inputs, targets in dataloader:
+            for inputs, targets in tqdm(dataloader, desc="Validation", disable="cluster" in os.environ.get('HOME', '')):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = model(inputs)
                 stec, uncertainty = self.compute_stec_unc(outputs)
@@ -112,7 +112,7 @@ class BaseTrainer:
         all_outputs = []
         all_targets = []
         with torch.no_grad():
-            for inputs, targets in dataloader:
+            for inputs, targets in tqdm(dataloader, desc="Testing", disable="cluster" in os.environ.get('HOME', '')):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = model(inputs)
                 stec, uncertainty = self.compute_stec_unc(outputs)
@@ -287,9 +287,6 @@ class BaseTrainer:
 
         return torch.cat(rescaled_parts, dim=1)
 
-
-
-
     def bayesian_inference_total_uncertainty(self, model, dataloader, num_samples=100):
         """Compute total uncertainty = epistemic + aleatoric"""
         model.eval()
@@ -302,7 +299,7 @@ class BaseTrainer:
         all_targets = []
         
         with torch.no_grad():
-            for inputs, targets in dataloader:
+            for inputs, targets in tqdm(dataloader, desc="Bayesian Inference", disable="cluster" in os.environ.get('HOME', '')):
                 bs = inputs.size(0)
                 inputs = inputs.to(self.device)
                 batch_stec_predictions = []
