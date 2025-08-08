@@ -4,7 +4,7 @@ import h5py
 import torch
 import numpy as np
 import random
-from torch.utils.data import RandomSampler, Dataset, DataLoader
+from torch.utils.data import RandomSampler, SequentialSampler, Dataset, DataLoader, Subset
 from utils.locationencoder.pe import SphericalHarmonics
 from data_processing.download_solar_indices import OmniDownloader
 import tables
@@ -508,69 +508,112 @@ def build_split_h5(config):
 
     print("✅ Built split H5 files at:", scratch)
 
+def get_fixed_subset_indices(ds, k, cache_path, seed=0):
+    """
+    Returns k unique indices for ds, chosen randomly but deterministically via seed.
+    Caches to cache_path so future runs reuse the exact same subset.
+    """
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+
+    # Try load from cache
+    if os.path.exists(cache_path):
+        saved = torch.load(cache_path)
+        if saved.get("len", None) == len(ds) and saved.get("k", None) == k:
+            return saved["indices"]
+
+    # Create new subset
+    g = torch.Generator().manual_seed(seed)
+    k = min(k, len(ds))
+    # choose without replacement, deterministic by seed
+    perm = torch.randperm(len(ds), generator=g)[:k]
+    idx = perm.tolist()
+
+    torch.save({"len": len(ds), "k": k, "seed": seed, "indices": idx}, cache_path)
+    return idx
 
 def get_data_loaders(config):
     collate_fn = CollateWithSH(config)
     loaders = {}
 
+     # ---- config knobs ----
+    train_subset = config['data'].get('train_subset_size', None)
+    total_size = train_subset / 0.7
+    val_subset = test_subset = int(total_size * 0.15)
+    seed = int(config.get('seed', 42))
+    bs   = config['pretrain']['batchsize']
+    nw   = config['pretrain']['num_workers']
+    use_agg_h5 = config['data'].get('use_agg_h5', False)
+    build_agg_h5 = config['data'].get('build_agg_h5', True)
+
     # build splits if requested
-    if config['data'].get('use_agg_h5', False) and config['data'].get('build_agg_h5', True):
+    if use_agg_h5 and build_agg_h5:
         build_split_h5(config)
 
     for split in ['train','val','test']:
         if config['data'].get('use_agg_h5', False):
             # move SWI data to scratch if needed
-            swi_scratch_path = os.path.join(
-                config['data']['scratch_dir'],
-                "omni_hourly_2010-2025.h5"
-            )
+            swi_scratch_path = os.path.join(config['data']['scratch_dir'], "omni_hourly_2010-2025.h5")
             if not os.path.exists(swi_scratch_path):
-                swi_path = os.path.join(
-                    config['data']['SWI_data_path'],
-                    "omni_hourly_2010-2025.h5"
-                )
+                swi_path = os.path.join(config['data']['SWI_data_path'], "omni_hourly_2010-2025.h5")
                 if not os.path.exists(swi_path):
                     downloader = OmniDownloader(config['data']['SWI_data_path'], "20100101", "20250625")
                     downloader.run()
                 shutil.copy(swi_path, swi_scratch_path)
                 config['data']['SWI_data_path'] = swi_scratch_path
 
-            # load from our new single-file splits
             path = os.path.join(config['data']['scratch_dir'], f"{split}.h5")
             ds   = H5Dataset(config, path, split)
-            sampler = None
-            if split=='train' and config['data'].get('subset_per_epoch') < len(ds):
-                sampler = RandomSampler(ds, replacement=False,
-                                        num_samples=config['data']['subset_per_epoch'])
+        else:
+            file_splits = get_split_file_lists(config, config['year'], config['doy'])
+            datasets = [PyTablesDatasetSplit(config, p, split) for p in tqdm(file_splits[split], desc=f"Loading {split}")]
+            ds = torch.utils.data.ConcatDataset(datasets)
+
+        # -----------------------------
+        # Sampler / subset per split
+        # -----------------------------
+        if split == 'train':
+            # If you want to scan full train each epoch, leave subset_per_epoch == 0
+            if train_subset and train_subset < len(ds):
+                # IMPORTANT: num_samples needs replacement=True
+                g = torch.Generator().manual_seed(seed)  # re-seed per epoch in your train loop if desired
+                sampler = RandomSampler(ds, replacement=True, num_samples=train_subset, generator=g)
+                shuffle = False
+            else:
+                sampler = None
+                shuffle = True  # classic full-epoch shuffle
+
             loaders[split] = DataLoader(
                 ds,
-                batch_size   = config['pretrain']['batchsize'],
-                num_workers  = config['pretrain']['num_workers'],
+                batch_size=bs,
+                num_workers=nw,
                 prefetch_factor=2,
-                shuffle      = (split=='train' and sampler is None),
-                sampler      = sampler,
-                collate_fn   = collate_fn,
-                pin_memory   = False
+                shuffle=shuffle,
+                sampler=sampler,
+                collate_fn=collate_fn,
+                pin_memory=True,
             )
+
         else:
-            # your original multi-file PyTables approach
-            file_splits = get_split_file_lists(config, config['year'], config['doy'])
-            datasets = [PyTablesDatasetSplit(config, p, split)
-                        for p in tqdm(file_splits[split], desc=f"Loading {split}")]
-            cd = torch.utils.data.ConcatDataset(datasets)
-            sampler = None
-            if config['data'].get('subset_per_epoch') < len(cd):
-                sampler = RandomSampler(cd, replacement=False,
-                                        num_samples=config['data']['subset_per_epoch'])
+            # ---- fixed, random, deterministic subset for val/test ----
+            subset_size = val_subset if split == 'val' else test_subset
+            if subset_size:
+                cache_dir = './val_test_subsets_idx'
+                cache_path = os.path.join(config['data']['scratch_dir'], cache_dir, f"{split}_subset_idx.pt")
+                idx = get_fixed_subset_indices(ds, subset_size, cache_path, seed=seed)
+                ds = Subset(ds, idx)
+
+            # Deterministic iteration for stable metrics
+            sampler = SequentialSampler(ds)
+
             loaders[split] = DataLoader(
-                cd,
-                batch_size      = config['pretrain']['batchsize'],
-                num_workers     = config['pretrain']['num_workers'],
-                prefetch_factor = 1,
-                shuffle         = (split=='train' and sampler is None),
-                sampler         = sampler,
-                collate_fn      = collate_fn,
-                pin_memory      = False
+                ds,
+                batch_size=bs,
+                num_workers=nw,
+                prefetch_factor=1,
+                shuffle=False,
+                sampler=sampler,
+                collate_fn=collate_fn,
+                pin_memory=True,
             )
 
     return loaders['train'], loaders['val'], loaders['test']

@@ -10,6 +10,8 @@ from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner
 
+import torch.multiprocessing as mp
+mp.set_sharing_strategy("file_system")
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')

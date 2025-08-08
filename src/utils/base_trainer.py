@@ -425,6 +425,7 @@ class BaseTrainer:
         epochs = self.config[training_key]["epochs"]
 
         for epoch in range(epochs):
+            print(" ")
             self.logger.info(f"Epoch {epoch+1}/{epochs}")
 
             # Within your training loop:

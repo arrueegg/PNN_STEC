@@ -92,8 +92,8 @@ class BranchMLP(nn.Module):
 
         return mean, variance
     
-class MLP_DE(torch.nn.Module):
-    def __init__(self, n_in=3, n_out=2):
+class MLP_NNL(torch.nn.Module):
+    def __init__(self, n_in=3):
         super().__init__()
         self.Linear_1 = Linear(n_in, 256)
         self.Linear_2 = Linear(256, 256)
@@ -294,8 +294,8 @@ def get_model(config):
         return MLP(n_in=in_features)
     elif model_type == 'BranchMLP':
         return BranchMLP(n_in=in_features, num_SWI_params=num_SWI_params)
-    elif model_type == 'MLP_DE':
-        return MLP_DE(n_in=in_features)
+    elif model_type == 'MLP_NNL':
+        return MLP_NNL(n_in=in_features)
     elif model_type == 'MLP_MCDropout_mse':
         return MLP_MCDropout_mse(n_in=in_features)
     elif model_type == 'MLP_MCDropout_NLL':
@@ -307,5 +307,5 @@ def get_model(config):
     elif model_type == 'Branch_BNN_NLL':
         return Branch_BNN_NLL(n_in=in_features, num_SWI_params=num_SWI_params)
     else:
-        raise ValueError(f"Model type {model_type} is not recognized. Please select from ['MLP', 'RNN']")
+        raise ValueError(f"Model type {model_type} is not recognized.")
 
