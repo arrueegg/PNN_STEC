@@ -1,0 +1,49 @@
+data:
+  GNSS_data_path: /home/space/data/IONO/STEC_DB
+  SH_degree: 0
+  max_elevation: 90.0
+  min_elevation: 5.0
+  sampling: all
+  shuffle: true
+debug: true
+doy: '031'
+finetune:
+  batch_size: 2048
+  epochs: 5
+  learning_rate: 0.001
+  num_workers: 8
+  scheduler: StepLR
+  scheduler_step_size: 10
+mode: pretrain
+model:
+  input_size: 9
+  model_type: MLP
+  output_size: 1
+output_dir: experiments/Pretrain_2023-01-30_for_5d_MLP_SH0
+pretrain:
+  batchsize: 8192
+  early_stopping: true
+  epochs: 2
+  learning_rate: 0.001
+  num_workers: 8
+  patience: 5
+  pretrain_end_date: '2023-01-30'
+  pretrain_length: 5
+  pretrain_margin: 1
+  pretrain_start_date: '2023-01-25'
+  save_model_every_epoch: false
+  scheduler: StepLR
+  scheduler_step_size: 10
+pretrain_folder: ''
+project_name: PNN_STEC
+random_seed: 42
+split:
+  test_ratio: 0.1
+  train_ratio: 0.8
+  val_ratio: 0.1
+training:
+  loss_function: GaussianNLLLoss
+  loss_weight: 1.0
+  optimizer: Adam
+  weight_decay: 0.0
+year: '2023'

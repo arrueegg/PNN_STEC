@@ -15,11 +15,11 @@ temp/
 **/logs/
 
 # Ignore specific files
-experiments/
+#experiments/
 src/data_processing/plots/
 Shuyins_code/
 */old/
-**/plots/
+#**/plots/
 **/dSTEC/
 
 # Ignore some config files.

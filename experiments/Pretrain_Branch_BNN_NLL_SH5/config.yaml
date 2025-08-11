@@ -1,0 +1,47 @@
+data:
+  GNSS_data_path: /home/space/data/IONO/STEC_DB_CASDCB
+  SH_degree: 5
+  SWI_data_path: /home/space/data/IONO/SWI/
+  max_elevation: 90.0
+  min_elevation: 5.0
+  sampling: ultra
+  shuffle: true
+  subset_per_epoch: 10000000
+  use_SWI: true
+debug: true
+doy: '001'
+finetune:
+  epochs: 5
+  learning_rate: 0.001
+  num_workers: 8
+  scheduler: StepLR
+  scheduler_step_size: 10
+mode: pretrain
+model:
+  input_size: 34
+  model_type: Branch_BNN_NLL
+  output_size: 1
+output_dir: experiments/Pretrain_Branch_BNN_NLL_SH5
+pretrain:
+  batchsize: 512
+  early_stopping: true
+  epochs: 1
+  learning_rate: 0.001
+  num_workers: 8
+  patience: 5
+  save_model_every_epoch: false
+  scheduler: StepLR
+  scheduler_step_size: 10
+pretrain_folder: ''
+project_name: PNN_STEC
+random_seed: 42
+split:
+  test_ratio: 0.1
+  train_ratio: 0.8
+  val_ratio: 0.1
+training:
+  loss_function: GaussianNLLLoss
+  loss_weight: 1.0
+  optimizer: Adam
+  weight_decay: 0.0
+year: '2023'

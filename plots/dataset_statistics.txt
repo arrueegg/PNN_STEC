@@ -1,0 +1,18 @@
+
+=== Split: train ===
+satele    count=15388661441  mean= 35.2562  std= 20.3195  min=  5.0000  max= 90.0000
+satazi    count=15388661441  mean=179.1656  std=100.8987  min=  0.0000  max=360.0000
+stec      count=15388661441  mean= 26.1759  std= 26.8523  min=  0.0010  max=545.6200
+sod       count=15388661441  mean= 11.9678  std=  6.9299  min=  0.0000  max= 23.9917
+
+=== Split: val ===
+satele    count=3408878380  mean= 35.4444  std= 20.7071  min=  5.0000  max= 89.9980
+satazi    count=3408878380  mean=179.1211  std= 99.8592  min=  0.0000  max=360.0000
+stec      count=3408878380  mean= 23.5167  std= 23.6174  min=  0.0010  max=545.7300
+sod       count=3408878380  mean= 12.0020  std=  6.9232  min=  0.0000  max= 23.9917
+
+=== Split: test ===
+satele    count=3999697274  mean= 35.0594  std= 20.4277  min=  5.0000  max= 90.0000
+satazi    count=3999697274  mean=178.8395  std=100.9826  min=  0.0000  max=360.0000
+stec      count=3999697274  mean= 27.1854  std= 27.5589  min=  0.0010  max=545.6970
+sod       count=3999697274  mean= 11.9903  std=  6.9343  min=  0.0000  max= 23.9917

@@ -7,6 +7,8 @@ mode: pretrain # pretrain, finetune
 random_seed: 42
 debug: True
 
+target: "stec" # stec or vtec
+
 data:
   GNSS_data_path: "/home/space/data/IONO/STEC_DB_CASDCB"
   use_agg_h5: True

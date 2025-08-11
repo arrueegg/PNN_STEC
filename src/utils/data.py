@@ -264,26 +264,38 @@ class CollateWithSH:
         """Compute feature indices based on registry"""
         indices = {}
         
-        # Temporal features
+        # Get all feature names by type
         temporal_names = self.feature_registry.get_feature_names(FeatureType.TEMPORAL)
+        station_names = self.feature_registry.get_feature_names(FeatureType.STATION)
+        shared_names = self.feature_registry.get_feature_names(FeatureType.SHARED)
+        ipp_names = self.feature_registry.get_feature_names(FeatureType.IPP)
+        
+        # Temporal features
         indices['year'] = temporal_names.index('year')
         indices['doy'] = temporal_names.index('doy') 
         indices['sod'] = temporal_names.index('sod')
         
-        # Station features
-        station_names = self.feature_registry.get_feature_names(FeatureType.STATION)
-        indices['lat_sta'] = len(temporal_names) + station_names.index('sm_lat_sta')
-        indices['lon_sta'] = len(temporal_names) + station_names.index('sm_lon_sta')
+        # Station features - use the solar magnetic coordinates primarily
+        temporal_offset = len(temporal_names)
+        indices['lat_sta'] = temporal_offset + station_names.index('sm_lat_sta')
+        indices['lon_sta'] = temporal_offset + station_names.index('sm_lon_sta')
         
-        # Direction features
-        direction_names = self.feature_registry.get_feature_names(FeatureType.DIRECTION)
-        direction_offset = len(temporal_names) + len(station_names)
-        indices['azi'] = direction_offset + direction_names.index('satazi')
-        indices['ele'] = direction_offset + direction_names.index('satele')
+        # Add geographic station coordinates if needed for SH
+        if 'lat_sta' in station_names and 'lon_sta' in station_names:
+            indices['geo_lat_sta'] = temporal_offset + station_names.index('lat_sta')
+            indices['geo_lon_sta'] = temporal_offset + station_names.index('lon_sta')
+        else:
+            # Fallback to solar magnetic if geographic not available
+            indices['geo_lat_sta'] = indices['lat_sta']
+            indices['geo_lon_sta'] = indices['lon_sta']
+        
+        # Shared features
+        shared_offset = temporal_offset + len(station_names)
+        indices['azi'] = shared_offset + shared_names.index('satazi')
+        indices['ele'] = shared_offset + shared_names.index('satele')
         
         # IPP features
-        ipp_names = self.feature_registry.get_feature_names(FeatureType.IPP)
-        ipp_offset = direction_offset + len(direction_names)
+        ipp_offset = shared_offset + len(shared_names)
         indices['ipp_lat'] = ipp_offset + ipp_names.index('lat_ipp')
         indices['ipp_lon'] = ipp_offset + ipp_names.index('lon_ipp')
         
@@ -380,13 +392,13 @@ class CollateWithSH:
         if not self.sh_enabled:
             return None, None
             
-        # Station SH embeddings (lon, lat)
-        sta_lon = features[:, self.indices['lon_sta']]
-        sta_lat = features[:, self.indices['lat_sta']]
+        # Station SH embeddings (use geographic coordinates for SH)
+        sta_lon = features[:, self.indices['geo_lon_sta']]
+        sta_lat = features[:, self.indices['geo_lat_sta']]
         sta_lonlat = torch.stack([sta_lon, sta_lat], dim=1)
         sh_sta = self.sh_encoder(sta_lonlat)
         
-        # IPP SH embeddings (lon, lat)
+        # IPP SH embeddings (geographic coordinates)
         ipp_lon = features[:, self.indices['ipp_lon']]
         ipp_lat = features[:, self.indices['ipp_lat']]
         ipp_lonlat = torch.stack([ipp_lon, ipp_lat], dim=1)
