@@ -9,8 +9,7 @@ from utils.pre_split_subsample_data import split
 from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner
-from utils.feature_registry import create_default_registry, FeatureType
-from utils.feature_monitor import FeatureMonitor
+from utils.feature_registry import initialize_feature_registry, FeatureType
 
 import torch.multiprocessing as mp
 mp.set_sharing_strategy("file_system")
@@ -36,13 +35,11 @@ def main():
     logger.info(f"Device: {device}")
     config['device'] = device
 
-    # Create feature registry and monitor
-    feature_registry = create_default_registry(config)
-    feature_monitor = FeatureMonitor(feature_registry, logger)
-    
+    # Initialize feature registry
+    feature_registry = initialize_feature_registry(config)
+        
     # Add to config so other components can access them
     config['feature_registry'] = feature_registry
-    config['feature_monitor'] = feature_monitor
     
     # Log feature configuration
     logger.info("=== Feature Configuration ===")
@@ -88,8 +85,5 @@ def main():
     else:
         logging.error('Invalid mode selected. Choose either "pretrain" or "finetune".')
         
-    # Log final feature monitoring summary
-    feature_monitor.log_feature_summary()
-
 if __name__ == '__main__':
     main()

@@ -31,7 +31,7 @@ pretrain:
   early_stopping: true
   epochs: 1
   learning_rate: 0.001
-  num_workers: 8
+  num_workers: 0
   patience: 5
   save_model_every_epoch: false
   scheduler: StepLR

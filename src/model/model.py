@@ -277,7 +277,7 @@ class Branch_BNN_NLL(nn.Module):
 # Model selection function
 def get_model(config):
     model_type = config['model']['model_type']
-    in_features = 7 + 3 + 4 + 2 * config['data']['SH_degree']**2 # 7 time&doy&year + 3 azi/ele + 4 sta/ipp coords + SH embeddings
+    in_features = 7 + 4 + 8 + 4 * config['data']['SH_degree']**2 # 7 time&doy&year + 4 azi/ele + 4 sta/ipp coords + SH embeddings
     if config['data']['use_SWI']:
         num_SWI_params = 22
         in_features += num_SWI_params  # Add SWI features

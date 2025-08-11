@@ -11,7 +11,6 @@ from utils.optimizers import get_optimizer, get_scheduler
 from utils.metrics import calculate_metrics
 from utils.plot import plot_test_metrics
 from utils.feature_registry import create_default_registry, FeatureType
-from utils.feature_monitor import FeatureMonitor
 
 
 class BaseTrainer:
@@ -22,7 +21,6 @@ class BaseTrainer:
         
         # Initialize feature management
         self.feature_registry = config.get('feature_registry') or create_default_registry(config)
-        self.feature_monitor = config.get('feature_monitor') or FeatureMonitor(self.feature_registry, logger)
         
         self.loss_weight = config['training']['loss_weight']
         self.eps = 1e-6
@@ -97,9 +95,6 @@ class BaseTrainer:
         for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader),
                                          disable=disable_tqdm, desc="Training"):
             
-            # Feature validation at training input
-            if i == 0:  # Only check first batch to avoid overhead
-                self.feature_monitor.check_feature_consistency(inputs, "train_input")
                 
             inputs = inputs.to(self.device)
             training_targets, original_targets = self._targets_to_training_space(targets)
@@ -155,11 +150,7 @@ class BaseTrainer:
 
         with torch.no_grad():
             for i, (inputs, targets) in tqdm(dataloader, desc="Validation", disable="cluster" in os.environ.get('HOME', '')):
-                
-                # Feature validation at validation input
-                if i == 0:  # Only check first batch
-                    self.feature_monitor.check_feature_consistency(inputs, "val_input")
-                    
+                                    
                 inputs = inputs.to(self.device)
                 training_targets, original_targets = self._targets_to_training_space(targets)
 
@@ -208,10 +199,6 @@ class BaseTrainer:
         with torch.no_grad():
             for i, (inputs, targets) in tqdm(dataloader, desc="Testing", disable="cluster" in os.environ.get('HOME', '')):
                 
-                # Feature validation at test input
-                if i == 0:  # Only check first batch
-                    self.feature_monitor.check_feature_consistency(inputs, "test_input")
-                    
                 inputs = inputs.to(self.device)
                 targets = targets.to(self.device)
 
@@ -430,10 +417,6 @@ class BaseTrainer:
         patience_counter = 0
         epochs = self.config[training_key]["epochs"]
 
-        # Log feature monitoring summary before training
-        self.logger.info("=== Feature Monitoring Summary ===")
-        self.feature_monitor.log_feature_summary()
-        
         for epoch in range(epochs):
             print(" ")
             self.logger.info(f"Epoch {epoch+1}/{epochs}")
@@ -508,8 +491,3 @@ class BaseTrainer:
                 'test_total_uncertainty': bayesian_results['total_std'].mean().item(),
             })
             wandb.finish()
-
-        # Final feature monitoring summary
-        self.feature_monitor.log_feature_summary()
-        if self.feature_monitor.has_failures():
-            self.logger.warning("Some feature validation checks failed during training!")

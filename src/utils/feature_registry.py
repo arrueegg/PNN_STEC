@@ -45,12 +45,27 @@ class FeatureRegistry:
         
     def _rebuild_indices(self):
         """Rebuild feature indices after changes."""
-        self._indices = {name: idx for idx, name in enumerate(self._feature_order)}
-        
+        # Only include enabled features in indices
+        enabled_features = [name for name in self._feature_order 
+                           if self._features[name]['enabled']]
+        self._indices = {name: idx for idx, name in enumerate(enabled_features)}
+    
+    def set_output_indices(self, output_indices: Dict[str, int]):
+        self._output_indices = output_indices
+
     def get_indices(self, feature_names: List[str]) -> List[int]:
         """Get indices for specified features."""
-        return [self._indices[name] for name in feature_names if name in self._indices]
+        indices = []
+        for name in feature_names:
+            if name in self._indices and self._features[name]['enabled']:
+                indices.append(self._indices[name])
+        return indices
     
+    def get_all_enabled_features(self) -> List[str]:
+        """Get all enabled features in order."""
+        return [name for name in self._feature_order 
+                if self._features[name]['enabled']]
+
     def get_features_by_type(self, feature_type: FeatureType) -> List[str]:
         """Get all features of a specific type."""
         return [name for name in self._type_groups[feature_type] 
@@ -62,11 +77,26 @@ class FeatureRegistry:
     
     def get_feature_slice(self, feature_type: FeatureType) -> slice:
         """Get slice for features of a specific type."""
-        features = self.get_features_by_type(feature_type)
-        if not features:
+        all_enabled = self.get_all_enabled_features()
+        type_features = self.get_features_by_type(feature_type)
+        
+        if not type_features:
             return slice(0, 0)
-        indices = self.get_indices(features)
-        return slice(min(indices), max(indices) + 1)
+        
+        # Find start and end indices in the enabled features list
+        start_idx = None
+        end_idx = None
+        
+        for i, feature in enumerate(all_enabled):
+            if feature in type_features:
+                if start_idx is None:
+                    start_idx = i
+                end_idx = i
+        
+        if start_idx is None:
+            return slice(0, 0)
+        
+        return slice(start_idx, end_idx + 1)
     
     def get_total_features(self) -> int:
         """Get total number of enabled features."""
@@ -76,11 +106,49 @@ class FeatureRegistry:
         """Enable a feature."""
         if name in self._features:
             self._features[name]['enabled'] = True
+            self._rebuild_indices()  # Add this line
             
     def disable_feature(self, name: str):
         """Disable a feature."""
         if name in self._features:
             self._features[name]['enabled'] = False
+            self._rebuild_indices()  # Add this line
+
+    def validate_feature_data(self, feature_name: str, value: float) -> bool:
+        """Validate if a feature value is within expected range."""
+        if feature_name not in self._features:
+            return False
+        
+        normalization = self._features[feature_name]['normalization']
+        if normalization is None:
+            return True
+        
+        min_val, max_val = normalization
+        return min_val <= value <= max_val
+
+    def get_normalization_params(self, feature_name: str) -> Optional[Tuple[float, float]]:
+        """Get normalization parameters for a feature."""
+        if feature_name in self._features:
+            return self._features[feature_name]['normalization']
+        return None
+
+    def normalize_feature(self, feature_name: str, value: float) -> float:
+        """Normalize a feature value to [0, 1] range."""
+        normalization = self.get_normalization_params(feature_name)
+        if normalization is None:
+            return value
+        
+        min_val, max_val = normalization
+        return (value - min_val) / (max_val - min_val)
+
+    def denormalize_feature(self, feature_name: str, normalized_value: float) -> float:
+        """Denormalize a feature value from [0, 1] range."""
+        normalization = self.get_normalization_params(feature_name)
+        if normalization is None:
+            return normalized_value
+        
+        min_val, max_val = normalization
+        return normalized_value * (max_val - min_val) + min_val
 
 # Create global feature registry
 def create_default_registry(config: dict) -> FeatureRegistry:
@@ -91,10 +159,13 @@ def create_default_registry(config: dict) -> FeatureRegistry:
     
     # 1. Temporal features (first in your data construction)
     registry.register_feature('year', FeatureType.TEMPORAL, 
+                            normalization=(2010, 2030),
                             description="Year of observation")
-    registry.register_feature('doy', FeatureType.TEMPORAL, 
+    registry.register_feature('doy', FeatureType.TEMPORAL,
+                            normalization=(1, 366), 
                             description="Day of year")
     registry.register_feature('sod', FeatureType.TEMPORAL, 
+                            normalization=(0, 86400),
                             description="Seconds of day")
     
     # 2. Station features (solar magnetic coordinates)
@@ -105,32 +176,6 @@ def create_default_registry(config: dict) -> FeatureRegistry:
                             normalization=(-180, 180),
                             description="Station solar magnetic longitude")
     
-    # 3. Shared features (satellite direction - azimuth, elevation)
-    registry.register_feature('satazi', FeatureType.SHARED, 
-                            normalization=(0, 360),
-                            description="Satellite azimuth angle")
-    registry.register_feature('satele', FeatureType.SHARED, 
-                            normalization=(0, 90),
-                            description="Satellite elevation angle")
-    
-    # 4. IPP features (Ionospheric Pierce Point)
-    registry.register_feature('lat_ipp', FeatureType.IPP, 
-                            normalization=(-90, 90),
-                            description="IPP geographic latitude")
-    registry.register_feature('lon_ipp', FeatureType.IPP, 
-                            normalization=(-180, 180),
-                            description="IPP geographic longitude")
-    
-    # Optional: Add solar magnetic IPP coordinates if they exist in your data
-    # Check if these fields exist in your DTYPE
-    registry.register_feature('sm_lat_ipp', FeatureType.IPP, 
-                            normalization=(-90, 90),
-                            description="IPP solar magnetic latitude")
-    registry.register_feature('sm_lon_ipp', FeatureType.IPP, 
-                            normalization=(-180, 180),
-                            description="IPP solar magnetic longitude")
-    
-    # Optional: Add geographic station coordinates if needed
     registry.register_feature('lat_sta', FeatureType.STATION, 
                             normalization=(-90, 90),
                             description="Station geographic latitude")
@@ -138,18 +183,58 @@ def create_default_registry(config: dict) -> FeatureRegistry:
                             normalization=(-180, 180),
                             description="Station geographic longitude")
     
+    # 3. IPP features (Ionospheric Pierce Point)
+    registry.register_feature('lat_ipp', FeatureType.IPP, 
+                            normalization=(-90, 90),
+                            description="IPP geographic latitude")
+    registry.register_feature('lon_ipp', FeatureType.IPP, 
+                            normalization=(-180, 180),
+                            description="IPP geographic longitude")
+    
+    registry.register_feature('sm_lat_ipp', FeatureType.IPP, 
+                            normalization=(-90, 90),
+                            description="IPP solar magnetic latitude")
+    registry.register_feature('sm_lon_ipp', FeatureType.IPP, 
+                            normalization=(-180, 180),
+                            description="IPP solar magnetic longitude")
+    
+    # 4. Direction features (satellite direction - azimuth, elevation)
+    registry.register_feature('satazi', FeatureType.DIRECTION, 
+                            normalization=(0, 360),
+                            description="Satellite azimuth angle")
+    registry.register_feature('satele', FeatureType.DIRECTION, 
+                            normalization=(0, 90),
+                            description="Satellite elevation angle")
+    
     # 5. SWI features (if enabled) - these come last in your data construction
     if config['data'].get('use_SWI', False):
-        swi_features = [
-            'Bartels_rotation_number', 'Scalar_B,_nT', 'Vector_B_Magnitude,nT',
-            'Lat_Angle_of_B_GSE', 'Long_Angle_of_B_GSE', 'BZ,_nT_GSE', 'BZ,_nT_GSM',
-            'SW_Plasma_Speed,_km/s', 'Flow_pressure', 'E_elecrtric_field', 
-            'Alfen_mach_number', 'Kp_index', 'R_Sunspot_No', 'Dst-index,_nT', 
-            'AE-index,_nT', 'ap_index,_nT', 'f107_index', 'pc-index', 
-            'AL-index,_nT', 'AU-index,_nT', 'Magnetosonic_Much_num', 'Lyman_alpha'
+        swi_features_with_normalization = [
+            ('Bartels_rotation_number', (2407, 3000)),
+            ('Scalar_B,_nT', (0, 70)),
+            ('Vector_B_Magnitude,nT', (0.0, 70)),
+            ('Lat_Angle_of_B_GSE', (-90, 90)),
+            ('Long_Angle_of_B_GSE', (0.0, 360.0)),
+            ('BZ,_nT_GSE', (-50, 35)),
+            ('BZ,_nT_GSM', (-50, 35)),
+            ('SW_Plasma_Speed,_km/s', (240.0, 1100.0)),
+            ('Flow_pressure', (0, 60)),
+            ('E_electric_field', (-20, 30)),
+            ('Alfen_mach_number', (0, 120)),
+            ('Kp_index', (0.0, 100.0)),
+            ('R_Sunspot_No', (0.0, 300.0)),
+            ('Dst-index,_nT', (-450, 100)),
+            ('AE-index,_nT', (0.0, 2500.0)),
+            ('ap_index,_nT', (0.0, 300.0)),
+            ('f107_index', (62, 420)),
+            ('pc-index', (-6, 16)),
+            ('AL-index,_nT', (-2000.0, 20.0)),
+            ('AU-index,_nT', (-200.0, 1200.0)),
+            ('Magnetosonic_Much_num', (0, 15)),
+            ('Lyman_alpha', (0, 0.015)),
         ]
-        for feature in swi_features:
-            registry.register_feature(feature, FeatureType.SWI)
+        
+        for feature, normalization in swi_features_with_normalization:
+            registry.register_feature(feature, FeatureType.SWI, normalization=normalization)
     
     # 6. Target feature (STEC or VTEC)
     if config['target'] == 'stec':
