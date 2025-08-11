@@ -9,6 +9,8 @@ from utils.pre_split_subsample_data import split
 from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner
+from utils.feature_registry import create_default_registry, FeatureType
+from utils.feature_monitor import FeatureMonitor
 
 import torch.multiprocessing as mp
 mp.set_sharing_strategy("file_system")
@@ -34,6 +36,23 @@ def main():
     logger.info(f"Device: {device}")
     config['device'] = device
 
+    # Create feature registry and monitor
+    feature_registry = create_default_registry(config)
+    feature_monitor = FeatureMonitor(feature_registry, logger)
+    
+    # Add to config so other components can access them
+    config['feature_registry'] = feature_registry
+    config['feature_monitor'] = feature_monitor
+    
+    # Log feature configuration
+    logger.info("=== Feature Configuration ===")
+    logger.info(f"Total features: {feature_registry.get_total_features()}")
+    for feature_type in FeatureType:
+        features = feature_registry.get_features_by_type(feature_type)
+        logger.info(f"{feature_type.value}: {len(features)} features")
+        if features:
+            logger.debug(f"  {feature_type.value} features: {features}")
+
     # Clear CUDA cache
     torch.cuda.empty_cache()
 
@@ -54,7 +73,7 @@ def main():
     
     if config['mode'] == 'pretrain':
         logging.info('Starting pretraining...')
-        Pretrainer(config, logger)
+        trainer = Pretrainer(config, logger)
     elif config['mode'] == 'finetune':
         folder = f"{config['pretrain_folder']}/model/"
         model_path = os.listdir(folder)
@@ -65,9 +84,12 @@ def main():
             Pretrainer(config, logger)
             config = parse_config(mode='finetune', device=device, data_path=data_path)
         logging.info('Starting finetuning...')
-        Finetuner(config, logger)
+        trainer = Finetuner(config, logger)
     else:
         logging.error('Invalid mode selected. Choose either "pretrain" or "finetune".')
+        
+    # Log final feature monitoring summary
+    feature_monitor.log_feature_summary()
 
 if __name__ == '__main__':
     main()

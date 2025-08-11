@@ -92,27 +92,21 @@ class BranchMLP(nn.Module):
 
         return mean, variance
     
-class MLP_NNL(torch.nn.Module):
-    def __init__(self, n_in=3):
+class MLP_NLL(torch.nn.Module):
+    def __init__(self, n_in=3, hidden_dim=1024, num_layers=4):
         super().__init__()
-        self.Linear_1 = Linear(n_in, 256)
-        self.Linear_2 = Linear(256, 256)
-        self.Linear_3 = Linear(256, 256)
-        self.Linear_4 = Linear(256, 256)
-        self.Linear_5 = Linear(256, 2)
+        self.layers = nn.ModuleList()
+        self.layers.append(Linear(n_in, hidden_dim))
+        for _ in range(num_layers - 1):
+            self.layers.append(Linear(hidden_dim, hidden_dim))
+        self.output_layer = Linear(hidden_dim, 2)
 
     def forward(self, x):
-        x = self.Linear_1(x)
-        x = F.relu(x)
-        x = self.Linear_2(x)
-        x = F.relu(x)
-        x = self.Linear_3(x)
-        x = F.relu(x)
-        x = self.Linear_4(x)
-        x = F.relu(x)
-        x = self.Linear_5(x)
+        for layer in self.layers:
+            x = F.relu(layer(x))
+        x = self.output_layer(x)
         mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-6 #Positive constraint
+        variance = F.softplus(variance) + 1e-6  # Positive constraint
 
         return mean, variance
 
@@ -283,7 +277,7 @@ class Branch_BNN_NLL(nn.Module):
 # Model selection function
 def get_model(config):
     model_type = config['model']['model_type']
-    in_features = 6 + 3 + 4 + 2 * config['data']['SH_degree']**2 # 6 time&doy + 3 azi/ele + 4 sta/ipp coords + SH embeddings
+    in_features = 7 + 3 + 4 + 2 * config['data']['SH_degree']**2 # 7 time&doy&year + 3 azi/ele + 4 sta/ipp coords + SH embeddings
     if config['data']['use_SWI']:
         num_SWI_params = 22
         in_features += num_SWI_params  # Add SWI features
@@ -294,8 +288,8 @@ def get_model(config):
         return MLP(n_in=in_features)
     elif model_type == 'BranchMLP':
         return BranchMLP(n_in=in_features, num_SWI_params=num_SWI_params)
-    elif model_type == 'MLP_NNL':
-        return MLP_NNL(n_in=in_features)
+    elif model_type == 'MLP_NLL':
+        return MLP_NLL(n_in=in_features)
     elif model_type == 'MLP_MCDropout_mse':
         return MLP_MCDropout_mse(n_in=in_features)
     elif model_type == 'MLP_MCDropout_NLL':

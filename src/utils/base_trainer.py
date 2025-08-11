@@ -4,232 +4,233 @@ import torch
 import pandas as pd
 from datetime import datetime
 from tqdm import tqdm
-import wandb 
+import wandb
+
 from utils.loss_function import get_criterion
 from utils.optimizers import get_optimizer, get_scheduler
 from utils.metrics import calculate_metrics
 from utils.plot import plot_test_metrics
+from utils.feature_registry import create_default_registry, FeatureType
+from utils.feature_monitor import FeatureMonitor
+
 
 class BaseTrainer:
     def __init__(self, config, logger):
         self.config = config
         self.logger = logger
-        self.device = config['device']
+        self.device = config.get('device', torch.device('cpu'))
+        
+        # Initialize feature management
+        self.feature_registry = config.get('feature_registry') or create_default_registry(config)
+        self.feature_monitor = config.get('feature_monitor') or FeatureMonitor(self.feature_registry, logger)
+        
         self.loss_weight = config['training']['loss_weight']
+        self.eps = 1e-6
 
-    def compute_stec_unc(self, outputs):
+        # Train loss in log space?
+        self.use_log_target = self.config['training'].get('log_target', True)
+        # How to map log-normal back to linear for the point estimate: "mean" or "median"
+        #   "mean": exp(mu + 0.5*sigma2)  (recommended for MSE/sums and GaussianNLLLoss)
+        #   "median": exp(mu)             (can be better for heavy tails if you prefer)
+        self.log_space_point = self.config['training'].get('log_space_point', 'mean').lower()
+        if self.log_space_point not in ('mean', 'median'):
+            self.log_space_point = 'mean'
+
+    # ---------- small helpers ----------
+
+    def _targets_to_training_space(self, targets):
+        """Return targets for the loss computation (log-space if enabled) AND keep original for metrics."""
+        targets = targets.to(self.device)
+        original_targets = targets.clone()  # for metrics (always linear/original)
+        if self.use_log_target:
+            training_targets = torch.log(targets + self.eps)
+        else:
+            training_targets = targets
+        return training_targets, original_targets
+
+    def _pred_log_to_linear(self, mu_log, var_log):
         """
-        Compute the integrated STEC and its uncertainty.
+        Convert log-space (Normal) params to linear-space (LogNormal) mean/std/var.
+        mu_log: mean of Z = log(Y+eps)
+        var_log: variance of Z
+        Returns:
+            point (mean or median in linear space), std_linear, var_linear
         """
-        stec, uncertainty = outputs[0], outputs[1]
-        return stec, uncertainty
-        
-    def train_epoch(self, model, dataloader, criterion_mse, criterion_nnl, criterion_kld, optimizer):
+        # Log-normal moments
+        # mean_y = exp(mu + 0.5*sigma2)
+        # var_y  = (exp(sigma2) - 1) * exp(2*mu + sigma2)
+        mean_y = torch.exp(mu_log + 0.5 * var_log) - self.eps
+        var_y = (torch.exp(var_log) - 1.0) * torch.exp(2 * mu_log + var_log)
+        std_y = torch.sqrt(var_y)
+
+        if self.log_space_point == 'median':
+            point = torch.exp(mu_log) - self.eps  # median of log-normal
+        else:
+            point = mean_y  # unbiased mean in original units
+
+        return point, std_y, var_y
+
+    def _pred_linear_from_linear(self, mean, var):
+        """Identity mapping when training in linear space. Returns (point, std, var)."""
+        std = torch.sqrt(var.clamp_min(0.0))
+        return mean, std, var
+
+    # ---------- model I/O naming ----------
+
+    def compute_mean_var(self, outputs):
+        """
+        Model head should return:
+            outputs[0] = mean   (mu_log if log-targets, else linear mean)
+            outputs[1] = variance (var_log if log-targets, else linear variance)
+        """
+        pred_mean, pred_var = outputs[0], outputs[1]
+        return pred_mean, pred_var
+
+    # ---------- training / validation ----------
+
+    def train_epoch(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, optimizer):
         model.train()
-        running_loss = 0.0
-        running_mse = 0.0
-        running_nnl = 0.0
-        running_kld = 0.0
-        running_variance = 0.0
-        all_outputs = []
-        all_targets = []
+        running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
+        all_outputs, all_targets = [], []
         disable_tqdm = "cluster" in os.environ.get('HOME', '')
-        
-        for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader), disable=disable_tqdm, desc="Training"):
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
+
+        for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader),
+                                         disable=disable_tqdm, desc="Training"):
+            
+            # Feature validation at training input
+            if i == 0:  # Only check first batch to avoid overhead
+                self.feature_monitor.check_feature_consistency(inputs, "train_input")
+                
+            inputs = inputs.to(self.device)
+            training_targets, original_targets = self._targets_to_training_space(targets)
+
             optimizer.zero_grad()
 
             outputs = model(inputs)
-            stec, uncertainty = self.compute_stec_unc(outputs)
-            
-            mse_loss = criterion_mse(stec, targets)
-            nnl_loss = criterion_nnl(stec, targets, uncertainty)
+            pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+
+            # Losses in the training space
+            mse_loss = criterion_mse(pred_mean_raw, training_targets)
+            nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
             kld_loss = criterion_kld(model)
-            loss = nnl_loss + self.loss_weight * kld_loss
-            
+            loss = nll_loss + self.loss_weight * kld_loss
+
             loss.backward()
             optimizer.step()
 
+            # Accumulate losses
             running_loss += loss.item()
             running_mse += mse_loss.item()
-            running_nnl += nnl_loss.item()
+            running_nll += nll_loss.item()
             running_kld += kld_loss.item()
-            running_variance += torch.mean(uncertainty).item()
-            all_outputs.append(torch.stack([stec, uncertainty], dim=1).detach().cpu())
-            all_targets.append(targets.detach().cpu())
+
+            # Back-transform to linear space for metrics/logging
+            if self.use_log_target:
+                point_linear, std_linear, var_linear = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
+            else:
+                point_linear, std_linear, var_linear = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
+
+            # Track average variance in ORIGINAL space (more interpretable)
+            running_variance += torch.mean(var_linear).item()
+
+            # Store outputs for metrics (pred, std) and original targets
+            all_outputs.append(torch.stack([point_linear, std_linear], dim=1).detach().cpu())
+            all_targets.append(original_targets.detach().cpu())
 
         all_outputs = torch.cat(all_outputs)
         all_targets = torch.cat(all_targets)
-        n_samples = len(dataloader)
-        avg_loss = running_loss / n_samples
-        avg_mse = running_mse / n_samples
-        avg_nnl = running_nnl / n_samples
-        avg_kld = running_kld / n_samples
-        avg_variance = running_variance / n_samples
-        return avg_loss, avg_mse, avg_nnl, avg_kld, avg_variance, all_outputs, all_targets
 
-    def validate_epoch(self, model, dataloader, criterion_mse, criterion_nnl, criterion_kld):
+        n_batches = len(dataloader)
+        return (running_loss / n_batches,
+                running_mse / n_batches,
+                running_nll / n_batches,
+                running_kld / n_batches,
+                running_variance / n_batches,
+                all_outputs, all_targets)
+
+    def validate_epoch(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld):
         model.eval()
-        running_loss = 0.0
-        running_mse = 0.0
-        running_nnl = 0.0
-        running_kld = 0.0
-        running_variance = 0.0
-        all_outputs = []
-        all_targets = []
-        
+        running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
+        all_outputs, all_targets = [], []
+
         with torch.no_grad():
-            for inputs, targets in tqdm(dataloader, desc="Validation", disable="cluster" in os.environ.get('HOME', '')):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
+            for i, (inputs, targets) in tqdm(dataloader, desc="Validation", disable="cluster" in os.environ.get('HOME', '')):
+                
+                # Feature validation at validation input
+                if i == 0:  # Only check first batch
+                    self.feature_monitor.check_feature_consistency(inputs, "val_input")
+                    
+                inputs = inputs.to(self.device)
+                training_targets, original_targets = self._targets_to_training_space(targets)
+
                 outputs = model(inputs)
-                stec, uncertainty = self.compute_stec_unc(outputs)
-                
-                mse_loss = criterion_mse(stec, targets)
-                nnl_loss = criterion_nnl(stec, targets, uncertainty)
+                pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+
+                # Losses in training space
+                mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
                 kld_loss = criterion_kld(model)
-                loss = nnl_loss + self.loss_weight * kld_loss
-                
+                loss = nll_loss + self.loss_weight * kld_loss
+
                 running_loss += loss.item()
                 running_mse += mse_loss.item()
-                running_nnl += nnl_loss.item()
+                running_nll += nll_loss.item()
                 running_kld += kld_loss.item()
-                running_variance += torch.mean(uncertainty).item()
-                all_outputs.append(torch.stack([stec, uncertainty], dim=1).cpu())
-                all_targets.append(targets.cpu())
+
+                # Back-transform for metrics
+                if self.use_log_target:
+                    point_linear, std_linear, var_linear = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
+                else:
+                    point_linear, std_linear, var_linear = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
+
+                running_variance += torch.mean(var_linear).item()
+
+                all_outputs.append(torch.stack([point_linear, std_linear], dim=1).cpu())
+                all_targets.append(original_targets.cpu())
 
         all_outputs = torch.cat(all_outputs)
-        all_targets = torch.cat(all_targets)        
+        all_targets = torch.cat(all_targets)
+
         n_batches = len(dataloader)
-        avg_loss = running_loss / n_batches
-        avg_mse = running_mse / n_batches
-        avg_nnl = running_nnl / n_batches
-        avg_kld = running_kld / n_batches
-        avg_variance = running_variance / n_batches
-        return avg_loss, avg_mse, avg_nnl, avg_kld, avg_variance, all_outputs, all_targets
+        return (running_loss / n_batches,
+                running_mse / n_batches,
+                running_nll / n_batches,
+                running_kld / n_batches,
+                running_variance / n_batches,
+                all_outputs, all_targets)
+
+    # ---------- testing ----------
 
     def test_model(self, model, dataloader):
         model.eval()
-        all_outputs = []
-        all_targets = []
+        all_outputs, all_targets = [], []
+
         with torch.no_grad():
-            for inputs, targets in tqdm(dataloader, desc="Testing", disable="cluster" in os.environ.get('HOME', '')):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
+            for i, (inputs, targets) in tqdm(dataloader, desc="Testing", disable="cluster" in os.environ.get('HOME', '')):
+                
+                # Feature validation at test input
+                if i == 0:  # Only check first batch
+                    self.feature_monitor.check_feature_consistency(inputs, "test_input")
+                    
+                inputs = inputs.to(self.device)
+                targets = targets.to(self.device)
+
                 outputs = model(inputs)
-                stec, uncertainty = self.compute_stec_unc(outputs)
-                all_outputs.append(torch.stack([stec, uncertainty], dim=1).cpu())
+                pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+
+                if self.use_log_target:
+                    point_linear, std_linear, _ = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
+                else:
+                    point_linear, std_linear, _ = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
+
+                all_outputs.append(torch.stack([point_linear, std_linear], dim=1).cpu())
                 all_targets.append(targets.cpu())
+
         return torch.cat(all_outputs), torch.cat(all_targets)
 
-    def bayesian_inference(self, model, dataloader, num_samples=100):
-        """Memory-efficient Monte Carlo sampling"""
-        model.eval()
-        
-        # Pre-allocate lists for batch-wise processing
-        batch_means = []
-        batch_stds = []
-        all_targets = []
-        
-        with torch.no_grad():
-            for inputs, targets in dataloader:
-                inputs = inputs.to(self.device)
-                batch_predictions = []
-                
-                # Sample predictions for this batch
-                for _ in range(num_samples):
-                    outputs = model(inputs)
-                    stec, _ = self.compute_stec_unc(outputs)
-                    batch_predictions.append(stec.cpu())
-                
-                # Stack and compute statistics for this batch
-                batch_predictions = torch.stack(batch_predictions, dim=0)
-                batch_mean = batch_predictions.mean(dim=0)
-                batch_std = batch_predictions.std(dim=0)
-                
-                batch_means.append(batch_mean)
-                batch_stds.append(batch_std)
-                all_targets.append(targets.cpu())
-        
-        # Concatenate across batches
-        mean = torch.cat(batch_means)
-        std = torch.cat(batch_stds)
-        targets = torch.cat(all_targets)
-        
-        return mean, std, targets
+    # ---------- feature inverse-transform ----------
 
-    def get_feature_indices(self):
-        """
-        Returns a dictionary of feature indices in the input tensor.
-        """
-
-        use_swi = self.config['data'].get('use_SWI', False)
-
-        # Define SWI column names (after removing YEAR, DOY, HR)
-        swi_columns = [
-            'Bartels_rotation_number',         # 0
-            'Scalar_B,_nT',                    # 1
-            'Vector_B_Magnitude,nT',           # 2
-            'Lat_Angle_of_B_GSE',              # 3
-            'Long_Angle_of_B_GSE',             # 4
-            'BZ,_nT_GSE',                      # 5
-            'BZ,_nT_GSM',                      # 6
-            'SW_Plasma_Speed,_km/s',           # 7
-            'Flow_pressure',                   # 8
-            'E_elecrtric_field',               # 9
-            'Alfen_mach_number',               # 10
-            'Kp_index',                        # 11
-            'R_Sunspot_No',                    # 12
-            'Dst-index,_nT',                   # 13
-            'AE-index,_nT',                    # 14
-            'ap_index,_nT',                    # 15
-            'f107_index',                      # 16
-            'pc-index',                        # 17
-            'AL-index,_nT',                    # 18
-            'AU-index,_nT',                    # 19
-            'Magnetosonic_Much_num',           # 20
-            'Lyman_alpha',                     # 21
-        ]
-
-        indices = {}
-
-        swi_offset = len(swi_columns) if use_swi else 0
-
-        # Core feature indices
-        indices.update({
-            'DOY':        swi_offset + 0,
-            'SOD':        swi_offset + 1,
-            'SM_Lat_sta': swi_offset + 2,
-            'SM_Lon_sta': swi_offset + 3,
-            'Lat_sta':    swi_offset + 2,  # Alias
-            'Lon_sta':    swi_offset + 3,  # Alias
-            'Azimuth':    swi_offset + 4,
-            'Elevation':  swi_offset + 5,
-        })
-
-        if use_swi:
-            # Map important SWI feature names to their absolute indices
-            indices['Kp_index']         = swi_columns.index('Kp_index')
-            indices['Dst_index']       = swi_columns.index('Dst-index,_nT')
-            indices['f107']            = swi_columns.index('f107_index')
-            indices['R_sunspot_number'] = swi_columns.index('R_Sunspot_No')
-        else:
-            # Not present in input tensor
-            indices['Kp_index']         = None
-            indices['Dst_index']        = None
-            indices['f107']             = None
-            indices['R_sunspot_number'] = None
-
-        return indices
-    
     def inverse_transform_features(self, x):
-        """
-        Inverse-transform normalized features back to original physical units.
-        
-        Args:
-            x: Tensor of shape (N, D), the full model input (normalized + SWI + SH if used).
-        
-        Returns:
-            Tensor of shape (N, 8 [+ SWI]), same column order as before normalization.
-        """
         use_swi = self.config['data'].get('use_SWI', False)
         sh_degree = self.config['data'].get("SH_degree", 0) or 0
         sh_dim = (sh_degree + 1) ** 2
@@ -251,7 +252,6 @@ class BaseTrainer:
         idx = 0
         rescaled_parts = []
 
-        # --- SWI features ---
         if use_swi:
             swi_tensor = x[:, :len(swi_cols)]
             for i, (min_val, max_val) in enumerate(swi_minmax):
@@ -259,22 +259,19 @@ class BaseTrainer:
                 rescaled_parts.append(rescaled.unsqueeze(1))
             idx += len(swi_cols)
 
-        # --- Core features (13 after transform) ---
-        # [doy_sin, doy_cos, doy_norm, sin_t, cos_t, norm_t,
-        #  sm_lat_norm, sm_lon_norm, sin_az, cos_az, norm_el,
-        #  ipp_lat_norm, ipp_lon_norm]
-        doy_norm = x[:, idx + 2]
-        sod_norm = (x[:, idx + 5] + 1) * 86400 / 2
-        sm_lat   = (x[:, idx + 6] + 1) * 90 - 90
-        sm_lon   = (x[:, idx + 7] + 1) * 180 - 180
+        year = x[:, idx + 0] * 20 + 2010
+        doy_norm = x[:, idx + 3]
+        sod_norm = (x[:, idx + 6] + 1) * 86400 / 2
+        sm_lat   = (x[:, idx + 7] + 1) * 90 - 90
+        sm_lon   = (x[:, idx + 8] + 1) * 180 - 180
         azimuth  = torch.atan2(x[:, idx + 8], x[:, idx + 9]) * 180 / torch.pi % 360
-        elevation = (x[:, idx + 10] + 1) * 90 / 2
-        ipp_lat  = (x[:, idx + 11] + 1) * 90 - 90
-        ipp_lon  = (x[:, idx + 12] + 1) * 180 - 180
+        elevation = (x[:, idx + 9] + 1) * 90 / 2
+        ipp_lat  = (x[:, idx + 10] + 1) * 90 - 90
+        ipp_lon  = (x[:, idx + 11] + 1) * 180 - 180
         doy      = doy_norm * 365 + 1
 
-        # Append in original column order
         rescaled_parts.extend([
+            year.unsqueeze(1),
             doy.unsqueeze(1),
             sod_norm.unsqueeze(1),
             sm_lat.unsqueeze(1),
@@ -287,57 +284,67 @@ class BaseTrainer:
 
         return torch.cat(rescaled_parts, dim=1)
 
-    def bayesian_inference_total_uncertainty(self, model, dataloader, num_samples=100):
-        """Compute total uncertainty = epistemic + aleatoric"""
-        model.eval()
-        
-        final_df = pd.DataFrame()
+    # ---------- Bayesian inference with proper aggregation in ORIGINAL space ----------
 
+    def bayesian_inference_total_uncertainty(self, model, dataloader, num_samples=100):
+        """
+        Compute predictive mean and total uncertainty (epistemic + aleatoric) in ORIGINAL space.
+        For log-targets, each forward pass is mapped via log-normal moments:
+            mean_y_s = exp(mu + 0.5*sigma2) - eps
+            var_y_alea_s = (exp(sigma2) - 1) * exp(2*mu + sigma2)
+        Then aggregate:
+            epistemic_var = Var_s(mean_y_s)
+            aleatoric_var = E_s(var_y_alea_s)
+        """
+        model.eval()
+
+        final_df = pd.DataFrame()
         batch_means = []
         batch_epistemic_vars = []
         batch_aleatoric_vars = []
         all_targets = []
-        
+
         with torch.no_grad():
-            for inputs, targets in tqdm(dataloader, desc="Bayesian Inference", disable="cluster" in os.environ.get('HOME', '')):
+            for inputs, targets in tqdm(dataloader, desc="Bayesian Inference",
+                                        disable="cluster" in os.environ.get('HOME', '')):
                 bs = inputs.size(0)
                 inputs = inputs.to(self.device)
-                batch_stec_predictions = []
-                batch_aleatoric_uncertainties = []
-                
-                # Sample predictions for this batch
+
+                per_sample_means = []
+                per_sample_alea_vars = []
+
                 for _ in range(num_samples):
                     outputs = model(inputs)
-                    stec, uncertainty = self.compute_stec_unc(outputs)
-                    batch_stec_predictions.append(stec.cpu())
-                    batch_aleatoric_uncertainties.append(uncertainty.cpu())
-                
-                # Stack predictions
-                batch_stec_predictions = torch.stack(batch_stec_predictions, dim=0)
-                batch_aleatoric_uncertainties = torch.stack(batch_aleatoric_uncertainties, dim=0)
-                
-                # Compute uncertainties
-                stec_mean = batch_stec_predictions.mean(dim=0)
-                epistemic_var = batch_stec_predictions.var(dim=0)  # Variance across samples
-                aleatoric_var = batch_aleatoric_uncertainties.mean(dim=0)  # Mean predicted variance
-                
+                    mean_raw, var_raw = self.compute_mean_var(outputs)
+
+                    if self.use_log_target:
+                        # Log-normal moments for this pass
+                        mean_y = torch.exp(mean_raw + 0.5 * var_raw) - self.eps
+                        var_alea_y = (torch.exp(var_raw) - 1.0) * torch.exp(2 * mean_raw + var_raw)
+                    else:
+                        mean_y = mean_raw
+                        var_alea_y = var_raw
+
+                    per_sample_means.append(mean_y.cpu())
+                    per_sample_alea_vars.append(var_alea_y.cpu())
+
+                pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
+                alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
+
+                stec_mean = pred_stack.mean(dim=0)
+                epistemic_var = pred_stack.var(dim=0)                 # Var over means
+                aleatoric_var = alea_var_stack.mean(dim=0)            # Mean aleatoric var
                 batch_means.append(stec_mean)
                 batch_epistemic_vars.append(epistemic_var)
                 batch_aleatoric_vars.append(aleatoric_var)
                 all_targets.append(targets.cpu())
 
-                # Prepare DataFrame for this batch
-                # Inverse-transform selected features
-                inputs = self.inverse_transform_features(inputs)
-
-                # Get feature indices
+                # Build per-batch DF (optional, unchanged columns)
+                inputs_original = self.inverse_transform_features(inputs)
                 indices = self.get_feature_indices()
-                
-                # Filter inputs tensor to include only columns specified in indices
                 selected_columns = [indices[key] for key in indices if indices[key] is not None]
-                filtered_inputs = inputs[:, selected_columns]
+                filtered_inputs = inputs_original[:, selected_columns]
 
-                # Concatenate inputs, targets, and predictions for the current batch
                 batch_df = pd.DataFrame(
                     torch.cat([
                         filtered_inputs.cpu().view(bs, -1),
@@ -349,19 +356,17 @@ class BaseTrainer:
                     ], dim=1).numpy(),
                     columns=[
                         *[key for key in indices if indices[key] is not None],
-                        'target_stec', 'pred_stec', 
+                        'target_stec', 'pred_stec',
                         'pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc'
                     ]
                 )
                 final_df = pd.concat([final_df, batch_df], ignore_index=True)
-        
-        # Concatenate across batches
+
         mean = torch.cat(batch_means).squeeze()
         epistemic_var = torch.cat(batch_epistemic_vars)
         aleatoric_var = torch.cat(batch_aleatoric_vars)
         targets = torch.cat(all_targets)
-        
-        # Total uncertainty
+
         total_var = epistemic_var + aleatoric_var
         total_std = torch.sqrt(total_var)
 
@@ -374,6 +379,8 @@ class BaseTrainer:
             'total_std': total_std,
             'targets': targets
         }, final_df
+
+    # ---------- training driver ----------
 
     def save_checkpoint(self, config, model, optimizer, epoch, val_loss, best_loss, checkpoint_dir, model_seed):
         self.logger.info(f"Validation loss improved from {best_loss:.2f} to {val_loss:.2f}. Saving checkpoint.")
@@ -403,7 +410,7 @@ class BaseTrainer:
         model_dir = os.path.join(self.config['output_dir'], 'model')
         os.makedirs(model_dir, exist_ok=True)
 
-        self.logger.info(f"Training model...")
+        self.logger.info("Training model...")
 
         if not self.config["debug"]:
             wandbname = f"{self.config['mode']} {self.config['model']['model_type']} {self.config['year']}-{self.config['doy']} m{seed+1:02}"
@@ -411,11 +418,10 @@ class BaseTrainer:
 
         model = init_model_fn(seed)
         criterion_mse = get_criterion(self.config, "MSELoss")
-        criterion_nnl = get_criterion(self.config, "GaussianNLLLoss")
+        criterion_nll = get_criterion(self.config, "GaussianNLLLoss")
         criterion_kld = get_criterion(self.config, "BKLLoss")
         optimizer = get_optimizer(self.config, model.parameters())
 
-        # Set up scheduler from the proper training configuration section.
         scheduler = None
         if self.config[training_key]["scheduler"]:
             scheduler = get_scheduler(self.config, optimizer)
@@ -424,24 +430,29 @@ class BaseTrainer:
         patience_counter = 0
         epochs = self.config[training_key]["epochs"]
 
+        # Log feature monitoring summary before training
+        self.logger.info("=== Feature Monitoring Summary ===")
+        self.feature_monitor.log_feature_summary()
+        
         for epoch in range(epochs):
             print(" ")
             self.logger.info(f"Epoch {epoch+1}/{epochs}")
 
-            # Within your training loop:
-            train_loss, train_mse, train_nnl, train_kld, train_variance, train_outputs, train_targets = self.train_epoch(model, train_loader, criterion_mse, criterion_nnl, criterion_kld, optimizer)
-            val_loss, val_mse, val_nnl, val_kld, val_variance, val_outputs, val_targets = self.validate_epoch(model, val_loader, criterion_mse, criterion_nnl, criterion_kld)
+            train_loss, train_mse, train_nll, train_kld, train_variance, train_outputs, train_targets = \
+                self.train_epoch(model, train_loader, criterion_mse, criterion_nll, criterion_kld, optimizer)
+            val_loss, val_mse, val_nll, val_kld, val_variance, val_outputs, val_targets = \
+                self.validate_epoch(model, val_loader, criterion_mse, criterion_nll, criterion_kld)
 
             if not self.config["debug"]:
                 wandb.log({
                     'train_loss': train_loss,
                     'train_loss_mse': train_mse,
-                    'train_loss_nnl': train_nnl,
+                    'train_loss_nll': train_nll,
                     'train_loss_kld': train_kld,
                     'train_variance': train_variance,
                     'val_loss': val_loss,
                     'val_loss_mse': val_mse,
-                    'val_loss_nnl': val_nnl,
+                    'val_loss_nll': val_nll,
                     'val_loss_kld': val_kld,
                     'val_variance': val_variance,
                     'learning_rate': scheduler.get_last_lr()[0] if scheduler else None,
@@ -461,7 +472,7 @@ class BaseTrainer:
             else:
                 patience_counter += 1
                 if patience_counter >= self.config[training_key]["patience"]:
-                    self.logger.info(f"Early stopping triggered...")
+                    self.logger.info("Early stopping triggered...")
                     break
 
         # Load best checkpoint for testing.
@@ -472,10 +483,11 @@ class BaseTrainer:
 
         test_outputs, test_targets = self.test_model(model, test_loader)
         test_metrics = calculate_metrics(test_outputs, test_targets, prefix="test")
-        self.logger.info(f"Test metrics: " +
-                            ", ".join(f"{k}: {v:.2f}" for k, v in test_metrics.items()))
+        self.logger.info("Test metrics: " + ", ".join(f"{k}: {v:.2f}" for k, v in test_metrics.items()))
 
-        bayesian_results, test_res_df = self.bayesian_inference_total_uncertainty(model, test_loader, num_samples=100)
+        num_samples = 100 if "BNN" in self.config['model']['model_type'] else 1
+        bayesian_results, test_res_df = self.bayesian_inference_total_uncertainty(model, test_loader,
+                                                                                  num_samples=num_samples)
 
         # Plotting test metrics from bayesian inference
         plot_test_metrics(test_res_df, output_dir=self.config['output_dir'])
@@ -497,11 +509,7 @@ class BaseTrainer:
             })
             wandb.finish()
 
-        """all_predictions.append(test_outputs)
-        all_targets.append(test_targets)
-
-        # Ensemble testing: average predictions from each model.
-        self.logger.info("Testing ensemble models...")
-        ensemble_predictions = torch.mean(torch.stack(all_predictions), dim=0)
-        ensemble_test_metrics = calculate_metrics(ensemble_predictions, all_targets[0], prefix="test")
-        self.logger.info(f"Ensemble Test Metrics: " + ", ".join(f"{k}: {v:.2f}" for k, v in ensemble_test_metrics.items()))"""
+        # Final feature monitoring summary
+        self.feature_monitor.log_feature_summary()
+        if self.feature_monitor.has_failures():
+            self.logger.warning("Some feature validation checks failed during training!")

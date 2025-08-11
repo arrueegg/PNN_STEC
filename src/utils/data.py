@@ -9,15 +9,15 @@ from utils.locationencoder.pe import SphericalHarmonics
 from data_processing.download_solar_indices import OmniDownloader
 import tables
 from tqdm import tqdm
+from utils.feature_registry import FeatureType
 
 import warnings
 from datetime import datetime, timedelta
 warnings.filterwarnings("ignore")
 
 torch.multiprocessing.set_start_method('fork', force=True)
-#spacepy.toolbox.update(leapsecs=True)
 
-# Structured dtype for our “one‐table” HDF5 per split:
+# Structured dtype for our "one‐table" HDF5 per split:
 DTYPE = np.dtype([
     ('station',   'S8'),    # up to 8‐char ASCII
     ('year',      'i4'),
@@ -45,6 +45,11 @@ class H5Dataset(Dataset):
         self.file = h5py.File(h5_path, 'r')
         self.data = self.file['data']
         
+        # Get feature registry
+        self.feature_registry = config.get('feature_registry')
+        if not self.feature_registry:
+            raise ValueError("Feature registry is required but not found in config")
+        
         # SWI?
         self.use_SWI = config['data'].get('use_SWI', False)
         if self.use_SWI:
@@ -65,17 +70,40 @@ class H5Dataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.data[idx]
-        # core features: DOY, SOD, station coords, az/el, IPP coords
-        feat = torch.tensor([
-            row['doy'],
-            row['sod'],
+        
+        # Build features according to registry
+        feature_vector = []
+        
+        # Add temporal features
+        temporal_features = [
+            row['year'],
+            row['doy'], 
+            row['sod']
+        ]
+        feature_vector.extend(temporal_features)
+        
+        # Add station features  
+        station_features = [
             row['sm_lat_sta'],
-            row['sm_lon_sta'],
+            row['sm_lon_sta']
+        ]
+        feature_vector.extend(station_features)
+        
+        # Add direction features (azimuth, elevation)
+        direction_features = [
             row['satazi'],
-            row['satele'],
+            row['satele']
+        ]
+        feature_vector.extend(direction_features)
+        
+        # Add IPP features
+        ipp_features = [
             row['lat_ipp'],
             row['lon_ipp']
-        ], dtype=torch.float32)
+        ]
+        feature_vector.extend(ipp_features)
+        
+        feat = torch.tensor(feature_vector, dtype=torch.float32)
 
         # SWI features?
         if self.use_SWI:
@@ -99,8 +127,9 @@ class H5Dataset(Dataset):
 
     def __del__(self):
         # close both files
-        self.file.close()
-        if self.use_SWI:
+        if hasattr(self, 'file') and self.file:
+            self.file.close()
+        if hasattr(self, 'swi_file') and self.use_SWI and self.swi_file:
             self.swi_file.close()
 
 class PyTablesDatasetSplit(Dataset):
@@ -110,6 +139,12 @@ class PyTablesDatasetSplit(Dataset):
         self.doy = self.h5_file_path.split('/')[-1].split('_')[1][4:]
         self.year = self.h5_file_path.split('/')[-1].split('_')[1][:4]
         self.split = split
+        
+        # Get feature registry
+        self.feature_registry = config.get('feature_registry')
+        if not self.feature_registry:
+            raise ValueError("Feature registry is required but not found in config")
+            
         self.SWI_data = self.load_SWI()
         self.file = None
         with tables.open_file(self.h5_file_path, mode='r') as f:
@@ -139,17 +174,39 @@ class PyTablesDatasetSplit(Dataset):
             self.indices = self.file.get_node(f'/{self.year}/{self.doy}/{self.split}_idx')
         row = self.data[self.indices[idx]]
 
-        # Encode strings and combine with numeric features
-        features = torch.tensor([
+        # Build features according to registry
+        feature_vector = []
+        
+        # Add temporal features
+        temporal_features = [
+            int(self.year),
             int(self.doy),
-            row['sod'],
+            row['sod']
+        ]
+        feature_vector.extend(temporal_features)
+        
+        # Add station features
+        station_features = [
             row['sm_lat_sta'],
-            row['sm_lon_sta'],
+            row['sm_lon_sta']
+        ]
+        feature_vector.extend(station_features)
+        
+        # Add direction features (azimuth, elevation)
+        direction_features = [
             row['satazi'],
-            row['satele'],
+            row['satele']
+        ]
+        feature_vector.extend(direction_features)
+        
+        # Add IPP features  
+        ipp_features = [
             row['lat_ipp'],
             row['lon_ipp']
-            ], dtype=torch.float32)
+        ]
+        feature_vector.extend(ipp_features)
+        
+        features = torch.tensor(feature_vector, dtype=torch.float32)
         
         if self.config['data']['use_SWI']:
             # Add SWI features if available
@@ -172,152 +229,219 @@ class PyTablesDatasetSplit(Dataset):
 
 class CollateWithSH:
     def __init__(self, config):
+        # Get feature registry
+        self.feature_registry = config.get('feature_registry')
+        self.feature_monitor = config.get('feature_monitor')
+        
+        if not self.feature_registry:
+            raise ValueError("Feature registry is required but not found in config")
+        
         # SH degree and flag
-        self.sh_degree  = config["data"].get("SH_degree", 0) or 0
+        self.sh_degree = config["data"].get("SH_degree", 0) or 0
         self.sh_enabled = self.sh_degree > 0
         if self.sh_enabled:
             self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree)
 
-        self.num_core_features = 8
+        # Pre-compute feature slices for efficiency
+        self.slices = {
+            'temporal': self.feature_registry.get_feature_slice(FeatureType.TEMPORAL),
+            'station': self.feature_registry.get_feature_slice(FeatureType.STATION), 
+            'direction': self.feature_registry.get_feature_slice(FeatureType.DIRECTION),
+            'ipp': self.feature_registry.get_feature_slice(FeatureType.IPP),
+            'swi': self.feature_registry.get_feature_slice(FeatureType.SWI) if config['data'].get('use_SWI', False) else slice(0, 0)
+        }
+        
+        # Get specific feature indices from registry
+        self.indices = self._compute_feature_indices()
+        
+        # Compute expected output dimensions
+        self.expected_dim = self._compute_output_dim()
 
-    def transform(self, features):
-        """
-        Normalize and transform the batch of features (one IPP point).
-        """
-        # raw feature indices
-        DOY, SOD, LAT_STA, LON_STA, AZI, ELE, IPP_LAT, IPP_LON = range(self.num_core_features)
+        # Initialize SWI normalizer
+        self.swi_normalizer = SWINormalizer(self.feature_registry)
 
-        # --- day of year ---
-        doy_norm = ((features[:, DOY] - 1) / 365).unsqueeze(1)  # Normalize DOY to [0, 1]
+    def _compute_feature_indices(self):
+        """Compute feature indices based on registry"""
+        indices = {}
+        
+        # Temporal features
+        temporal_names = self.feature_registry.get_feature_names(FeatureType.TEMPORAL)
+        indices['year'] = temporal_names.index('year')
+        indices['doy'] = temporal_names.index('doy') 
+        indices['sod'] = temporal_names.index('sod')
+        
+        # Station features
+        station_names = self.feature_registry.get_feature_names(FeatureType.STATION)
+        indices['lat_sta'] = len(temporal_names) + station_names.index('sm_lat_sta')
+        indices['lon_sta'] = len(temporal_names) + station_names.index('sm_lon_sta')
+        
+        # Direction features
+        direction_names = self.feature_registry.get_feature_names(FeatureType.DIRECTION)
+        direction_offset = len(temporal_names) + len(station_names)
+        indices['azi'] = direction_offset + direction_names.index('satazi')
+        indices['ele'] = direction_offset + direction_names.index('satele')
+        
+        # IPP features
+        ipp_names = self.feature_registry.get_feature_names(FeatureType.IPP)
+        ipp_offset = direction_offset + len(direction_names)
+        indices['ipp_lat'] = ipp_offset + ipp_names.index('lat_ipp')
+        indices['ipp_lon'] = ipp_offset + ipp_names.index('lon_ipp')
+        
+        return indices
+
+    def _compute_output_dim(self):
+        """Compute expected output dimension"""
+        # Base normalized features
+        base_dim = 14  # year, doy_sin, doy_cos, doy_norm, sin_t, cos_t, norm_t, lat_sta_norm, lon_sta_norm, sin_azi, cos_azi, norm_ele, ipp_lat_norm, ipp_lon_norm
+        
+        # Add SH embeddings if enabled
+        if self.sh_enabled:
+            sh_dim = self.sh_degree * self.sh_degree  # For both station and IPP
+            base_dim += 2 * sh_dim
+            
+        # Add SWI features if enabled
+        swi_slice = self.slices['swi']
+        if swi_slice.stop > swi_slice.start:
+            swi_dim = swi_slice.stop - swi_slice.start
+            base_dim += swi_dim
+            
+        return base_dim
+
+    def transform_temporal(self, features):
+        """Transform temporal features"""
+        year = features[:, self.indices['year']]
+        doy = features[:, self.indices['doy']]
+        sod = features[:, self.indices['sod']]
+        
+        # Normalize year
+        year_norm = ((year - 2010) / 20).unsqueeze(1)
+        
+        # Day of year transformations
+        doy_norm = ((doy - 1) / 365).unsqueeze(1)
         doy_sin = torch.sin(doy_norm * 2 * torch.pi)
         doy_cos = torch.cos(doy_norm * 2 * torch.pi)
+        
+        # Time of day transformations
+        t = sod / 86400 * (2 * torch.pi)
+        sin_t = torch.sin(t).unsqueeze(1)
+        cos_t = torch.cos(t).unsqueeze(1)
+        norm_t = (2 * sod / 86400 - 1).unsqueeze(1)
+        
+        return torch.cat([year_norm, doy_sin, doy_cos, doy_norm, sin_t, cos_t, norm_t], dim=1)
 
-        # --- time of day ---
-        t      = features[:, SOD] / 86400 * (2 * torch.pi)
-        sin_t  = torch.sin(t).unsqueeze(1)
-        cos_t  = torch.cos(t).unsqueeze(1)
-        norm_t = (2 * features[:, SOD] / 86400 - 1).unsqueeze(1)
+    def transform_station(self, features):
+        """Transform station features"""
+        lat_sta = features[:, self.indices['lat_sta']]
+        lon_sta = features[:, self.indices['lon_sta']]
+        
+        # Normalize to [-1, 1]
+        lat_norm = ((lat_sta + 90) / 180 * 2 - 1).unsqueeze(1)
+        lon_norm = ((lon_sta + 180) / 360 * 2 - 1).unsqueeze(1)
+        
+        return torch.cat([lat_norm, lon_norm], dim=1)
 
-        # --- azimuth / elevation ---
-        a      = features[:, AZI] / 180 * torch.pi
-        sin_a  = torch.sin(a).unsqueeze(1)
-        cos_a  = torch.cos(a).unsqueeze(1)
-        norm_e = (2 * features[:, ELE] / 90 - 1).unsqueeze(1)
+    def transform_direction(self, features):
+        """Transform direction features (azimuth, elevation)"""
+        azi = features[:, self.indices['azi']]
+        ele = features[:, self.indices['ele']]
+        
+        # Azimuth transformations
+        a = azi / 180 * torch.pi
+        sin_a = torch.sin(a).unsqueeze(1)
+        cos_a = torch.cos(a).unsqueeze(1)
+        
+        # Elevation normalization
+        norm_e = (2 * ele / 90 - 1).unsqueeze(1)
+        
+        return torch.cat([sin_a, cos_a, norm_e], dim=1)
 
-        # --- station coords normalized to [-1,1] ---
-        sm_lat_norm = ((features[:, LAT_STA] + 90) / 180 * 2 - 1).unsqueeze(1)
-        sm_lon_norm = ((features[:, LON_STA] + 180) / 360 * 2 - 1).unsqueeze(1)
+    def transform_ipp(self, features):
+        """Transform IPP features"""
+        ipp_lat = features[:, self.indices['ipp_lat']]
+        ipp_lon = features[:, self.indices['ipp_lon']]
+        
+        # Normalize to [-1, 1]
+        lat_norm = ((ipp_lat + 90) / 180 * 2 - 1).unsqueeze(1)
+        lon_norm = ((ipp_lon + 180) / 360 * 2 - 1).unsqueeze(1)
+        
+        return torch.cat([lat_norm, lon_norm], dim=1)
 
-        # --- single IPP point normalized to [-1,1] ---
-        ipp_lat_norm = ((features[:, IPP_LAT] + 90) / 180 * 2 - 1).unsqueeze(1)
-        ipp_lon_norm = ((features[:, IPP_LON] + 180) / 360 * 2 - 1).unsqueeze(1)
+    def transform_swi(self, features):
+        """Transform SWI features"""
+        swi_slice = self.slices['swi']
+        if swi_slice.stop <= swi_slice.start:
+            return None
+            
+        swi_features = features[:, swi_slice]
+        return self.swi_normalizer.normalize(swi_features)
 
-        # concatenate core normalized features
-        x_out = torch.cat([
-            doy_sin, doy_cos, doy_norm,
-            sin_t, cos_t, norm_t,
-            sm_lat_norm, sm_lon_norm,
-            sin_a, cos_a, norm_e,
-            ipp_lat_norm, ipp_lon_norm
-        ], dim=1)
-
-        return x_out
-    
-    def norm_SWI(self, swi_features):
-        """
-        Normalize SWI features to [0, 1] range for each column by specified min/max values.
-        """
-        swi_features = swi_features.float()
-
-        # Define min and max values as tensors (matching column order)
-        min_max_values = [
-            (2407, 3000),  # Bartels_rotation_number
-            (0, 70),       # Scalar_B,_nT
-            (0.0, 70),     # Vector_B_Magnitude,nT
-            (-90, 90),     # Lat_Angle_of_B_GSE
-            (0.0, 360.0),  # Long_Angle_of_B_GSE
-            (-50, 35),     # BZ,_nT_GSE
-            (-50, 35),     # BZ,_nT_GSM
-            (240.0, 1100.0), # SW_Plasma_Speed,_km/s
-            (0, 60),       # Flow_pressure
-            (-20, 30),     # E_elecrtric_field
-            (0, 120),      # Alfen_mach_number
-            (0.0, 100.0),  # Kp_index
-            (0.0, 300.0),  # R_Sunspot_No
-            (-450, 100),   # Dst-index,_nT
-            (0.0, 2500.0), # AE-index,_nT
-            (0.0, 300.0),  # ap_index,_nT
-            (62, 420),     # f107_index
-            (-6, 16),      # pc-index
-            (-2000.0, 20.0), # AL-index,_nT
-            (-200.0, 1200.0), # AU-index,_nT
-            (0, 15),       # Magnetosonic_Much_num
-            (0, 0.015),    # Lyman_alpha
-        ]
-
-        # Convert min and max to tensors
-        min_vals = torch.tensor([m[0] for m in min_max_values], dtype=torch.float32, device=swi_features.device)
-        max_vals = torch.tensor([m[1] for m in min_max_values], dtype=torch.float32, device=swi_features.device)
-
-        # Vectorized min-max normalization
-        normalized_features = (swi_features - min_vals) / (max_vals - min_vals)
-
-        # Concatenate normalized columns
-        return normalized_features
-
-    def SH_transform(self, raw, norm):
-        """
-        Append spherical-harmonic embeddings if enabled.
-        `raw` is original features; `norm` is output from transform().
-        """
+    def compute_sh_embeddings(self, features):
+        """Compute spherical harmonic embeddings for station and IPP"""
         if not self.sh_enabled:
-            return norm
-
-        # SH embeddings for station (LON_STA, LAT_STA = cols 1,0)
-        sta_lonlat = torch.stack([raw[:, 1], raw[:, 0]], dim=1)
+            return None, None
+            
+        # Station SH embeddings (lon, lat)
+        sta_lon = features[:, self.indices['lon_sta']]
+        sta_lat = features[:, self.indices['lat_sta']]
+        sta_lonlat = torch.stack([sta_lon, sta_lat], dim=1)
         sh_sta = self.sh_encoder(sta_lonlat)
-
-        # SH embeddings for IPP (IPP_LON, IPP_LAT = cols 6,5)
-        ipp_lonlat = torch.stack([raw[:, 6], raw[:, 5]], dim=1)
+        
+        # IPP SH embeddings (lon, lat)
+        ipp_lon = features[:, self.indices['ipp_lon']]
+        ipp_lat = features[:, self.indices['ipp_lat']]
+        ipp_lonlat = torch.stack([ipp_lon, ipp_lat], dim=1)
         sh_ipp = self.sh_encoder(ipp_lonlat)
+        
+        return sh_sta, sh_ipp
 
-        # combine normalized + SH features
-        return torch.cat([norm, sh_sta, sh_ipp], dim=1)
-    
     def __call__(self, batch):
-        """
-        Process and collate a batch of (raw_features, labels).
-        """
+        """Process and collate a batch of (features, labels)"""
         feats, labels = zip(*batch)
-        raw = torch.stack(feats, dim=0)
-        y   = torch.stack(labels, dim=0)
+        features = torch.stack(feats, dim=0)
+        labels = torch.stack(labels, dim=0)
 
-        # Split core features and SWI features
-        core = raw[:, :self.num_core_features]
-        swi  = raw[:, self.num_core_features:]
+        # Transform different feature types
+        temporal_transformed = self.transform_temporal(features)
+        station_transformed = self.transform_station(features)
+        direction_transformed = self.transform_direction(features)
+        ipp_transformed = self.transform_ipp(features)
+        swi_transformed = self.transform_swi(features)
+        
+        # Compute SH embeddings if enabled
+        sh_sta, sh_ipp = self.compute_sh_embeddings(features)
+        
+        # Combine all transformed features
+        output_features = [temporal_transformed, station_transformed, direction_transformed, ipp_transformed]
+        
+        # Add SH embeddings if computed
+        if sh_sta is not None and sh_ipp is not None:
+            output_features.extend([sh_sta, sh_ipp])
+            
+        # Add SWI features if available
+        if swi_transformed is not None:
+            output_features.append(swi_transformed)
+        
+        # Concatenate all features
+        final_features = torch.cat(output_features, dim=1)
+        
+        # Monitor feature dimensions if enabled
+        if self.feature_monitor:
+            self.feature_monitor.log_batch_features(final_features, 'collated')
+            
+        return final_features, labels
 
-        # Normalize features
-        norm_core  = self.transform(core)
-        x_out = self.SH_transform(core, norm_core)
-        norm_swi = self.norm_SWI(swi) if swi.shape[1] > 0 else None
-
-        # Append SWI features (raw or normalized if needed)
-        if norm_swi is not None:
-            x_out = torch.cat([norm_swi, x_out], dim=1)
-
-        return x_out, y
-    
+# Rest of the utility functions remain the same...
 def generate_dates(months):
-        dates = []
-        for month in months:
-            year, month = map(int, month.split('-'))
-            start_date = datetime(year, month, 1)
-            end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-            current_date = start_date
-            while current_date <= end_date:
-                dates.append(current_date)
-                current_date += timedelta(days=1)
-        return dates
+    dates = []
+    for month in months:
+        year, month = map(int, month.split('-'))
+        start_date = datetime(year, month, 1)
+        end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+        current_date = start_date
+        while current_date <= end_date:
+            dates.append(current_date)
+            current_date += timedelta(days=1)
+    return dates
 
 def move_files_to_scratch(config, file_paths):
     """ Move data files to scratch storage for faster access.
@@ -346,11 +470,6 @@ def get_split_file_lists(config, year, doy):
     val_months = sorted(set(np.loadtxt('./src/data_processing/val_dates.list', dtype=str)))
     test_months = sorted(set(np.loadtxt('./src/data_processing/test_dates.list', dtype=str)))
 
-    # Filter dates to be only after 2019 for debuging
-    #train_months = [m for m in train_months if int(m.split('-')[0]) >= 2019]
-    #val_months = [m for m in val_months if int(m.split('-')[0]) >= 2019]
-    #test_months = [m for m in test_months if int(m.split('-')[0]) >= 2019]
-
     train_dates = generate_dates(train_months)
     val_dates = generate_dates(val_months)
     test_dates = generate_dates(test_months)
@@ -361,15 +480,9 @@ def get_split_file_lists(config, year, doy):
     val_dates = val_dates[::every_x_doy]
     test_dates = test_dates[::every_x_doy]
 
-    """train_dates = [datetime(2023, 1, 1)]  # For debugging, only use one day
-    val_dates = [datetime(2023, 1, 2)]    # For debugging, only use one day
-    test_dates = [datetime(2023, 1, 3)]   # For debugging, only use one day
-    ######################### Debugging: only use one day #########################"""
-
     def get_file_paths(dates):
         file_paths = []
         for date in dates:
-            #file_path = os.path.join(gnss_path, f'Split_{date.year}{date.timetuple().tm_yday:03d}_30_5_subsampled_{sampling}.h5')
             file_path = os.path.join(gnss_path, str(date.year), f'{date.timetuple().tm_yday:03d}', f'ccl_{date.year}{date.timetuple().tm_yday:03d}_30_5.h5')
             if os.path.exists(file_path):
                 file_paths.append(file_path)
@@ -504,7 +617,8 @@ def build_split_h5(config):
 
     # close all files
     for v in out.values():
-        v['file'].close()
+        if v['file']:
+            v['file'].close()
 
     print("✅ Built split H5 files at:", scratch)
 
@@ -537,8 +651,8 @@ def get_data_loaders(config):
 
      # ---- config knobs ----
     train_subset = config['data'].get('train_subset_size', None)
-    total_size = train_subset / 0.7
-    val_subset = test_subset = int(total_size * 0.15)
+    total_size = train_subset / 0.7 if train_subset else None
+    val_subset = test_subset = int(total_size * 0.15) if total_size else None
     seed = int(config.get('seed', 42))
     bs   = config['pretrain']['batchsize']
     nw   = config['pretrain']['num_workers']
@@ -559,7 +673,7 @@ def get_data_loaders(config):
                     downloader = OmniDownloader(config['data']['SWI_data_path'], "20100101", "20250625")
                     downloader.run()
                 shutil.copy(swi_path, swi_scratch_path)
-                config['data']['SWI_data_path'] = swi_scratch_path
+                config['data']['SWI_data_path'] = os.path.dirname(swi_scratch_path)
 
             path = os.path.join(config['data']['scratch_dir'], f"{split}.h5")
             ds   = H5Dataset(config, path, split)
@@ -617,3 +731,54 @@ def get_data_loaders(config):
             )
 
     return loaders['train'], loaders['val'], loaders['test']
+
+
+class SWINormalizer:
+    """Centralized SWI feature normalization based on feature registry"""
+    
+    def __init__(self, feature_registry=None):
+        self.feature_registry = feature_registry
+        
+        # SWI feature min/max values (matching column order from OmniDownloader)
+        self.min_max_values = [
+            (2407, 3000),     # Bartels_rotation_number
+            (0, 70),          # Scalar_B,_nT
+            (0.0, 70),        # Vector_B_Magnitude,nT
+            (-90, 90),        # Lat_Angle_of_B_GSE
+            (0.0, 360.0),     # Long_Angle_of_B_GSE
+            (-50, 35),        # BZ,_nT_GSE
+            (-50, 35),        # BZ,_nT_GSM
+            (240.0, 1100.0),  # SW_Plasma_Speed,_km/s
+            (0, 60),          # Flow_pressure
+            (-20, 30),        # E_elecrtic_field
+            (0, 120),         # Alfen_mach_number
+            (0.0, 100.0),     # Kp_index
+            (0.0, 300.0),     # R_Sunspot_No
+            (-450, 100),      # Dst-index,_nT
+            (0.0, 2500.0),    # AE-index,_nT
+            (0.0, 300.0),     # ap_index,_nT
+            (62, 420),        # f107_index
+            (-6, 16),         # pc-index
+            (-2000.0, 20.0),  # AL-index,_nT
+            (-200.0, 1200.0), # AU-index,_nT
+            (0, 15),          # Magnetosonic_Much_num
+            (0, 0.015),       # Lyman_alpha
+        ]
+    
+    def normalize(self, swi_features):
+        """Normalize SWI features to [0, 1] range"""
+        swi_features = swi_features.float()
+
+        # Convert min and max to tensors
+        min_vals = torch.tensor([m[0] for m in self.min_max_values], 
+                               dtype=torch.float32, device=swi_features.device)
+        max_vals = torch.tensor([m[1] for m in self.min_max_values], 
+                               dtype=torch.float32, device=swi_features.device)
+
+        # Vectorized min-max normalization
+        normalized_features = (swi_features - min_vals) / (max_vals - min_vals)
+        return normalized_features
+    
+    def get_expected_dim(self):
+        """Get expected number of SWI features"""
+        return len(self.min_max_values)

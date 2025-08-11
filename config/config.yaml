@@ -28,11 +28,11 @@ split:
   test_ratio: 0.1
 
 model:
-  model_type: MLP_NNL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
+  model_type: MLP_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, HuberLoss, LaplaceLoss, GaussianNLLLoss,ProfileLoss
-  loss_weight: 1.0
+  loss_weight: 0.0
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization
 

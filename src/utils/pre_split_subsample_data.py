@@ -140,23 +140,60 @@ def assign_arc_records(key, records, train_stations, val_stations, test_stations
         test_records.extend(records)
 
 def process_batch(batch_array, config, train_stations, val_stations, test_stations):
-    """
-    Processes a batch of records:
-      - Groups records by arc,
-      - Applies subsampling on each arc,
-      - Assigns records to train/val/test splits.
-    Returns three lists: train_records, val_records, and test_records.
-    """
-    train_records = []
-    val_records = []
-    test_records = []
-    sampling = config['data']['sampling']
-    arcs = group_records_by_arc(batch_array, config)
-    for key, arc in arcs.items():
-        subsampled = subsample_arc(arc, sampling)
-        assign_arc_records(key, subsampled, train_stations, val_stations, test_stations,
-                           train_records, val_records, test_records)
-    return train_records, val_records, test_records
+    """Process a batch of records and categorize by station split."""
+    # Get feature registry
+    feature_registry = config.get('feature_registry')
+    if not feature_registry:
+        raise ValueError("Feature registry is required but not found in config")
+    
+    train_recs = []
+    val_recs = []
+    test_recs = []
+    
+    for record in batch_array:
+        station = record['station'].decode('utf-8')
+        
+        # Build features according to registry - same order as in main data.py
+        feature_vector = []
+        
+        # Add temporal features (from registry)
+        temporal_features = [
+            record['year'],
+            record['doy'],
+            record['sod']
+        ]
+        feature_vector.extend(temporal_features)
+        
+        # Add station features
+        station_features = [
+            record['sm_lat_sta'],
+            record['sm_lon_sta']
+        ]
+        feature_vector.extend(station_features)
+        
+        # Add direction features
+        direction_features = [
+            record['satazi'],
+            record['satele']
+        ]
+        feature_vector.extend(direction_features)
+        
+        # Add IPP features
+        ipp_features = [
+            record['lat_ipp'],
+            record['lon_ipp']
+        ]
+        feature_vector.extend(ipp_features)
+        
+        # Categorize by station
+        if station in train_stations:
+            train_recs.append(record)
+        elif station in val_stations:
+            val_recs.append(record)
+        elif station in test_stations:
+            test_recs.append(record)
+    
+    return train_recs, val_recs, test_recs
 
 def append_split(records, dset, current_count, dtype):
     """
