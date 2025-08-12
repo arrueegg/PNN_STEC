@@ -149,8 +149,7 @@ class BaseTrainer:
         all_outputs, all_targets = [], []
 
         with torch.no_grad():
-            for i, (inputs, targets) in tqdm(dataloader, desc="Validation", disable="cluster" in os.environ.get('HOME', '')):
-                                    
+            for inputs, targets in tqdm(dataloader, desc="Validation", disable="cluster" in os.environ.get('HOME', '')):
                 inputs = inputs.to(self.device)
                 training_targets, original_targets = self._targets_to_training_space(targets)
 
@@ -163,21 +162,24 @@ class BaseTrainer:
                 kld_loss = criterion_kld(model)
                 loss = nll_loss + self.loss_weight * kld_loss
 
+                # Accumulate losses
                 running_loss += loss.item()
                 running_mse += mse_loss.item()
                 running_nll += nll_loss.item()
                 running_kld += kld_loss.item()
 
-                # Back-transform for metrics
+                # Back-transform to linear space for metrics/logging
                 if self.use_log_target:
                     point_linear, std_linear, var_linear = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
                 else:
                     point_linear, std_linear, var_linear = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
 
+                # Track average variance in ORIGINAL space
                 running_variance += torch.mean(var_linear).item()
 
-                all_outputs.append(torch.stack([point_linear, std_linear], dim=1).cpu())
-                all_targets.append(original_targets.cpu())
+                # Store outputs for metrics (pred, std) and original targets
+                all_outputs.append(torch.stack([point_linear, std_linear], dim=1).detach().cpu())
+                all_targets.append(original_targets.detach().cpu())
 
         all_outputs = torch.cat(all_outputs)
         all_targets = torch.cat(all_targets)
@@ -190,86 +192,120 @@ class BaseTrainer:
                 running_variance / n_batches,
                 all_outputs, all_targets)
 
-    # ---------- testing ----------
-
     def test_model(self, model, dataloader):
         model.eval()
         all_outputs, all_targets = [], []
 
         with torch.no_grad():
-            for i, (inputs, targets) in tqdm(dataloader, desc="Testing", disable="cluster" in os.environ.get('HOME', '')):
-                
+            for inputs, targets in tqdm(dataloader, desc="Testing", disable="cluster" in os.environ.get('HOME', '')):
+
                 inputs = inputs.to(self.device)
-                targets = targets.to(self.device)
+                training_targets, original_targets = self._targets_to_training_space(targets)
 
                 outputs = model(inputs)
                 pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
 
+                # Back-transform to linear space for outputs
                 if self.use_log_target:
-                    point_linear, std_linear, _ = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
+                    point_linear, std_linear, var_linear = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
                 else:
-                    point_linear, std_linear, _ = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
+                    point_linear, std_linear, var_linear = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
 
-                all_outputs.append(torch.stack([point_linear, std_linear], dim=1).cpu())
-                all_targets.append(targets.cpu())
+                # Store outputs for metrics (pred, std) and original targets
+                all_outputs.append(torch.stack([point_linear, std_linear], dim=1).detach().cpu())
+                all_targets.append(original_targets.detach().cpu())
 
         return torch.cat(all_outputs), torch.cat(all_targets)
 
     # ---------- feature inverse-transform ----------
 
     def inverse_transform_features(self, x):
-        use_swi = self.config['data'].get('use_SWI', False)
-        sh_degree = self.config['data'].get("SH_degree", 0) or 0
-        sh_dim = (sh_degree + 1) ** 2
+        """Transform normalized features back to original scale using feature registry."""
+        # Get output indices from the feature registry (these map to the transformed feature vector)
+        output_indices = self.feature_registry._output_indices
+        
+        rescaled_features = {}
+        
+        # Process each feature type
+        for feature_type in [FeatureType.TEMPORAL, FeatureType.STATION, FeatureType.DIRECTION, 
+                           FeatureType.IPP, FeatureType.SWI]:
+            
+            feature_names = self.feature_registry.get_feature_names(feature_type)
+            
+            for feature_name in feature_names:
+                if feature_type == FeatureType.TEMPORAL:
+                    if feature_name == 'year':
+                        norm_idx = output_indices[f'{feature_name}_norm']
+                        rescaled_features[feature_name] = self.feature_registry.denormalize_feature(
+                            feature_name, x[:, norm_idx]
+                        )
+                    elif feature_name in ['doy', 'sod']:
+                        # For cyclic features, we use the normalized version for inverse transform
+                        norm_idx = output_indices[f'{feature_name}_norm']
+                        rescaled_features[feature_name] = self.feature_registry.denormalize_feature(
+                            feature_name, x[:, norm_idx]
+                        )
+                
+                elif feature_type == FeatureType.STATION:
+                    norm_idx = output_indices[f'{feature_name}_norm']
+                    rescaled_features[feature_name] = self.feature_registry.denormalize_feature(
+                        feature_name, x[:, norm_idx]
+                    )
+                
+                elif feature_type == FeatureType.DIRECTION:
+                    if feature_name == 'satazi':
+                        # For azimuth, reconstruct from sin/cos components
+                        sin_idx = output_indices[f'{feature_name}_sin'] 
+                        cos_idx = output_indices[f'{feature_name}_cos']
+                        azi_rad = torch.atan2(x[:, sin_idx], x[:, cos_idx])
+                        azi_deg = (azi_rad * 180 / torch.pi) % 360
+                        rescaled_features[feature_name] = azi_deg
+                    elif feature_name == 'satele':
+                        norm_idx = output_indices[f'{feature_name}_norm']
+                        rescaled_features[feature_name] = self.feature_registry.denormalize_feature(
+                            feature_name, x[:, norm_idx]
+                        )
+                
+                elif feature_type == FeatureType.IPP:
+                    norm_idx = output_indices[f'{feature_name}_norm']
+                    rescaled_features[feature_name] = self.feature_registry.denormalize_feature(
+                        feature_name, x[:, norm_idx]
+                    )
+                
+                elif feature_type == FeatureType.SWI:
+                    norm_idx = output_indices[f'{feature_name}_norm']
+                    rescaled_features[feature_name] = self.feature_registry.denormalize_feature(
+                        feature_name, x[:, norm_idx]
+                    )
+        
+        # Convert to tensor and return in a consistent order
+        feature_list = []
+        feature_order = []
+        
+        # Add features in registry order
+        for feature_name in self.feature_registry.get_all_enabled_features():
+            if feature_name in rescaled_features and feature_name not in self.feature_registry.get_features_by_type(FeatureType.TARGET):
+                feature_list.append(rescaled_features[feature_name].unsqueeze(1))
+                feature_order.append(feature_name)
+        
+        if feature_list:
+            return torch.cat(feature_list, dim=1), feature_order
+        else:
+            return torch.empty(x.size(0), 0), []
 
-        swi_cols = [
-            'Bartels_rotation_number', 'Scalar_B,_nT', 'Vector_B_Magnitude,nT', 'Lat_Angle_of_B_GSE',
-            'Long_Angle_of_B_GSE', 'BZ,_nT_GSE', 'BZ,_nT_GSM', 'SW_Plasma_Speed,_km/s',
-            'Flow_pressure', 'E_elecrtric_field', 'Alfen_mach_number', 'Kp_index',
-            'R_Sunspot_No', 'Dst-index,_nT', 'AE-index,_nT', 'ap_index,_nT', 'f107_index',
-            'pc-index', 'AL-index,_nT', 'AU-index,_nT', 'Magnetosonic_Much_num', 'Lyman_alpha'
-        ]
-        swi_minmax = [
-            (2407, 3000), (0, 70), (0.0, 70), (-90, 90), (0.0, 360.0), (-50, 35), (-50, 35),
-            (240.0, 1100.0), (0, 60), (-20, 30), (0, 120), (0.0, 100.0), (0.0, 300.0), (-450, 100),
-            (0.0, 2500.0), (0.0, 300.0), (62, 420), (-6, 16), (-2000.0, 20.0), (-200.0, 1200.0),
-            (0, 15), (0, 0.015)
-        ]
-
-        idx = 0
-        rescaled_parts = []
-
-        if use_swi:
-            swi_tensor = x[:, :len(swi_cols)]
-            for i, (min_val, max_val) in enumerate(swi_minmax):
-                rescaled = swi_tensor[:, i] * (max_val - min_val) + min_val
-                rescaled_parts.append(rescaled.unsqueeze(1))
-            idx += len(swi_cols)
-
-        year = x[:, idx + 0] * 20 + 2010
-        doy_norm = x[:, idx + 3]
-        sod_norm = (x[:, idx + 6] + 1) * 86400 / 2
-        sm_lat   = (x[:, idx + 7] + 1) * 90 - 90
-        sm_lon   = (x[:, idx + 8] + 1) * 180 - 180
-        azimuth  = torch.atan2(x[:, idx + 8], x[:, idx + 9]) * 180 / torch.pi % 360
-        elevation = (x[:, idx + 9] + 1) * 90 / 2
-        ipp_lat  = (x[:, idx + 10] + 1) * 90 - 90
-        ipp_lon  = (x[:, idx + 11] + 1) * 180 - 180
-        doy      = doy_norm * 365 + 1
-
-        rescaled_parts.extend([
-            year.unsqueeze(1),
-            doy.unsqueeze(1),
-            sod_norm.unsqueeze(1),
-            sm_lat.unsqueeze(1),
-            sm_lon.unsqueeze(1),
-            azimuth.unsqueeze(1),
-            elevation.unsqueeze(1),
-            ipp_lat.unsqueeze(1),
-            ipp_lon.unsqueeze(1)
-        ])
-
-        return torch.cat(rescaled_parts, dim=1)
+    def get_feature_indices(self):
+        """Get a mapping of feature names to their column indices in the inverse-transformed data."""
+        # Get all enabled features excluding targets
+        all_enabled = self.feature_registry.get_all_enabled_features()
+        target_features = self.feature_registry.get_features_by_type(FeatureType.TARGET)
+        input_features = [f for f in all_enabled if f not in target_features]
+        
+        # Create mapping
+        indices = {}
+        for idx, feature_name in enumerate(input_features):
+            indices[feature_name] = idx
+            
+        return indices
 
     # ---------- Bayesian inference with proper aggregation in ORIGINAL space ----------
 
@@ -326,15 +362,12 @@ class BaseTrainer:
                 batch_aleatoric_vars.append(aleatoric_var)
                 all_targets.append(targets.cpu())
 
-                # Build per-batch DF (optional, unchanged columns)
-                inputs_original = self.inverse_transform_features(inputs)
-                indices = self.get_feature_indices()
-                selected_columns = [indices[key] for key in indices if indices[key] is not None]
-                filtered_inputs = inputs_original[:, selected_columns]
+                # Build per-batch DF using feature registry
+                inputs_original, feature_order = self.inverse_transform_features(inputs)
 
                 batch_df = pd.DataFrame(
                     torch.cat([
-                        filtered_inputs.cpu().view(bs, -1),
+                        inputs_original.cpu(),
                         targets.cpu().view(bs, -1),
                         stec_mean.cpu().view(bs, -1),
                         torch.sqrt(epistemic_var).cpu().view(bs, -1),
@@ -342,7 +375,7 @@ class BaseTrainer:
                         torch.sqrt(epistemic_var + aleatoric_var).cpu().view(bs, -1)
                     ], dim=1).numpy(),
                     columns=[
-                        *[key for key in indices if indices[key] is not None],
+                        *feature_order,
                         'target_stec', 'pred_stec',
                         'pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc'
                     ]
@@ -429,14 +462,14 @@ class BaseTrainer:
             if not self.config["debug"]:
                 wandb.log({
                     'train_loss': train_loss,
-                    'train_loss_mse': train_mse,
-                    'train_loss_nll': train_nll,
-                    'train_loss_kld': train_kld,
+                    'train_mse': train_mse,
+                    'train_nll': train_nll,
+                    'train_kld': train_kld,
                     'train_variance': train_variance,
                     'val_loss': val_loss,
-                    'val_loss_mse': val_mse,
-                    'val_loss_nll': val_nll,
-                    'val_loss_kld': val_kld,
+                    'val_mse': val_mse,
+                    'val_nll': val_nll,
+                    'val_kld': val_kld,
                     'val_variance': val_variance,
                     'learning_rate': scheduler.get_last_lr()[0] if scheduler else None,
                     **calculate_metrics(train_outputs, train_targets, prefix="train"),
@@ -450,12 +483,13 @@ class BaseTrainer:
             self.logger.info(f"Train Loss: {train_loss:.2f}, Validation Loss: {val_loss:.2f}")
 
             if val_loss < best_val_loss or self.config[training_key]["save_model_every_epoch"]:
+                best_val_loss = self.save_checkpoint(self.config, model, optimizer, epoch, 
+                                                   val_loss, best_val_loss, model_dir, seed)
                 patience_counter = 0
-                best_val_loss = self.save_checkpoint(self.config, model, optimizer, epoch, val_loss, best_val_loss, model_dir, seed)
             else:
                 patience_counter += 1
-                if patience_counter >= self.config[training_key]["patience"]:
-                    self.logger.info("Early stopping triggered...")
+                if patience_counter >= self.config[training_key].get("patience", float('inf')):
+                    self.logger.info(f"Early stopping after {patience_counter} epochs without improvement")
                     break
 
         # Load best checkpoint for testing.
@@ -473,7 +507,8 @@ class BaseTrainer:
                                                                                   num_samples=num_samples)
 
         # Plotting test metrics from bayesian inference
-        plot_test_metrics(test_res_df, output_dir=self.config['output_dir'])
+        plot_test_metrics(test_res_df, output_dir=self.config['output_dir'], 
+                         feature_registry=self.feature_registry)
 
         self.logger.info(f"Test MAE: {(bayesian_results['baysian_mae']):.2f}")
         self.logger.info(f"Test MSE: {(bayesian_results['baysian_mse']):.2f}")

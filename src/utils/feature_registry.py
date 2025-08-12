@@ -150,6 +150,12 @@ class FeatureRegistry:
         min_val, max_val = normalization
         return normalized_value * (max_val - min_val) + min_val
 
+    def get_feature_type(self, feature_name: str) -> FeatureType:
+        """Get the feature type for a given feature name."""
+        if feature_name not in self._features:
+            raise ValueError(f"Feature {feature_name} not found in registry")
+        return self._features[feature_name]['type']
+
 # Create global feature registry
 def create_default_registry(config: dict) -> FeatureRegistry:
     """Create default feature registry based on config."""

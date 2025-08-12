@@ -28,5 +28,6 @@ class Finetuner(BaseTrainer):
     def finetune(self, logger):
         # Get single dataloaders.
         train_loader, val_loader, test_loader = get_data_loaders(self.config)
-        # Use "finetune" config parameters and "best_model" as the checkpoint prefix.
-        self.run_ensemble_training(train_loader, val_loader, test_loader, self.initialize_model, "finetune")
+        # Use the training configuration key
+        training_key = self.config.get('mode', 'finetune')
+        self.run_training(train_loader, val_loader, test_loader, self.initialize_model, training_key)

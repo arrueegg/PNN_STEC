@@ -9,7 +9,7 @@ data:
   sampling: ultra
   scratch_dir: /scratch2/arrueegg/WP4/PNN_STEC/data/
   shuffle: true
-  train_subset_size: 10000000
+  train_subset_size: 1000000
   use_SWI: true
   use_agg_h5: true
 debug: true
@@ -31,7 +31,7 @@ pretrain:
   early_stopping: true
   epochs: 1
   learning_rate: 0.001
-  num_workers: 0
+  num_workers: 8
   patience: 5
   save_model_every_epoch: false
   scheduler: StepLR

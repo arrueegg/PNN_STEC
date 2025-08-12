@@ -3,6 +3,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
+from datetime import datetime, timedelta
 
 
 def ensure_dir(directory):
@@ -45,7 +46,7 @@ def plot_binned_boxplot(df, x_col, y_col, bins=20, output_dir='plots', bin_range
 def plot_mae_vs_doy(df, output_dir='plots'):
     df = df.copy()
     df['mae'] = np.abs(df['target_stec'] - df['pred_stec'])
-    plot_binned_boxplot(df, 'DOY', 'mae', bins=24, output_dir=output_dir)
+    plot_binned_boxplot(df, 'doy', 'mae', bins=24, output_dir=output_dir)
 
 
 def plot_residuals_vs_feature(df, feature, num_bins=24, output_dir='plots', bin_range_dict=None):
@@ -70,8 +71,8 @@ def plot_prediction_scatter(df, output_dir):
 def plot_spatial_error_map(df, output_dir):
     plt.figure(figsize=(12, 6))
     heatmap_data = df.copy()
-    heatmap_data['lon_bin'] = pd.cut(df['Lon_sta'], bins=72)
-    heatmap_data['lat_bin'] = pd.cut(df['Lat_sta'], bins=36)
+    heatmap_data['lon_bin'] = pd.cut(df['lon_sta'], bins=72)
+    heatmap_data['lat_bin'] = pd.cut(df['lat_sta'], bins=36)
 
     # Save full category ranges
     lon_cats = heatmap_data['lon_bin'].cat.categories
@@ -144,47 +145,69 @@ def plot_uncertainty_calibration(df, output_dir):
     plt.close()
 
 
-def plot_az_el_heatmap(df, output_dir):
+def plot_az_el_heatmap(df, output_dir, metric='residual'):
+    """
+    Plots a heatmap of residuals or MAE by azimuth and elevation.
+
+    Parameters:
+    - df: DataFrame containing 'satazi', 'satele', 'target_stec', and 'pred_stec' columns.
+    - output_dir: Directory to save the plot.
+    - metric: Metric to plot ('residual' or 'mae').
+    """
     plt.figure(figsize=(12, 6))
     heatmap_data = df.copy()
 
     # Create bin columns with fixed categories
-    heatmap_data['az_bin'] = pd.cut(df['Azimuth'], bins=72)
-    heatmap_data['el_bin'] = pd.cut(df['Elevation'], bins=36)
+    az_min, az_max = 0, 360  # Define min and max for azimuth
+    el_min, el_max = 5, 90   # Define min and max for elevation
+
+    heatmap_data['az_bin'] = pd.cut(df['satazi'], bins=np.linspace(az_min, az_max, 181))
+    heatmap_data['el_bin'] = pd.cut(df['satele'], bins=np.linspace(el_min, el_max, 87))
 
     # Save full category ranges
     az_cats = heatmap_data['az_bin'].cat.categories
     el_cats = heatmap_data['el_bin'].cat.categories
 
-    # Group and compute residuals
+    # Group and compute the desired metric
     grouped = heatmap_data.groupby(['az_bin', 'el_bin'])[['target_stec', 'pred_stec']].mean().reset_index()
-    grouped['residual'] = grouped['target_stec'] - grouped['pred_stec']
+    if metric == 'residual':
+        grouped['value'] = grouped['target_stec'] - grouped['pred_stec']
+        cbar_label = 'Residual'
+        title = 'Residuals by Azimuth and Elevation'
+        filename = 'az_el_residuals_heatmap.png'
+    elif metric == 'mae':
+        grouped['value'] = np.abs(grouped['target_stec'] - grouped['pred_stec'])
+        cbar_label = 'Mean Absolute Error'
+        title = 'Mean Absolute Error by Azimuth and Elevation'
+        filename = 'az_el_mae_heatmap.png'
+    else:
+        raise ValueError("Invalid metric. Choose 'residual' or 'mae'.")
 
     # Pivot and reindex to include all bins
-    pivot = grouped.pivot(index='el_bin', columns='az_bin', values='residual')
+    pivot = grouped.pivot(index='el_bin', columns='az_bin', values='value')
     pivot = pivot.reindex(index=el_cats, columns=az_cats)
 
     # Plot heatmap
-    ax = sns.heatmap(pivot, cmap='RdBu_r', center=0)
+    ax = sns.heatmap(pivot, cmap='RdBu_r', cbar_kws={'label': cbar_label})
 
-    # Tick label formatting: every 5th bin only
+    # Tick label formatting
     xticks = ax.get_xticks()
     xlabels = []
     for tick in xticks:
         idx = int(round(tick))
         if 0 <= idx < len(pivot.columns):
-            if idx % 1 == 0:
+            if idx % 1 == 0 or idx == 0:
                 xlabels.append(int(round(pivot.columns[idx].mid)))
             else:
                 xlabels.append("")
-    ax.set_xticklabels(xlabels, rotation=45)
+    ax.set_xticklabels(xlabels, rotation=90)
 
     yticks = ax.get_yticks()
     ylabels = []
     for tick in yticks:
         idx = int(round(tick))
         if 0 <= idx < len(pivot.index):
-            if idx % 1 == 0:
+            if idx % 1 == 0 or idx == 0:
                 ylabels.append(int(round(pivot.index[idx].mid)))
             else:
                 ylabels.append("")
@@ -192,52 +215,163 @@ def plot_az_el_heatmap(df, output_dir):
 
     plt.xlabel('Azimuth')
     plt.ylabel('Elevation')
-    plt.title('Residuals by Azimuth and Elevation')
+    plt.title(title)
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/az_el_heatmap.png')
+    plt.savefig(f'{output_dir}/{filename}')
     plt.close()
 
 
 def modify_df(df):
     """
-    Modifies the DataFrame to ensure nice plotting.
+    Modifies the DataFrame to ensure nice plotting using feature registry.
     """
-    df['time'] = df['SOD'] / 3600  # Convert seconds of day to hours
-    df['Kp_index'] = df['Kp_index'].apply(lambda x: int(round(x / 10)))
+    # Convert seconds of day to hours if SOD exists
+    if 'sod' in df.columns:
+        df['time'] = df['sod'] / 3600
+    
+    # Convert Kp index if it exists
+    if 'kp' in df.columns:
+        df['kp_binned'] = df['kp'].apply(lambda x: int(round(x / 10)))
+    
     return df
 
+def get_default_bin_ranges(feature_registry):
+    """Get default bin ranges from feature registry statistics."""
+    bin_ranges = {}
+    
+    # Get ranges from registry for enabled features
+    for feature_name in feature_registry.get_all_enabled_features():
+        feature_norm = feature_registry._features[feature_name]['normalization']
+        if feature_norm is not None:
+            bin_ranges[feature_name] = (feature_norm[0], feature_norm[1])
 
-def plot_test_metrics(test_df, output_dir='plots'):
+    # Add derived features
+    bin_ranges['time'] = (0, 24)  # SOD converted to hours
+    if 'kp' in bin_ranges:
+        bin_ranges['kp_binned'] = (0, 9)  # Kp index binned
+    
+    return bin_ranges
+
+def plot_residuals_vs_date(df, output_dir='plots'):
+    """
+    Plots residuals aggregated by month using year and day-of-year.
+    Creates boxplots for each month present in the test data.
+    """
+    df = df.copy()
+    df['residual'] = df['target_stec'] - df['pred_stec']
+    
+    # Create datetime from year and doy
+    def create_date(row):
+        try:
+            year = int(row['year'])
+            doy = int(row['doy'])
+            # Create date from year and day of year
+            date = datetime(year, 1, 1) + timedelta(days=doy - 1)
+            return date
+        except:
+            return None
+    
+    df['date'] = df.apply(create_date, axis=1)
+    df = df.dropna(subset=['date'])
+    
+    # Extract year-month for grouping
+    df['year_month'] = df['date'].dt.to_period('M')
+    
+    # Sort by year_month to ensure chronological order
+    unique_months = sorted(df['year_month'].unique())
+    
+    # Prepare data for boxplot
+    box_data = []
+    month_labels = []
+    
+    for month in unique_months:
+        month_residuals = df[df['year_month'] == month]['residual'].values
+        if len(month_residuals) > 0:
+            box_data.append(month_residuals)
+            month_labels.append(str(month))
+    
+    if not box_data:
+        print("No valid data for residuals vs date plot")
+        return
+    
+    plt.figure(figsize=(15, 6))
+    plt.axhline(y=0, color='r', linestyle='-', linewidth=0.5, zorder=1)
+    
+    # Create boxplot
+    bp = plt.boxplot(box_data, labels=month_labels, showfliers=False, zorder=2)
+    
+    # Rotate x-axis labels for better readability
+    plt.xticks(rotation=45, ha='right')
+    plt.xlabel('Month')
+    plt.ylabel('Residual (STEC)')
+    plt.title('Residuals by Month')
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    
+    plt.savefig(f'{output_dir}/residuals_vs_date_monthly.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
     output_dir = os.path.join(output_dir, 'test_metrics')
     ensure_dir(output_dir)
 
     test_df = modify_df(test_df)
 
-    # Define min/max bin ranges per feature
-    bin_range_dict = {
-        'time': (0, 24),
-        'DOY': (1, 366),
-        'Elevation': (5, 90),
-        'Kp_index': (0, 9),
-        'Dst_index': (-400, 100),
-        'f107': (50, 300),
-        'R_sunspot_number': (0, 250)
-    }
+    # Get bin ranges from feature registry if available
+    if feature_registry:
+        bin_range_dict = get_default_bin_ranges(feature_registry)
+    else:
+        # Fallback to hardcoded ranges
+        bin_range_dict = {
+            'time': (0, 24),
+            'doy': (1, 366),
+            'satele': (5, 90),
+            'kp_binned': (0, 9),
+            'dst': (-400, 100),
+            'f107': (50, 300),
+            'sunspot': (0, 250)
+        }
 
-    plot_mae_vs_doy(test_df, output_dir)
-    plot_residuals_vs_feature(test_df, 'time', num_bins=24, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'DOY', num_bins=24, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'Elevation', num_bins=17, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'Azimuth', num_bins=24, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'Kp_index', num_bins=9, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'Dst_index', num_bins=20, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'f107', num_bins=10, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'R_sunspot_number', num_bins=10, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'target_stec', num_bins=20, output_dir=output_dir, bin_range_dict=bin_range_dict)
-    plot_residuals_vs_feature(test_df, 'pred_stec', num_bins=20, output_dir=output_dir, bin_range_dict=bin_range_dict)
+    # Plot metrics for available features only
+    available_features = test_df.columns.tolist()
+    
+    if 'doy' in available_features:
+        plot_mae_vs_doy(test_df, output_dir)
+    
+    # Plot residuals vs date if year and doy are available
+    if 'year' in available_features and 'doy' in available_features:
+        plot_residuals_vs_date(test_df, output_dir)
+    
+    # Define feature-specific plot configurations
+    plot_configs = [
+        ('time', 24),
+        ('doy', 24), 
+        ('satele', 17),
+        ('satazi', 24),
+        ('kp_binned', 9),
+        ('dst', 20),
+        ('f107', 10),
+        ('sunspot', 10),
+        ('target_stec', 20),
+        ('pred_stec', 20)
+    ]
+    
+    for feature, num_bins in plot_configs:
+        if feature in available_features:
+            plot_residuals_vs_feature(test_df, feature, num_bins=num_bins, 
+                                    output_dir=output_dir, bin_range_dict=bin_range_dict)
 
     plot_prediction_scatter(test_df, output_dir)
-    plot_spatial_error_map(test_df, output_dir)
+    
+    # Only plot spatial/azimuth plots if the required features exist
+    required_spatial = ['lon_sta', 'lat_sta']
+    if all(col in available_features for col in required_spatial):
+        plot_spatial_error_map(test_df, output_dir)
+    
+    required_directional = ['satazi', 'satele']
+    if all(col in available_features for col in required_directional):
+        plot_az_el_heatmap(test_df, output_dir, metric='mae')
+        plot_az_el_heatmap(test_df, output_dir, metric='residual')
+
     plot_histogram_of_residuals(test_df, output_dir)
     plot_uncertainty_calibration(test_df, output_dir)
-    plot_az_el_heatmap(test_df, output_dir)
