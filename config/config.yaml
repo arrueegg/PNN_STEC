@@ -31,22 +31,23 @@ split:
   test_ratio: 0.1
 
 model:
-  model_type: MLP_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
+  model_type: MLP # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   
 training:
-  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, HuberLoss, LaplaceLoss, GaussianNLLLoss,ProfileLoss
+  loss_function: "MSELoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
   loss_weight: 0.0
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization
+  log_target: False              # Disable log-space training
+  log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 100
+  epochs: 300
   batchsize: 512
   num_workers: 8
   learning_rate: 0.01
-  scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
-  scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
-
+  scheduler: StepLR            # Scheduler: step_lr, cosine_annealing (if no scheduler wanted choose StepLR with very high step size)
+  scheduler_step_size: 100       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
   patience: 500                 # Patience for early stopping
   save_model_every_epoch: False # Whether to save the model every epoch

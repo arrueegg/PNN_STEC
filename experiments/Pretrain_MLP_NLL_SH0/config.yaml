@@ -30,13 +30,13 @@ output_dir: experiments/Pretrain_MLP_NLL_SH0
 pretrain:
   batchsize: 512
   early_stopping: true
-  epochs: 100
+  epochs: 300
   learning_rate: 0.01
   num_workers: 8
   patience: 500
   save_model_every_epoch: false
   scheduler: StepLR
-  scheduler_step_size: 10
+  scheduler_step_size: 100
 pretrain_folder: ''
 project_name: PNN_STEC
 random_seed: 42
@@ -46,7 +46,9 @@ split:
   val_ratio: 0.1
 target: stec
 training:
-  loss_function: GaussianNLLLoss
+  log_space_point: mean
+  log_target: false
+  loss_function: MSELoss
   loss_weight: 0.0
   optimizer: Adam
   weight_decay: 0.0

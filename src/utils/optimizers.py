@@ -30,7 +30,7 @@ def get_scheduler(config, optimizer):
         scheduler_type = config['pretrain']['scheduler']
 
     if scheduler_type == 'StepLR':
-        step_size = 10
+        step_size = 1000
         gamma = 0.1
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
     elif scheduler_type == 'ExponentialLR':

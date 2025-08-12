@@ -48,7 +48,7 @@ class MLP(torch.nn.Module):
         x = F.relu(x)
         x = self.Linear_5(x)
 
-        return x
+        return x, 0
     
 class BranchMLP(nn.Module):
     def __init__(self, n_in, num_SWI_params):
@@ -93,13 +93,20 @@ class BranchMLP(nn.Module):
         return mean, variance
     
 class MLP_NLL(torch.nn.Module):
-    def __init__(self, n_in=3, hidden_dim=1024, num_layers=4):
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=2):  # FIXED: Shallow model
         super().__init__()
         self.layers = nn.ModuleList()
         self.layers.append(Linear(n_in, hidden_dim))
         for _ in range(num_layers - 1):
             self.layers.append(Linear(hidden_dim, hidden_dim))
         self.output_layer = Linear(hidden_dim, 2)
+        
+        # FIXED: Add Kaiming initialization
+        for layer in self.layers:
+            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+            nn.init.zeros_(layer.bias)
+        nn.init.kaiming_normal_(self.output_layer.weight, nonlinearity='linear')
+        nn.init.zeros_(self.output_layer.bias)
 
     def forward(self, x):
         for layer in self.layers:

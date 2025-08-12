@@ -114,10 +114,16 @@ class BaseTrainer:
             mse_loss = criterion_mse(pred_mean_raw, training_targets)
             nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
             kld_loss = criterion_kld(model)
-            #loss = nll_loss + self.loss_weight * kld_loss
-            loss = mse_loss
+            if self.config['training']['loss_function'] == 'GaussianNLLLoss':
+                loss = nll_loss + self.loss_weight * kld_loss
+            elif self.config['training']['loss_function'] == 'MSELoss':
+                loss = mse_loss
 
             loss.backward()
+            
+            # FIXED: Add gradient clipping to prevent vanishing/exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
 
             # Accumulate losses
@@ -358,15 +364,14 @@ class BaseTrainer:
                     per_sample_means.append(mean_y.cpu())
                     per_sample_alea_vars.append(var_alea_y.cpu())
 
-                if num_samples == 1:
-                    pred_stack = torch.stack(per_sample_means, dim=0).squeeze(0)  # [B]
-                    alea_var_stack = torch.stack(per_sample_alea_vars, dim=0).squeeze(0)  # [B]
-                else:
-                    pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
-                    alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
+                pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
+                alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
 
                 stec_mean = pred_stack.mean(dim=0)
-                epistemic_var = pred_stack.var(dim=0)                 # Var over means
+                if num_samples == 1:
+                    epistemic_var = torch.zeros_like(pred_stack[0])  # No epistemic uncertainty
+                else:
+                    epistemic_var = pred_stack.var(dim=0)             # Var over means
                 aleatoric_var = alea_var_stack.mean(dim=0)            # Mean aleatoric var
                 batch_means.append(stec_mean)
                 batch_epistemic_vars.append(epistemic_var)
@@ -458,8 +463,6 @@ class BaseTrainer:
         loss_plot_path = os.path.join(output_dir, f"loss_curve.png")
         plt.savefig(loss_plot_path, dpi=300, bbox_inches='tight')
         plt.close()
-        
-        self.logger.info(f"Loss curve saved to: {loss_plot_path}")
 
     def save_final_losses(self, output_dir):
         """Save final training results including loss curve."""
@@ -475,7 +478,6 @@ class BaseTrainer:
             })
             csv_path = os.path.join(output_dir, f"loss_history.csv")
             loss_data.to_csv(csv_path, index=False)
-            self.logger.info(f"Loss history saved to: {csv_path}")
 
     def run_training(self, train_loader, val_loader, test_loader, init_model_fn, training_key):
         """
@@ -556,7 +558,7 @@ class BaseTrainer:
                     break
 
         # Save loss curve
-        self.save_final_losses(self.config['output_dir'], seed)
+        self.save_final_losses(self.config['output_dir'])
 
         # Load best checkpoint for testing.
         filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{seed:02}.pth"
