@@ -718,6 +718,14 @@ def get_data_loaders(config):
     nw   = config['pretrain']['num_workers']
     use_agg_h5 = config['data'].get('use_agg_h5', False)
     build_agg_h5 = config['data'].get('build_agg_h5', True)
+    
+    # Add debug mode for single batch overfitting
+    debug_single_batch = config.get('debug_single_batch', False)
+    if debug_single_batch:
+        train_subset = bs  # Use exactly one batch worth of data
+        val_subset = bs
+        test_subset = bs
+        print(f"DEBUG MODE: Using single batch of size {bs} for all splits")
 
     # build splits if requested
     if use_agg_h5 and build_agg_h5:
@@ -746,8 +754,17 @@ def get_data_loaders(config):
         # Sampler / subset per split
         # -----------------------------
         if split == 'train':
-            # If you want to scan full train each epoch, leave subset_per_epoch == 0
-            if train_subset and train_subset < len(ds):
+            # Debug mode: use fixed subset for overfitting
+            if debug_single_batch:
+                cache_dir = './debug_subsets_idx'
+                cache_path = os.path.join(config['data']['scratch_dir'], cache_dir, f"debug_train_subset_idx.pt")
+                idx = get_fixed_subset_indices(ds, train_subset, cache_path, seed=seed)
+                ds = Subset(ds, idx)
+                # Use sequential sampler to get the same batch every time
+                sampler = SequentialSampler(ds)
+                shuffle = False
+            # Regular training mode
+            elif train_subset and train_subset < len(ds):
                 # IMPORTANT: num_samples needs replacement=True
                 g = torch.Generator().manual_seed(seed)  # re-seed per epoch in your train loop if desired
                 sampler = RandomSampler(ds, replacement=True, num_samples=train_subset, generator=g)
@@ -771,8 +788,14 @@ def get_data_loaders(config):
             # ---- fixed, random, deterministic subset for val/test ----
             subset_size = val_subset if split == 'val' else test_subset
             if subset_size:
-                cache_dir = './val_test_subsets_idx'
-                cache_path = os.path.join(config['data']['scratch_dir'], cache_dir, f"{split}_subset_idx.pt")
+                if debug_single_batch:
+                    # In debug mode, use the same subset as training for consistency
+                    cache_dir = './debug_subsets_idx'
+                    cache_path = os.path.join(config['data']['scratch_dir'], cache_dir, f"debug_train_subset_idx.pt")
+                else:
+                    cache_dir = './val_test_subsets_idx'
+                    cache_path = os.path.join(config['data']['scratch_dir'], cache_dir, f"{split}_subset_idx.pt")
+                
                 idx = get_fixed_subset_indices(ds, subset_size, cache_path, seed=seed)
                 ds = Subset(ds, idx)
 

@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 from tqdm import tqdm
 import wandb
+import matplotlib.pyplot as plt
 
 from utils.loss_function import get_criterion
 from utils.optimizers import get_optimizer, get_scheduler
@@ -33,6 +34,11 @@ class BaseTrainer:
         self.log_space_point = self.config['training'].get('log_space_point', 'mean').lower()
         if self.log_space_point not in ('mean', 'median'):
             self.log_space_point = 'mean'
+
+        # Add loss tracking
+        self.train_losses = []
+        self.val_losses = []
+        self.epochs_tracked = []
 
     # ---------- small helpers ----------
 
@@ -108,7 +114,8 @@ class BaseTrainer:
             mse_loss = criterion_mse(pred_mean_raw, training_targets)
             nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
             kld_loss = criterion_kld(model)
-            loss = nll_loss + self.loss_weight * kld_loss
+            #loss = nll_loss + self.loss_weight * kld_loss
+            loss = mse_loss
 
             loss.backward()
             optimizer.step()
@@ -351,8 +358,12 @@ class BaseTrainer:
                     per_sample_means.append(mean_y.cpu())
                     per_sample_alea_vars.append(var_alea_y.cpu())
 
-                pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
-                alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
+                if num_samples == 1:
+                    pred_stack = torch.stack(per_sample_means, dim=0).squeeze(0)  # [B]
+                    alea_var_stack = torch.stack(per_sample_alea_vars, dim=0).squeeze(0)  # [B]
+                else:
+                    pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
+                    alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
 
                 stec_mean = pred_stack.mean(dim=0)
                 epistemic_var = pred_stack.var(dim=0)                 # Var over means
@@ -414,8 +425,57 @@ class BaseTrainer:
             'model_type': config['model']['model_type'],
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
+            # Save loss history with checkpoint
+            'train_losses': self.train_losses,
+            'val_losses': self.val_losses,
+            'epochs_tracked': self.epochs_tracked,
         }, filepath)
         return val_loss
+
+    def track_losses(self, epoch, train_loss, val_loss):
+        """Track training and validation losses for plotting."""
+        self.epochs_tracked.append(epoch)
+        self.train_losses.append(train_loss)
+        self.val_losses.append(val_loss)
+
+    def plot_loss_curve(self, output_dir):
+        """Plot and save the loss curve."""
+        if not self.train_losses or not self.val_losses:
+            self.logger.warning("No loss data to plot")
+            return
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.epochs_tracked, self.train_losses, label='Training Loss', color='blue')
+        plt.plot(self.epochs_tracked, self.val_losses, label='Validation Loss', color='red')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Loss Curves')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save the plot
+        loss_plot_path = os.path.join(output_dir, f"loss_curve.png")
+        plt.savefig(loss_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        self.logger.info(f"Loss curve saved to: {loss_plot_path}")
+
+    def save_final_losses(self, output_dir):
+        """Save final training results including loss curve."""
+        # Plot the loss curve
+        self.plot_loss_curve(output_dir)
+        
+        # Optionally save loss data as CSV for further analysis
+        if self.train_losses and self.val_losses:
+            loss_data = pd.DataFrame({
+                'epoch': self.epochs_tracked,
+                'train_loss': self.train_losses,
+                'val_loss': self.val_losses
+            })
+            csv_path = os.path.join(output_dir, f"loss_history.csv")
+            loss_data.to_csv(csv_path, index=False)
+            self.logger.info(f"Loss history saved to: {csv_path}")
 
     def run_training(self, train_loader, val_loader, test_loader, init_model_fn, training_key):
         """
@@ -459,6 +519,9 @@ class BaseTrainer:
             val_loss, val_mse, val_nll, val_kld, val_variance, val_outputs, val_targets = \
                 self.validate_epoch(model, val_loader, criterion_mse, criterion_nll, criterion_kld)
 
+            # Track losses for plotting
+            self.track_losses(epoch + 1, train_loss, val_loss)
+
             if not self.config["debug"]:
                 wandb.log({
                     'train_loss': train_loss,
@@ -491,6 +554,9 @@ class BaseTrainer:
                 if patience_counter >= self.config[training_key].get("patience", float('inf')):
                     self.logger.info(f"Early stopping after {patience_counter} epochs without improvement")
                     break
+
+        # Save loss curve
+        self.save_final_losses(self.config['output_dir'], seed)
 
         # Load best checkpoint for testing.
         filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{seed:02}.pth"
