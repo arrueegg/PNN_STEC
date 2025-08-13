@@ -7,7 +7,7 @@ data:
   min_elevation: 5.0
   move_to_scratch: true
   sampling: ultra
-  scratch_dir: /scratch2/arrueegg/WP4/PNN_STEC/data/
+  scratch_dir: /scratch2/arrueegg/WP4/PNN_STEC/data_debug/
   shuffle: true
   train_subset_size: 100000
   use_SWI: true

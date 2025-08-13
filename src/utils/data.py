@@ -520,7 +520,7 @@ def get_data_loaders(config):
     if use_agg_h5 and build_agg_h5:
         # Use the new class-based approach with resume capability
         preprocessor = DataPreprocessor(config)
-        success = preprocessor.build_split_h5(use_resume=True)
+        success = preprocessor.build_split_h5()
         if not success:
             raise RuntimeError("Failed to build split H5 files")
 

@@ -72,6 +72,11 @@ class DataPreprocessor:
         self.chunk_size = self.data_config.get('processing_chunk_size', 50)
         self.every_x_doy = self.data_config.get('every_x_doy', 1)
         
+        # ML-optimized settings
+        self.ml_optimize = self.data_config.get('ml_optimize', True)  # Optimize for ML pipeline
+        self.use_compression = self.data_config.get('use_compression', False)  # Disable compression by default
+        self.ml_chunk_size = self.data_config.get('ml_chunk_size', 8192)  # Optimal for ML training
+        
         # Station sets (loaded lazily)
         self._train_stations = None
         self._val_stations = None
@@ -336,16 +341,18 @@ class DataPreprocessor:
             combined_data = np.concatenate(data_list)
             
             with h5py.File(chunk_file, 'w') as f:
+                # Use configuration-based compression settings
+                compression = 'lzf' if self.use_compression else None
                 f.create_dataset(
                     'data',
                     data=combined_data,
-                    compression='lzf',
-                    shuffle=True,
-                    fletcher32=True
+                    compression=compression,
+                    shuffle=self.use_compression,
+                    fletcher32=self.use_compression
                 )
     
     def _merge_temp_chunks(self, splits: List[str]):
-        """Merge all temporary chunks into final split files."""
+        """Merge all temporary chunks into final split files using streaming approach."""
         for split_name in splits:
             print(f"Merging {split_name} chunks...")
             
@@ -359,38 +366,62 @@ class DataPreprocessor:
                 print(f"No chunks found for {split_name}")
                 continue
             
-            # Read all chunks and combine
-            all_data_chunks = []
+            # First pass: count total records to pre-allocate dataset
             total_records = 0
-            
-            for chunk_file in tqdm(chunk_files, desc=f"Reading {split_name} chunks"):
+            print(f"Counting records in {len(chunk_files)} chunks...")
+            for chunk_file in tqdm(chunk_files, desc=f"Counting {split_name} records"):
                 chunk_path = os.path.join(self.temp_dir, chunk_file)
                 with h5py.File(chunk_path, 'r') as f:
-                    chunk_data = f['data'][:]
-                    all_data_chunks.append(chunk_data)
-                    total_records += len(chunk_data)
+                    total_records += f['data'].shape[0]
             
             if total_records == 0:
+                print(f"No data found for {split_name}")
                 continue
             
-            # Combine all chunks
-            print(f"Combining {len(all_data_chunks)} chunks with {total_records:,} total records...")
-            final_data = np.concatenate(all_data_chunks)
+            print(f"Total records for {split_name}: {total_records:,}")
             
-            # Write final file
+            # Create final file with pre-allocated dataset
             final_file = os.path.join(self.scratch_dir, f'{split_name}.h5')
-            with h5py.File(final_file, 'w') as f:
-                chunk_size = min(10000, len(final_data))
-                f.create_dataset(
-                    'data',
-                    data=final_data,
-                    chunks=(chunk_size,),
-                    compression='lzf',
-                    shuffle=True,
-                    fletcher32=True
-                )
             
-            print(f"✅ Wrote {len(final_data):,} records to {split_name}.h5")
+            # Optimal chunk size for ML training
+            if self.ml_optimize:
+                ml_optimal_chunk_size = min(self.ml_chunk_size, max(1024, total_records // 100))
+            else:
+                ml_optimal_chunk_size = min(10000, total_records)
+            
+            with h5py.File(final_file, 'w') as final_f:
+                # Use configuration-based compression settings
+                compression = 'lzf' if self.use_compression else None
+                
+                # Pre-allocate dataset
+                final_dataset = final_f.create_dataset(
+                    'data',
+                    shape=(total_records,),
+                    dtype=DTYPE,
+                    chunks=(ml_optimal_chunk_size,),
+                    compression=compression,
+                    shuffle=self.use_compression,
+                    fletcher32=self.use_compression
+                )
+                
+                # Stream data from chunks to final file
+                current_offset = 0
+                for chunk_file in tqdm(chunk_files, desc=f"Streaming {split_name} data"):
+                    chunk_path = os.path.join(self.temp_dir, chunk_file)
+                    with h5py.File(chunk_path, 'r') as chunk_f:
+                        chunk_data = chunk_f['data']
+                        chunk_size = chunk_data.shape[0]
+                        
+                        # Stream copy chunk to final file
+                        final_dataset[current_offset:current_offset + chunk_size] = chunk_data[:]
+                        current_offset += chunk_size
+                
+                print(f"✅ Streamed {total_records:,} records to {split_name}.h5")
+                print(f"   Optimized for ML with chunk size: {ml_optimal_chunk_size}")
+                if self.use_compression:
+                    print(f"   Using LZF compression")
+                else:
+                    print(f"   No compression for maximum read speed")
     
     def _cleanup_temp_files(self):
         """Clean up temporary files after successful completion."""
@@ -403,6 +434,7 @@ class DataPreprocessor:
     def build_split_h5(self) -> bool:
         """
         Optimized version with resume capability and progress tracking.
+        Uses streaming aggregation to handle huge datasets without memory overflow.
         
         Returns:
             True if successful, False otherwise
