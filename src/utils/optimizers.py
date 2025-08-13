@@ -3,7 +3,11 @@ import torch.optim as optim
 
 def get_optimizer(config, model_parameters):
     optimizer_type = config['training']['optimizer']
-    lr = config['finetune']["learning_rate"]
+    # Use correct learning rate based on mode
+    if config['mode'] == 'pretrain':
+        lr = config['pretrain']["learning_rate"] 
+    else:
+        lr = config['finetune']["learning_rate"]
     weight_decay = config['training']["weight_decay"]
 
     if optimizer_type == 'SGD':
@@ -29,7 +33,9 @@ def get_scheduler(config, optimizer):
     elif config['mode'] == 'pretrain':
         scheduler_type = config['pretrain']['scheduler']
 
-    if scheduler_type == 'StepLR':
+    if scheduler_type == 'none' or scheduler_type is None:
+        return None
+    elif scheduler_type == 'StepLR':
         step_size = 1000
         gamma = 0.1
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)

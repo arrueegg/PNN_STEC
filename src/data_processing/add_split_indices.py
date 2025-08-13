@@ -6,6 +6,9 @@ import numpy as np
 import os
 from datetime import datetime, timedelta
 from tqdm import tqdm
+import sys
+sys.path.append('..')
+from utils.preprocessing import DataPreprocessor
 
 # ——— Helper Functions ———
 
@@ -26,18 +29,6 @@ def decode_station(raw):
     """Decode bytes→str if necessary."""
     return raw.decode('utf-8') if isinstance(raw, bytes) else raw
 
-def generate_dates(months):
-    dates = []
-    for month in months:
-        year, mon = map(int, month.split('-'))
-        start = datetime(year, mon, 1)
-        end   = (start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-        cur = start
-        while cur <= end:
-            dates.append(cur)
-            cur += timedelta(days=1)
-    return dates
-
 def get_file_list(config):
     """
     Returns a list of full HDF5 file paths for your train/val/test months.
@@ -53,9 +44,9 @@ def get_file_list(config):
     test_mon  = sorted(set(np.loadtxt('./src/data_processing/test_dates.list',  dtype=str)))
 
     # generate all dates, with optional subsampling for debugging
-    train_dates = generate_dates(train_mon)
-    val_dates   = generate_dates(val_mon)
-    test_dates  = generate_dates(test_mon)
+    train_dates = DataPreprocessor._generate_dates(train_mon)
+    val_dates   = DataPreprocessor._generate_dates(val_mon)
+    test_dates  = DataPreprocessor._generate_dates(test_mon)
 
     # Combine and ensure the target date is included
     all_dates = train_dates + val_dates + test_dates

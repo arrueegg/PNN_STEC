@@ -5,8 +5,8 @@ year: 2023
 doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
-debug: True
-debug_single_batch: True  # Set to true for single batch overfitting test
+debug: True  
+debug_single_batch: False  
 
 target: "stec" # stec or vtec
 
@@ -17,13 +17,13 @@ data:
   SWI_data_path: "/home/space/data/IONO/SWI/"
   move_to_scratch: True # Whether to move data to scratch for faster access
   sampling: ultra # all semi medium hard extreme ultra
-  every_x_doy: 40 # Use every x day of year (1 = all, 2 = every second day, etc.)
+  every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data
   SH_degree: 0
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True
-  train_subset_size: 1000_000  # Number of samples to use per epoch
+  train_subset_size: 100_000  # Number of samples to use per epoch
 
 split:
   train_ratio: 0.8
@@ -31,25 +31,25 @@ split:
   test_ratio: 0.1
 
 model:
-  model_type: MLP # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
+  model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   
 training:
   loss_function: "MSELoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.0
+  loss_weight: 0.01
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization
   log_target: False              # Disable log-space training
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 300
-  batchsize: 512
+  epochs: 20
+  batchsize: 32   
   num_workers: 8
   learning_rate: 0.01
-  scheduler: StepLR            # Scheduler: step_lr, cosine_annealing (if no scheduler wanted choose StepLR with very high step size)
+  scheduler: none            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
-  patience: 500                 # Patience for early stopping
+  patience: 5                   # Patience for early stopping
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:

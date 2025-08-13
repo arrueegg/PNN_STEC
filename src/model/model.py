@@ -36,6 +36,11 @@ class MLP(torch.nn.Module):
         self.Linear_3 = Linear(256, 256)
         self.Linear_4 = Linear(256, 256)
         self.Linear_5 = Linear(256, 1)
+        
+        # FIXED: Initialize final layer to predict target mean (~15.5 TECU)
+        with torch.no_grad():
+            self.Linear_5.bias.fill_(15.5)  # Initialize to approximate STEC mean
+            self.Linear_5.weight.normal_(0, 0.01)  # Small weights initially
 
     def forward(self, x):
         x = self.Linear_1(x)
@@ -48,7 +53,7 @@ class MLP(torch.nn.Module):
         x = F.relu(x)
         x = self.Linear_5(x)
 
-        return x, 0
+        return x, torch.zeros_like(x)  # Return zero variance for MLP
     
 class BranchMLP(nn.Module):
     def __init__(self, n_in, num_SWI_params):
@@ -100,13 +105,6 @@ class MLP_NLL(torch.nn.Module):
         for _ in range(num_layers - 1):
             self.layers.append(Linear(hidden_dim, hidden_dim))
         self.output_layer = Linear(hidden_dim, 2)
-        
-        # FIXED: Add Kaiming initialization
-        for layer in self.layers:
-            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
-            nn.init.zeros_(layer.bias)
-        nn.init.kaiming_normal_(self.output_layer.weight, nonlinearity='linear')
-        nn.init.zeros_(self.output_layer.bias)
 
     def forward(self, x):
         for layer in self.layers:

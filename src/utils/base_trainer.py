@@ -6,7 +6,6 @@ from datetime import datetime
 from tqdm import tqdm
 import wandb
 import matplotlib.pyplot as plt
-
 from utils.loss_function import get_criterion
 from utils.optimizers import get_optimizer, get_scheduler
 from utils.metrics import calculate_metrics
@@ -46,10 +45,32 @@ class BaseTrainer:
         """Return targets for the loss computation (log-space if enabled) AND keep original for metrics."""
         targets = targets.to(self.device)
         original_targets = targets.clone()  # for metrics (always linear/original)
+        
+        # Debug: Check target ranges
+        if torch.isnan(targets).any():
+            self.logger.warning(f"NaN detected in targets!")
+        if (targets <= 0).any():
+            self.logger.warning(f"Non-positive targets detected! Min: {targets.min():.6f}, Count: {(targets <= 0).sum()}")
+        
         if self.use_log_target:
-            training_targets = torch.log(targets + self.eps)
+            # Add epsilon for numerical stability
+            targets_shifted = targets + self.eps
+            training_targets = torch.log(targets_shifted)
+            
+            # Debug: Log transformation ranges
+            if hasattr(self, '_debug_logged') and not self._debug_logged:
+                self.logger.info(f"Target transform - Original range: [{targets.min():.6f}, {targets.max():.6f}]")
+                self.logger.info(f"Target transform - Log-space range: [{training_targets.min():.6f}, {training_targets.max():.6f}]")
+                self.logger.info(f"Target transform - Using eps = {self.eps}")
+                self._debug_logged = True
         else:
             training_targets = targets
+            
+            # Debug: Linear space
+            if hasattr(self, '_debug_logged') and not self._debug_logged:
+                self.logger.info(f"Target transform - Using linear space, range: [{targets.min():.6f}, {targets.max():.6f}]")
+                self._debug_logged = True
+        
         return training_targets, original_targets
 
     def _pred_log_to_linear(self, mu_log, var_log):
@@ -60,17 +81,29 @@ class BaseTrainer:
         Returns:
             point (mean or median in linear space), std_linear, var_linear
         """
+        # Debug: Check for any numerical issues
+        if torch.isnan(mu_log).any() or torch.isnan(var_log).any():
+            self.logger.warning(f"NaN detected in log-space predictions!")
+        
+        if (var_log < 0).any():
+            self.logger.warning(f"Negative variances detected! Min: {var_log.min():.6f}, Count: {(var_log < 0).sum()}")
+            var_log = torch.clamp(var_log, min=1e-8)
+        
         # Log-normal moments
         # mean_y = exp(mu + 0.5*sigma2)
         # var_y  = (exp(sigma2) - 1) * exp(2*mu + sigma2)
         mean_y = torch.exp(mu_log + 0.5 * var_log) - self.eps
         var_y = (torch.exp(var_log) - 1.0) * torch.exp(2 * mu_log + var_log)
-        std_y = torch.sqrt(var_y)
+        std_y = torch.sqrt(torch.clamp(var_y, min=1e-8))
 
         if self.log_space_point == 'median':
             point = torch.exp(mu_log) - self.eps  # median of log-normal
         else:
             point = mean_y  # unbiased mean in original units
+
+        # Debug: Check for negative predictions (would indicate epsilon issues)
+        if (point < 0).any():
+            self.logger.warning(f"Negative predictions detected! Min: {point.min():.6f}, Count: {(point < 0).sum()}")
 
         return point, std_y, var_y
 
@@ -109,6 +142,9 @@ class BaseTrainer:
 
             outputs = model(inputs)
             pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+            
+            pred_mean_raw = pred_mean_raw.flatten()
+            pred_var_raw = pred_var_raw.flatten()
 
             # Losses in the training space
             mse_loss = criterion_mse(pred_mean_raw, training_targets)
@@ -121,8 +157,8 @@ class BaseTrainer:
 
             loss.backward()
             
-            # FIXED: Add gradient clipping to prevent vanishing/exploding gradients
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # TEMPORARILY DISABLE gradient clipping for debug overfitting
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
             
             optimizer.step()
 
@@ -462,6 +498,30 @@ class BaseTrainer:
         # Save the plot
         loss_plot_path = os.path.join(output_dir, f"loss_curve.png")
         plt.savefig(loss_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.epochs_tracked, self.train_losses, label='Training Loss', color='blue')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training Loss Curve')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        loss_plot_path_train = os.path.join(output_dir, f"train_loss_curve.png")
+        plt.savefig(loss_plot_path_train, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.epochs_tracked, self.val_losses, label='Validation Loss', color='red')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Validation Loss Curve')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        loss_plot_path_val = os.path.join(output_dir, f"val_loss_curve.png")
+        plt.savefig(loss_plot_path_val, dpi=300, bbox_inches='tight')
         plt.close()
 
     def save_final_losses(self, output_dir):
