@@ -2,7 +2,6 @@
 import os
 import torch
 import pandas as pd
-from datetime import datetime
 from tqdm import tqdm
 import wandb
 import matplotlib.pyplot as plt
@@ -567,8 +566,10 @@ class BaseTrainer:
         self.logger.info("Training model...")
 
         if not self.config["debug"]:
-            wandbname = f"{self.config['mode']} {self.config['model']['model_type']} {self.config['year']}-{self.config['doy']} m{seed+1:02}"
-            wandb.init(project=self.config['project_name'], name=wandbname, config=self.config)
+            # Use the same experiment name as the output directory
+            # Extract experiment name from output_dir path
+            experiment_name = os.path.basename(self.config['output_dir'])
+            wandb.init(project=self.config['project_name'], name=experiment_name, config=self.config)
 
         model = init_model_fn(seed)
         criterion_mse = get_criterion(self.config, "MSELoss")

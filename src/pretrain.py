@@ -1,8 +1,5 @@
 # pretrainer.py
-import os
-import torch
-import wandb
-import pandas as pd
+
 from model.model import get_model, init_kaiming
 from utils.data import get_data_loaders
 from utils.base_trainer import BaseTrainer

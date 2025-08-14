@@ -138,6 +138,171 @@ def plot_spatial_error_map(df, output_dir):
     plt.savefig(f'{output_dir}/spatial_error_heatmap.png', dpi=300, bbox_inches='tight')
     plt.close()
 
+
+def plot_spatial_error_map_by_local_time(df, output_dir):
+    """
+    Create spatial error heatmaps for each hour of local time.
+    Requires the DataFrame to have 'time' column (local solar time in hours).
+    """
+    ensure_dir(os.path.join(output_dir, 'spatial_by_time'))
+    
+    # Ensure we have the time column (should be created by modify_df)
+    if 'time' not in df.columns:
+        print("Warning: 'time' column not found. Make sure modify_df() was called first.")
+        return
+    
+    # Create hourly bins for local time
+    df_time = df.copy()
+    df_time['time_bin'] = pd.cut(df['time'], bins=np.arange(0, 25, 1), include_lowest=True, right=False)
+    
+    # Group by time bins
+    time_groups = df_time.groupby('time_bin')
+    
+    # Define spatial bin edges
+    lon_edges = np.linspace(-180, 180, 145)
+    lat_edges = np.linspace(-90, 90, 73)
+    
+    for time_bin, group_df in time_groups:
+        if len(group_df) < 10:  # Skip if too few observations
+            continue
+            
+        # Create the spatial heatmap for this time bin
+        fig = plt.figure(figsize=(15, 8))
+        ax = plt.axes(projection=ccrs.PlateCarree())
+        
+        heatmap_data = group_df.copy()
+        
+        # Create spatial bins
+        heatmap_data['lon_bin'] = pd.cut(group_df['lon_ipp'], bins=lon_edges)
+        heatmap_data['lat_bin'] = pd.cut(group_df['lat_ipp'], bins=lat_edges)
+
+        # Group and compute residuals
+        grouped = heatmap_data.groupby(['lon_bin', 'lat_bin'])[['target_stec', 'pred_stec']].mean().reset_index()
+        grouped['residual'] = np.abs(grouped['target_stec'] - grouped['pred_stec'])
+        
+        # Get bin centers for plotting
+        grouped['lon_center'] = grouped['lon_bin'].apply(lambda x: x.mid)
+        grouped['lat_center'] = grouped['lat_bin'].apply(lambda x: x.mid)
+        
+        # Create 2D grid for heatmap
+        lon_centers = np.array([interval.mid for interval in pd.cut([], bins=lon_edges).categories])
+        lat_centers = np.array([interval.mid for interval in pd.cut([], bins=lat_edges).categories])
+        
+        # Initialize grid with NaN
+        Z = np.full((len(lat_centers), len(lon_centers)), np.nan)
+        
+        # Fill grid with residual values
+        for _, row in grouped.iterrows():
+            lon_idx = np.argmin(np.abs(lon_centers - row['lon_center']))
+            lat_idx = np.argmin(np.abs(lat_centers - row['lat_center']))
+            Z[lat_idx, lon_idx] = row['residual']
+        
+        # Create meshgrid for plotting
+        LON, LAT = np.meshgrid(lon_centers, lat_centers)
+        
+        # Plot heatmap using pcolormesh
+        vmax = np.nanpercentile(Z, 95)  # clip top 5% of values
+        im = ax.pcolormesh(LON, LAT, Z, cmap='coolwarm', shading='auto', 
+                        transform=ccrs.PlateCarree(), alpha=0.8,
+                        vmin=0, vmax=vmax)
+        
+        # Add coastlines and geographic features
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.8, color='black')
+        
+        # Add gridlines
+        gl = ax.gridlines(draw_labels=True, dms=False, x_inline=False, y_inline=False,
+                         linewidth=0.5, alpha=0.5, color='gray')
+        gl.top_labels = False
+        gl.right_labels = False
+        
+        # Set global extent
+        ax.set_global()
+        
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.05, extend='max')
+        cbar.set_label('Absolute Residual (STEC)', rotation=270, labelpad=15)
+        
+        # Create title with time range
+        time_start = int(time_bin.left)
+        time_end = int(time_bin.right)
+        plt.title(f'Spatial Distribution of Errors ({time_start:02d}:00-{time_end:02d}:00 Local Solar Time)')
+        plt.tight_layout()
+        
+        # Save with time in filename
+        plt.savefig(f'{output_dir}/spatial_by_time/spatial_error_heatmap_{time_start:02d}h.png', 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+
+
+def plot_solar_magnetic_ipp_error_map(df, output_dir):
+    """
+    Create spatial error heatmap for solar magnetic IPPs without coastlines.
+    Uses magnetic coordinates if available, otherwise falls back to geographic.
+    """
+    # use magnetic coordinates 
+    lon_col = 'sm_lon_ipp'
+    lat_col = 'sm_lat_ipp'
+    coord_type = 'Solar Magnetic'
+    filename = 'solar_magnetic_ipp_error_heatmap.png'
+    # Magnetic coordinates typically range -180 to 180 for longitude, -90 to 90 for latitude
+    lon_edges = np.linspace(-180, 180, 145)
+    lat_edges = np.linspace(-90, 90, 73)
+    
+    plt.figure(figsize=(15, 8))
+    heatmap_data = df.copy()
+    
+    # Create bins
+    heatmap_data['lon_bin'] = pd.cut(df[lon_col], bins=lon_edges)
+    heatmap_data['lat_bin'] = pd.cut(df[lat_col], bins=lat_edges)
+
+    # Group and compute residuals
+    grouped = heatmap_data.groupby(['lon_bin', 'lat_bin'])[['target_stec', 'pred_stec']].mean().reset_index()
+    grouped['residual'] = np.abs(grouped['target_stec'] - grouped['pred_stec'])
+    
+    # Get bin centers for plotting
+    grouped['lon_center'] = grouped['lon_bin'].apply(lambda x: x.mid)
+    grouped['lat_center'] = grouped['lat_bin'].apply(lambda x: x.mid)
+    
+    # Create 2D grid for heatmap
+    lon_centers = np.array([interval.mid for interval in pd.cut([], bins=lon_edges).categories])
+    lat_centers = np.array([interval.mid for interval in pd.cut([], bins=lat_edges).categories])
+    
+    # Initialize grid with NaN
+    Z = np.full((len(lat_centers), len(lon_centers)), np.nan)
+    
+    # Fill grid with residual values
+    for _, row in grouped.iterrows():
+        lon_idx = np.argmin(np.abs(lon_centers - row['lon_center']))
+        lat_idx = np.argmin(np.abs(lat_centers - row['lat_center']))
+        Z[lat_idx, lon_idx] = row['residual']
+    
+    # Create meshgrid for plotting
+    LON, LAT = np.meshgrid(lon_centers, lat_centers)
+    
+    # Plot heatmap using pcolormesh (without cartopy for magnetic coordinates)
+    vmax = np.nanpercentile(Z, 95)  # clip top 5% of values
+    im = plt.pcolormesh(LON, LAT, Z, cmap='coolwarm', shading='auto', 
+                       alpha=0.8, vmin=0, vmax=vmax)
+    
+    # Add gridlines (simple matplotlib grid)
+    plt.grid(True, alpha=0.3, color='gray', linewidth=0.5)
+    
+    # Set labels and limits
+    plt.xlabel(f'{coord_type} Longitude (degrees)')
+    plt.ylabel(f'{coord_type} Latitude (degrees)')
+    plt.xlim(-180, 180)
+    plt.ylim(-90, 90)
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, shrink=0.8, pad=0.05, extend='max')
+    cbar.set_label('Absolute Residual (STEC)', rotation=270, labelpad=15)
+    
+    plt.title(f'{coord_type} IPP Spatial Distribution of Errors')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/{filename}', dpi=300, bbox_inches='tight')
+    plt.close()
+
+
 def plot_histogram_of_residuals(df, output_dir):
     plt.figure(figsize=(8, 5))
     residuals = df['target_stec'] - df['pred_stec']
@@ -289,15 +454,26 @@ def plot_az_el_heatmap(df, output_dir, metric='residual'):
     plt.savefig(f'{output_dir}/{filename}')
     plt.close()
 
-
-
 def modify_df(df):
     """
     Modifies the DataFrame to ensure nice plotting using feature registry.
     """
-    # Convert seconds of day to hours if SOD exists
+    # Convert seconds of day to local solar time if SOD and longitude exist
     if 'sod' in df.columns:
-        df['time'] = df['sod'] / 3600
+        if 'lon_ipp' in df.columns:
+            # Convert to local solar time using longitude
+            # Local solar time = UTC + (longitude / 15) hours
+            utc_hours = df['sod'] / 3600
+            longitude_offset = df['lon_ipp'] / 15.0  # 15 degrees per hour
+            df['time'] = (utc_hours + longitude_offset) % 24
+        elif 'lon_sta' in df.columns:
+            # Fallback to station longitude if IPP longitude not available
+            utc_hours = df['sod'] / 3600
+            longitude_offset = df['lon_sta'] / 15.0  # 15 degrees per hour
+            df['time'] = (utc_hours + longitude_offset) % 24
+        else:
+            # Fallback to UTC if no longitude data available
+            df['time'] = df['sod'] / 3600
     
     # Convert Kp index if it exists
     if 'kp' in df.columns:
@@ -434,9 +610,16 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
     plot_prediction_scatter(test_df, output_dir)
     
     # Only plot spatial/azimuth plots if the required features exist
-    required_spatial = ['lon_sta', 'lat_sta']
+    required_spatial = ['lon_ipp', 'lat_ipp']
     if all(col in available_features for col in required_spatial):
         plot_spatial_error_map(test_df, output_dir)
+        
+        # Plot spatial errors by local time (requires 'time' column from modify_df)
+        if 'time' in available_features:
+            plot_spatial_error_map_by_local_time(test_df, output_dir)
+        
+        # Plot solar magnetic IPP error map
+        plot_solar_magnetic_ipp_error_map(test_df, output_dir)
     
     required_directional = ['satazi', 'satele']
     if all(col in available_features for col in required_directional):

@@ -5,7 +5,7 @@ year: 2023
 doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
-debug: True  
+debug: False  
 debug_single_batch: False  
 
 target: "stec" # stec or vtec
@@ -16,7 +16,6 @@ data:
   scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
   SWI_data_path: "/home/space/data/IONO/SWI/"
   move_to_scratch: True # Whether to move data to scratch for faster access
-  sampling: ultra # all semi medium hard extreme ultra
   every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data
   SH_degree: 0
@@ -34,8 +33,8 @@ model:
   model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   
 training:
-  loss_function: "MSELoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 1.0
+  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
+  loss_weight: 10.0
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization
   log_target: False              # Disable log-space training

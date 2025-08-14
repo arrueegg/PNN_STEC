@@ -5,7 +5,6 @@ import logging
 import os
 
 from utils.config_parser import parse_config
-from utils.pre_split_subsample_data import split
 from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner

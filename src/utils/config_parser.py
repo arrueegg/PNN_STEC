@@ -64,11 +64,38 @@ def compute_exp_name(config: dict) -> str:
     model = config['model']['model_type']
     sh_degree = config['data']['SH_degree']
     mode = config['mode']
-
+    
+    # Get training config based on mode
+    training_config = config.get(mode, {})
+    
+    # Extract key hyperparameters for naming
+    lr = training_config.get('learning_rate', 0.001)
+    batch_size = training_config.get('batchsize', 512)
+    loss_fn = config['training'].get('loss_function', 'MSELoss')
+    optimizer = config['training'].get('optimizer', 'Adam')
+    scheduler = training_config.get('scheduler', 'none')
+    loss_weight = config['training'].get('loss_weight', 1.0)
+    weight_decay = config['training'].get('weight_decay', 0.0)
+    
+    # Create abbreviated versions for cleaner names
+    loss_fn_short = loss_fn.replace('Loss', '').replace('Gaussian', 'G').replace('NLL', 'NLL')  # GaussianNLLLoss -> GNLL
+    scheduler_short = scheduler if scheduler != 'none' else 'noSch'
+    
+    # Format numbers for readability (use scientific notation for decimals)
+    if lr >= 1.0 and lr == int(lr):
+        lr_str = f"{int(lr)}"  # Keep integers clean (e.g., "1" for 1.0)
+    else:
+        lr_str = f"{lr:.0e}".replace('e-0', 'e-').replace('e+0', 'e+').replace('e0', '')
+    
+    # Only add weight decay and loss weight if they're non-default
+    weight_decay_str = f"_wd{weight_decay:.0e}".replace('e-0', 'e-').replace('e+0', 'e+') if weight_decay > 0.0 else ""
+    loss_weight_str = f"_lw{loss_weight:.0f}" if loss_weight != 1.0 else ""
+    
     if mode == 'finetune':
-        exp_name = f"Finetune_{config['year']}_{config['doy']}_{model}_SH{sh_degree}"
+        exp_name = f"Finetune_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{weight_decay_str}{loss_weight_str}"
     elif mode == 'pretrain':
-        exp_name = f"Pretrain_{model}_SH{sh_degree}"
+        exp_name = f"Pretrain_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{weight_decay_str}{loss_weight_str}"
+    
     return exp_name
 
 
