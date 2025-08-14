@@ -77,6 +77,11 @@ def compute_exp_name(config: dict) -> str:
     loss_weight = config['training'].get('loss_weight', 1.0)
     weight_decay = config['training'].get('weight_decay', 0.0)
     
+    # Additional config parameters
+    subset_size = config['data'].get('train_subset_size', 500_000)
+    use_swi = config['data'].get('use_SWI', False)
+    log_target = config['training'].get('log_target', False)
+    
     # Create abbreviated versions for cleaner names
     loss_fn_short = loss_fn.replace('Loss', '').replace('Gaussian', 'G').replace('NLL', 'NLL')  # GaussianNLLLoss -> GNLL
     scheduler_short = scheduler if scheduler != 'none' else 'noSch'
@@ -91,10 +96,22 @@ def compute_exp_name(config: dict) -> str:
     weight_decay_str = f"_wd{weight_decay:.0e}".replace('e-0', 'e-').replace('e+0', 'e+') if weight_decay > 0.0 else ""
     loss_weight_str = f"_lw{loss_weight:.0f}" if loss_weight != 1.0 else ""
     
+    # Add subset size (format large numbers nicely)
+    if subset_size >= 1_000_000:
+        subset_str = f"_sub{subset_size//1_000_000}M"
+    elif subset_size >= 1_000:
+        subset_str = f"_sub{subset_size//1_000}K"
+    else:
+        subset_str = f"_sub{subset_size}"
+    
+    # Only add SWI and log_target if they're enabled (non-default)
+    swi_str = "_SWI" if use_swi else ""
+    log_str = "_logTgt" if log_target else ""
+    
     if mode == 'finetune':
-        exp_name = f"Finetune_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{weight_decay_str}{loss_weight_str}"
+        exp_name = f"Finetune_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     elif mode == 'pretrain':
-        exp_name = f"Pretrain_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{weight_decay_str}{loss_weight_str}"
+        exp_name = f"Pretrain_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     
     return exp_name
 

@@ -24,11 +24,6 @@ data:
   shuffle: True
   train_subset_size: 500_000  # Number of samples to use per epoch
 
-split:
-  train_ratio: 0.8
-  val_ratio: 0.1
-  test_ratio: 0.1
-
 model:
   model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   
