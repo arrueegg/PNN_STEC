@@ -9,7 +9,7 @@ data:
   sampling: ultra
   scratch_dir: /scratch2/arrueegg/WP4/PNN_STEC/data_debug/
   shuffle: true
-  train_subset_size: 100000
+  train_subset_size: 500000
   use_SWI: true
   use_agg_h5: true
 debug: true
@@ -28,7 +28,7 @@ model:
   output_size: 1
 output_dir: experiments/Pretrain_BNN_NLL_SH0
 pretrain:
-  batchsize: 32
+  batchsize: 512
   early_stopping: true
   epochs: 20
   learning_rate: 0.01
@@ -49,7 +49,7 @@ training:
   log_space_point: mean
   log_target: false
   loss_function: MSELoss
-  loss_weight: 0.01
+  loss_weight: 1.0
   optimizer: Adam
   weight_decay: 0.0
 year: '2023'

@@ -196,20 +196,29 @@ class BaseTrainer:
         model.eval()
         running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
         all_outputs, all_targets = [], []
+        disable_tqdm = "cluster" in os.environ.get('HOME', '')
 
         with torch.no_grad():
-            for inputs, targets in tqdm(dataloader, desc="Validation", disable="cluster" in os.environ.get('HOME', '')):
+            for inputs, targets in tqdm(dataloader, desc="Validation", disable=disable_tqdm):
                 inputs = inputs.to(self.device)
                 training_targets, original_targets = self._targets_to_training_space(targets)
 
                 outputs = model(inputs)
                 pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+                
+                pred_mean_raw = pred_mean_raw.flatten()
+                pred_var_raw = pred_var_raw.flatten()
 
                 # Losses in training space
                 mse_loss = criterion_mse(pred_mean_raw, training_targets)
                 nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
                 kld_loss = criterion_kld(model)
-                loss = nll_loss + self.loss_weight * kld_loss
+                
+                # Use same loss calculation logic as training
+                if self.config['training']['loss_function'] == 'GaussianNLLLoss':
+                    loss = nll_loss + self.loss_weight * kld_loss
+                elif self.config['training']['loss_function'] == 'MSELoss':
+                    loss = mse_loss
 
                 # Accumulate losses
                 running_loss += loss.item()
@@ -244,15 +253,18 @@ class BaseTrainer:
     def test_model(self, model, dataloader):
         model.eval()
         all_outputs, all_targets = [], []
+        disable_tqdm = "cluster" in os.environ.get('HOME', '')
 
         with torch.no_grad():
-            for inputs, targets in tqdm(dataloader, desc="Testing", disable="cluster" in os.environ.get('HOME', '')):
-
+            for inputs, targets in tqdm(dataloader, desc="Testing", disable=disable_tqdm):
                 inputs = inputs.to(self.device)
                 training_targets, original_targets = self._targets_to_training_space(targets)
 
                 outputs = model(inputs)
                 pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+                
+                pred_mean_raw = pred_mean_raw.flatten()
+                pred_var_raw = pred_var_raw.flatten()
 
                 # Back-transform to linear space for outputs
                 if self.use_log_target:

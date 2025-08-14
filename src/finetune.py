@@ -27,7 +27,7 @@ class Finetuner(BaseTrainer):
 
     def finetune(self, logger):
         # Get single dataloaders.
-        train_loader, val_loader, test_loader = get_data_loaders(self.config)
+        train_loader, val_loader, test_loader = get_data_loaders(self.config, logger)
         # Use the training configuration key
         training_key = self.config.get('mode', 'finetune')
         self.run_training(train_loader, val_loader, test_loader, self.initialize_model, training_key)

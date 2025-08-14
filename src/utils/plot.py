@@ -1,9 +1,13 @@
 import pandas as pd
 import numpy as np
 import os
+import matplotlib
+matplotlib.use('Agg')  # Use non-GUI backend to prevent threading issues
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 
 
 def ensure_dir(directory):
@@ -69,54 +73,69 @@ def plot_prediction_scatter(df, output_dir):
 
 
 def plot_spatial_error_map(df, output_dir):
-    plt.figure(figsize=(12, 6))
+    # Create geographic heatmap with coastlines using cartopy
+    fig = plt.figure(figsize=(15, 8))
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    
     heatmap_data = df.copy()
-    heatmap_data['lon_bin'] = pd.cut(df['lon_sta'], bins=72)
-    heatmap_data['lat_bin'] = pd.cut(df['lat_sta'], bins=36)
-
-    # Save full category ranges
-    lon_cats = heatmap_data['lon_bin'].cat.categories
-    lat_cats = heatmap_data['lat_bin'].cat.categories
+    
+    # Define longitude and latitude bin edges
+    lon_edges = np.linspace(-180, 180, 145)
+    lat_edges = np.linspace(-90, 90, 73)
+    
+    # Create bins
+    heatmap_data['lon_bin'] = pd.cut(df['lon_ipp'], bins=lon_edges)
+    heatmap_data['lat_bin'] = pd.cut(df['lat_ipp'], bins=lat_edges)
 
     # Group and compute residuals
     grouped = heatmap_data.groupby(['lon_bin', 'lat_bin'])[['target_stec', 'pred_stec']].mean().reset_index()
     grouped['residual'] = np.abs(grouped['target_stec'] - grouped['pred_stec'])
-
-    # Pivot and reindex to include all bins
-    pivot = grouped.pivot(index='lat_bin', columns='lon_bin', values='residual')
-    pivot = pivot.reindex(index=lat_cats, columns=lon_cats)
-
-    # Plot
-    ax = sns.heatmap(pivot, cmap='viridis', cbar_kws={'label': 'Absolute Residual'})
-
-    # Tick label formatting: every 5th bin only
-    xticks = ax.get_xticks()
-    xlabels = []
-    for tick in xticks:
-        idx = int(round(tick))
-        if 0 <= idx < len(pivot.columns):
-            if idx % 1 == 0:
-                xlabels.append(int(round(pivot.columns[idx].mid)))
-            else:
-                xlabels.append("")
-    ax.set_xticklabels(xlabels, rotation=45)
-
-    yticks = ax.get_yticks()
-    ylabels = []
-    for tick in yticks:
-        idx = int(round(tick))
-        if 0 <= idx < len(pivot.index):
-            if idx % 1 == 0:
-                ylabels.append(int(round(pivot.index[idx].mid)))
-            else:
-                ylabels.append("")
-    ax.set_yticklabels(ylabels, rotation=0)
-
-    plt.xlabel('Longitude')
-    plt.ylabel('Latitude')
-    plt.title('Spatial Distribution of Errors (Heatmap)')
+    
+    # Get bin centers for plotting
+    grouped['lon_center'] = grouped['lon_bin'].apply(lambda x: x.mid)
+    grouped['lat_center'] = grouped['lat_bin'].apply(lambda x: x.mid)
+    
+    # Create 2D grid for heatmap
+    lon_centers = np.array([interval.mid for interval in pd.cut([], bins=lon_edges).categories])
+    lat_centers = np.array([interval.mid for interval in pd.cut([], bins=lat_edges).categories])
+    
+    # Initialize grid with NaN
+    Z = np.full((len(lat_centers), len(lon_centers)), np.nan)
+    
+    # Fill grid with residual values
+    for _, row in grouped.iterrows():
+        lon_idx = np.argmin(np.abs(lon_centers - row['lon_center']))
+        lat_idx = np.argmin(np.abs(lat_centers - row['lat_center']))
+        Z[lat_idx, lon_idx] = row['residual']
+    
+    # Create meshgrid for plotting
+    LON, LAT = np.meshgrid(lon_centers, lat_centers)
+    
+    # Plot heatmap using pcolormesh
+    vmax = np.nanpercentile(Z, 95)  # clip top 5% of values
+    im = ax.pcolormesh(LON, LAT, Z, cmap='coolwarm', shading='auto', 
+                    transform=ccrs.PlateCarree(), alpha=0.8,
+                    vmin=0, vmax=vmax)
+    
+    # Add coastlines and geographic features
+    ax.add_feature(cfeature.COASTLINE, linewidth=0.8, color='black')
+    
+    # Add gridlines
+    gl = ax.gridlines(draw_labels=True, dms=False, x_inline=False, y_inline=False,
+                     linewidth=0.5, alpha=0.5, color='gray')
+    gl.top_labels = False
+    gl.right_labels = False
+    
+    # Set global extent
+    ax.set_global()
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax, shrink=0.7, pad=0.05, extend='max')
+    cbar.set_label('Absolute Residual (STEC)', rotation=270, labelpad=15)
+    
+    plt.title('Spatial Distribution of Errors')
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/spatial_error_map_heatmap.png')
+    plt.savefig(f'{output_dir}/spatial_error_heatmap.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 def plot_histogram_of_residuals(df, output_dir):
@@ -132,7 +151,7 @@ def plot_histogram_of_residuals(df, output_dir):
 
 
 def plot_uncertainty_calibration(df, output_dir):
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(8, 8))
     abs_residual = np.abs(df['target_stec'] - df['pred_stec'])
     plt.scatter(df['pred_total_unc'], abs_residual, alpha=0.3)
     max_val = max(df['pred_total_unc'].max(), abs_residual.max())
@@ -146,25 +165,23 @@ def plot_uncertainty_calibration(df, output_dir):
 
 
 def plot_az_el_heatmap(df, output_dir, metric='residual'):
-    """
-    Plots a heatmap of residuals or MAE by azimuth and elevation.
+    """ Plots a heatmap of residuals or MAE by azimuth and elevation with 95% quantiles on color scale.
 
     Parameters:
-    - df: DataFrame containing 'satazi', 'satele', 'target_stec', and 'pred_stec' columns.
-    - output_dir: Directory to save the plot.
-    - metric: Metric to plot ('residual' or 'mae').
+        - df: DataFrame containing 'satazi', 'satele', 'target_stec', and 'pred_stec' columns.
+        - output_dir: Directory to save the plot.
+        - metric: Metric to plot ('residual' or 'mae').
     """
     plt.figure(figsize=(12, 6))
     heatmap_data = df.copy()
 
-    # Create bin columns with fixed categories
-    az_min, az_max = 0, 360  # Define min and max for azimuth
-    el_min, el_max = 5, 90   # Define min and max for elevation
+    # Fixed bins
+    az_min, az_max = 0, 360
+    el_min, el_max = 5, 90
 
     heatmap_data['az_bin'] = pd.cut(df['satazi'], bins=np.linspace(az_min, az_max, 181))
     heatmap_data['el_bin'] = pd.cut(df['satele'], bins=np.linspace(el_min, el_max, 87))
 
-    # Save full category ranges
     az_cats = heatmap_data['az_bin'].cat.categories
     el_cats = heatmap_data['el_bin'].cat.categories
 
@@ -175,43 +192,95 @@ def plot_az_el_heatmap(df, output_dir, metric='residual'):
         cbar_label = 'Residual'
         title = 'Residuals by Azimuth and Elevation'
         filename = 'az_el_residuals_heatmap.png'
+        cmap_colors = 'RdBu_r'
+        center = 0
     elif metric == 'mae':
         grouped['value'] = np.abs(grouped['target_stec'] - grouped['pred_stec'])
         cbar_label = 'Mean Absolute Error'
         title = 'Mean Absolute Error by Azimuth and Elevation'
         filename = 'az_el_mae_heatmap.png'
+        cmap_colors = 'coolwarm'
+        center = None
     else:
         raise ValueError("Invalid metric. Choose 'residual' or 'mae'.")
 
     # Pivot and reindex to include all bins
     pivot = grouped.pivot(index='el_bin', columns='az_bin', values='value')
     pivot = pivot.reindex(index=el_cats, columns=az_cats)
+    # Reverse the order of elevation bins so high elevations are at top
+    pivot = pivot.iloc[::-1]
+    vals = pivot.to_numpy()
 
-    # Plot heatmap
-    ax = sns.heatmap(pivot, cmap='RdBu_r', cbar_kws={'label': cbar_label})
+    # Compute 95% quantile limits (ignore NaNs)
+    if metric == 'residual':
+        vmax_q = np.nanpercentile(np.abs(vals), 95)
+        vmin, vmax = -vmax_q, vmax_q
+        data_min, data_max = np.nanmin(vals), np.nanmax(vals)
+        extend = ('both' if (data_min < vmin) and (data_max > vmax)
+                  else 'min' if data_min < vmin
+                  else 'max' if data_max > vmax
+                  else 'neither')
+    else:  # mae
+        vmin = 0.0
+        vmax = np.nanpercentile(vals, 95)
+        data_max = np.nanmax(vals)
+        extend = 'max' if data_max > vmax else 'neither'
 
-    # Tick label formatting
-    xticks = ax.get_xticks()
-    xlabels = []
-    for tick in xticks:
-        idx = int(round(tick))
-        if 0 <= idx < len(pivot.columns):
-            if idx % 1 == 0 or idx == 0:
-                xlabels.append(int(round(pivot.columns[idx].mid)))
-            else:
-                xlabels.append("")
-    ax.set_xticklabels(xlabels, rotation=90)
+    # Plot (seaborn honors vmin/vmax; center is only needed for diverging maps)
+    ax = sns.heatmap(
+        pivot, cmap=cmap_colors, vmin=vmin, vmax=vmax,
+        cbar_kws={'label': cbar_label, 'extend': extend},
+        center=center
+    )
 
-    yticks = ax.get_yticks()
-    ylabels = []
-    for tick in yticks:
-        idx = int(round(tick))
-        if 0 <= idx < len(pivot.index):
-            if idx % 1 == 0 or idx == 0:
-                ylabels.append(int(round(pivot.index[idx].mid)))
-            else:
-                ylabels.append("")
-    ax.set_yticklabels(ylabels, rotation=0)
+    # Define nice tick values manually
+    # X-axis (Azimuth: 0-360°) - every 60 degrees
+    az_tick_values = [0, 60, 120, 180, 240, 300, 360]
+    x_tick_positions = []
+    x_tick_labels = []
+    
+    for az_val in az_tick_values:
+        # Find the closest bin index for this azimuth value
+        closest_idx = None
+        min_distance = float('inf')
+        for i, cat in enumerate(pivot.columns):
+            bin_center = cat.mid
+            distance = abs(bin_center - az_val)
+            if distance < min_distance:
+                min_distance = distance
+                closest_idx = i
+        
+        if closest_idx is not None:
+            x_tick_positions.append(closest_idx)
+            x_tick_labels.append(f'{az_val}°')
+    
+    ax.set_xticks(x_tick_positions)
+    ax.set_xticklabels(x_tick_labels, rotation=0)
+    
+    # Y-axis (Elevation: 5-90°) - every 15 degrees plus min/max
+    el_tick_values = [5, 15, 30, 45, 60, 75, 90]
+    y_tick_positions = []
+    y_tick_labels = []
+    
+    for el_val in el_tick_values:
+        # Find the closest bin index for this elevation value in the original el_cats
+        closest_idx = None
+        min_distance = float('inf')
+        for i, cat in enumerate(el_cats):
+            bin_center = cat.mid
+            distance = abs(bin_center - el_val)
+            if distance < min_distance:
+                min_distance = distance
+                closest_idx = i
+        
+        if closest_idx is not None:
+            # Since we reversed the pivot with iloc[::-1], we need to reverse the index
+            reversed_idx = len(el_cats) - 1 - closest_idx
+            y_tick_positions.append(reversed_idx)
+            y_tick_labels.append(f'{el_val}°')
+    
+    ax.set_yticks(y_tick_positions)
+    ax.set_yticklabels(y_tick_labels, rotation=0)
 
     plt.xlabel('Azimuth')
     plt.ylabel('Elevation')
@@ -219,6 +288,7 @@ def plot_az_el_heatmap(df, output_dir, metric='residual'):
     plt.tight_layout()
     plt.savefig(f'{output_dir}/{filename}')
     plt.close()
+
 
 
 def modify_df(df):

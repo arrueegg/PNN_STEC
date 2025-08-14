@@ -494,7 +494,7 @@ def get_fixed_subset_indices(ds, k, cache_path, seed=0):
     torch.save({"len": len(ds), "k": k, "seed": seed, "indices": idx}, cache_path)
     return idx
 
-def get_data_loaders(config):
+def get_data_loaders(config, logger=None):
     collate_fn = CollateWithSH(config)
     loaders = {}
 
@@ -519,7 +519,7 @@ def get_data_loaders(config):
     # build splits if requested
     if use_agg_h5 and build_agg_h5:
         # Use the new class-based approach with resume capability
-        preprocessor = DataPreprocessor(config)
+        preprocessor = DataPreprocessor(config, logger)
         success = preprocessor.build_split_h5()
         if not success:
             raise RuntimeError("Failed to build split H5 files")
@@ -539,9 +539,15 @@ def get_data_loaders(config):
             path = os.path.join(config['data']['scratch_dir'], f"{split}.h5")
             ds   = H5Dataset(config, path, split)
         else:
-            preprocessor = DataPreprocessor(config)
+            preprocessor = DataPreprocessor(config, logger)
             file_splits = preprocessor.get_split_file_lists()
-            datasets = [PyTablesDatasetSplit(config, p, split) for p in tqdm(file_splits[split], desc=f"Loading {split}")]
+            datasets = []
+            for file_path in tqdm(file_splits[split], desc=f"Loading {split}"):
+                # Extract year and doy from file path
+                # Path format: .../{year}/{doy}/ccl_{year}{doy}_30_5.h5
+                year = file_path.split('/')[-3]
+                doy = file_path.split('/')[-2] 
+                datasets.append(PyTablesDatasetSplit(file_path, year, doy, split, config))
             ds = torch.utils.data.ConcatDataset(datasets)
 
         # -----------------------------

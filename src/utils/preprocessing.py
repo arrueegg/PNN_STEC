@@ -44,19 +44,21 @@ class DataPreprocessor:
     - Memory-efficient chunked processing
     
     Example usage:
-        preprocessor = DataPreprocessor(config)
+        preprocessor = DataPreprocessor(config, logger)
         success = preprocessor.build_split_h5()
         file_lists = preprocessor.get_split_file_lists()
     """
     
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, logger):
         """
         Initialize the DataPreprocessor with configuration.
         
         Args:
             config: Configuration dictionary containing data paths and settings
+            logger: Logger instance for logging messages (optional)
         """
         self.config = config
+        self.logger = logger
         self.data_config = config['data']
         self.scratch_dir = self.data_config['scratch_dir']
         self.gnss_data_path = self.data_config['GNSS_data_path']
@@ -256,7 +258,7 @@ class DataPreprocessor:
                 with open(self.progress_file, 'r') as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Warning: Could not load progress file: {e}, starting fresh")
+                self.logger.warning(f"Warning: Could not load progress file: {e}, starting fresh")
         return {}
     
     def _save_progress(self, progress_data: dict):
@@ -326,7 +328,7 @@ class DataPreprocessor:
                     chunk_data[split_name].append(block)
                     
             except Exception as e:
-                print(f"Warning: Failed to process {dayfile}: {e}")
+                self.logger.warning(f"Warning: Failed to process {dayfile}: {e}")
                 continue
         
         return chunk_data
@@ -354,7 +356,7 @@ class DataPreprocessor:
     def _merge_temp_chunks(self, splits: List[str]):
         """Merge all temporary chunks into final split files using streaming approach."""
         for split_name in splits:
-            print(f"Merging {split_name} chunks...")
+            self.logger.info(f"Merging {split_name} chunks...")
             
             # Find all chunk files for this split
             chunk_files = sorted([
@@ -363,22 +365,22 @@ class DataPreprocessor:
             ])
             
             if not chunk_files:
-                print(f"No chunks found for {split_name}")
+                self.logger.warning(f"No chunks found for {split_name}")
                 continue
             
             # First pass: count total records to pre-allocate dataset
             total_records = 0
-            print(f"Counting records in {len(chunk_files)} chunks...")
+            self.logger.info(f"Counting records in {len(chunk_files)} chunks...")
             for chunk_file in tqdm(chunk_files, desc=f"Counting {split_name} records"):
                 chunk_path = os.path.join(self.temp_dir, chunk_file)
                 with h5py.File(chunk_path, 'r') as f:
                     total_records += f['data'].shape[0]
             
             if total_records == 0:
-                print(f"No data found for {split_name}")
+                self.logger.warning(f"No data found for {split_name}")
                 continue
             
-            print(f"Total records for {split_name}: {total_records:,}")
+            self.logger.info(f"Total records for {split_name}: {total_records:,}")
             
             # Create final file with pre-allocated dataset
             final_file = os.path.join(self.scratch_dir, f'{split_name}.h5')
@@ -416,12 +418,12 @@ class DataPreprocessor:
                         final_dataset[current_offset:current_offset + chunk_size] = chunk_data[:]
                         current_offset += chunk_size
                 
-                print(f"✅ Streamed {total_records:,} records to {split_name}.h5")
-                print(f"   Optimized for ML with chunk size: {ml_optimal_chunk_size}")
+                self.logger.info(f"✅ Streamed {total_records:,} records to {split_name}.h5")
+                self.logger.info(f"   Optimized for ML with chunk size: {ml_optimal_chunk_size}")
                 if self.use_compression:
-                    print(f"   Using LZF compression")
+                    self.logger.info(f"   Using LZF compression")
                 else:
-                    print(f"   No compression for maximum read speed")
+                    self.logger.info(f"   No compression for maximum read speed")
     
     def _cleanup_temp_files(self):
         """Clean up temporary files after successful completion."""
@@ -429,7 +431,7 @@ class DataPreprocessor:
             shutil.rmtree(self.temp_dir)
         if os.path.exists(self.progress_file):
             os.remove(self.progress_file)
-        print("🧹 Cleaned up temporary files")
+        self.logger.info("🧹 Cleaned up temporary files")
     
     def build_split_h5(self) -> bool:
         """
@@ -446,15 +448,15 @@ class DataPreprocessor:
         progress = self._load_progress()
         processed_files = set(progress.get('processed_files', []))
         
-        print(f"Resuming from {len(processed_files)} already processed files")
-
         # Check if final files exist and are complete
         splits = ['train', 'val', 'test']
         final_files_exist = all(os.path.exists(os.path.join(self.scratch_dir, f'{sp}.h5')) for sp in splits)
         
         if final_files_exist and not progress.get('force_rebuild', False):
-            print("All split files already exist. Use 'force_rebuild': True in config to override.")
+            self.logger.info("All split files already exist. Use 'force_rebuild': True in config to override.")
             return True
+        
+        self.logger.info(f"Resuming from {len(processed_files)} already processed files")
 
         # Pre-compute date lookup
         date_to_split = self._create_date_to_split_mapping()
@@ -476,10 +478,10 @@ class DataPreprocessor:
                     if file_key not in processed_files:
                         all_files_to_process.append((dayfile, dt, year, doy, file_key))
 
-        print(f"Found {len(all_files_to_process)} files to process")
+        self.logger.info(f"Found {len(all_files_to_process)} files to process")
         
         if len(all_files_to_process) == 0:
-            print("No new files to process, merging existing chunks...")
+            self.logger.info("No new files to process, merging existing chunks...")
             self._merge_temp_chunks(splits)
             self._cleanup_temp_files()
             return True
@@ -492,7 +494,7 @@ class DataPreprocessor:
             end_idx = min((chunk_idx + 1) * self.chunk_size, len(all_files_to_process))
             chunk_files = all_files_to_process[start_idx:end_idx]
             
-            print(f"Processing chunk {chunk_idx + 1}/{total_chunks} ({len(chunk_files)} files)")
+            self.logger.info(f"Processing chunk {chunk_idx + 1}/{total_chunks} ({len(chunk_files)} files)")
             
             try:
                 # Process this chunk
@@ -512,19 +514,19 @@ class DataPreprocessor:
                     'last_updated': datetime.now().isoformat()
                 })
                 
-                print(f"✅ Completed chunk {chunk_idx + 1}/{total_chunks}")
+                self.logger.info(f"✅ Completed chunk {chunk_idx + 1}/{total_chunks}")
                 
             except Exception as e:
-                print(f"❌ Error processing chunk {chunk_idx + 1}: {e}")
-                print(f"Progress saved. You can resume from chunk {chunk_idx + 1}")
+                self.logger.error(f"❌ Error processing chunk {chunk_idx + 1}: {e}")
+                self.logger.info(f"Progress saved. You can resume from chunk {chunk_idx + 1}")
                 return False
         
         # Merge all chunks into final files
-        print("Merging temporary chunks into final files...")
+        self.logger.info("Merging temporary chunks into final files...")
         self._merge_temp_chunks(splits)
         
         # Cleanup
         self._cleanup_temp_files()
-        print("✅ Build completed successfully!")
+        self.logger.info("✅ Build completed successfully!")
         return True
     

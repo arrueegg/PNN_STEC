@@ -23,7 +23,7 @@ data:
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True
-  train_subset_size: 100_000  # Number of samples to use per epoch
+  train_subset_size: 500_000  # Number of samples to use per epoch
 
 split:
   train_ratio: 0.8
@@ -35,7 +35,7 @@ model:
   
 training:
   loss_function: "MSELoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.01
+  loss_weight: 1.0
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization
   log_target: False              # Disable log-space training
@@ -43,7 +43,7 @@ training:
 
 pretrain:
   epochs: 20
-  batchsize: 32   
+  batchsize: 512   
   num_workers: 8
   learning_rate: 0.01
   scheduler: none            # none, StepLR, CosineAnnealingLR
