@@ -29,64 +29,64 @@ def init_kaiming(model, activation, model_seed):
     #nn.init.constant_(model.out_layer.bias, 100.0)
 
 class MLP(torch.nn.Module):
-    def __init__(self, n_in=3, n_out=1):
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
         super().__init__()
-        self.Linear_1 = Linear(n_in, 256)
-        self.Linear_2 = Linear(256, 256)
-        self.Linear_3 = Linear(256, 256)
-        self.Linear_4 = Linear(256, 256)
-        self.Linear_5 = Linear(256, 1)
+        
+        # Create layers dynamically
+        self.layers = nn.ModuleList()
+        self.layers.append(Linear(n_in, hidden_dim))
+        
+        for _ in range(num_layers - 1):
+            self.layers.append(Linear(hidden_dim, hidden_dim))
+        
+        self.output_layer = Linear(hidden_dim, n_out)
         
         # FIXED: Initialize final layer to predict target mean (~15.5 TECU)
         with torch.no_grad():
-            self.Linear_5.bias.fill_(15.5)  # Initialize to approximate STEC mean
-            self.Linear_5.weight.normal_(0, 0.01)  # Small weights initially
+            self.output_layer.bias.fill_(15.5)  # Initialize to approximate STEC mean
+            self.output_layer.weight.normal_(0, 0.01)  # Small weights initially
 
     def forward(self, x):
-        x = self.Linear_1(x)
-        x = F.relu(x)
-        x = self.Linear_2(x)
-        x = F.relu(x)
-        x = self.Linear_3(x)
-        x = F.relu(x)
-        x = self.Linear_4(x)
-        x = F.relu(x)
-        x = self.Linear_5(x)
+        for layer in self.layers:
+            x = F.relu(layer(x))
+        x = self.output_layer(x)
 
         return x, torch.zeros_like(x)  # Return zero variance for MLP
     
 class BranchMLP(nn.Module):
-    def __init__(self, n_in, num_SWI_params):
+    def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
         super().__init__()
 
         self.split = 3 + num_SWI_params  # time features (sod normalized, cos(doy), sin(doy)) + SWI features
 
         # Spatial branch (lat, lon, etc.)
-        self.spatial_net = nn.Sequential(
-            nn.Linear(n_in - self.split, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU()
-        )
+        spatial_layers = []
+        spatial_layers.append(nn.Linear(n_in - self.split, hidden_dim))
+        spatial_layers.append(nn.ReLU())
+        for _ in range(num_layers - 1):
+            spatial_layers.append(nn.Linear(hidden_dim, hidden_dim))
+            spatial_layers.append(nn.ReLU())
+        self.spatial_net = nn.Sequential(*spatial_layers)
         
         # Temporal branch (sod, cos(doy), solar params, etc.)
-        self.temporal_net = nn.Sequential(
-            nn.Linear(self.split, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU()
-        )
+        temporal_layers = []
+        temporal_layers.append(nn.Linear(self.split, hidden_dim))
+        temporal_layers.append(nn.ReLU())
+        for _ in range(num_layers - 1):
+            temporal_layers.append(nn.Linear(hidden_dim, hidden_dim))
+            temporal_layers.append(nn.ReLU())
+        self.temporal_net = nn.Sequential(*temporal_layers)
         
         # Fusion and output
         self.fusion = nn.Sequential(
-            nn.Linear(2 * 256, 256),
+            nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, 2)  # Predict STEC
+            nn.Linear(hidden_dim, 2)  # Predict STEC
         )
     
     def forward(self, x):
-        spatial_features = x[:, :self.split]  # Spatial features
-        temporal_features = x[:, self.split:]  # Temporal features
+        temporal_features = x[:, :self.split]  # Temporal features (first self.split features)
+        spatial_features = x[:, self.split:]   # Spatial features (remaining features)
         s_out = self.spatial_net(spatial_features)
         t_out = self.temporal_net(temporal_features)
         x = torch.cat([s_out, t_out], dim=-1)
@@ -117,152 +117,146 @@ class MLP_NLL(torch.nn.Module):
 
 
 class MLP_MCDropout_mse(torch.nn.Module):
-    def __init__(self, n_in=3, n_out=1):
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
         super().__init__()
-        self.Linear_1 = Linear(n_in, 256)
-        self.Dropout_1 = Dropout(p=0.2)
-        self.Linear_2 = Linear(256, 256)
-        self.Dropout_2 = Dropout(p=0.2)
-        self.Linear_3 = Linear(256, 256)
-        self.Dropout_3 = Dropout(p=0.2)
-        self.Linear_4 = Linear(256, 256)
-        self.Dropout_4 = Dropout(p=0.5)
-        self.Linear_5 = Linear(256, 1)
+        
+        # Create layers dynamically
+        self.layers = nn.ModuleList()
+        self.dropouts = nn.ModuleList()
+        
+        # First layer
+        self.layers.append(Linear(n_in, hidden_dim))
+        self.dropouts.append(Dropout(p=0.2))
+        
+        # Hidden layers
+        for i in range(num_layers - 1):
+            self.layers.append(Linear(hidden_dim, hidden_dim))
+            # Use higher dropout for the last hidden layer
+            dropout_p = 0.5 if i == num_layers - 2 else 0.2
+            self.dropouts.append(Dropout(p=dropout_p))
+        
+        # Output layer
+        self.output_layer = Linear(hidden_dim, n_out)
 
     def forward(self, x):
-        x = self.Linear_1(x)
-        x = F.relu(x)
-        x = self.Dropout_1(x)
-        x = self.Linear_2(x)
-        x = F.relu(x)
-        x = self.Dropout_2(x)
-        x = self.Linear_3(x)
-        x = F.relu(x)
-        x = self.Dropout_3(x)
-        x = self.Linear_4(x)
-        x = F.relu(x)
-        x = self.Dropout_4(x)
-        x = self.Linear_5(x)
-
+        for layer, dropout in zip(self.layers, self.dropouts):
+            x = F.relu(layer(x))
+            x = dropout(x)
+        x = self.output_layer(x)
         return x
     
 
 class MLP_MCDropout_NLL(torch.nn.Module):
-    def __init__(self, n_in=3, n_out=1):
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
         super().__init__()
-        self.Linear_1 = Linear(n_in, 256)
-        self.Dropout_1 = Dropout(p=0.2)
-        self.Linear_2 = Linear(256, 256)
-        self.Dropout_2 = Dropout(p=0.2)
-        self.Linear_3 = Linear(256, 256)
-        self.Dropout_3 = Dropout(p=0.2)
-        self.Linear_4 = Linear(256, 256)
-        self.Dropout_4 = Dropout(p=0.5)
-        self.Linear_5 = Linear(256, 2)
+        
+        # Create layers dynamically
+        self.layers = nn.ModuleList()
+        self.dropouts = nn.ModuleList()
+        
+        # First layer
+        self.layers.append(Linear(n_in, hidden_dim))
+        self.dropouts.append(Dropout(p=0.2))
+        
+        # Hidden layers
+        for i in range(num_layers - 1):
+            self.layers.append(Linear(hidden_dim, hidden_dim))
+            # Use higher dropout for the last hidden layer
+            dropout_p = 0.5 if i == num_layers - 2 else 0.2
+            self.dropouts.append(Dropout(p=dropout_p))
+        
+        # Output layer (2 outputs for mean and variance)
+        self.output_layer = Linear(hidden_dim, 2)
 
     def forward(self, x):
-        x = self.Linear_1(x)
-        x = F.relu(x)
-        x = self.Dropout_1(x)
-        x = self.Linear_2(x)
-        x = F.relu(x)
-        x = self.Dropout_2(x)
-        x = self.Linear_3(x)
-        x = F.relu(x)
-        x = self.Dropout_3(x)
-        x = self.Linear_4(x)
-        x = F.relu(x)
-        x = self.Dropout_4(x)
-        x = self.Linear_5(x)
+        for layer, dropout in zip(self.layers, self.dropouts):
+            x = F.relu(layer(x))
+            x = dropout(x)
+        x = self.output_layer(x)
         mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-6 #Positive constraint
+        variance = F.softplus(variance) + 1e-6  # Positive constraint
 
         return mean, variance
     
     
 class BNN_mse(torch.nn.Module):
-    def __init__(self, n_in=3, n_out=1):
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
         super().__init__()
-        self.BNN_1 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in,
-                                     out_features=256)
-        self.BNN_2 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=256)
-        self.BNN_3 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=256)
-        self.BNN_4 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=256)
-        self.BNN_5 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=1)
+        
+        # Create layers dynamically
+        self.layers = nn.ModuleList()
+        
+        # First layer
+        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in, out_features=hidden_dim))
+        
+        # Hidden layers
+        for _ in range(num_layers - 1):
+            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim))
+        
+        # Output layer
+        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=n_out)
 
     def forward(self, x):
-        x = self.BNN_1(x)
-        x = F.relu(x)
-        x = self.BNN_2(x)
-        x = F.relu(x)
-        x = self.BNN_3(x)
-        x = F.relu(x)
-        x = self.BNN_4(x)
-        x = F.relu(x)
-        x = self.BNN_5(x)
-
+        for layer in self.layers:
+            x = F.relu(layer(x))
+        x = self.output_layer(x)
         return x
     
 class BNN_NLL(torch.nn.Module):
-    def __init__(self, n_in=3):
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4):
         super().__init__()
-        self.BNN_1 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in,
-                                     out_features=256)
-        self.BNN_2 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=256)
-        self.BNN_3 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=256)
-        self.BNN_4 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=256)
-        self.BNN_5 = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256,
-                                     out_features=2)
+        
+        # Create layers dynamically
+        self.layers = nn.ModuleList()
+        
+        # First layer
+        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in, out_features=hidden_dim))
+        
+        # Hidden layers
+        for _ in range(num_layers - 1):
+            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim))
+        
+        # Output layer (2 outputs for mean and variance)
+        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=2)
 
     def forward(self, x):
-        x = self.BNN_1(x)
-        x = F.relu(x)
-        x = self.BNN_2(x)
-        x = F.relu(x)
-        x = self.BNN_3(x)
-        x = F.relu(x)
-        x = self.BNN_4(x)
-        x = F.relu(x)
-        x = self.BNN_5(x)
+        for layer in self.layers:
+            x = F.relu(layer(x))
+        x = self.output_layer(x)
         mean, variance = torch.split(x, 1, dim=1)
         variance = F.softplus(variance) + 1e-6  # Positive constraint
 
         return mean, variance
     
 class Branch_BNN_NLL(nn.Module):
-    def __init__(self, n_in, num_SWI_params):
+    def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
         super().__init__()
 
         self.split = 6 + num_SWI_params  # time features (sod normalized, cos(doy), sin(doy)) + SWI features
 
         # Spatial branch (lat, lon, etc.)
-        self.spatial_net = nn.Sequential(
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in - self.split, out_features=256),
-            nn.ReLU(),
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256, out_features=256),
-            nn.ReLU()
-        )
+        spatial_layers = []
+        spatial_layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in - self.split, out_features=hidden_dim))
+        spatial_layers.append(nn.ReLU())
+        for _ in range(num_layers - 1):
+            spatial_layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim))
+            spatial_layers.append(nn.ReLU())
+        self.spatial_net = nn.Sequential(*spatial_layers)
         
         # Temporal branch (sod, cos(doy), solar params, etc.)
-        self.temporal_net = nn.Sequential(
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=self.split, out_features=256),
-            nn.ReLU(),
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256, out_features=256),
-            nn.ReLU()
-        )
+        temporal_layers = []
+        temporal_layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=self.split, out_features=hidden_dim))
+        temporal_layers.append(nn.ReLU())
+        for _ in range(num_layers - 1):
+            temporal_layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim))
+            temporal_layers.append(nn.ReLU())
+        self.temporal_net = nn.Sequential(*temporal_layers)
         
         # Fusion and output
         self.fusion = nn.Sequential(
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=2 * 256, out_features=256),
+            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=2 * hidden_dim, out_features=hidden_dim),
             nn.ReLU(),
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=256, out_features=2)  # Predict STEC
+            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=2)  # Predict STEC
         )
     
     def forward(self, x):
@@ -282,6 +276,9 @@ class Branch_BNN_NLL(nn.Module):
 # Model selection function
 def get_model(config):
     model_type = config['model']['model_type']
+    hidden_dim = config['model'].get('hidden_dim', 256)  # Default to 256 if not specified
+    num_layers = config['model'].get('num_layers', 4)    # Default to 4 if not specified
+    
     in_features = 7 + 4 + 8 + 4 * config['data']['SH_degree']**2 # 7 time&doy&year + 4 azi/ele + 4 sta/ipp coords + SH embeddings
     if config['data']['use_SWI']:
         num_SWI_params = 22
@@ -290,21 +287,21 @@ def get_model(config):
         num_SWI_params = 0
 
     if model_type == 'MLP':
-        return MLP(n_in=in_features)
+        return MLP(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'BranchMLP':
-        return BranchMLP(n_in=in_features, num_SWI_params=num_SWI_params)
+        return BranchMLP(n_in=in_features, num_SWI_params=num_SWI_params, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'MLP_NLL':
-        return MLP_NLL(n_in=in_features)
+        return MLP_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'MLP_MCDropout_mse':
-        return MLP_MCDropout_mse(n_in=in_features)
+        return MLP_MCDropout_mse(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'MLP_MCDropout_NLL':
-        return MLP_MCDropout_NLL(n_in=in_features)
+        return MLP_MCDropout_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'BNN_mse':
-        return BNN_mse(n_in=in_features)
+        return BNN_mse(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'BNN_NLL':
-        return BNN_NLL(n_in=in_features)
+        return BNN_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'Branch_BNN_NLL':
-        return Branch_BNN_NLL(n_in=in_features, num_SWI_params=num_SWI_params)
+        return Branch_BNN_NLL(n_in=in_features, num_SWI_params=num_SWI_params, hidden_dim=hidden_dim, num_layers=num_layers)
     else:
         raise ValueError(f"Model type {model_type} is not recognized.")
 
