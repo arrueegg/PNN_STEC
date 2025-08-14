@@ -112,18 +112,5 @@ The framework supports:
 
 This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
 
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@software{PNN_STEC,
-  title={PNN_STEC: Bayesian Neural Networks for Ionospheric STEC Modeling},
-  author={[Your Name]},
-  year={2025},
-  url={https://github.com/arrueegg/PNN_STEC}
-}
-```
----
 
 **Keywords**: Ionosphere, STEC, Bayesian Neural Networks, Uncertainty Quantification, Space Weather, GNSS
