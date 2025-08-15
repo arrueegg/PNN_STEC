@@ -9,11 +9,9 @@ according to your cluster's requirements and policies.
 # Default SLURM settings - modify as needed
 DEFAULT_SLURM_SETTINGS = {
     'ntasks': 1,
-    'cpus_per_task': 8,
-    'time': '24:00:00',
+    'cpus_per_task': 12,
+    'time': '2:00:00',
     'mem_per_cpu': '4G',
-    'gres': 'gpu:1',  # Request 1 GPU - adjust as needed
-    'partition': None,  # Set if your cluster requires specific partition
 }
 
 # Cluster paths - IMPORTANT: Update these paths for your cluster
