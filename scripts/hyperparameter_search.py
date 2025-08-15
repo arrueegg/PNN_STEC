@@ -109,7 +109,7 @@ def generate_slurm_script(trial_id, config_file, output_path):
         if DEFAULT_SLURM_SETTINGS.get('partition'):
             f.write(f"#SBATCH --partition={DEFAULT_SLURM_SETTINGS['partition']}\n")
         f.write(f"#SBATCH --output={log_path}\n")
-        f.write(f"#SBATCH --job-name=hp_trial_{trial_id:02d}\n\n")
+        f.write(f"#SBATCH --job-name=hp_trial_{trial_id:03d}\n\n")
         
         f.write("# Load modules\n")
         for module_cmd in MODULE_COMMANDS:
@@ -170,13 +170,13 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
         trial_config = apply_params_to_config(base_config, params, cluster_mode)
         
         # Set trial output directory
-        trial_config['output_dir'] = f"{output_dir}/results/trial_{i:02d}/"
+        trial_config['output_dir'] = f"{output_dir}/results/trial_{i:03d}/"
         
         # Reduce epochs for hyperparameter search
         trial_config['pretrain']['epochs'] = min(trial_config['pretrain']['epochs'], 20)
         
         # Save config
-        config_file = output_path / f'config_{i:02d}.yaml'
+        config_file = output_path / f'config_{i:03d}.yaml'
         with open(config_file, 'w') as f:
             yaml.dump(trial_config, f, default_flow_style=False, indent=2)
         
@@ -244,7 +244,7 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
         
         print(f"\n✅ Generated {len(combinations)} configs")
         print(f"🚀 Run search: ./{output_dir}/run_search.sh")
-        print(f"🔧 Single trial: python src/main.py --config_path {output_dir}/config_01.yaml")
+        print(f"🔧 Single trial: python src/main.py --config_path {output_dir}/config_001.yaml")
 
 def main():
     parser = argparse.ArgumentParser(description='Simple hyperparameter search')
