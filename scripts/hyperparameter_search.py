@@ -95,9 +95,9 @@ def generate_slurm_script(trial_id, config_file, output_path):
             'mem_per_cpu': '4G'
         }
     
-    slurm_script_path = output_path / 'slurm_scripts' / f'trial_{trial_id:02d}.sh'
-    log_path = output_path / 'logs' / f'trial_{trial_id:02d}-%j.out'
-    
+    slurm_script_path = output_path / 'slurm_scripts' / f'trial_{trial_id:03d}.sh'
+    log_path = output_path / 'logs' / f'trial_{trial_id:03d}-%j.out'
+
     with open(slurm_script_path, 'w') as f:
         f.write("#!/bin/bash\n\n")
         f.write(f"#SBATCH --ntasks={DEFAULT_SLURM_SETTINGS['ntasks']}\n")
