@@ -60,15 +60,40 @@ def plot_residuals_vs_feature(df, feature, num_bins=24, output_dir='plots', bin_
 
 
 def plot_prediction_scatter(df, output_dir):
-    plt.figure(figsize=(6, 6))
-    plt.scatter(df['target_stec'], df['pred_stec'], alpha=0.3)
-    plt.plot([df['target_stec'].min(), df['target_stec'].max()],
-             [df['target_stec'].min(), df['target_stec'].max()], 'r--')
+    plt.figure(figsize=(8, 8))
+    
+    # Create hexagonal density plot
+    plt.hexbin(df['target_stec'], df['pred_stec'], gridsize=50, cmap='BuGn', mincnt=1)
+    
+    # Add perfect prediction line
+    min_val = min(df['target_stec'].min(), df['pred_stec'].min())
+    max_val = max(df['target_stec'].max(), df['pred_stec'].max())
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    
     plt.xlabel('True STEC')
     plt.ylabel('Predicted STEC')
-    plt.title('Predicted vs. True STEC')
-    plt.grid(True)
-    plt.savefig(f'{output_dir}/prediction_scatter.png')
+    plt.title('Predicted vs. True STEC (Density Plot)')
+    plt.colorbar(label='Number of Points')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/prediction_density.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Also create a 2D histogram version for comparison
+    plt.figure(figsize=(8, 8))
+    plt.hist2d(df['target_stec'], df['pred_stec'], bins=50, cmap='BuGn', density=True)
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    plt.xlabel('True STEC')
+    plt.ylabel('Predicted STEC')
+    plt.title('Predicted vs. True STEC (2D Histogram)')
+    plt.colorbar(label='Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/prediction_hist2d.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 
@@ -318,14 +343,36 @@ def plot_histogram_of_residuals(df, output_dir):
 def plot_uncertainty_calibration(df, output_dir):
     plt.figure(figsize=(8, 8))
     abs_residual = np.abs(df['target_stec'] - df['pred_stec'])
-    plt.scatter(df['pred_total_unc'], abs_residual, alpha=0.3)
+    
+    # Create hexagonal density plot
+    plt.hexbin(df['pred_total_unc'], abs_residual, gridsize=50, cmap='BuGn', mincnt=1)
+    
+    # Add perfect calibration line
     max_val = max(df['pred_total_unc'].max(), abs_residual.max())
-    plt.plot([0, max_val], [0, max_val], 'r--')
+    plt.plot([0, max_val], [0, max_val], 'k--', linewidth=2, label='Perfect Calibration')
+    
     plt.xlabel('Predicted Total Uncertainty')
     plt.ylabel('|Residual|')
-    plt.title('Uncertainty Calibration')
-    plt.grid(True)
-    plt.savefig(f'{output_dir}/uncertainty_calibration.png')
+    plt.title('Uncertainty Calibration (Density Plot)')
+    plt.colorbar(label='Number of Points')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/uncertainty_calibration_density.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Also create a 2D histogram version
+    plt.figure(figsize=(8, 8))
+    plt.hist2d(df['pred_total_unc'], abs_residual, bins=50, cmap='BuGn', density=True)
+    plt.plot([0, max_val], [0, max_val], 'k--', linewidth=2, label='Perfect Calibration')
+    plt.xlabel('Predicted Total Uncertainty')
+    plt.ylabel('|Residual|')
+    plt.title('Uncertainty Calibration (2D Histogram)')
+    plt.colorbar(label='Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/uncertainty_calibration_hist2d.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 

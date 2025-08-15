@@ -81,9 +81,12 @@ def generate_slurm_script(trial_id, config_file, output_path):
         import os
         config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config')
         sys.path.insert(0, config_path)
+        # Add parent directory of 'scripts' to sys.path to allow import from 'config'
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        sys.path.insert(0, parent_dir)
         from config.cluster_config import CLUSTER_PATHS, MODULE_COMMANDS, DEFAULT_SLURM_SETTINGS
-    except ImportError:
-        print("Error importing cluster configuration. Ensure 'config/cluster_config.py' exists.")
+    except ImportError as e:
+        print(f"Error importing cluster configuration: {e}")
         # Fallback to default values if cluster_config not available
         CLUSTER_PATHS = {'main_dir': '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC'}
         MODULE_COMMANDS = ['module load stack/2024-06 python_cuda/3.11.6', 'module load eth_proxy']
@@ -101,7 +104,8 @@ def generate_slurm_script(trial_id, config_file, output_path):
         f.write(f"#SBATCH --cpus-per-task={DEFAULT_SLURM_SETTINGS['cpus_per_task']}\n")
         f.write(f"#SBATCH --time={DEFAULT_SLURM_SETTINGS['time']}\n")
         f.write(f"#SBATCH --mem-per-cpu={DEFAULT_SLURM_SETTINGS['mem_per_cpu']}\n")
-        f.write(f"#SBATCH --gres={DEFAULT_SLURM_SETTINGS['gres']}\n")
+        if DEFAULT_SLURM_SETTINGS.get('gres'):
+            f.write(f"#SBATCH --gres={DEFAULT_SLURM_SETTINGS['gres']}\n")
         if DEFAULT_SLURM_SETTINGS.get('partition'):
             f.write(f"#SBATCH --partition={DEFAULT_SLURM_SETTINGS['partition']}\n")
         f.write(f"#SBATCH --output={log_path}\n")
@@ -248,7 +252,7 @@ def main():
                        default='mini', help='Parameter grid to use')
     parser.add_argument('--output', default='hp_search',
                        help='Output directory')
-    parser.add_argument('--cluster', action='store_true',
+    parser.add_argument('--cluster', action='store_true', default=True,
                        help='Generate SLURM scripts for cluster execution')
     
     args = parser.parse_args()
