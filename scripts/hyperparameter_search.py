@@ -83,12 +83,13 @@ def generate_slurm_script(trial_id, config_file, output_path):
         sys.path.insert(0, config_path)
         from config.cluster_config import CLUSTER_PATHS, MODULE_COMMANDS, DEFAULT_SLURM_SETTINGS
     except ImportError:
+        print("Error importing cluster configuration. Ensure 'config/cluster_config.py' exists.")
         # Fallback to default values if cluster_config not available
         CLUSTER_PATHS = {'main_dir': '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC'}
         MODULE_COMMANDS = ['module load stack/2024-06 python_cuda/3.11.6', 'module load eth_proxy']
         DEFAULT_SLURM_SETTINGS = {
-            'ntasks': 1, 'cpus_per_task': 8, 'time': '24:00:00', 
-            'mem_per_cpu': '4G', 'gres': 'gpu:1', 'partition': None
+            'ntasks': 1, 'cpus_per_task': 12, 'time': '2:00:00',
+            'mem_per_cpu': '4G'
         }
     
     slurm_script_path = output_path / 'slurm_scripts' / f'trial_{trial_id:02d}.sh'
