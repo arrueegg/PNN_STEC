@@ -53,7 +53,7 @@ def load_base_config():
     with open('config/config.yaml', 'r') as f:
         return yaml.safe_load(f)
 
-def apply_params_to_config(config, params):
+def apply_params_to_config(config, params, cluster_mode=False):
     """Apply hyperparameters to config"""
     import copy
     new_config = copy.deepcopy(config)
@@ -65,29 +65,54 @@ def apply_params_to_config(config, params):
             current = current.setdefault(key, {})
         current[keys[-1]] = value
     
+    # Adjust paths for cluster execution
+    if cluster_mode:
+        new_config['data']['scratch_dir'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/'
+        new_config['data']['GNSS_data_path'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB'
+        new_config['data']['SWI_data_path'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/SWI/'
+    
     return new_config
 
 def generate_slurm_script(trial_id, config_file, output_path):
     """Generate SLURM script for a single trial"""
+    # Import cluster configuration
+    try:
+        import sys
+        import os
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config')
+        sys.path.insert(0, config_path)
+        from config.cluster_config import CLUSTER_PATHS, MODULE_COMMANDS, DEFAULT_SLURM_SETTINGS
+    except ImportError:
+        # Fallback to default values if cluster_config not available
+        CLUSTER_PATHS = {'main_dir': '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC'}
+        MODULE_COMMANDS = ['module load stack/2024-06 python_cuda/3.11.6', 'module load eth_proxy']
+        DEFAULT_SLURM_SETTINGS = {
+            'ntasks': 1, 'cpus_per_task': 8, 'time': '24:00:00', 
+            'mem_per_cpu': '4G', 'gres': 'gpu:1', 'partition': None
+        }
+    
     slurm_script_path = output_path / 'slurm_scripts' / f'trial_{trial_id:02d}.sh'
     log_path = output_path / 'logs' / f'trial_{trial_id:02d}-%j.out'
     
     with open(slurm_script_path, 'w') as f:
         f.write("#!/bin/bash\n\n")
-        f.write("#SBATCH --ntasks=1\n")
-        f.write("#SBATCH --cpus-per-task=8\n")
-        f.write("#SBATCH --time=24:00:00\n")
-        f.write("#SBATCH --mem-per-cpu=4G\n")
-        f.write("#SBATCH --gres=gpu:1\n")  # Request 1 GPU
+        f.write(f"#SBATCH --ntasks={DEFAULT_SLURM_SETTINGS['ntasks']}\n")
+        f.write(f"#SBATCH --cpus-per-task={DEFAULT_SLURM_SETTINGS['cpus_per_task']}\n")
+        f.write(f"#SBATCH --time={DEFAULT_SLURM_SETTINGS['time']}\n")
+        f.write(f"#SBATCH --mem-per-cpu={DEFAULT_SLURM_SETTINGS['mem_per_cpu']}\n")
+        f.write(f"#SBATCH --gres={DEFAULT_SLURM_SETTINGS['gres']}\n")
+        if DEFAULT_SLURM_SETTINGS.get('partition'):
+            f.write(f"#SBATCH --partition={DEFAULT_SLURM_SETTINGS['partition']}\n")
         f.write(f"#SBATCH --output={log_path}\n")
         f.write(f"#SBATCH --job-name=hp_trial_{trial_id:02d}\n\n")
         
         f.write("# Load modules\n")
-        f.write("module load stack/2024-06 python_cuda/3.11.6\n")
-        f.write("module load eth_proxy\n\n")
+        for module_cmd in MODULE_COMMANDS:
+            f.write(f"{module_cmd}\n")
+        f.write("\n")
         
         f.write("# Setup environment\n")
-        f.write("main_dir=\"/scratch2/arrueegg/WP4/PNN_STEC\"\n")
+        f.write(f"main_dir=\"{CLUSTER_PATHS['main_dir']}\"\n")
         f.write("cd $main_dir\n")
         f.write("source ${main_dir}/env/bin/activate\n\n")
         
@@ -127,6 +152,7 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
     print(f"📁 Output: {output_path}")
     if cluster_mode:
         print(f"🖥️ Cluster mode: ENABLED")
+        print(f"📂 Data paths adjusted for cluster: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/")
     
     # Generate configs and run scripts
     run_commands = []
@@ -136,7 +162,7 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
         params = dict(zip(keys, combination))
         
         # Create trial config
-        trial_config = apply_params_to_config(base_config, params)
+        trial_config = apply_params_to_config(base_config, params, cluster_mode)
         
         # Set trial output directory
         trial_config['output_dir'] = f"{output_dir}/results/trial_{i:02d}/"

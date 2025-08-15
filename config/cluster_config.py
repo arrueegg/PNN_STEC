@@ -18,7 +18,7 @@ DEFAULT_SLURM_SETTINGS = {
 
 # Cluster paths - IMPORTANT: Update these paths for your cluster
 CLUSTER_PATHS = {
-    'main_dir': '/scratch2/arrueegg/WP4/PNN_STEC',  # Update this path
+    'main_dir': '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC',  # Updated for cluster
     'log_dir': '/cluster/work/igp_psr/arrueegg/WP4/logs',  # Update this path
     'work_dir': '/cluster/work/igp_psr/arrueegg/WP4',  # Update this path
 }
