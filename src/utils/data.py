@@ -502,6 +502,7 @@ def get_data_loaders(config, logger=None):
     train_subset = config['data'].get('train_subset_size', None)
     total_size = train_subset / 0.7 if train_subset else None
     val_subset = test_subset = int(total_size * 0.15) if total_size else None
+    device = config['device']
     seed = int(config.get('seed', 42))
     bs   = config['pretrain']['batchsize']
     nw   = config['pretrain']['num_workers']
@@ -581,7 +582,7 @@ def get_data_loaders(config, logger=None):
                 shuffle=shuffle,
                 sampler=sampler,
                 collate_fn=collate_fn,
-                pin_memory=True,
+                pin_memory=(device != 'cpu'),  # Only pin memory for GPU
             )
 
         else:
@@ -610,7 +611,7 @@ def get_data_loaders(config, logger=None):
                 shuffle=False,
                 sampler=sampler,
                 collate_fn=collate_fn,
-                pin_memory=True,
+                pin_memory=(device != 'cpu'),  # Only pin memory for GPU
             )
 
     return loaders['train'], loaders['val'], loaders['test']

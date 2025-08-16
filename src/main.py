@@ -31,8 +31,11 @@ def main():
 
     # Set up device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = 'cpu'
     logger.info(f"Device: {device}")
+    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        logger.info(f"CUDA device count: {torch.cuda.device_count()}")
+        logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
     config['device'] = device
 
     # Initialize feature registry
