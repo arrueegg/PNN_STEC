@@ -16,7 +16,7 @@ import warnings
 from datetime import datetime, timedelta
 warnings.filterwarnings("ignore")
 
-torch.multiprocessing.set_start_method('fork', force=True)
+#torch.multiprocessing.set_start_method('fork', force=True)
 
 class H5Dataset(Dataset):
     def __init__(self, config, h5_path, split):
@@ -578,10 +578,12 @@ def get_data_loaders(config, logger=None):
                 ds,
                 batch_size=bs,
                 num_workers=nw,
-                prefetch_factor=2,
+                persistent_workers=True,
+                prefetch_factor=4,
                 shuffle=shuffle,
                 sampler=sampler,
                 collate_fn=collate_fn,
+                multiprocessing_context="spawn",
                 pin_memory=(device != 'cpu'),  # Only pin memory for GPU
             )
 
@@ -607,7 +609,7 @@ def get_data_loaders(config, logger=None):
                 ds,
                 batch_size=bs,
                 num_workers=nw,
-                prefetch_factor=2,
+                prefetch_factor=4,
                 shuffle=False,
                 sampler=sampler,
                 collate_fn=collate_fn,

@@ -11,7 +11,10 @@ from finetune import Finetuner
 from utils.feature_registry import initialize_feature_registry, FeatureType
 
 import torch.multiprocessing as mp
-mp.set_sharing_strategy("file_system")
+try:
+    mp.set_start_method("spawn", force=True)  # safer with HDF5/CUDA
+except RuntimeError:
+    pass
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -37,6 +40,9 @@ def main():
         logger.info(f"CUDA device count: {torch.cuda.device_count()}")
         logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
     config['device'] = device
+
+    # print scratch dir of config
+    print(f'scratch dir: {config["data"]["scratch_dir"]}', flush=True)
 
     # Initialize feature registry
     feature_registry = initialize_feature_registry(config)

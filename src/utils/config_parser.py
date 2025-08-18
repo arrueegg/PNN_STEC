@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--gnss_path', type=str)
     parser.add_argument('--model_type', type=str)
     parser.add_argument('--debug', type=str)
-    parser.add_argument('--override', nargs='*')  # key=value format
+    parser.add_argument('--override', action='append', nargs='+', metavar='KEY=VAL')
     return parser.parse_args()
 
 
@@ -35,14 +35,14 @@ def apply_cli_overrides(config: dict, args: argparse.Namespace, mode: str = None
     if args.debug is not None:
         config['debug'] = args.debug.lower() in ['true', '1', 'yes']
 
-    # Nested overrides via --override
+    # Nested overrides via --override 
     if args.override:
-        for entry in args.override:
-            if '=' in entry:
-                key, val = entry.split('=', 1)
-                update_nested_config(config, key, val)
-            else:
+        entries = [item for group in args.override for item in group]
+        for entry in entries:
+            if '=' not in entry:
                 raise ValueError(f"Override '{entry}' must be in key=value format.")
+            key, val = entry.split('=', 1)
+            update_nested_config(config, key, val)
 
     # Determine special config variables based on yaml config
     if config['model']['model_type'] == 'PNN':
@@ -109,9 +109,9 @@ def compute_exp_name(config: dict) -> str:
     log_str = "_logTgt" if log_target else ""
     
     if mode == 'finetune':
-        exp_name = f"Finetune_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"finetune_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     elif mode == 'pretrain':
-        exp_name = f"Pretrain_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"pretrain_{model}_SH{sh_degree}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     
     return exp_name
 
@@ -128,7 +128,7 @@ def create_experiment_dirs(config: dict):
     output_dir = f"experiments/{exp_name}"
     os.makedirs(output_dir, exist_ok=True)
     config['output_dir'] = output_dir
-    config['pretrain_folder'] = output_dir if config['mode'] == 'Pretrain' else config.get('pretrain_folder', "")
+    config['pretrain_folder'] = output_dir if config['mode'] == 'pretrain' else config.get('pretrain_folder', "")
 
     with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
         yaml.safe_dump({k: v for k, v in config.items() if k != 'device'}, f)

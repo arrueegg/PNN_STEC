@@ -176,7 +176,8 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
         trial_config['pretrain']['epochs'] = min(trial_config['pretrain']['epochs'], 20)
         
         # Save config
-        config_file = output_path / f'config_{i:03d}.yaml'
+        os.makedirs(output_path / 'configs', exist_ok=True)
+        config_file = output_path / 'configs'/ f'config_{i:03d}.yaml'
         with open(config_file, 'w') as f:
             yaml.dump(trial_config, f, default_flow_style=False, indent=2)
         
@@ -244,7 +245,7 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
         
         print(f"\n✅ Generated {len(combinations)} configs")
         print(f"🚀 Run search: ./{output_dir}/run_search.sh")
-        print(f"🔧 Single trial: python src/main.py --config_path {output_dir}/config_001.yaml")
+        print(f"🔧 Single trial: python src/main.py --config_path {output_dir}/configs/config_001.yaml")
 
 def main():
     parser = argparse.ArgumentParser(description='Simple hyperparameter search')
