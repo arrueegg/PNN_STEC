@@ -10,12 +10,6 @@ from pretrain import Pretrainer
 from finetune import Finetuner
 from utils.feature_registry import initialize_feature_registry, FeatureType
 
-import torch.multiprocessing as mp
-try:
-    mp.set_start_method("spawn", force=True)  # safer with HDF5/CUDA
-except RuntimeError:
-    pass
-
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger()
