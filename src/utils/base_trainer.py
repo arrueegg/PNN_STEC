@@ -40,7 +40,7 @@ class BaseTrainer:
         self.epochs_tracked = []
         
         # Timing instrumentation for performance debugging
-        self.timing_enabled = "SLURM_JOB_ID" in os.environ or self.config.get('enable_timing', True)
+        self.timing_enabled = self.config.get('cluster', False) or self.config.get('enable_timing', True)
         if self.timing_enabled:
             self.logger.info("🔍 Performance timing enabled (running on cluster or forced)")
         self.timing_stats = {}
@@ -73,7 +73,7 @@ class BaseTrainer:
 
     def _targets_to_training_space(self, targets):
         """Return targets for the loss computation (log-space if enabled) AND keep original for metrics."""
-        targets = targets.to(self.device)
+        targets = targets.to(self.device, non_blocking=True)
         original_targets = targets.clone()  # for metrics (always linear/original)
         
         # Debug: Check target ranges
@@ -159,7 +159,7 @@ class BaseTrainer:
         model.train()
         running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
         all_outputs, all_targets = [], []
-        disable_tqdm = "cluster" in os.environ.get('HOME', '')
+        disable_tqdm = self.config.get('cluster', False)
         
         # Timing instrumentation with proper synchronization
         epoch_start_time = self._sync_and_time()
@@ -187,7 +187,7 @@ class BaseTrainer:
             
             # Time data transfer to GPU
             transfer_start = self._sync_and_time()
-            inputs = inputs.to(self.device)
+            inputs = inputs.to(self.device, non_blocking=True)
             training_targets, original_targets = self._targets_to_training_space(targets)
             transfer_end = self._sync_and_time()
             gpu_transfer_time += (transfer_end - transfer_start)
@@ -301,7 +301,7 @@ class BaseTrainer:
         model.eval()
         running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
         all_outputs, all_targets = [], []
-        disable_tqdm = "cluster" in os.environ.get('HOME', '')
+        disable_tqdm = self.config.get('cluster', False)
         
         # Timing instrumentation for validation with proper synchronization
         val_start_time = self._sync_and_time()
@@ -309,7 +309,7 @@ class BaseTrainer:
 
         with torch.no_grad():
             for inputs, targets in tqdm(dataloader, desc="Validation", disable=disable_tqdm):
-                inputs = inputs.to(self.device)
+                inputs = inputs.to(self.device, non_blocking=True)
                 training_targets, original_targets = self._targets_to_training_space(targets)
 
                 outputs = model(inputs)
@@ -369,11 +369,11 @@ class BaseTrainer:
     def test_model(self, model, dataloader):
         model.eval()
         all_outputs, all_targets = [], []
-        disable_tqdm = "cluster" in os.environ.get('HOME', '')
+        disable_tqdm = self.config.get('cluster', False)
 
         with torch.no_grad():
             for inputs, targets in tqdm(dataloader, desc="Testing", disable=disable_tqdm):
-                inputs = inputs.to(self.device)
+                inputs = inputs.to(self.device, non_blocking=True)
                 training_targets, original_targets = self._targets_to_training_space(targets)
 
                 outputs = model(inputs)
@@ -506,9 +506,9 @@ class BaseTrainer:
 
         with torch.no_grad():
             for inputs, targets in tqdm(dataloader, desc="Bayesian Inference",
-                                        disable="cluster" in os.environ.get('HOME', '')):
+                                        disable=self.config.get('cluster', False)):
                 bs = inputs.size(0)
-                inputs = inputs.to(self.device)
+                inputs = inputs.to(self.device, non_blocking=True)
 
                 per_sample_means = []
                 per_sample_alea_vars = []

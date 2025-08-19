@@ -65,7 +65,8 @@ def apply_params_to_config(config, params, cluster_mode=False):
             current = current.setdefault(key, {})
         current[keys[-1]] = value
     
-    # Adjust paths for cluster execution
+    # Set cluster flag and adjust paths for cluster execution
+    new_config['cluster'] = cluster_mode
     if cluster_mode:
         new_config['data']['scratch_dir'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/'
         new_config['data']['GNSS_data_path'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB'
@@ -92,7 +93,7 @@ def generate_slurm_script(trial_id, config_file, output_path):
         MODULE_COMMANDS = ['module load stack/2024-06 python_cuda/3.11.6', 'module load eth_proxy']
         DEFAULT_SLURM_SETTINGS = {
             'ntasks': 1, 'cpus_per_task': 12, 'time': '2:00:00',
-            'mem_per_cpu': '4G'
+            'mem_per_cpu': '10G', 'gpus': 1
         }
     
     slurm_script_path = output_path / 'slurm_scripts' / f'trial_{trial_id:03d}.sh'
@@ -104,10 +105,8 @@ def generate_slurm_script(trial_id, config_file, output_path):
         f.write(f"#SBATCH --cpus-per-task={DEFAULT_SLURM_SETTINGS['cpus_per_task']}\n")
         f.write(f"#SBATCH --time={DEFAULT_SLURM_SETTINGS['time']}\n")
         f.write(f"#SBATCH --mem-per-cpu={DEFAULT_SLURM_SETTINGS['mem_per_cpu']}\n")
-        if DEFAULT_SLURM_SETTINGS.get('gres'):
-            f.write(f"#SBATCH --gres={DEFAULT_SLURM_SETTINGS['gres']}\n")
-        if DEFAULT_SLURM_SETTINGS.get('partition'):
-            f.write(f"#SBATCH --partition={DEFAULT_SLURM_SETTINGS['partition']}\n")
+        if DEFAULT_SLURM_SETTINGS.get('gpus'):
+            f.write(f"#SBATCH --gpus={DEFAULT_SLURM_SETTINGS['gpus']}\n")
         f.write(f"#SBATCH --output={log_path}\n")
         f.write(f"#SBATCH --job-name=hp_trial_{trial_id:03d}\n\n")
         
@@ -253,7 +252,7 @@ def main():
                        default='mini', help='Parameter grid to use')
     parser.add_argument('--output', default='hp_search',
                        help='Output directory')
-    parser.add_argument('--cluster', action='store_true', default=True,
+    parser.add_argument('--cluster', action='store_true', default=False,
                        help='Generate SLURM scripts for cluster execution')
     
     args = parser.parse_args()

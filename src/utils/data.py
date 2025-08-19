@@ -23,7 +23,10 @@ class H5Dataset(Dataset):
         self.config = config
         self.split = split
         # open the aggregated split file
-        self.file = h5py.File(h5_path, 'r')
+        self.file = h5py.File(h5_path, 'r', swmr=True,
+                              rdcc_nbytes=128*1024*1024,
+                              rdcc_w0=0.75,
+                              rdcc_nslots=100_003)
         self.data = self.file['data']
         
         # Get feature registry
@@ -119,6 +122,165 @@ class H5Dataset(Dataset):
             self.file.close()
         if hasattr(self, 'swi_file') and self.use_SWI and self.swi_file:
             self.swi_file.close()
+
+class H5RAMDataset(Dataset):
+    """
+    RAM-based dataset that loads entire H5 dataset into memory during initialization.
+    This is ideal for cluster environments with abundant RAM where I/O elimination
+    is critical for performance.
+    """
+    
+    def __init__(self, config, h5_path, split):
+        self.config = config
+        self.split = split
+        
+        print(f"🚀 Loading {split} dataset into RAM from {h5_path}...")
+        
+        # Get feature registry
+        self.feature_registry = config.get('feature_registry')
+        if not self.feature_registry:
+            raise ValueError("Feature registry is required but not found in config")
+        
+        # Get enabled features (excluding target)
+        all_features = self.feature_registry.get_all_enabled_features()
+        self.target_feature = self.feature_registry.get_features_by_type(FeatureType.TARGET)[0]
+        self.input_features = [f for f in all_features if f != self.target_feature]
+        
+        # Get target feature name
+        if self.target_feature not in ['stec', 'vtec']:
+            raise ValueError(f"Target feature {self.target_feature} is not valid. Expected 'stec' or 'vtec'.")
+        
+        # SWI setup
+        self.use_SWI = config['data'].get('use_SWI', False)
+        self.swi_data = None
+        self.swi_mask = None
+        self.swi_features = None
+        
+        if self.use_SWI:
+            swi_path = os.path.join(
+                config['data']['SWI_data_path'],
+                "omni_hourly_2010-2025.h5"
+            )
+            print(f"📡 Loading SWI data into RAM from {swi_path}...")
+            self._load_swi_data(swi_path)
+        
+        # Load main dataset into RAM
+        self._load_main_data(h5_path)
+        
+        print(f"✅ {split} dataset loaded into RAM: {len(self.data):,} samples")
+        if self.use_SWI:
+            print(f"📡 SWI data loaded: {len(self.swi_data):,} time points")
+        
+        # Estimate memory usage
+        main_memory = self.data.nbytes if hasattr(self.data, 'nbytes') else 0
+        swi_memory = sum(arr.nbytes for arr in self.swi_data.values()) if self.swi_data else 0
+        total_memory = (main_memory + swi_memory) / (1024**3)  # Convert to GB
+        print(f"💾 Estimated RAM usage: {total_memory:.2f} GB")
+    
+    def _load_swi_data(self, swi_path):
+        """Load all SWI data into a nested dictionary structure in RAM."""
+        self.swi_data = {}
+        
+        with h5py.File(swi_path, 'r') as swi_file:
+            # Get column mask (exclude YEAR, DOY, HR)
+            years = list(swi_file.keys())
+            if years:
+                days = list(swi_file[years[0]].keys())
+                if days:
+                    cols = [c.decode() for c in swi_file[years[0]][days[0]].attrs['columns']]
+                    self.swi_mask = [c not in ('YEAR', 'DOY', 'HR') for c in cols]
+            
+            # Get SWI feature names from registry
+            self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
+            
+            # Load all SWI data with progress bar
+            total_days = sum(len(list(swi_file[year].keys())) for year in years)
+            pbar = tqdm(total=total_days, desc="Loading SWI data")
+            
+            for year in years:
+                self.swi_data[year] = {}
+                for doy in swi_file[year].keys():
+                    # Load the entire day's data into RAM
+                    daily_data = swi_file[year][doy][:]
+                    self.swi_data[year][doy] = daily_data
+                    pbar.update(1)
+            
+            pbar.close()
+    
+    def _load_main_data(self, h5_path):
+        """Load the main H5 dataset into RAM."""
+        with h5py.File(h5_path, 'r') as file:
+            # Load all data into RAM as a numpy array
+            print(f"📊 Loading main data array...")
+            self.data = file['data'][:]  # Load entire dataset into memory
+            print(f"📊 Main data loaded: shape {self.data.shape}")
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        """Get item from RAM-cached data - should be very fast!"""
+        row = self.data[idx]
+        
+        # Build features according to registry order
+        feature_vector = []
+        
+        for feature_name in self.input_features:
+            # Get raw value
+            if feature_name == 'year':
+                value = float(row['year'])
+            elif feature_name == 'doy':
+                value = float(row['doy'])
+            elif feature_name == 'sod':
+                value = float(row['sod'])
+            elif feature_name in ['lat_sta', 'lon_sta', 'sm_lat_sta', 'sm_lon_sta']:
+                value = float(row[feature_name])
+            elif feature_name in ['satazi', 'satele']:
+                value = float(row[feature_name])
+            elif feature_name in ['lat_ipp', 'lon_ipp', 'sm_lat_ipp', 'sm_lon_ipp']:
+                value = float(row[feature_name])
+            elif feature_name in self.swi_features:
+                # SWI features will be handled separately below
+                continue
+            else:
+                raise ValueError(f"Feature {feature_name} not found in data structure")
+            feature_vector.append(value)
+        
+        feat = torch.tensor(feature_vector, dtype=torch.float32)
+        
+        # Add SWI features if enabled - now from RAM!
+        if self.use_SWI and self.swi_data:
+            year = str(int(row['year']))
+            doy3 = f"{int(row['doy']):03d}"
+            hour = int(row['sod'] // 3600)
+            
+            # Access from RAM instead of disk
+            if year in self.swi_data and doy3 in self.swi_data[year]:
+                daily_data = self.swi_data[year][doy3]
+                if hour < len(daily_data):
+                    swi_row = daily_data[hour]
+                    swi_values = swi_row[self.swi_mask]
+                    
+                    # Append raw SWI features without normalization
+                    swi_feat = torch.tensor(swi_values, dtype=torch.float32)
+                    feat = torch.cat((feat, swi_feat), dim=0)
+                else:
+                    # Handle edge case where hour is out of range
+                    swi_feat = torch.zeros(sum(self.swi_mask), dtype=torch.float32)
+                    feat = torch.cat((feat, swi_feat), dim=0)
+            else:
+                # Handle missing SWI data
+                swi_feat = torch.zeros(sum(self.swi_mask), dtype=torch.float32)
+                feat = torch.cat((feat, swi_feat), dim=0)
+        
+        # Get target (label)
+        label = torch.tensor(row[self.target_feature], dtype=torch.float32)
+        
+        # Guard NaNs
+        if torch.isnan(feat).any() or torch.isnan(label):
+            raise ValueError(f"NaN in H5RAMDataset at idx {idx}")
+        
+        return feat, label
 
 class PyTablesDatasetSplit(Dataset):
     def __init__(self, h5_file_path, year, doy, split, config):
@@ -539,16 +701,26 @@ def get_data_loaders(config, logger=None):
                 config['data']['SWI_data_path'] = os.path.dirname(swi_scratch_path)
 
             path = os.path.join(config['data']['scratch_dir'], f"{split}.h5")
-            ds   = H5Dataset(config, path, split)
+            
+            # Use RAM-based dataset if running on cluster
+            if config.get('cluster', False):
+                if logger:
+                    logger.info(f"🚀 Using RAM-based dataset for {split} (cluster mode)")
+                ds = H5RAMDataset(config, path, split)
+            else:
+                ds = H5Dataset(config, path, split)
         else:
             preprocessor = DataPreprocessor(config, logger)
             file_splits = preprocessor.get_split_file_lists()
             datasets = []
+            
             for file_path in tqdm(file_splits[split], desc=f"Loading {split}"):
                 # Extract year and doy from file path
                 # Path format: .../{year}/{doy}/ccl_{year}{doy}_30_5.h5
                 year = file_path.split('/')[-3]
                 doy = file_path.split('/')[-2] 
+                
+                # Only use regular PyTablesDatasetSplit (no RAM version for this path)
                 datasets.append(PyTablesDatasetSplit(file_path, year, doy, split, config))
             ds = torch.utils.data.ConcatDataset(datasets)
 
@@ -610,6 +782,7 @@ def get_data_loaders(config, logger=None):
                 batch_size=bs,
                 num_workers=nw,
                 prefetch_factor=pf,
+                persistent_workers=True,
                 shuffle=False,
                 sampler=sampler,
                 collate_fn=collate_fn,

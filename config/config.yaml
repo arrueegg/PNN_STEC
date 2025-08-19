@@ -7,6 +7,7 @@ mode: pretrain # pretrain, finetune
 random_seed: 42
 debug: True  
 debug_single_batch: False  
+cluster: False
 
 target: "stec" # stec or vtec
 
@@ -46,8 +47,8 @@ training:
 pretrain:
   epochs: 20
   batchsize: 512
-  num_workers: 8
-  prefetch_factor: 2
+  num_workers: 12
+  prefetch_factor: 4
   learning_rate: 0.01
   scheduler: none            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100       # Step size for scheduler (reduces lr every X epochs)
