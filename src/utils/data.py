@@ -2,8 +2,6 @@ import os
 import shutil
 import h5py
 import torch
-import numpy as np
-import random
 from torch.utils.data import RandomSampler, SequentialSampler, Dataset, DataLoader, Subset
 from utils.locationencoder.pe import SphericalHarmonics
 from data_processing.download_solar_indices import OmniDownloader
@@ -173,10 +171,17 @@ class H5RAMDataset(Dataset):
         
         # Estimate memory usage
         main_memory = self.data.nbytes if hasattr(self.data, 'nbytes') else 0
-        swi_memory = sum(arr.nbytes for arr in self.swi_data.values()) if self.swi_data else 0
+        swi_memory = 0
+        if self.swi_data:
+            # Traverse nested dictionary structure: year -> doy -> array
+            for year_data in self.swi_data.values():
+                for daily_array in year_data.values():
+                    if hasattr(daily_array, 'nbytes'):
+                        swi_memory += daily_array.nbytes
         total_memory = (main_memory + swi_memory) / (1024**3)  # Convert to GB
         print(f"💾 Estimated RAM usage: {total_memory:.2f} GB")
-    
+        print(f"💾 Estimated RAM usage: {main_memory / (1024**3):.2f} GB (main), {swi_memory / (1024**3):.2f} GB (SWI)")
+
     def _load_swi_data(self, swi_path):
         """Load all SWI data into a nested dictionary structure in RAM."""
         self.swi_data = {}

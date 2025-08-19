@@ -98,7 +98,7 @@ class BranchMLP(nn.Module):
         return mean, variance
     
 class MLP_NLL(torch.nn.Module):
-    def __init__(self, n_in=3, hidden_dim=256, num_layers=2):  # FIXED: Shallow model
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=2): 
         super().__init__()
         self.layers = nn.ModuleList()
         self.layers.append(Linear(n_in, hidden_dim))

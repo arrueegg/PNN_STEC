@@ -36,13 +36,13 @@ def define_grids():
 
         # Custom grid (360 combinations)
         'custom': {
-            'model.hidden_dim': [128, 256],
-            'model.num_layers': [3, 4],
-            'model.model_type': ['BNN_NLL'],
+            'model.hidden_dim': [128, 256, 512],
+            'model.num_layers': [4],
+            'model.model_type': ['BNN_NLL', 'MLP_NLL'],
             'training.loss_function': ['GaussianNLLLoss', 'MSELoss'],
-            'training.loss_weight': [0.1, 0.5, 1.0],
-            'pretrain.learning_rate': [0.001, 0.01, 0.05],
-            'pretrain.batchsize': [128, 256, 512, 1024, 4096],
+            'training.loss_weight': [0.1, 1.0],
+            'pretrain.learning_rate': [0.001, 0.01, 0.1],
+            'pretrain.batchsize': [256, 512, 4096],
         }
     }
     
@@ -221,7 +221,7 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
         
         print(f"\n✅ Generated {len(combinations)} configs and SLURM scripts")
         print(f"🖥️ Submit to cluster: ./{output_dir}/submit_all.sh")
-        print(f"🔧 Single trial: sbatch {output_dir}/slurm_scripts/trial_01.sh")
+        print(f"🔧 Single trial: sbatch {output_dir}/slurm_scripts/trial_001.sh")
         print(f"📋 Monitor: squeue -u $USER")
     
     else:
