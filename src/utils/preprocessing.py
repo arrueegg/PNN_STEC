@@ -289,7 +289,7 @@ class DataPreprocessor:
                     
                     # Apply universal filters once
                     day_data = day_data[day_data['sod'] % 300 == 0]
-                    day_data = day_data[(np.abs(day_data['dcbs']) >= 1e-3) | (np.abs(day_data['dcbr']) >= 1e-3)]
+                    day_data = day_data[(np.abs(day_data['dcbs']) >= 1e-3) & (np.abs(day_data['dcbr']) >= 1e-3)]
                     
                     if len(day_data) == 0:
                         continue

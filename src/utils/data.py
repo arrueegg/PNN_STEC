@@ -506,6 +506,7 @@ def get_data_loaders(config, logger=None):
     seed = int(config.get('seed', 42))
     bs   = config['pretrain']['batchsize']
     nw   = config['pretrain']['num_workers']
+    pf   = config['pretrain']['prefetch_factor']
     use_agg_h5 = config['data'].get('use_agg_h5', False)
     build_agg_h5 = config['data'].get('build_agg_h5', True)
     
@@ -579,7 +580,7 @@ def get_data_loaders(config, logger=None):
                 batch_size=bs,
                 num_workers=nw,
                 persistent_workers=True,
-                prefetch_factor=4,
+                prefetch_factor=pf,
                 shuffle=shuffle,
                 sampler=sampler,
                 collate_fn=collate_fn,
@@ -608,7 +609,7 @@ def get_data_loaders(config, logger=None):
                 ds,
                 batch_size=bs,
                 num_workers=nw,
-                prefetch_factor=4,
+                prefetch_factor=pf,
                 shuffle=False,
                 sampler=sampler,
                 collate_fn=collate_fn,

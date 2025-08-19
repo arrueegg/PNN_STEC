@@ -46,7 +46,8 @@ training:
 pretrain:
   epochs: 20
   batchsize: 512
-  num_workers: 4
+  num_workers: 8
+  prefetch_factor: 2
   learning_rate: 0.01
   scheduler: none            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100       # Step size for scheduler (reduces lr every X epochs)

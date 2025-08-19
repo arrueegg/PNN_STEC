@@ -170,17 +170,27 @@ class BaseTrainer:
         backward_time = 0.0
         optimizer_time = 0.0
         postprocess_time = 0.0
+        tqdm_overhead = 0.0
         batch_count = 0
+        
+        # Track data loading time
+        iter_start_time = self._sync_and_time()
 
         for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader),
                                          disable=disable_tqdm, desc="Training"):
+            # Measure data loading time (time between iterations)
+            data_ready_time = self._sync_and_time()
+            if i > 0:  # Skip first iteration since there's no previous iteration
+                data_load_time += (data_ready_time - iter_start_time)
+        
             batch_start = self._sync_and_time()
             
             # Time data transfer to GPU
             transfer_start = self._sync_and_time()
             inputs = inputs.to(self.device)
             training_targets, original_targets = self._targets_to_training_space(targets)
-            gpu_transfer_time += self._sync_and_time() - transfer_start
+            transfer_end = self._sync_and_time()
+            gpu_transfer_time += (transfer_end - transfer_start)
 
             optimizer.zero_grad()
 
@@ -191,7 +201,8 @@ class BaseTrainer:
             
             pred_mean_raw = pred_mean_raw.flatten()
             pred_var_raw = pred_var_raw.flatten()
-            forward_time += self._sync_and_time() - forward_start
+            forward_end = self._sync_and_time()
+            forward_time += (forward_end - forward_start)
 
             # Time loss computation
             loss_start = self._sync_and_time()
@@ -202,20 +213,20 @@ class BaseTrainer:
                 loss = nll_loss + self.loss_weight * kld_loss
             elif self.config['training']['loss_function'] == 'MSELoss':
                 loss = mse_loss
-            loss_compute_time += self._sync_and_time() - loss_start
+            loss_end = self._sync_and_time()
+            loss_compute_time += (loss_end - loss_start)
 
             # Time backward pass
             backward_start = self._sync_and_time()
             loss.backward()
-            backward_time += self._sync_and_time() - backward_start
-            
-            # TEMPORARILY DISABLE gradient clipping for debug overfitting
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+            backward_end = self._sync_and_time()
+            backward_time += (backward_end - backward_start)
             
             # Time optimizer step
             opt_start = self._sync_and_time()
             optimizer.step()
-            optimizer_time += self._sync_and_time() - opt_start
+            opt_end = self._sync_and_time()
+            optimizer_time += (opt_end - opt_start)
 
             # Time post-processing
             postprocess_start = self._sync_and_time()
@@ -237,25 +248,43 @@ class BaseTrainer:
             # Store outputs for metrics (pred, std) and original targets
             all_outputs.append(torch.stack([point_linear, std_linear], dim=1).detach().cpu())
             all_targets.append(original_targets.detach().cpu())
-            postprocess_time += self._sync_and_time() - postprocess_start
+            postprocess_end = self._sync_and_time()
+            postprocess_time += (postprocess_end - postprocess_start)
             
             batch_count += 1
             
+            # Calculate TQDM and other overhead
+            batch_end = self._sync_and_time()
+            batch_total_measured = batch_end - batch_start
+            batch_components_sum = (transfer_end - transfer_start) + (forward_end - forward_start) + \
+                              (loss_end - loss_start) + (backward_end - backward_start) + \
+                              (opt_end - opt_start) + (postprocess_end - postprocess_start)
+            tqdm_overhead += (batch_total_measured - batch_components_sum)
+            
             # Log timing for first few batches on cluster
-            if self.timing_enabled and i < 5:
-                batch_total = self._sync_and_time() - batch_start
-                self.logger.info(f"  Batch {i+1}: total={batch_total:.3f}s, forward={forward_time/(i+1):.3f}s")
+            if self.timing_enabled and i < 3:
+                data_load_for_batch = (data_ready_time - iter_start_time) if i > 0 else 0.0
+                self.logger.info(f"  Batch {i+1}: data_load={data_load_for_batch:.3f}s, total={batch_total_measured:.3f}s, components={batch_components_sum:.3f}s")
+        
+            # Prepare for next iteration timing
+            iter_start_time = self._sync_and_time()
 
         # Log epoch timing summary with synchronized end time
         epoch_total = self._sync_and_time() - epoch_start_time
+        components_sum = gpu_transfer_time + forward_time + loss_compute_time + backward_time + optimizer_time + postprocess_time
+        unaccounted_time = epoch_total - components_sum - data_load_time - tqdm_overhead
+        
         if self.timing_enabled:
             self._log_timing("Train Epoch Total", epoch_total, f"{batch_count} batches")
+            self._log_timing("Train Data Loading", data_load_time, f"avg={data_load_time/(batch_count-1 if batch_count > 1 else 1):.3f}s/batch")
             self._log_timing("Train Data Transfer", gpu_transfer_time, f"avg={gpu_transfer_time/batch_count:.3f}s/batch")
             self._log_timing("Train Forward Pass", forward_time, f"avg={forward_time/batch_count:.3f}s/batch")
             self._log_timing("Train Loss Computation", loss_compute_time, f"avg={loss_compute_time/batch_count:.3f}s/batch")
             self._log_timing("Train Backward Pass", backward_time, f"avg={backward_time/batch_count:.3f}s/batch")
             self._log_timing("Train Optimizer Step", optimizer_time, f"avg={optimizer_time/batch_count:.3f}s/batch")
             self._log_timing("Train Post-processing", postprocess_time, f"avg={postprocess_time/batch_count:.3f}s/batch")
+            self._log_timing("Train TQDM/Loop Overhead", tqdm_overhead, f"avg={tqdm_overhead/batch_count:.3f}s/batch")
+            self.logger.info(f"⏱️  Components sum: {components_sum:.3f}s, Data loading: {data_load_time:.3f}s, Still unaccounted: {unaccounted_time:.3f}s")
 
         all_outputs = torch.cat(all_outputs)
         all_targets = torch.cat(all_targets)
