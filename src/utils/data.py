@@ -516,6 +516,11 @@ class CollateWithSH:
     def transform_station(self, features):
         """Transform station features"""
         station_features = self.feature_registry.get_feature_names(FeatureType.STATION)
+        
+        # Return None if no station features are available (e.g., for VTEC)
+        if not station_features:
+            return None
+            
         transformed_features = []
 
         for feature_name in station_features:
@@ -529,6 +534,11 @@ class CollateWithSH:
     def transform_direction(self, features):
         """Transform direction features (azimuth, elevation)"""
         direction_features = self.feature_registry.get_feature_names(FeatureType.DIRECTION)
+        
+        # Return None if no direction features are available (e.g., for VTEC)
+        if not direction_features:
+            return None
+            
         transformed_features = []
 
         for feature_name in direction_features:
@@ -637,12 +647,15 @@ class CollateWithSH:
         sh_sta_geo, sh_ipp_geo, sh_sta_sm, sh_ipp_sm = self.compute_sh_embeddings(features)
 
         # Combine all transformed features in the SAME ORDER as _compute_and_store_output_indices
-        output_features = [
-            temporal_transformed, 
-            station_transformed, 
-            direction_transformed, 
-            ipp_transformed
-        ]
+        output_features = [temporal_transformed]
+        
+        # Only add station and direction features if they exist (excluded for VTEC)
+        if station_transformed is not None:
+            output_features.append(station_transformed)
+        if direction_transformed is not None:
+            output_features.append(direction_transformed)
+            
+        output_features.append(ipp_transformed)
         
         # Add SH embeddings if computed (in the exact order from _compute_and_store_output_indices)
         if self.sh_enabled:

@@ -10,7 +10,7 @@ according to your cluster's requirements and policies.
 DEFAULT_SLURM_SETTINGS = {
     'ntasks': 1,
     'cpus_per_task': 12,
-    'time': '2:00:00',
+    'time': '4:00:00',
     'mem_per_cpu': '10G',
     'gpus': 1,
 }
