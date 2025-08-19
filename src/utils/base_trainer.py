@@ -40,9 +40,23 @@ class BaseTrainer:
         self.epochs_tracked = []
         
         # Timing instrumentation for performance debugging
-        self.timing_enabled = self.config.get('cluster', False) or self.config.get('enable_timing', True)
+        # Enable timing only if explicitly requested
+        self.timing_enabled = self.config.get('enable_timing', False)
+        
+        # Get timing configuration
+        timing_config = self.config.get('timing_config', {})
+        self.detailed_batch_timing = timing_config.get('detailed_batch_timing', False) and self.timing_enabled
+        self.save_timing_to_file = timing_config.get('save_timing_to_file', True)
+        self.log_timing_frequency = timing_config.get('log_timing_every_n_batches', 100)
+        
         if self.timing_enabled:
-            self.logger.info("🔍 Performance timing enabled (running on cluster or forced)")
+            self.logger.info("🔍 Performance timing enabled")
+            if self.detailed_batch_timing:
+                self.logger.info("⚠️  Detailed batch timing enabled (may slow training)")
+            if self.save_timing_to_file:
+                self.logger.info("📁 Timing statistics will be saved to file")
+        else:
+            self.logger.info("⏱️  Performance timing disabled")
         self.timing_stats = {}
 
     # ---------- small helpers ----------
@@ -63,13 +77,61 @@ class BaseTrainer:
             self.logger.info(f"⏱️  {step_name}: {duration:.3f}s{info_str}")
     
     def _print_timing_summary(self):
-        """Print summary of timing statistics"""
+        """Print comprehensive summary of timing statistics"""
         if self.timing_enabled and self.timing_stats:
             self.logger.info("📊 PERFORMANCE TIMING SUMMARY:")
-            for step_name, times in self.timing_stats.items():
+            self.logger.info("=" * 70)
+            
+            # Sort by total time to show most time-consuming operations first
+            sorted_stats = sorted(self.timing_stats.items(), 
+                                key=lambda x: sum(x[1]), reverse=True)
+            
+            total_measured_time = sum(sum(times) for times in self.timing_stats.values())
+            
+            for step_name, times in sorted_stats:
                 avg_time = sum(times) / len(times)
                 total_time = sum(times)
-                self.logger.info(f"  {step_name}: avg={avg_time:.3f}s, total={total_time:.1f}s, count={len(times)}")
+                min_time = min(times)
+                max_time = max(times)
+                percentage = (total_time / total_measured_time * 100) if total_measured_time > 0 else 0
+                
+                self.logger.info(f"  {step_name}:")
+                self.logger.info(f"    Total: {total_time:.1f}s ({percentage:.1f}%) | "
+                               f"Avg: {avg_time:.3f}s | Count: {len(times)} | "
+                               f"Range: {min_time:.3f}s - {max_time:.3f}s")
+            
+            self.logger.info(f"\n  Total measured time: {total_measured_time:.1f}s")
+            self.logger.info("=" * 70)
+    
+    def _save_timing_stats(self):
+        """Save timing statistics to a CSV file"""
+        if self.timing_enabled and self.save_timing_to_file and self.timing_stats:
+            import csv
+            import os
+            
+            timing_file = os.path.join(self.config['output_dir'], 'timing_statistics.csv')
+            
+            with open(timing_file, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Step', 'Total_Time_s', 'Average_Time_s', 'Count', 'Min_Time_s', 'Max_Time_s', 'Percentage'])
+                
+                total_measured_time = sum(sum(times) for times in self.timing_stats.values())
+                
+                # Sort by total time
+                sorted_stats = sorted(self.timing_stats.items(), 
+                                    key=lambda x: sum(x[1]), reverse=True)
+                
+                for step_name, times in sorted_stats:
+                    total_time = sum(times)
+                    avg_time = total_time / len(times)
+                    min_time = min(times)
+                    max_time = max(times)
+                    percentage = (total_time / total_measured_time * 100) if total_measured_time > 0 else 0
+                    
+                    writer.writerow([step_name, f"{total_time:.3f}", f"{avg_time:.3f}", 
+                                   len(times), f"{min_time:.3f}", f"{max_time:.3f}", f"{percentage:.2f}"])
+            
+            self.logger.info(f"📁 Timing statistics saved to: {timing_file}")
 
     def _targets_to_training_space(self, targets):
         """Return targets for the loss computation (log-space if enabled) AND keep original for metrics."""
@@ -261,10 +323,15 @@ class BaseTrainer:
                               (opt_end - opt_start) + (postprocess_end - postprocess_start)
             tqdm_overhead += (batch_total_measured - batch_components_sum)
             
-            # Log timing for first few batches on cluster
-            if self.timing_enabled and i < 3:
+            # Log timing for first few batches if detailed timing is enabled
+            if self.detailed_batch_timing and i < 3:
                 data_load_for_batch = (data_ready_time - iter_start_time) if i > 0 else 0.0
                 self.logger.info(f"  Batch {i+1}: data_load={data_load_for_batch:.3f}s, total={batch_total_measured:.3f}s, components={batch_components_sum:.3f}s")
+            
+            # Log periodic timing updates if configured
+            elif self.timing_enabled and self.log_timing_frequency > 0 and (i + 1) % self.log_timing_frequency == 0:
+                data_load_for_batch = (data_ready_time - iter_start_time) if i > 0 else 0.0
+                self.logger.info(f"  Batch {i+1}/{len(dataloader)}: data_load={data_load_for_batch:.3f}s, total={batch_total_measured:.3f}s")
         
             # Prepare for next iteration timing
             iter_start_time = self._sync_and_time()
@@ -838,6 +905,8 @@ class BaseTrainer:
             })
             wandb.finish()
             
-        # Print comprehensive timing summary
+        # Print comprehensive timing summary and save to file
         if self.timing_enabled:
             self._print_timing_summary()
+            if self.save_timing_to_file:
+                self._save_timing_stats()

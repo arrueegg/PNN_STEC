@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 import matplotlib
-matplotlib.use('Agg')  # Use non-GUI backend to prevent threading issues
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
