@@ -4,6 +4,7 @@ from torch.nn import Linear, Dropout
 from torch import nn
 
 import torchbnn as bnn
+from utils.feature_registry import FeatureType
 
 # Initialization function
 def init_xavier(model, activation, model_seed):
@@ -279,12 +280,45 @@ def get_model(config):
     hidden_dim = config['model'].get('hidden_dim', 256)  # Default to 256 if not specified
     num_layers = config['model'].get('num_layers', 4)    # Default to 4 if not specified
     
-    in_features = 7 + 4 + 8 + 4 * config['data']['SH_degree']**2 # 7 time&doy&year + 4 azi/ele + 4 sta/ipp coords + SH embeddings
-    if config['data']['use_SWI']:
-        num_SWI_params = 22
-        in_features += num_SWI_params  # Add SWI features
-    else:
-        num_SWI_params = 0
+    # Get input features count from feature registry, accounting for transformations
+    feature_registry = config.get('feature_registry')
+    if not feature_registry:
+        raise ValueError("Feature registry is required but not found in config")
+    
+    # Calculate transformed feature dimensions
+    # Note: The collate function transforms features, so we need to account for this
+    
+    # Temporal features: year (1) + doy (3: sin, cos, norm) + sod (3: sin, cos, norm) = 7
+    temporal_features = feature_registry.get_features_by_type(FeatureType.TEMPORAL)
+    temporal_dim = 0
+    for feature in temporal_features:
+        if feature == 'year':
+            temporal_dim += 1  # Just normalized year
+        elif feature in ['doy', 'sod']:
+            temporal_dim += 3  # sin, cos, normalized for each
+    
+    # Station features (only for STEC target)
+    station_features = feature_registry.get_features_by_type(FeatureType.STATION)
+    station_dim = len(station_features)  # No transformation applied
+    
+    # Direction features (only for STEC target) 
+    direction_features = feature_registry.get_features_by_type(FeatureType.DIRECTION)
+    direction_dim = len(direction_features)  # No transformation applied
+    
+    # IPP features
+    ipp_features = feature_registry.get_features_by_type(FeatureType.IPP)
+    ipp_dim = len(ipp_features)  # No transformation applied
+    
+    # SWI features
+    swi_features = feature_registry.get_features_by_type(FeatureType.SWI)
+    swi_dim = len(swi_features)  # No transformation applied
+    num_SWI_params = swi_dim
+    
+    # SH embeddings (if enabled)
+    sh_dim = 4 * config['data']['SH_degree']**2  # Currently 0 for SH_degree=0
+    
+    # Total input features after all transformations
+    in_features = temporal_dim + station_dim + direction_dim + ipp_dim + swi_dim + sh_dim
 
     if model_type == 'MLP':
         return MLP(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
