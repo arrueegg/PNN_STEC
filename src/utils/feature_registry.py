@@ -174,20 +174,21 @@ def create_default_registry(config: dict) -> FeatureRegistry:
                             normalization=(0, 86400),
                             description="Seconds of day")
     
-    # 2. Station features (solar magnetic coordinates)
-    registry.register_feature('sm_lat_sta', FeatureType.STATION, 
-                            normalization=(-90, 90),
-                            description="Station solar magnetic latitude")
-    registry.register_feature('sm_lon_sta', FeatureType.STATION, 
-                            normalization=(-180, 180),
-                            description="Station solar magnetic longitude")
-    
-    registry.register_feature('lat_sta', FeatureType.STATION, 
-                            normalization=(-90, 90),
-                            description="Station geographic latitude")
-    registry.register_feature('lon_sta', FeatureType.STATION, 
-                            normalization=(-180, 180),
-                            description="Station geographic longitude")
+    # 2. Station features (solar magnetic coordinates) - only for STEC
+    if config['target'] == 'stec':
+        registry.register_feature('sm_lat_sta', FeatureType.STATION, 
+                                normalization=(-90, 90),
+                                description="Station solar magnetic latitude")
+        registry.register_feature('sm_lon_sta', FeatureType.STATION, 
+                                normalization=(-180, 180),
+                                description="Station solar magnetic longitude")
+        
+        registry.register_feature('lat_sta', FeatureType.STATION, 
+                                normalization=(-90, 90),
+                                description="Station geographic latitude")
+        registry.register_feature('lon_sta', FeatureType.STATION, 
+                                normalization=(-180, 180),
+                                description="Station geographic longitude")
     
     # 3. IPP features (Ionospheric Pierce Point)
     registry.register_feature('lat_ipp', FeatureType.IPP, 
@@ -204,13 +205,14 @@ def create_default_registry(config: dict) -> FeatureRegistry:
                             normalization=(-180, 180),
                             description="IPP solar magnetic longitude")
     
-    # 4. Direction features (satellite direction - azimuth, elevation)
-    registry.register_feature('satazi', FeatureType.DIRECTION, 
-                            normalization=(0, 360),
-                            description="Satellite azimuth angle")
-    registry.register_feature('satele', FeatureType.DIRECTION, 
-                            normalization=(0, 90),
-                            description="Satellite elevation angle")
+    # 4. Direction features (satellite direction - azimuth, elevation) - only for STEC
+    if config['target'] == 'stec':
+        registry.register_feature('satazi', FeatureType.DIRECTION, 
+                                normalization=(0, 360),
+                                description="Satellite azimuth angle")
+        registry.register_feature('satele', FeatureType.DIRECTION, 
+                                normalization=(0, 90),
+                                description="Satellite elevation angle")
     
     # 5. SWI features (if enabled) - these come last in your data construction
     if config['data'].get('use_SWI', False):

@@ -85,6 +85,7 @@ def compute_exp_name(config: dict) -> str:
     subset_size = config['data'].get('train_subset_size', 500_000)
     use_swi = config['data'].get('use_SWI', False)
     log_target = config['training'].get('log_target', False)
+    target = config.get('target', 'stec').upper()  # Add target type (STEC/VTEC)
     
     # Create abbreviated versions for cleaner names
     loss_fn_short = loss_fn.replace('Loss', '').replace('Gaussian', 'G').replace('NLL', 'NLL')  # GaussianNLLLoss -> GNLL
@@ -113,9 +114,9 @@ def compute_exp_name(config: dict) -> str:
     log_str = "_logTgt" if log_target else ""
     
     if mode == 'finetune':
-        exp_name = f"finetune_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     elif mode == 'pretrain':
-        exp_name = f"pretrain_{model}_SH{sh_degree}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"Pretrain_{target}_{model}_SH{sh_degree}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     
     return exp_name
 

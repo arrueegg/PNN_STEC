@@ -450,15 +450,24 @@ class CollateWithSH:
         if self.sh_enabled:
             sh_dim = self.sh_degree * self.sh_degree
             
-            # Store ranges for SH embeddings
-            output_indices['sh_sta_geo'] = slice(current_idx, current_idx + sh_dim)
-            current_idx += sh_dim
+            # Check if station features are available (they're excluded for VTEC)
+            has_station_features = len(self.feature_registry.get_feature_names(FeatureType.STATION)) > 0
+            
+            # Store ranges for SH embeddings - only include station SH if station features available
+            if has_station_features:
+                output_indices['sh_sta_geo'] = slice(current_idx, current_idx + sh_dim)
+                current_idx += sh_dim
+            else:
+                output_indices['sh_sta_geo'] = None
             
             output_indices['sh_ipp_geo'] = slice(current_idx, current_idx + sh_dim)
             current_idx += sh_dim
             
-            output_indices['sh_sta_sm'] = slice(current_idx, current_idx + sh_dim)
-            current_idx += sh_dim
+            if has_station_features:
+                output_indices['sh_sta_sm'] = slice(current_idx, current_idx + sh_dim)
+                current_idx += sh_dim
+            else:
+                output_indices['sh_sta_sm'] = None
             
             output_indices['sh_ipp_sm'] = slice(current_idx, current_idx + sh_dim)
             current_idx += sh_dim
@@ -574,11 +583,18 @@ class CollateWithSH:
         if not self.sh_enabled:
             return None, None, None, None
 
-        # Station SH embeddings (use geographic coordinates for SH)
-        sta_lon = features[:, self.input_indices['lon_sta']]
-        sta_lat = features[:, self.input_indices['lat_sta']]
-        sta_lonlat = torch.stack([sta_lon, sta_lat], dim=1)
-        sh_sta_geo = self.sh_encoder(sta_lonlat)
+        # Check if station features are available (they're excluded for VTEC)
+        has_station_features = 'lon_sta' in self.input_indices and 'lat_sta' in self.input_indices
+        has_sm_station_features = 'sm_lon_sta' in self.input_indices and 'sm_lat_sta' in self.input_indices
+
+        # Station SH embeddings (use geographic coordinates for SH) - only if station features available
+        if has_station_features:
+            sta_lon = features[:, self.input_indices['lon_sta']]
+            sta_lat = features[:, self.input_indices['lat_sta']]
+            sta_lonlat = torch.stack([sta_lon, sta_lat], dim=1)
+            sh_sta_geo = self.sh_encoder(sta_lonlat)
+        else:
+            sh_sta_geo = None
 
         # IPP SH embeddings (use geographic coordinates for SH)
         ipp_lon = features[:, self.input_indices['lon_ipp']]
@@ -586,11 +602,14 @@ class CollateWithSH:
         ipp_lonlat = torch.stack([ipp_lon, ipp_lat], dim=1)
         sh_ipp_geo = self.sh_encoder(ipp_lonlat)
 
-        # Station SH embedding (use solar magnetic coordinates for SH)
-        sm_lon_sta = features[:, self.input_indices['sm_lon_sta']]
-        sm_lat_sta = features[:, self.input_indices['sm_lat_sta']]
-        sm_lonlat_sta = torch.stack([sm_lon_sta, sm_lat_sta], dim=1)
-        sh_sta_sm = self.sh_encoder(sm_lonlat_sta)
+        # Station SH embedding (use solar magnetic coordinates for SH) - only if station features available
+        if has_sm_station_features:
+            sm_lon_sta = features[:, self.input_indices['sm_lon_sta']]
+            sm_lat_sta = features[:, self.input_indices['sm_lat_sta']]
+            sm_lonlat_sta = torch.stack([sm_lon_sta, sm_lat_sta], dim=1)
+            sh_sta_sm = self.sh_encoder(sm_lonlat_sta)
+        else:
+            sh_sta_sm = None
 
         # IPP SH embedding (use solar magnetic coordinates for SH)
         sm_lon_ipp = features[:, self.input_indices['sm_lon_ipp']]
@@ -627,7 +646,13 @@ class CollateWithSH:
         
         # Add SH embeddings if computed (in the exact order from _compute_and_store_output_indices)
         if self.sh_enabled:
-            output_features.extend([sh_sta_geo, sh_ipp_geo, sh_sta_sm, sh_ipp_sm])
+            # Only add station SH embeddings if they exist (they're excluded for VTEC)
+            if sh_sta_geo is not None:
+                output_features.append(sh_sta_geo)
+            output_features.append(sh_ipp_geo)
+            if sh_sta_sm is not None:
+                output_features.append(sh_sta_sm)
+            output_features.append(sh_ipp_sm)
 
         # Add SWI features if available
         if swi_transformed is not None:
