@@ -1,5 +1,6 @@
 # base_trainer.py
 import os
+import time
 import torch
 import pandas as pd
 from tqdm import tqdm
@@ -37,8 +38,38 @@ class BaseTrainer:
         self.train_losses = []
         self.val_losses = []
         self.epochs_tracked = []
+        
+        # Timing instrumentation for performance debugging
+        self.timing_enabled = "SLURM_JOB_ID" in os.environ or self.config.get('enable_timing', True)
+        if self.timing_enabled:
+            self.logger.info("🔍 Performance timing enabled (running on cluster or forced)")
+        self.timing_stats = {}
 
     # ---------- small helpers ----------
+    
+    def _sync_and_time(self):
+        """Synchronize CUDA operations and return current time for accurate timing"""
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        return time.time()
+    
+    def _log_timing(self, step_name, duration, additional_info=""):
+        """Log timing information for performance debugging"""
+        if self.timing_enabled:
+            if step_name not in self.timing_stats:
+                self.timing_stats[step_name] = []
+            self.timing_stats[step_name].append(duration)
+            info_str = f" ({additional_info})" if additional_info else ""
+            self.logger.info(f"⏱️  {step_name}: {duration:.3f}s{info_str}")
+    
+    def _print_timing_summary(self):
+        """Print summary of timing statistics"""
+        if self.timing_enabled and self.timing_stats:
+            self.logger.info("📊 PERFORMANCE TIMING SUMMARY:")
+            for step_name, times in self.timing_stats.items():
+                avg_time = sum(times) / len(times)
+                total_time = sum(times)
+                self.logger.info(f"  {step_name}: avg={avg_time:.3f}s, total={total_time:.1f}s, count={len(times)}")
 
     def _targets_to_training_space(self, targets):
         """Return targets for the loss computation (log-space if enabled) AND keep original for metrics."""
@@ -129,23 +160,41 @@ class BaseTrainer:
         running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
         all_outputs, all_targets = [], []
         disable_tqdm = "cluster" in os.environ.get('HOME', '')
+        
+        # Timing instrumentation with proper synchronization
+        epoch_start_time = self._sync_and_time()
+        data_load_time = 0.0
+        gpu_transfer_time = 0.0
+        forward_time = 0.0
+        loss_compute_time = 0.0
+        backward_time = 0.0
+        optimizer_time = 0.0
+        postprocess_time = 0.0
+        batch_count = 0
 
         for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader),
                                          disable=disable_tqdm, desc="Training"):
+            batch_start = self._sync_and_time()
             
-                
+            # Time data transfer to GPU
+            transfer_start = self._sync_and_time()
             inputs = inputs.to(self.device)
             training_targets, original_targets = self._targets_to_training_space(targets)
+            gpu_transfer_time += self._sync_and_time() - transfer_start
 
             optimizer.zero_grad()
 
+            # Time forward pass
+            forward_start = self._sync_and_time()
             outputs = model(inputs)
             pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
             
             pred_mean_raw = pred_mean_raw.flatten()
             pred_var_raw = pred_var_raw.flatten()
+            forward_time += self._sync_and_time() - forward_start
 
-            # Losses in the training space
+            # Time loss computation
+            loss_start = self._sync_and_time()
             mse_loss = criterion_mse(pred_mean_raw, training_targets)
             nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
             kld_loss = criterion_kld(model)
@@ -153,14 +202,23 @@ class BaseTrainer:
                 loss = nll_loss + self.loss_weight * kld_loss
             elif self.config['training']['loss_function'] == 'MSELoss':
                 loss = mse_loss
+            loss_compute_time += self._sync_and_time() - loss_start
 
+            # Time backward pass
+            backward_start = self._sync_and_time()
             loss.backward()
+            backward_time += self._sync_and_time() - backward_start
             
             # TEMPORARILY DISABLE gradient clipping for debug overfitting
             # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
             
+            # Time optimizer step
+            opt_start = self._sync_and_time()
             optimizer.step()
+            optimizer_time += self._sync_and_time() - opt_start
 
+            # Time post-processing
+            postprocess_start = self._sync_and_time()
             # Accumulate losses
             running_loss += loss.item()
             running_mse += mse_loss.item()
@@ -179,6 +237,25 @@ class BaseTrainer:
             # Store outputs for metrics (pred, std) and original targets
             all_outputs.append(torch.stack([point_linear, std_linear], dim=1).detach().cpu())
             all_targets.append(original_targets.detach().cpu())
+            postprocess_time += self._sync_and_time() - postprocess_start
+            
+            batch_count += 1
+            
+            # Log timing for first few batches on cluster
+            if self.timing_enabled and i < 5:
+                batch_total = self._sync_and_time() - batch_start
+                self.logger.info(f"  Batch {i+1}: total={batch_total:.3f}s, forward={forward_time/(i+1):.3f}s")
+
+        # Log epoch timing summary with synchronized end time
+        epoch_total = self._sync_and_time() - epoch_start_time
+        if self.timing_enabled:
+            self._log_timing("Train Epoch Total", epoch_total, f"{batch_count} batches")
+            self._log_timing("Train Data Transfer", gpu_transfer_time, f"avg={gpu_transfer_time/batch_count:.3f}s/batch")
+            self._log_timing("Train Forward Pass", forward_time, f"avg={forward_time/batch_count:.3f}s/batch")
+            self._log_timing("Train Loss Computation", loss_compute_time, f"avg={loss_compute_time/batch_count:.3f}s/batch")
+            self._log_timing("Train Backward Pass", backward_time, f"avg={backward_time/batch_count:.3f}s/batch")
+            self._log_timing("Train Optimizer Step", optimizer_time, f"avg={optimizer_time/batch_count:.3f}s/batch")
+            self._log_timing("Train Post-processing", postprocess_time, f"avg={postprocess_time/batch_count:.3f}s/batch")
 
         all_outputs = torch.cat(all_outputs)
         all_targets = torch.cat(all_targets)
@@ -196,6 +273,10 @@ class BaseTrainer:
         running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
         all_outputs, all_targets = [], []
         disable_tqdm = "cluster" in os.environ.get('HOME', '')
+        
+        # Timing instrumentation for validation with proper synchronization
+        val_start_time = self._sync_and_time()
+        val_batch_count = 0
 
         with torch.no_grad():
             for inputs, targets in tqdm(dataloader, desc="Validation", disable=disable_tqdm):
@@ -237,6 +318,13 @@ class BaseTrainer:
                 # Store outputs for metrics (pred, std) and original targets
                 all_outputs.append(torch.stack([point_linear, std_linear], dim=1).detach().cpu())
                 all_targets.append(original_targets.detach().cpu())
+                
+                val_batch_count += 1
+
+        # Log validation timing with proper synchronization
+        val_total = self._sync_and_time() - val_start_time
+        if self.timing_enabled:
+            self._log_timing("Validation Epoch Total", val_total, f"{val_batch_count} batches")
 
         all_outputs = torch.cat(all_outputs)
         all_targets = torch.cat(all_targets)
@@ -564,6 +652,9 @@ class BaseTrainer:
         os.makedirs(model_dir, exist_ok=True)
 
         self.logger.info("Training model...")
+        
+        # Time overall training setup with proper synchronization
+        setup_start = self._sync_and_time()
 
         if not self.config["debug"]:
             # Use the same experiment name as the output directory
@@ -571,7 +662,14 @@ class BaseTrainer:
             experiment_name = os.path.basename(self.config['output_dir'])
             wandb.init(project=self.config['project_name'], name=experiment_name, config=self.config)
 
+        # Time model initialization
+        model_init_start = self._sync_and_time()
         model = init_model_fn(seed)
+        if self.timing_enabled:
+            self._log_timing("Model Initialization", self._sync_and_time() - model_init_start)
+            
+        # Time criterion and optimizer setup
+        criterion_start = self._sync_and_time()
         criterion_mse = get_criterion(self.config, "MSELoss")
         criterion_nll = get_criterion(self.config, "GaussianNLLLoss")
         criterion_kld = get_criterion(self.config, "BKLLoss")
@@ -580,6 +678,10 @@ class BaseTrainer:
         scheduler = None
         if self.config[training_key]["scheduler"]:
             scheduler = get_scheduler(self.config, optimizer)
+        
+        if self.timing_enabled:
+            self._log_timing("Criterion & Optimizer Setup", self._sync_and_time() - criterion_start)
+            self._log_timing("Total Training Setup", self._sync_and_time() - setup_start)
 
         best_val_loss = float('inf')
         patience_counter = 0
@@ -588,14 +690,28 @@ class BaseTrainer:
         for epoch in range(epochs):
             print(" ")
             self.logger.info(f"Epoch {epoch+1}/{epochs}")
+            
+            # Time data loading and training phases with proper synchronization
+            epoch_start = self._sync_and_time()
 
+            train_start = self._sync_and_time()
             train_loss, train_mse, train_nll, train_kld, train_variance, train_outputs, train_targets = \
                 self.train_epoch(model, train_loader, criterion_mse, criterion_nll, criterion_kld, optimizer)
+            train_duration = self._sync_and_time() - train_start
+            
+            val_start = self._sync_and_time()
             val_loss, val_mse, val_nll, val_kld, val_variance, val_outputs, val_targets = \
                 self.validate_epoch(model, val_loader, criterion_mse, criterion_nll, criterion_kld)
+            val_duration = self._sync_and_time() - val_start
 
             # Track losses for plotting
             self.track_losses(epoch + 1, train_loss, val_loss)
+            
+            # Time metrics calculation
+            metrics_start = self._sync_and_time()
+            train_metrics = calculate_metrics(train_outputs, train_targets, prefix="train")
+            val_metrics = calculate_metrics(val_outputs, val_targets, prefix="val")
+            metrics_duration = self._sync_and_time() - metrics_start
 
             if not self.config["debug"]:
                 wandb.log({
@@ -610,8 +726,8 @@ class BaseTrainer:
                     'val_kld': val_kld,
                     'val_variance': val_variance,
                     'learning_rate': scheduler.get_last_lr()[0] if scheduler else None,
-                    **calculate_metrics(train_outputs, train_targets, prefix="train"),
-                    **calculate_metrics(val_outputs, val_targets, prefix="val"),
+                    **train_metrics,
+                    **val_metrics,
                     'epoch': epoch + 1
                 })
 
@@ -619,10 +735,18 @@ class BaseTrainer:
                 scheduler.step()
 
             self.logger.info(f"Train Loss: {train_loss:.2f}, Validation Loss: {val_loss:.2f}")
+            
+            # Log epoch timing summary with synchronized timing
+            epoch_total = self._sync_and_time() - epoch_start
+            if self.timing_enabled:
+                self.logger.info(f"⏱️  Epoch {epoch+1} timing: total={epoch_total:.1f}s, train={train_duration:.1f}s, val={val_duration:.1f}s, metrics={metrics_duration:.3f}s")
 
             if val_loss < best_val_loss or self.config[training_key]["save_model_every_epoch"]:
+                checkpoint_start = self._sync_and_time()
                 best_val_loss = self.save_checkpoint(self.config, model, optimizer, epoch, 
                                                    val_loss, best_val_loss, model_dir, seed)
+                if self.timing_enabled:
+                    self._log_timing("Checkpoint Save", self._sync_and_time() - checkpoint_start)
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -633,23 +757,40 @@ class BaseTrainer:
         # Save loss curve
         self.save_final_losses(self.config['output_dir'])
 
-        # Load best checkpoint for testing.
+        # Load best checkpoint for testing with synchronized timing
+        checkpoint_load_start = self._sync_and_time()
         filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{seed:02}.pth"
         checkpoint_path = os.path.join(model_dir, filename)
         checkpoint = torch.load(checkpoint_path, weights_only=True)
         model.load_state_dict(checkpoint['model_state_dict'])
+        if self.timing_enabled:
+            self._log_timing("Checkpoint Load", self._sync_and_time() - checkpoint_load_start)
 
+        # Time testing phase with proper synchronization
+        test_start = self._sync_and_time()
         test_outputs, test_targets = self.test_model(model, test_loader)
         test_metrics = calculate_metrics(test_outputs, test_targets, prefix="test")
         self.logger.info("Test metrics: " + ", ".join(f"{k}: {v:.2f}" for k, v in test_metrics.items()))
+        test_duration = self._sync_and_time() - test_start
+        if self.timing_enabled:
+            self._log_timing("Test Phase", test_duration)
 
+        # Time Bayesian inference with proper synchronization
+        bayesian_start = self._sync_and_time()
         num_samples = 100 if "BNN" in self.config['model']['model_type'] else 1
         bayesian_results, test_res_df = self.bayesian_inference_total_uncertainty(model, test_loader,
                                                                                   num_samples=num_samples)
+        bayesian_duration = self._sync_and_time() - bayesian_start
+        if self.timing_enabled:
+            self._log_timing("Bayesian Inference", bayesian_duration, f"{num_samples} samples")
 
+        # Time plotting with proper synchronization
+        plot_start = self._sync_and_time()
         # Plotting test metrics from bayesian inference
         plot_test_metrics(test_res_df, output_dir=self.config['output_dir'], 
                          feature_registry=self.feature_registry)
+        if self.timing_enabled:
+            self._log_timing("Plotting", self._sync_and_time() - plot_start)
 
         self.logger.info(f"Test MAE: {(bayesian_results['baysian_mae']):.2f}")
         self.logger.info(f"Test MSE: {(bayesian_results['baysian_mse']):.2f}")
@@ -667,3 +808,7 @@ class BaseTrainer:
                 'test_total_uncertainty': bayesian_results['total_std'].mean().item(),
             })
             wandb.finish()
+            
+        # Print comprehensive timing summary
+        if self.timing_enabled:
+            self._print_timing_summary()
