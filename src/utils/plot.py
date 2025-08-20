@@ -85,7 +85,7 @@ def plot_prediction_scatter(df, output_dir):
     # Also create a 2D histogram version with log scale
     plt.figure(figsize=(8, 8))
     plt.hist2d(df['target_stec'], df['pred_stec'], bins=50, cmap='BuGn', 
-               density=True, norm=LogNorm())
+               norm=LogNorm())
     plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
     plt.xlabel('True STEC')
     plt.ylabel('Predicted STEC')
@@ -381,7 +381,7 @@ def plot_uncertainty_calibration(df, output_dir):
     # Also create a 2D histogram version with log scale
     plt.figure(figsize=(8, 8))
     plt.hist2d(df['pred_total_unc'], abs_residual, bins=50, cmap='BuGn', 
-               density=True, norm=LogNorm())
+               norm=LogNorm())
     plt.plot([0, max_val], [0, max_val], 'k--', linewidth=2, label='Perfect Calibration')
     plt.xlabel('Predicted Total Uncertainty')
     plt.ylabel('|Residual|')
@@ -706,3 +706,450 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
 
     plot_histogram_of_residuals(test_df, output_dir)
     plot_uncertainty_calibration(test_df, output_dir)
+    
+    # New comprehensive uncertainty analysis
+    if all(col in available_features for col in ['pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc']):
+        plot_comprehensive_uncertainty_analysis(test_df, output_dir)
+
+
+def plot_comprehensive_uncertainty_analysis(df, output_dir):
+    """
+    Comprehensive uncertainty analysis including sigma interval coverage 
+    for total, epistemic, and aleatoric uncertainties.
+    
+    INTERPRETATION GUIDE:
+    - Epistemic Uncertainty: Model uncertainty (reducible with more training/data)
+    - Aleatoric Uncertainty: Data noise uncertainty (irreducible measurement/physical noise)
+    - Total Uncertainty: sqrt(epistemic² + aleatoric²)
+    
+    EXPECTED COVERAGE for well-calibrated uncertainties:
+    - 1σ: 68.27% of observations should fall within uncertainty bounds
+    - 2σ: 95.45% of observations should fall within uncertainty bounds  
+    - 3σ: 99.73% of observations should fall within uncertainty bounds
+    """
+    ensure_dir(output_dir)
+    
+    # Calculate absolute residuals
+    abs_residuals = np.abs(df['target_stec'] - df['pred_stec'])
+    
+    # Extract uncertainties
+    total_unc = df['pred_total_unc'].values
+    epistemic_unc = df['pred_epistemic_unc'].values
+    aleatoric_unc = df['pred_aleatoric_unc'].values
+    
+    # 1. SIGMA INTERVAL COVERAGE ANALYSIS
+    def calculate_sigma_coverage(uncertainties, residuals, unc_type):
+        """Calculate coverage for 1σ, 2σ, and 3σ intervals"""
+        n_total = len(residuals)
+        
+        # Count observations within each sigma interval
+        within_1sigma = np.sum(residuals <= uncertainties)
+        within_2sigma = np.sum(residuals <= 2 * uncertainties)
+        within_3sigma = np.sum(residuals <= 3 * uncertainties)
+        
+        # Calculate percentages
+        pct_1sigma = (within_1sigma / n_total) * 100
+        pct_2sigma = (within_2sigma / n_total) * 100
+        pct_3sigma = (within_3sigma / n_total) * 100
+        
+        # Expected percentages for normal distribution
+        expected_1sigma = 68.27
+        expected_2sigma = 95.45
+        expected_3sigma = 99.73
+        
+        # Interpretation guide
+        def interpret_coverage(observed, expected, sigma_level):
+            diff = observed - expected
+            if abs(diff) <= 3:
+                status = "EXCELLENT"
+                color = "✅"
+            elif abs(diff) <= 10:
+                status = "GOOD" if diff > 0 else "SLIGHTLY UNDER-CONFIDENT" 
+                color = "🟡" if diff > 0 else "🟠"
+            else:
+                status = "OVER-CONFIDENT" if diff > 0 else "UNDER-CONFIDENT"
+                color = "🔴"
+            return status, color
+                
+        return {
+            '1sigma': {'observed': pct_1sigma, 'expected': expected_1sigma, 'count': within_1sigma},
+            '2sigma': {'observed': pct_2sigma, 'expected': expected_2sigma, 'count': within_2sigma},
+            '3sigma': {'observed': pct_3sigma, 'expected': expected_3sigma, 'count': within_3sigma}
+        }
+    
+    # Calculate coverage for all uncertainty types
+    total_coverage = calculate_sigma_coverage(total_unc, abs_residuals, "TOTAL")
+    epistemic_coverage = calculate_sigma_coverage(epistemic_unc, abs_residuals, "EPISTEMIC")
+    aleatoric_coverage = calculate_sigma_coverage(aleatoric_unc, abs_residuals, "ALEATORIC")
+    
+    # 2. SUMMARY STATISTICS
+    
+    # Correlation analysis
+    from scipy.stats import pearsonr
+    corr_total, p_total = pearsonr(total_unc, abs_residuals)
+    corr_epistemic, p_epistemic = pearsonr(epistemic_unc, abs_residuals)
+    corr_aleatoric, p_aleatoric = pearsonr(aleatoric_unc, abs_residuals)
+    
+    # 3. INDIVIDUAL VISUALIZATION PLOTS - Each as separate PNG
+    # Define colors for consistency
+    colors = {'total': 'navy', 'epistemic': 'darkred', 'aleatoric': 'darkgreen', 'expected': 'gray'}
+    
+    # 1. Coverage comparison with clear interpretation
+    plt.figure(figsize=(12, 8))
+    sigma_levels = ['1σ', '2σ', '3σ']
+    expected_values = [68.27, 95.45, 99.73]
+    total_observed = [total_coverage['1sigma']['observed'], 
+                     total_coverage['2sigma']['observed'], 
+                     total_coverage['3sigma']['observed']]
+    epistemic_observed = [epistemic_coverage['1sigma']['observed'], 
+                         epistemic_coverage['2sigma']['observed'], 
+                         epistemic_coverage['3sigma']['observed']]
+    aleatoric_observed = [aleatoric_coverage['1sigma']['observed'], 
+                         aleatoric_coverage['2sigma']['observed'], 
+                         aleatoric_coverage['3sigma']['observed']]
+    
+    x = np.arange(len(sigma_levels))
+    width = 0.2
+    
+    # Plot with clear legend and interpretation
+    plt.bar(x + 0.0*width, expected_values, width, label='Expected (Perfect)', 
+            alpha=0.8, color=colors['expected'], edgecolor='black', linewidth=1)
+    plt.bar(x + 1.0*width, total_observed, width, label='Total', 
+            alpha=0.8, color=colors['total'], edgecolor='black', linewidth=1)
+    plt.bar(x + 2.0*width, epistemic_observed, width, label='Epistemic (Model)', 
+            alpha=0.8, color=colors['epistemic'], edgecolor='black', linewidth=1)
+    plt.bar(x + 3.0*width, aleatoric_observed, width, label='Aleatoric (Data Noise)', 
+            alpha=0.8, color=colors['aleatoric'], edgecolor='black', linewidth=1)
+    
+    # Add horizontal reference lines
+    for i, exp_val in enumerate(expected_values):
+        plt.axhline(y=exp_val, xmin=(i-0.4)/len(sigma_levels), xmax=(i+0.4)/len(sigma_levels), 
+                   color='red', linestyle='--', alpha=0.7, linewidth=2)
+    
+    plt.xlabel('Sigma Levels', fontsize=14, fontweight='bold')
+    plt.ylabel('Coverage (%)', fontsize=14, fontweight='bold')
+    plt.title('Uncertainty Coverage Analysis\n(Closer to Expected = Better)', fontsize=16, fontweight='bold')
+    plt.xticks(x, sigma_levels)
+    plt.legend(fontsize=12)
+    plt.grid(True, alpha=0.3)
+    plt.ylim(0, 105)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/sigma_coverage_comparison.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 2. Uncertainty distributions with clear interpretation
+    plt.figure(figsize=(12, 8))
+    plt.hist(total_unc, bins=50, alpha=0.7, label='Total', color=colors['total'])
+    plt.hist(epistemic_unc, bins=50, alpha=0.7, label='Epistemic (Model)', color=colors['epistemic'])
+    plt.hist(aleatoric_unc, bins=50, alpha=0.7, label='Aleatoric (Data Noise)', color=colors['aleatoric'])
+    
+    # Add mean lines
+    plt.axvline(total_unc.mean(), color=colors['total'], linestyle='--', linewidth=2, alpha=0.8, 
+                label=f'Total mean: {total_unc.mean():.3f}')
+    plt.axvline(epistemic_unc.mean(), color=colors['epistemic'], linestyle='--', linewidth=2, alpha=0.8,
+                label=f'Epistemic mean: {epistemic_unc.mean():.3f}')
+    plt.axvline(aleatoric_unc.mean(), color=colors['aleatoric'], linestyle='--', linewidth=2, alpha=0.8,
+                label=f'Aleatoric mean: {aleatoric_unc.mean():.3f}')
+    
+    plt.xlabel('Uncertainty (TECU)', fontsize=14, fontweight='bold')
+    plt.ylabel('Density', fontsize=14, fontweight='bold')
+    plt.title('📊 Uncertainty Distributions\n(Dashed lines = means)', fontsize=16, fontweight='bold')
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/uncertainty_distributions.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 3. Calibration plot with sigma lines
+    plt.figure(figsize=(12, 10))
+    
+    # Create scatter plots with different point sizes for clarity
+    plt.scatter(total_unc, abs_residuals, alpha=0.4, s=4, label='Total', color=colors['total'])
+    plt.scatter(epistemic_unc, abs_residuals, alpha=0.4, s=4, label='Epistemic', color=colors['epistemic'])
+    plt.scatter(aleatoric_unc, abs_residuals, alpha=0.4, s=4, label='Aleatoric', color=colors['aleatoric'])
+    
+    # Add perfect calibration lines with labels
+    max_unc = max(total_unc.max(), epistemic_unc.max(), aleatoric_unc.max())
+    plt.plot([0, max_unc], [0, max_unc], 'k--', linewidth=3, alpha=0.8, label='Perfect 1σ line')
+    plt.plot([0, max_unc/2], [0, max_unc], 'k:', linewidth=2, alpha=0.6, label='Perfect 2σ line')
+    plt.plot([0, max_unc/3], [0, max_unc], 'k:', linewidth=1, alpha=0.4, label='Perfect 3σ line')
+    
+    plt.xlabel('Predicted Uncertainty (TECU)', fontsize=14, fontweight='bold')
+    plt.ylabel('|Residual| (TECU)', fontsize=14, fontweight='bold')
+    plt.title('Calibration Plot\n(Points on diagonal = perfect)', fontsize=16, fontweight='bold')
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/calibration_plot.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 4. Epistemic vs Aleatoric relationship
+    plt.figure(figsize=(12, 10))
+    scatter = plt.scatter(epistemic_unc, aleatoric_unc, alpha=0.5, s=4, c=abs_residuals, 
+                         cmap='viridis', norm=LogNorm())
+    plt.xlabel('Epistemic Uncertainty (TECU)', fontsize=14, fontweight='bold')
+    plt.ylabel('Aleatoric Uncertainty (TECU)', fontsize=14, fontweight='bold')
+    plt.title('Epistemic vs Aleatoric Uncertainty Relationship\n(Color = |residual|)', fontsize=16, fontweight='bold')
+    cbar = plt.colorbar(scatter)
+    cbar.set_label('|Residual| (TECU)', fontsize=12)
+    plt.grid(True, alpha=0.3)
+    
+    # Add diagonal line to show epistemic=aleatoric
+    min_val = min(epistemic_unc.min(), aleatoric_unc.min())
+    max_val = max(epistemic_unc.max(), aleatoric_unc.max())
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.7, linewidth=2, 
+             label='Equal uncertainties')
+    plt.legend(fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/epistemic_vs_aleatoric.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 5. Coverage vs uncertainty magnitude
+    plt.figure(figsize=(12, 8))
+    
+    # Calculate rolling coverage for visualization
+    for unc_vals, unc_name, color in [(total_unc, 'Total', colors['total']), 
+                                      (epistemic_unc, 'Epistemic', colors['epistemic']), 
+                                      (aleatoric_unc, 'Aleatoric', colors['aleatoric'])]:
+        sorted_indices = np.argsort(unc_vals)
+        sorted_unc = unc_vals[sorted_indices]
+        sorted_residuals = abs_residuals[sorted_indices]
+        
+        # Calculate rolling coverage
+        window_size = max(len(unc_vals) // 20, 100)  # At least 100 points per window
+        rolling_coverage_1sigma = []
+        rolling_uncertainty = []
+        
+        for i in range(window_size, len(sorted_unc) - window_size, window_size//2):
+            window_unc = sorted_unc[i-window_size:i+window_size]
+            window_res = sorted_residuals[i-window_size:i+window_size]
+            
+            coverage_1 = np.mean(window_res <= window_unc) * 100
+            rolling_coverage_1sigma.append(coverage_1)
+            rolling_uncertainty.append(window_unc.mean())
+        
+        plt.plot(rolling_uncertainty, rolling_coverage_1sigma, 'o-', 
+                label=f'{unc_name}', color=color, alpha=0.8, markersize=4)
+    
+    plt.axhline(68.27, color='red', linestyle='--', alpha=0.7, linewidth=2, 
+               label='Expected 1σ (68.27%)')
+    plt.xlabel('Uncertainty Magnitude (TECU)', fontsize=14, fontweight='bold')
+    plt.ylabel('1σ Coverage (%)', fontsize=14, fontweight='bold')
+    plt.title('📈 Coverage vs Uncertainty Magnitude\n(Should be flat at ~68%)', fontsize=16, fontweight='bold')
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.ylim(0, 100)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/coverage_vs_magnitude.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 6. Summary interpretation as text file
+    interpretation_file = f'{output_dir}/uncertainty_analysis_summary.txt'
+    with open(interpretation_file, 'w') as f:
+        f.write("🏆 UNCERTAINTY ANALYSIS SUMMARY\n")
+        f.write("="*50 + "\n\n")
+        
+        f.write("📊 YOUR MODEL PERFORMANCE:\n")
+        f.write(f"• Total Uncertainty: {'Over-confident' if total_coverage['1sigma']['observed'] > 75 else 'Well-calibrated' if total_coverage['1sigma']['observed'] > 60 else 'Under-confident'}\n")
+        f.write(f"• Epistemic (Model): {'Under-confident' if epistemic_coverage['1sigma']['observed'] < 60 else 'Well-calibrated'}\n")
+        f.write(f"• Aleatoric (Data): {'Excellent!' if abs(aleatoric_coverage['1sigma']['observed'] - 68.27) < 5 else 'Good' if abs(aleatoric_coverage['1sigma']['observed'] - 68.27) < 10 else 'Needs improvement'}\n\n")
+        
+        f.write("🎯 KEY INSIGHTS:\n")
+        f.write(f"• Epistemic: {epistemic_unc.mean():.1f} ± {epistemic_unc.std():.1f} TECU\n")
+        f.write(f"• Aleatoric: {aleatoric_unc.mean():.1f} ± {aleatoric_unc.std():.1f} TECU\n")
+        f.write(f"• Typical error: {abs_residuals.mean():.1f} ± {abs_residuals.std():.1f} TECU\n\n")
+        
+        f.write("💡 RECOMMENDATIONS:\n")
+        if epistemic_coverage['1sigma']['observed'] < 60:
+            f.write("• Train longer to improve epistemic uncertainty\n")
+        if abs(aleatoric_coverage['1sigma']['observed'] - 68.27) < 5:
+            f.write("• Aleatoric uncertainty is excellently calibrated!\n")
+        if epistemic_unc.mean() < aleatoric_unc.mean() * 0.5:
+            f.write("• Consider ensemble methods for better epistemic uncertainty\n")
+        f.write("\n")
+        
+        f.write("🔗 CORRELATIONS WITH ERRORS:\n")
+        f.write(f"• Total: r = {corr_total:.3f} ({'Strong' if abs(corr_total) > 0.5 else 'Moderate' if abs(corr_total) > 0.3 else 'Weak'})\n")
+        f.write(f"• Epistemic: r = {corr_epistemic:.3f} ({'Strong' if abs(corr_epistemic) > 0.5 else 'Moderate' if abs(corr_epistemic) > 0.3 else 'Weak'})\n")
+        f.write(f"• Aleatoric: r = {corr_aleatoric:.3f} ({'Strong' if abs(corr_aleatoric) > 0.5 else 'Moderate' if abs(corr_aleatoric) > 0.3 else 'Weak'})\n")
+        
+    # 4. SEPARATE DETAILED PLOTS FOR EACH UNCERTAINTY TYPE
+    
+    # Detailed calibration plots for each uncertainty type
+    uncertainty_types = [
+        ('Total', total_unc, 'blue'),
+        ('Epistemic', epistemic_unc, 'red'),
+        ('Aleatoric', aleatoric_unc, 'green')
+    ]
+    
+    for unc_name, unc_values, color in uncertainty_types:
+        
+        # Plot 1: Calibration plot with confidence intervals
+        plt.figure(figsize=(10, 8))
+        plt.hexbin(unc_values, abs_residuals, gridsize=50, cmap='BuGn', 
+                   mincnt=1, norm=LogNorm())
+        
+        # Add sigma lines
+        max_val = max(unc_values.max(), abs_residuals.max())
+        plt.plot([0, max_val], [0, max_val], 'k--', linewidth=2, label='1σ line')
+        plt.plot([0, max_val], [0, 2*max_val], 'k:', linewidth=2, label='2σ line')
+        plt.plot([0, max_val], [0, 3*max_val], 'k:', linewidth=1, label='3σ line')
+        
+        plt.xlabel(f'{unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
+        plt.ylabel('|Residual| (TECU)', fontsize=12, fontweight='bold')
+        plt.title(f'{unc_name} Uncertainty Calibration Plot', fontsize=14, fontweight='bold')
+        plt.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)
+        cbar = plt.colorbar()
+        cbar.set_label('Number of Points (log scale)', fontsize=10)
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_calibration_plot.png', 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot 2: Distribution histogram
+        plt.figure(figsize=(10, 6))
+        plt.hist(unc_values, bins=50, alpha=0.7, color=color, edgecolor='black', linewidth=0.5)
+        plt.axvline(unc_values.mean(), color='red', linestyle='--', linewidth=2,
+                   label=f'Mean: {unc_values.mean():.2f} TECU')
+        plt.axvline(np.median(unc_values), color='orange', linestyle='--', linewidth=2,
+                   label=f'Median: {np.median(unc_values):.2f} TECU')
+        plt.xlabel(f'{unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
+        plt.ylabel('Density', fontsize=12, fontweight='bold')
+        plt.title(f'{unc_name} Uncertainty Distribution', fontsize=14, fontweight='bold')
+        plt.legend(fontsize=11)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_distribution.png', 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot 3: Binned calibration plot
+        plt.figure(figsize=(10, 8))
+        n_bins = 20
+        bin_edges = np.linspace(0, np.percentile(unc_values, 95), n_bins + 1)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        
+        binned_mean_unc = []
+        binned_mean_residual = []
+        binned_std_residual = []
+        
+        for i in range(len(bin_centers)):
+            mask = (unc_values >= bin_edges[i]) & (unc_values < bin_edges[i+1])
+            if np.sum(mask) > 10:  # Only if sufficient samples
+                binned_mean_unc.append(unc_values[mask].mean())
+                binned_mean_residual.append(abs_residuals[mask].mean())
+                binned_std_residual.append(abs_residuals[mask].std())
+            else:
+                binned_mean_unc.append(np.nan)
+                binned_mean_residual.append(np.nan)
+                binned_std_residual.append(np.nan)
+        
+        binned_mean_unc = np.array(binned_mean_unc)
+        binned_mean_residual = np.array(binned_mean_residual)
+        binned_std_residual = np.array(binned_std_residual)
+        
+        # Remove NaN values for plotting
+        valid_mask = ~np.isnan(binned_mean_unc)
+        
+        plt.errorbar(binned_mean_unc[valid_mask], binned_mean_residual[valid_mask], 
+                    yerr=binned_std_residual[valid_mask], fmt='o-', color=color, 
+                    capsize=5, alpha=0.8, linewidth=2, markersize=6)
+        
+        max_plot_val = max(binned_mean_unc[valid_mask].max() if valid_mask.any() else 0, 
+                          binned_mean_residual[valid_mask].max() if valid_mask.any() else 0)
+        plt.plot([0, max_plot_val], [0, max_plot_val], 'k--', linewidth=2, label='Perfect Calibration')
+        plt.xlabel(f'Binned {unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
+        plt.ylabel('Mean |Residual| ± Std (TECU)', fontsize=12, fontweight='bold')
+        plt.title(f'Binned {unc_name} Uncertainty Calibration', fontsize=14, fontweight='bold')
+        plt.legend(fontsize=11)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_binned_calibration.png', 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot 4: Coverage as a function of predicted uncertainty
+        plt.figure(figsize=(10, 8))
+        sorted_indices = np.argsort(unc_values)
+        sorted_unc = unc_values[sorted_indices]
+        sorted_residuals = abs_residuals[sorted_indices]
+        
+        # Calculate rolling coverage
+        window_size = len(unc_values) // 50  # 50 points
+        rolling_coverage_1sigma = []
+        rolling_coverage_2sigma = []
+        rolling_coverage_3sigma = []
+        rolling_uncertainty = []
+        
+        for i in range(window_size, len(sorted_unc) - window_size, window_size):
+            window_unc = sorted_unc[i-window_size:i+window_size]
+            window_res = sorted_residuals[i-window_size:i+window_size]
+            
+            coverage_1 = np.mean(window_res <= window_unc) * 100
+            coverage_2 = np.mean(window_res <= 2 * window_unc) * 100
+            coverage_3 = np.mean(window_res <= 3 * window_unc) * 100
+            
+            rolling_coverage_1sigma.append(coverage_1)
+            rolling_coverage_2sigma.append(coverage_2)
+            rolling_coverage_3sigma.append(coverage_3)
+            rolling_uncertainty.append(window_unc.mean())
+        
+        plt.plot(rolling_uncertainty, rolling_coverage_1sigma, 'o-', label='1σ coverage', 
+                alpha=0.8, linewidth=2, markersize=5)
+        plt.plot(rolling_uncertainty, rolling_coverage_2sigma, 's-', label='2σ coverage', 
+                alpha=0.8, linewidth=2, markersize=5)
+        plt.plot(rolling_uncertainty, rolling_coverage_3sigma, '^-', label='3σ coverage', 
+                alpha=0.8, linewidth=2, markersize=5)
+        
+        plt.axhline(68.27, color='gray', linestyle='--', alpha=0.7, linewidth=2, label='Expected 1σ (68.27%)')
+        plt.axhline(95.45, color='gray', linestyle=':', alpha=0.7, linewidth=2, label='Expected 2σ (95.45%)')
+        plt.axhline(99.73, color='gray', linestyle='-.', alpha=0.7, linewidth=2, label='Expected 3σ (99.73%)')
+        
+        plt.xlabel(f'{unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
+        plt.ylabel('Coverage (%)', fontsize=12, fontweight='bold')
+        plt.title(f'{unc_name} Uncertainty Coverage vs Magnitude', fontsize=14, fontweight='bold')
+        plt.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)
+        plt.ylim(0, 105)
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_coverage_analysis.png', 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    # 5. SAVE QUANTITATIVE RESULTS TO FILE
+    results_file = f'{output_dir}/uncertainty_analysis_results.txt'
+    with open(results_file, 'w') as f:
+        f.write("COMPREHENSIVE UNCERTAINTY ANALYSIS RESULTS\n")
+        f.write("="*60 + "\n\n")
+        
+        f.write(f"Dataset: {len(df):,} observations\n\n")
+        
+        f.write("SIGMA INTERVAL COVERAGE ANALYSIS\n")
+        f.write("-"*40 + "\n")
+        
+        for unc_type, coverage in [("Total", total_coverage), 
+                                  ("Epistemic", epistemic_coverage), 
+                                  ("Aleatoric", aleatoric_coverage)]:
+            f.write(f"\n{unc_type} Uncertainty:\n")
+            for sigma in ['1sigma', '2sigma', '3sigma']:
+                obs = coverage[sigma]['observed']
+                exp = coverage[sigma]['expected']
+                count = coverage[sigma]['count']
+                f.write(f"  {sigma}: {obs:.2f}% ({count:,} obs) - Expected: {exp:.2f}% - Diff: {obs-exp:+.2f}%\n")
+        
+        f.write(f"\nUNCERTAINTY STATISTICS\n")
+        f.write("-"*40 + "\n")
+        f.write(f"Total uncertainty:     {total_unc.mean():.4f} ± {total_unc.std():.4f}\n")
+        f.write(f"Epistemic uncertainty: {epistemic_unc.mean():.4f} ± {epistemic_unc.std():.4f}\n")
+        f.write(f"Aleatoric uncertainty: {aleatoric_unc.mean():.4f} ± {aleatoric_unc.std():.4f}\n")
+        f.write(f"Mean |residual|:       {abs_residuals.mean():.4f} ± {abs_residuals.std():.4f}\n")
+        
+        f.write(f"\nCORRELATIONS WITH |RESIDUALS|\n")
+        f.write("-"*40 + "\n")
+        f.write(f"Total uncertainty:     {corr_total:.4f} (p={p_total:.2e})\n")
+        f.write(f"Epistemic uncertainty: {corr_epistemic:.4f} (p={p_epistemic:.2e})\n")
+        f.write(f"Aleatoric uncertainty: {corr_aleatoric:.4f} (p={p_aleatoric:.2e})\n")
+    

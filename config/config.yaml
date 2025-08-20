@@ -52,7 +52,7 @@ training:
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 200
+  epochs: 3
   batchsize: 512
   num_workers: 12
   prefetch_factor: 4
