@@ -704,9 +704,10 @@ def get_data_loaders(config, logger=None):
     loaders = {}
 
      # ---- config knobs ----
-    train_subset = config['data'].get('train_subset_size', None)
-    total_size = train_subset / 0.7 if train_subset else None
-    val_subset = test_subset = int(total_size * 0.15) if total_size else None
+    train_subset = config['data'].get('train_subset_size', 50_000)
+    total_size = train_subset / 0.7
+    val_subset = max(int(total_size * 0.15), 200_000)
+    test_subset = max(int(total_size * 0.15), 1_000_000)
     device = config['device']
     seed = int(config.get('seed', 42))
     bs   = config['pretrain']['batchsize']
