@@ -99,7 +99,7 @@ def compute_exp_name(config: dict) -> str:
     
     # Only add weight decay and loss weight if they're non-default
     weight_decay_str = f"_wd{weight_decay:.0e}".replace('e-0', 'e-').replace('e+0', 'e+') if weight_decay > 0.0 else ""
-    loss_weight_str = f"_lw{loss_weight:.0f}" if loss_weight != 1.0 else ""
+    loss_weight_str = f"_lw{loss_weight:.0e}".replace('e-0', 'e-').replace('e+0', 'e+').replace('e0', '')
     
     # Add subset size (format large numbers nicely)
     if subset_size >= 1_000_000:
@@ -114,9 +114,9 @@ def compute_exp_name(config: dict) -> str:
     log_str = "_logTgt" if log_target else ""
     
     if mode == 'finetune':
-        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_SH{sh_degree}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     elif mode == 'pretrain':
-        exp_name = f"Pretrain_{target}_{model}_SH{sh_degree}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
     
     return exp_name
 

@@ -25,17 +25,18 @@ def define_grids():
             'data.train_subset_size': [10_000],
         },
         
-        # Standard grid (72 combinations) 
+        # Standard grid (16 combinations) 
         'standard': {
-            'model.hidden_dim': [128, 256, 512],
-            'model.num_layers': [3, 4],
-            'model.model_type': ['BNN_NLL'],
-            'pretrain.learning_rate': [0.01, 0.05],
-            'pretrain.batchsize': [512],
+            'target': ['stec', 'vtec'],
+            'model.hidden_dim': [256, 512],
+            'model.num_layers': [4],
+            'model.model_type': ['BNN_NLL', 'MLP_NLL'],
+            'training.loss_function': ['GaussianNLLLoss', 'MSELoss'],
         },
 
-        # Custom grid (360 combinations)
+        # Custom grid (many combinations)
         'custom': {
+            'target': ['stec', 'vtec'],
             'model.hidden_dim': [128, 256, 512],
             'model.num_layers': [4],
             'model.model_type': ['BNN_NLL', 'MLP_NLL'],
@@ -170,9 +171,6 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
         
         # Set trial output directory
         trial_config['output_dir'] = f"{output_dir}/results/trial_{i:03d}/"
-        
-        # Reduce epochs for hyperparameter search
-        trial_config['pretrain']['epochs'] = min(trial_config['pretrain']['epochs'], 20)
         
         # Save config
         os.makedirs(output_path / 'configs', exist_ok=True)

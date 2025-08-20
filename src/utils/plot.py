@@ -8,6 +8,7 @@ import seaborn as sns
 from datetime import datetime, timedelta
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+from matplotlib.colors import LogNorm
 
 
 def ensure_dir(directory):
@@ -46,7 +47,6 @@ def plot_binned_boxplot(df, x_col, y_col, bins=20, output_dir='plots', bin_range
     plt.close()
 
 
-
 def plot_mae_vs_doy(df, output_dir='plots'):
     df = df.copy()
     df['mae'] = np.abs(df['target_stec'] - df['pred_stec'])
@@ -62,8 +62,9 @@ def plot_residuals_vs_feature(df, feature, num_bins=24, output_dir='plots', bin_
 def plot_prediction_scatter(df, output_dir):
     plt.figure(figsize=(8, 8))
     
-    # Create hexagonal density plot
-    plt.hexbin(df['target_stec'], df['pred_stec'], gridsize=50, cmap='BuGn', mincnt=1)
+    # Create hexagonal density plot with logarithmic scaling
+    plt.hexbin(df['target_stec'], df['pred_stec'], gridsize=50, cmap='BuGn', 
+               mincnt=1, norm=LogNorm())
     
     # Add perfect prediction line
     min_val = min(df['target_stec'].min(), df['pred_stec'].min())
@@ -72,8 +73,8 @@ def plot_prediction_scatter(df, output_dir):
     
     plt.xlabel('True STEC')
     plt.ylabel('Predicted STEC')
-    plt.title('Predicted vs. True STEC (Density Plot)')
-    plt.colorbar(label='Number of Points')
+    plt.title('Predicted vs. True STEC (Density Plot - Log Scale)')
+    plt.colorbar(label='Number of Points (log scale)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.axis('equal')
@@ -81,19 +82,34 @@ def plot_prediction_scatter(df, output_dir):
     plt.savefig(f'{output_dir}/prediction_density.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    # Also create a 2D histogram version for comparison
+    # Also create a 2D histogram version with log scale
     plt.figure(figsize=(8, 8))
-    plt.hist2d(df['target_stec'], df['pred_stec'], bins=50, cmap='BuGn', density=True)
+    plt.hist2d(df['target_stec'], df['pred_stec'], bins=50, cmap='BuGn', 
+               density=True, norm=LogNorm())
     plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
     plt.xlabel('True STEC')
     plt.ylabel('Predicted STEC')
-    plt.title('Predicted vs. True STEC (2D Histogram)')
-    plt.colorbar(label='Density')
+    plt.title('Predicted vs. True STEC (2D Histogram - Log Scale)')
+    plt.colorbar(label='Density (log scale)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.axis('equal')
     plt.tight_layout()
     plt.savefig(f'{output_dir}/prediction_hist2d.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # create a standard scatter plot
+    plt.figure(figsize=(8, 8))
+    plt.scatter(df['target_stec'], df['pred_stec'], alpha=0.2)
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    plt.xlabel('True STEC')
+    plt.ylabel('Predicted STEC')
+    plt.title('Predicted vs. True STEC (Scatter Plot)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/prediction_scatter.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 
@@ -344,8 +360,9 @@ def plot_uncertainty_calibration(df, output_dir):
     plt.figure(figsize=(8, 8))
     abs_residual = np.abs(df['target_stec'] - df['pred_stec'])
     
-    # Create hexagonal density plot
-    plt.hexbin(df['pred_total_unc'], abs_residual, gridsize=50, cmap='BuGn', mincnt=1)
+    # Create hexagonal density plot with log scale
+    plt.hexbin(df['pred_total_unc'], abs_residual, gridsize=50, cmap='BuGn', 
+               mincnt=1, norm=LogNorm())
     
     # Add perfect calibration line
     max_val = max(df['pred_total_unc'].max(), abs_residual.max())
@@ -353,28 +370,42 @@ def plot_uncertainty_calibration(df, output_dir):
     
     plt.xlabel('Predicted Total Uncertainty')
     plt.ylabel('|Residual|')
-    plt.title('Uncertainty Calibration (Density Plot)')
-    plt.colorbar(label='Number of Points')
+    plt.title('Uncertainty Calibration (Density Plot - Log Scale)')
+    plt.colorbar(label='Number of Points (log scale)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f'{output_dir}/uncertainty_calibration_density.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    # Also create a 2D histogram version
+    # Also create a 2D histogram version with log scale
     plt.figure(figsize=(8, 8))
-    plt.hist2d(df['pred_total_unc'], abs_residual, bins=50, cmap='BuGn', density=True)
+    plt.hist2d(df['pred_total_unc'], abs_residual, bins=50, cmap='BuGn', 
+               density=True, norm=LogNorm())
     plt.plot([0, max_val], [0, max_val], 'k--', linewidth=2, label='Perfect Calibration')
     plt.xlabel('Predicted Total Uncertainty')
     plt.ylabel('|Residual|')
-    plt.title('Uncertainty Calibration (2D Histogram)')
-    plt.colorbar(label='Density')
+    plt.title('Uncertainty Calibration (2D Histogram - Log Scale)')
+    plt.colorbar(label='Density (log scale)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f'{output_dir}/uncertainty_calibration_hist2d.png', dpi=300, bbox_inches='tight')
     plt.close()
 
+    # plot standard scatter plot
+    plt.figure(figsize=(8, 8))
+    plt.scatter(df['pred_total_unc'], abs_residual, alpha=0.2)
+    plt.plot([0, max_val], [0, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    plt.xlabel('Predicted Total Uncertainty')
+    plt.ylabel('|Residual|')
+    plt.title('Uncertainty Calibration (Scatter Plot)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/prediction_scatter.png', dpi=300, bbox_inches='tight')
+    plt.close()
 
 def plot_az_el_heatmap(df, output_dir, metric='residual'):
     """ Plots a heatmap of residuals or MAE by azimuth and elevation with 95% quantiles on color scale.
