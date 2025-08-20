@@ -303,8 +303,15 @@ def get_model(config):
     
     # Direction features (only for STEC target) 
     direction_features = feature_registry.get_features_by_type(FeatureType.DIRECTION)
-    direction_dim = len(direction_features)  # No transformation applied
-    
+    direction_dim = 0
+    for feature in direction_features:
+        if feature == 'satazi':
+            direction_dim += 3  # sin, cos, normalized for azimuth
+        elif feature == 'satele':
+            direction_dim += 1  # just normalized for elevation
+        else:
+            direction_dim += 1  # default: just normalized
+
     # IPP features
     ipp_features = feature_registry.get_features_by_type(FeatureType.IPP)
     ipp_dim = len(ipp_features)  # No transformation applied

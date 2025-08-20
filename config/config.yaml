@@ -5,7 +5,7 @@ year: 2023
 doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
-debug: False  
+debug: True  
 debug_single_batch: False  
 cluster: False
 
@@ -16,7 +16,7 @@ timing_config:
   save_timing_to_file: True     # Save timing statistics to CSV file in experiment directory
   log_timing_every_n_batches: 100  # Log timing info every N batches during training (0 = disable periodic logs)
 
-target: "vtec" # stec or vtec
+target: "stec" # stec or vtec
 
 data:
   GNSS_data_path: "/home/space/data/IONO/STEC_DB_CASDCB"
