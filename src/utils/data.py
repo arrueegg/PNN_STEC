@@ -305,8 +305,13 @@ class PyTablesDatasetSplit(Dataset):
         
         # Get enabled features (excluding target)
         all_features = self.feature_registry.get_all_enabled_features()
-        self.target_feature = self.feature_registry.get_features_by_type(FeatureType.TARGET)
-        self.input_features = [f for f in all_features if f not in self.target_feature]
+        target_features = self.feature_registry.get_features_by_type(FeatureType.TARGET)
+        self.target_feature = target_features[0]  # Get the single target feature name
+        self.input_features = [f for f in all_features if f not in target_features]
+        
+        # Validate target feature name
+        if self.target_feature not in ['stec', 'vtec']:
+            raise ValueError(f"Target feature {self.target_feature} is not valid. Expected 'stec' or 'vtec'.")
 
     def __len__(self):
         if self.file is None:
@@ -334,8 +339,10 @@ class PyTablesDatasetSplit(Dataset):
                 value = float(row[feature_name])
             else:
                 raise ValueError(f"Feature {feature_name} not found in data")
+            
+            feature_vector.append(value)  # Add the value to the feature vector
         
-        target_name = self.target_feature[0]
+        target_name = self.target_feature  # Now it's a string, not a list
         if target_name in row.dtype.names:
             target = float(row[target_name])
         else:

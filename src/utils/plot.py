@@ -404,7 +404,7 @@ def plot_uncertainty_calibration(df, output_dir):
     plt.grid(True, alpha=0.3)
     plt.axis('equal')
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/prediction_scatter.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{output_dir}/uncertainty_calibration_scatter.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 def plot_az_el_heatmap(df, output_dir, metric='residual'):
@@ -756,20 +756,6 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
         expected_1sigma = 68.27
         expected_2sigma = 95.45
         expected_3sigma = 99.73
-        
-        # Interpretation guide
-        def interpret_coverage(observed, expected, sigma_level):
-            diff = observed - expected
-            if abs(diff) <= 3:
-                status = "EXCELLENT"
-                color = "✅"
-            elif abs(diff) <= 10:
-                status = "GOOD" if diff > 0 else "SLIGHTLY UNDER-CONFIDENT" 
-                color = "🟡" if diff > 0 else "🟠"
-            else:
-                status = "OVER-CONFIDENT" if diff > 0 else "UNDER-CONFIDENT"
-                color = "🔴"
-            return status, color
                 
         return {
             '1sigma': {'observed': pct_1sigma, 'expected': expected_1sigma, 'count': within_1sigma},

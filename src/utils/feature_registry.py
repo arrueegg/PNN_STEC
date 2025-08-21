@@ -246,10 +246,15 @@ def create_default_registry(config: dict) -> FeatureRegistry:
     
     # 6. Target feature (STEC or VTEC)
     if config['target'] == 'stec':
+        # Based on dataset statistics: min=0.001, max=~546, mean~26, std~27
+        # Using 0 to 600 range to be safe with outliers
         registry.register_feature('stec', FeatureType.TARGET, 
+                                normalization=(0.0, 600.0),
                                 description="Slant Total Electron Content")
     elif config['target'] == 'vtec':
+        # Similar range expected for VTEC (needs verification if using VTEC)
         registry.register_feature('vtec', FeatureType.TARGET, 
+                                normalization=(0.0, 200.0),
                                 description="Vertical Total Electron Content")
     else:
         raise ValueError(f"Unknown target type: {config['target']}")

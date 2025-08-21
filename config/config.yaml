@@ -48,11 +48,12 @@ training:
   loss_weight: 10.0
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization
+  standardize_targets: True         # Standardize targets to [0,1] range before training
   log_target: False              # Disable log-space training
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 3
+  epochs: 5
   batchsize: 512
   num_workers: 12
   prefetch_factor: 4

@@ -27,6 +27,8 @@ class BaseTrainer:
 
         # Train loss in log space?
         self.use_log_target = self.config['training'].get('log_target', True)
+        # Use target standardization (normalize targets to [0,1] before log transform)?
+        self.use_target_standardization = self.config['training'].get('standardize_targets', True)
         # How to map log-normal back to linear for the point estimate: "mean" or "median"
         #   "mean": exp(mu + 0.5*sigma2)  (recommended for MSE/sums and GaussianNLLLoss)
         #   "median": exp(mu)             (can be better for heavy tails if you prefer)
@@ -134,7 +136,7 @@ class BaseTrainer:
             self.logger.info(f"📁 Timing statistics saved to: {timing_file}")
 
     def _targets_to_training_space(self, targets):
-        """Return targets for the loss computation (log-space if enabled) AND keep original for metrics."""
+        """Return targets for the loss computation (standardized + log-space if enabled) AND keep original for metrics."""
         targets = targets.to(self.device, non_blocking=True)
         original_targets = targets.clone()  # for metrics (always linear/original)
         
@@ -144,6 +146,16 @@ class BaseTrainer:
         if (targets <= 0).any():
             self.logger.warning(f"Non-positive targets detected! Min: {targets.min():.6f}, Count: {(targets <= 0).sum()}")
         
+        # First apply target standardization if enabled
+        if self.use_target_standardization:
+            targets = self._normalize_targets(targets)
+            
+            # Debug: Standardization ranges
+            if hasattr(self, '_debug_logged') and not self._debug_logged:
+                self.logger.info(f"Target standardization - Original range: [{original_targets.min():.6f}, {original_targets.max():.6f}]")
+                self.logger.info(f"Target standardization - Standardized range: [{targets.min():.6f}, {targets.max():.6f}]")
+        
+        # Then apply log transformation if enabled (on standardized targets)
         if self.use_log_target:
             # Add epsilon for numerical stability
             targets_shifted = targets + self.eps
@@ -151,7 +163,7 @@ class BaseTrainer:
             
             # Debug: Log transformation ranges
             if hasattr(self, '_debug_logged') and not self._debug_logged:
-                self.logger.info(f"Target transform - Original range: [{targets.min():.6f}, {targets.max():.6f}]")
+                self.logger.info(f"Target transform - Standardized range: [{targets.min():.6f}, {targets.max():.6f}]")
                 self.logger.info(f"Target transform - Log-space range: [{training_targets.min():.6f}, {training_targets.max():.6f}]")
                 self.logger.info(f"Target transform - Using eps = {self.eps}")
                 self._debug_logged = True
@@ -160,7 +172,10 @@ class BaseTrainer:
             
             # Debug: Linear space
             if hasattr(self, '_debug_logged') and not self._debug_logged:
-                self.logger.info(f"Target transform - Using linear space, range: [{targets.min():.6f}, {targets.max():.6f}]")
+                if self.use_target_standardization:
+                    self.logger.info(f"Target transform - Using standardized linear space, range: [{targets.min():.6f}, {targets.max():.6f}]")
+                else:
+                    self.logger.info(f"Target transform - Using linear space, range: [{targets.min():.6f}, {targets.max():.6f}]")
                 self._debug_logged = True
         
         return training_targets, original_targets
@@ -168,10 +183,10 @@ class BaseTrainer:
     def _pred_log_to_linear(self, mu_log, var_log):
         """
         Convert log-space (Normal) params to linear-space (LogNormal) mean/std/var.
-        mu_log: mean of Z = log(Y+eps)
+        mu_log: mean of Z = log(Y+eps) (where Y might be standardized)
         var_log: variance of Z
         Returns:
-            point (mean or median in linear space), std_linear, var_linear
+            point (mean or median in original space), std_linear, var_linear
         """
         # Debug: Check for any numerical issues
         if torch.isnan(mu_log).any() or torch.isnan(var_log).any():
@@ -181,28 +196,82 @@ class BaseTrainer:
             self.logger.warning(f"Negative variances detected! Min: {var_log.min():.6f}, Count: {(var_log < 0).sum()}")
             var_log = torch.clamp(var_log, min=1e-8)
         
-        # Log-normal moments
-        # mean_y = exp(mu + 0.5*sigma2)
-        # var_y  = (exp(sigma2) - 1) * exp(2*mu + sigma2)
-        mean_y = torch.exp(mu_log + 0.5 * var_log) - self.eps
-        var_y = (torch.exp(var_log) - 1.0) * torch.exp(2 * mu_log + var_log)
-        std_y = torch.sqrt(torch.clamp(var_y, min=1e-8))
+        # First convert from log-space to standardized linear space
+        # Log-normal moments in standardized space
+        mean_standardized = torch.exp(mu_log + 0.5 * var_log) - self.eps
+        var_standardized = (torch.exp(var_log) - 1.0) * torch.exp(2 * mu_log + var_log)
 
         if self.log_space_point == 'median':
-            point = torch.exp(mu_log) - self.eps  # median of log-normal
+            point_standardized = torch.exp(mu_log) - self.eps  # median of log-normal
         else:
-            point = mean_y  # unbiased mean in original units
+            point_standardized = mean_standardized  # unbiased mean
+
+        # Then denormalize to original scale if target standardization is enabled
+        if self.use_target_standardization:
+            point_original, var_original = self._denormalize_predictions(point_standardized, var_standardized)
+            std_original = torch.sqrt(torch.clamp(var_original, min=1e-8))
+        else:
+            point_original = point_standardized
+            var_original = var_standardized
+            std_original = torch.sqrt(torch.clamp(var_original, min=1e-8))
 
         # Debug: Check for negative predictions (would indicate epsilon issues)
-        if (point < 0).any():
-            self.logger.warning(f"Negative predictions detected! Min: {point.min():.6f}, Count: {(point < 0).sum()}")
+        if (point_original < 0).any():
+            self.logger.warning(f"Negative predictions detected! Min: {point_original.min():.6f}, Count: {(point_original < 0).sum()}")
 
-        return point, std_y, var_y
+        return point_original, std_original, var_original
 
     def _pred_linear_from_linear(self, mean, var):
-        """Identity mapping when training in linear space. Returns (point, std, var)."""
-        std = torch.sqrt(var.clamp_min(0.0))
-        return mean, std, var
+        """
+        Handle predictions when training in linear space. 
+        If target standardization is enabled, denormalize back to original scale.
+        Returns (point, std, var) in original scale.
+        """
+        if self.use_target_standardization:
+            # Denormalize from standardized space to original scale
+            denorm_mean, denorm_var = self._denormalize_predictions(mean, var)
+            denorm_std = torch.sqrt(denorm_var.clamp_min(0.0))
+            return denorm_mean, denorm_std, denorm_var
+        else:
+            # No standardization, return as-is
+            std = torch.sqrt(var.clamp_min(0.0))
+            return mean, std, var
+
+    # ---------- target standardization methods ----------
+
+    def _normalize_targets(self, targets):
+        """Normalize targets to [0, 1] range using feature registry."""
+        target_name = self.config['target']
+        return self.feature_registry.normalize_feature(target_name, targets)
+
+    def _denormalize_targets(self, normalized_targets):
+        """Denormalize targets from [0, 1] range back to original scale."""
+        target_name = self.config['target']
+        return self.feature_registry.denormalize_feature(target_name, normalized_targets)
+
+    def _denormalize_predictions(self, pred_mean, pred_var):
+        """
+        Denormalize predictions (mean and variance) from standardized space back to original scale.
+        
+        For variance: if Y = a*X + b, then Var(Y) = a^2 * Var(X)
+        where a = (max - min) is the scaling factor from normalization
+        """
+        target_name = self.config['target']
+        normalization_params = self.feature_registry.get_normalization_params(target_name)
+        
+        if normalization_params is None:
+            return pred_mean, pred_var
+        
+        min_val, max_val = normalization_params
+        scale_factor = max_val - min_val
+        
+        # Denormalize mean: Y = X * scale + min
+        denorm_mean = pred_mean * scale_factor + min_val
+        
+        # Denormalize variance: Var(Y) = scale^2 * Var(X)
+        denorm_var = pred_var * (scale_factor ** 2)
+        
+        return denorm_mean, denorm_var
 
     # ---------- model I/O naming ----------
 

@@ -211,14 +211,14 @@ class BNN_NLL(torch.nn.Module):
         self.layers = nn.ModuleList()
         
         # First layer
-        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in, out_features=hidden_dim))
+        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.05, in_features=n_in, out_features=hidden_dim))
         
         # Hidden layers
         for _ in range(num_layers - 1):
-            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim))
+            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.05, in_features=hidden_dim, out_features=hidden_dim))
         
         # Output layer (2 outputs for mean and variance)
-        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=2)
+        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=0.05, in_features=hidden_dim, out_features=2)
 
     def forward(self, x):
         for layer in self.layers:
