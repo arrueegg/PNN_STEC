@@ -4,7 +4,22 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 from itertools import chain
+
+# Set global matplotlib parameters for scientific plots
+plt.rcParams.update({
+    'font.size': 12,
+    'font.family': 'serif',
+    'axes.labelsize': 14,
+    'axes.titlesize': 16,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+    'legend.fontsize': 12,
+    'figure.titlesize': 18,
+    'axes.linewidth': 1.2,
+    'grid.alpha': 0.3
+})
 
 # fix seeds
 np.random.seed(42)
@@ -101,18 +116,79 @@ def save_to_files(train_stations, val_stations, test_stations, output_dir):
 
 def plot_station_distribution(train_stations, val_stations, test_stations, output_file):
     """Plot training, validation, and testing station distributions on a world map."""
-    fig, ax = plt.subplots(figsize=(10, 6), subplot_kw={'projection': ccrs.PlateCarree()})
-    ax.coastlines()
-    ax.stock_img()
-    gl = ax.gridlines(draw_labels=True, linewidth=1, color='gray', alpha=0.5, linestyle='--')
+    fig, ax = plt.subplots(figsize=(14, 8), subplot_kw={'projection': ccrs.PlateCarree()})
+    
+    # Add colorful stock image background
+    ax.stock_img()  # This gives the colorful satellite imagery background
+    
+    # Add gridlines with better formatting
+    gl = ax.gridlines(draw_labels=True, linewidth=0.8, color='gray', 
+                     alpha=0.6, linestyle='--')
     gl.top_labels, gl.right_labels = False, False
-
-    ax.scatter(train_stations['lon'], train_stations['lat'], s=20, c='blue', label='Train', zorder=2)
-    ax.scatter(val_stations['lon'], val_stations['lat'], s=20, c='green', label='Validation', zorder=3)
-    ax.scatter(test_stations['lon'], test_stations['lat'], s=20, c='red', label='Test', zorder=4)
-    ax.legend()
-    plt.savefig(output_file, bbox_inches='tight', dpi=300)
+    gl.xlabel_style = {'size': 12, 'color': 'black', 'weight': 'bold'}
+    gl.ylabel_style = {'size': 12, 'color': 'black', 'weight': 'bold'}
+    
+    # Plot stations with custom colors and better density handling
+    scatter_size = 35
+    alpha = 1.0  # Fully opaque
+    
+    # For dense areas, add slight random jitter to improve visibility
+    def add_jitter(lons, lats, jitter_amount=0.1):
+        """Add small random offset to coordinates for better visibility of overlapping points"""
+        jittered_lons = lons + np.random.normal(0, jitter_amount, len(lons))
+        jittered_lats = lats + np.random.normal(0, jitter_amount, len(lats))
+        return jittered_lons, jittered_lats
+    
+    # Apply minimal jitter to help with overlapping stations
+    train_lon_j, train_lat_j = add_jitter(train_stations['lon'].values, train_stations['lat'].values)
+    val_lon_j, val_lat_j = add_jitter(val_stations['lon'].values, val_stations['lat'].values)
+    test_lon_j, test_lat_j = add_jitter(test_stations['lon'].values, test_stations['lat'].values)
+    
+    # Use slightly darker colors for the perfect balance
+    train_scatter = ax.scatter(train_lon_j, train_lat_j, 
+                              s=scatter_size, c='#E60000', label='Training',  # Slightly darker red
+                              zorder=3, alpha=alpha)
+    val_scatter = ax.scatter(val_lon_j, val_lat_j, 
+                            s=scatter_size, c='#228B22', label='Validation',  # Slightly darker green
+                            zorder=4, alpha=alpha)
+    test_scatter = ax.scatter(test_lon_j, test_lat_j, 
+                             s=scatter_size, c='#1E4ED8', label='Test',  # Slightly darker blue
+                             zorder=5, alpha=alpha)
+    
+    # Add simplified title
+    ax.set_title('IGS Station Distribution for STEC Database', 
+                fontweight='bold', pad=20)
+    
+    # Create legend with integrated statistics
+    total_stations = len(train_stations) + len(val_stations) + len(test_stations)
+    
+    # Custom legend labels with counts and percentages
+    train_label = f'Training: {len(train_stations)} ({len(train_stations)/total_stations*100:.1f}%)'
+    val_label = f'Validation: {len(val_stations)} ({len(val_stations)/total_stations*100:.1f}%)'
+    test_label = f'Test: {len(test_stations)} ({len(test_stations)/total_stations*100:.1f}%)'
+    
+    # Update scatter plot labels
+    train_scatter.set_label(train_label)
+    val_scatter.set_label(val_label)
+    test_scatter.set_label(test_label)
+    
+    # Create legend with title showing total
+    legend = ax.legend(title=f'Total Stations: {total_stations}', 
+                      loc='lower left', frameon=True, fancybox=True, shadow=True,
+                      framealpha=0.9, edgecolor='black', facecolor='white')
+    legend.get_frame().set_linewidth(1.2)
+    legend.get_title().set_fontweight('bold')
+    legend.get_title().set_fontsize(12)
+    
+    # Set global extent
+    ax.set_global()
+    
+    # Save with high quality
+    plt.savefig(output_file, bbox_inches='tight', dpi=300, facecolor='white')
     plt.close()
+    
+    print(f"Station distribution map saved to: {output_file}")
+    print(f"Map shows {total_stations} IGS stations distributed across train/val/test sets")
 
 def temporal_split():
     """Create temporal splits for training, validation, and testing datasets."""

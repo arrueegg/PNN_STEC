@@ -6,12 +6,15 @@ import pandas as pd
 from tqdm import tqdm
 import wandb
 import matplotlib.pyplot as plt
+import gc
+
 from utils.loss_function import get_criterion
 from utils.optimizers import get_optimizer, get_scheduler
 from utils.metrics import calculate_metrics
 from utils.plot import plot_test_metrics
 from utils.feature_registry import create_default_registry, FeatureType
 
+gc.collect()
 
 class BaseTrainer:
     def __init__(self, config, logger):
@@ -866,6 +869,7 @@ class BaseTrainer:
         epochs = self.config[training_key]["epochs"]
 
         for epoch in range(epochs):
+            gc.collect()
             print(" ")
             self.logger.info(f"Epoch {epoch+1}/{epochs}")
             
@@ -932,6 +936,10 @@ class BaseTrainer:
                     self.logger.info(f"Early stopping after {patience_counter} epochs without improvement")
                     break
 
+        # Clear CUDA cache and garbage collector
+        torch.cuda.empty_cache()
+        gc.collect()
+
         # Save loss curve
         self.save_final_losses(self.config['output_dir'])
 
@@ -952,6 +960,10 @@ class BaseTrainer:
         test_duration = self._sync_and_time() - test_start
         if self.timing_enabled:
             self._log_timing("Test Phase", test_duration)
+
+        # Clear CUDA cache and garbage collector
+        torch.cuda.empty_cache()
+        gc.collect()
 
         # Time Bayesian inference with proper synchronization
         bayesian_start = self._sync_and_time()

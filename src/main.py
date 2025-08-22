@@ -3,6 +3,7 @@ import numpy as np
 import random
 import logging
 import os
+import gc
 
 from utils.config_parser import parse_config
 from data_processing.add_split_indices import add_split_indices
@@ -25,6 +26,9 @@ def setup_seed(seed):
 def main():
     config = parse_config()
     setup_seed(config['random_seed'])
+
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # Set up device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
