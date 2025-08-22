@@ -46,14 +46,22 @@ model:
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
   loss_weight: 10.0
+  
+  # Target weighting configuration for addressing underprediction of high values
+  target_weighting:
+    enabled: true                    # Enable weighted loss based on target values
+    weight_function: "quadratic"      # Options: linear, quadratic, log, quantile
+    high_value_threshold: 0.75       # For quantile weighting: percentile threshold (0.75 = 75th percentile)
+    high_value_weight: 3.0           # For quantile weighting: weight multiplier for high values
+  
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization
-  standardize_targets: True         # Standardize targets to [0,1] range before training
+  standardize_targets: False        # Disable target standardization to avoid negative loss
   log_target: False              # Disable log-space training
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 5
+  epochs: 200
   batchsize: 512
   num_workers: 12
   prefetch_factor: 4

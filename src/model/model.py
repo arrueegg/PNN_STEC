@@ -29,6 +29,8 @@ def init_kaiming(model, activation, model_seed):
     model.apply(init_weights)
     #nn.init.constant_(model.out_layer.bias, 100.0)
 
+
+
 class MLP(torch.nn.Module):
     def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
         super().__init__()
@@ -94,7 +96,7 @@ class BranchMLP(nn.Module):
         x = self.fusion(x)
 
         mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-6 #Positive constraint
+        variance = F.softplus(variance) + 1e-3  # Increased minimum variance to prevent negative GaussianNLLLoss
 
         return mean, variance
     
@@ -112,7 +114,7 @@ class MLP_NLL(torch.nn.Module):
             x = F.relu(layer(x))
         x = self.output_layer(x)
         mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-6  # Positive constraint
+        variance = F.softplus(variance) + 1e-3  # Increased minimum variance to prevent negative GaussianNLLLoss
 
         return mean, variance
 
@@ -175,7 +177,7 @@ class MLP_MCDropout_NLL(torch.nn.Module):
             x = dropout(x)
         x = self.output_layer(x)
         mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-6  # Positive constraint
+        variance = F.softplus(variance) + 1e-3  # Increased minimum variance to prevent negative GaussianNLLLoss
 
         return mean, variance
     
@@ -211,21 +213,21 @@ class BNN_NLL(torch.nn.Module):
         self.layers = nn.ModuleList()
         
         # First layer
-        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.05, in_features=n_in, out_features=hidden_dim))
+        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in, out_features=hidden_dim))
         
         # Hidden layers
         for _ in range(num_layers - 1):
-            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.05, in_features=hidden_dim, out_features=hidden_dim))
+            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim))
         
         # Output layer (2 outputs for mean and variance)
-        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=0.05, in_features=hidden_dim, out_features=2)
+        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=2)
 
     def forward(self, x):
         for layer in self.layers:
             x = F.relu(layer(x))
         x = self.output_layer(x)
         mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-6  # Positive constraint
+        variance = F.softplus(variance) + 1e-3  # Increased minimum variance to prevent negative GaussianNLLLoss
 
         return mean, variance
     
@@ -269,7 +271,7 @@ class Branch_BNN_NLL(nn.Module):
         x = self.fusion(x)
 
         mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-6  # Positive constraint
+        variance = F.softplus(variance) + 1e-3  # Increased minimum variance to prevent negative GaussianNLLLoss
 
         return mean, variance
     
@@ -332,17 +334,21 @@ def get_model(config):
     elif model_type == 'BranchMLP':
         return BranchMLP(n_in=in_features, num_SWI_params=num_SWI_params, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'MLP_NLL':
-        return MLP_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        model = MLP_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        return model
     elif model_type == 'MLP_MCDropout_mse':
         return MLP_MCDropout_mse(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'MLP_MCDropout_NLL':
-        return MLP_MCDropout_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        model = MLP_MCDropout_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        return model
     elif model_type == 'BNN_mse':
         return BNN_mse(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'BNN_NLL':
-        return BNN_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        model = BNN_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        return model
     elif model_type == 'Branch_BNN_NLL':
-        return Branch_BNN_NLL(n_in=in_features, num_SWI_params=num_SWI_params, hidden_dim=hidden_dim, num_layers=num_layers)
+        model = Branch_BNN_NLL(n_in=in_features, num_SWI_params=num_SWI_params, hidden_dim=hidden_dim, num_layers=num_layers)
+        return model
     else:
         raise ValueError(f"Model type {model_type} is not recognized.")
 
