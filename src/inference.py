@@ -166,10 +166,6 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     # Set config['output_dir'] to match training behavior
     config['output_dir'] = experiment_dir
     
-    # Save CSV and summary files in main experiment directory
-    results_path = os.path.join(experiment_dir, 'inference_results.csv')
-    test_df.to_csv(results_path, index=False)
-    
     # Save summary
     summary_path = os.path.join(experiment_dir, 'inference_summary.txt')
     with open(summary_path, 'w') as f:
@@ -191,17 +187,9 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     # Generate plots using existing plot functions
     try:
         # plot_test_metrics automatically creates test_metrics subdirectory
+        # and includes comprehensive uncertainty analysis for Bayesian models
         plot_test_metrics(test_df, output_dir=experiment_dir, 
                          feature_registry=config.get('feature_registry'))
-        
-        # Generate uncertainty analysis if available
-        required_cols = ['pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc']
-        if all(col in test_df.columns for col in required_cols):
-            from utils.plot import plot_comprehensive_uncertainty_analysis
-            # For uncertainty analysis, manually create test_metrics path since it doesn't auto-append
-            plots_output_dir = os.path.join(experiment_dir, 'test_metrics')
-            os.makedirs(plots_output_dir, exist_ok=True)
-            plot_comprehensive_uncertainty_analysis(test_df, plots_output_dir)
         
     except Exception as e:
         logger.warning(f"Could not generate plots: {e}")
