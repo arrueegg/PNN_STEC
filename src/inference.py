@@ -1,9 +1,36 @@
 #!/usr/bin/env python3
 """
-Config-based inference script.
-Loads the model that matches the current config in config.yaml,
-finds the corresponding experiment folder, and runs inference.
-If the model doesn't exist, throws an error.
+Config-based Inference Script for PNN_STEC Project
+
+This script performs inference on pre-trained neural network models without requiring 
+any training. It automatically loads the trained model that matches the current 
+configuration in config/config.yaml and runs comprehensive inference analysis.
+
+Key Features:
+- Uses existing config parser to generate exact experiment names (compute_exp_name)
+- Leverages BaseTrainer class for consistent inference methods
+- Supports both Bayesian (BNN) and standard (MLP) neural network models
+- Performs proper uncertainty quantification for Bayesian models (100 samples)
+- Generates comprehensive plots and uncertainty analysis
+- Saves results to CSV files and summary reports
+- Memory efficient (releases unused data loaders)
+
+Usage:
+    python src/inference.py
+
+Requirements:
+- Model must be already trained and saved in experiments/ directory
+- config/config.yaml must match an existing experiment
+- Uses exact name matching - no approximations
+
+Output:
+- CSV file with predictions and uncertainties
+- Summary text file with metrics
+- Comprehensive plots and uncertainty analysis
+- All saved to: experiments/<experiment_name>/
+
+The script will error if no matching trained model is found, ensuring you only
+run inference on properly trained models.
 """
 
 import torch
@@ -14,107 +41,21 @@ import sys
 import glob
 from tqdm import tqdm
 import logging
-import yaml
 
 # Add the parent directory to sys.path to import project modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.config_parser import parse_config
+from utils.config_parser import parse_config, compute_exp_name
 from utils.data import get_data_loaders
 from utils.feature_registry import initialize_feature_registry
 from utils.metrics import calculate_metrics
-from utils.plot import plot_test_metrics, plot_comprehensive_uncertainty_analysis
+from utils.plot import plot_test_metrics
+from utils.base_trainer import BaseTrainer
 from model.model import get_model
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger()
-
-def generate_experiment_name(config):
-    """Generate experiment name from config parameters."""
-    mode = config.get('mode', 'pretrain').capitalize()
-    target = config.get('target', 'stec').upper()
-    
-    # Model configuration
-    model_type = config['model']['model_type']
-    hidden_dim = config['model']['hidden_dim']
-    num_layers = config['model']['num_layers']
-    
-    # Training configuration
-    if mode.lower() == 'pretrain':
-        epochs = config['pretrain']['epochs']
-        batch_size = config['pretrain']['batchsize']
-        learning_rate = config['pretrain']['learning_rate']
-        scheduler = config['pretrain']['scheduler']
-    else:  # finetune
-        epochs = config['finetune']['epochs']
-        batch_size = config['pretrain']['batchsize']  # Usually same as pretrain
-        learning_rate = config['finetune']['learning_rate']
-        scheduler = config['finetune']['scheduler']
-    
-    # Handle loss function name mapping
-    loss_function = config['training']['loss_function']
-    # Map full names to abbreviated versions used in experiment names
-    loss_mapping = {
-        'MSELoss': 'MSE',
-        'MAELoss': 'MAE', 
-        'GaussianNLLLoss': 'GNLL',
-        'MSE': 'MSE',
-        'MAE': 'MAE',
-        'GNLL': 'GNLL'
-    }
-    loss_function = loss_mapping.get(loss_function, loss_function)
-    
-    optimizer = config['training']['optimizer']
-    
-    # Data configuration
-    train_subset = config['data'].get('train_subset_size', 500000)
-    sh_degree = config['data'].get('SH_degree', 0)
-    loss_weight = config['training'].get('loss_weight', 1.0)
-    use_swi = config['data'].get('use_SWI', True)
-    
-    # Format learning rate for filename
-    lr_str = f"{learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
-    if 'e' not in lr_str:
-        lr_str = f"{learning_rate:.3f}".rstrip('0').rstrip('.')
-    
-    # Format loss weight
-    lw_str = f"{loss_weight:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
-    if 'e' not in lw_str:
-        lw_str = f"{loss_weight:.1f}".rstrip('0').rstrip('.')
-    
-    # Format subset size
-    if train_subset >= 1000000:
-        subset_str = f"{train_subset//1000000}M"
-    elif train_subset >= 1000:
-        subset_str = f"{train_subset//1000}K"
-    else:
-        subset_str = str(train_subset)
-    
-    # Handle scheduler name mapping
-    scheduler_mapping = {
-        'CosineAnnealingLR': 'CosineAnnealingLR',
-        'StepLR': 'StepLR',
-        'none': 'noSch',
-        'None': 'noSch',
-        None: 'noSch'
-    }
-    scheduler = scheduler_mapping.get(scheduler, scheduler)
-    
-    # Build experiment name
-    experiment_name = (
-        f"{mode}_{target}_{model_type}_"
-        f"h{hidden_dim}_l{num_layers}_"
-        f"lr{lr_str}_bs{batch_size}_"
-        f"{loss_function}_{optimizer}_"
-        f"{scheduler}_"
-        f"sub{subset_str}_"
-        f"SH{sh_degree}_"
-        f"lw{lw_str}_"
-        f"{'SWI' if use_swi else 'noSWI'}"
-    )
-    
-    return experiment_name
 
 def find_experiment_directory(experiment_name, base_dir='experiments'):
     """Find the experiment directory that matches the generated name exactly."""
@@ -157,7 +98,7 @@ def find_model_checkpoint(experiment_dir, config):
     raise FileNotFoundError(f"No model checkpoint found in {model_dir}")
 
 def run_inference_pipeline(config, experiment_dir, checkpoint_path):
-    """Run the complete inference pipeline."""
+    """Run the complete inference pipeline using BaseTrainer."""
     logger.info(f"Running inference...")
     
     # Setup device
@@ -166,6 +107,9 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     # Initialize feature registry
     feature_registry = initialize_feature_registry(config)
     config['feature_registry'] = feature_registry
+    
+    # Create BaseTrainer instance (reuse existing inference methods)
+    trainer = BaseTrainer(config, logger)
     
     # Load model
     model = get_model(config).to(device)
@@ -177,32 +121,57 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     
     # Load data
     train_loader, val_loader, test_loader = get_data_loaders(config, logger)
-    
-    # Run inference
+
+    del train_loader, val_loader
+
+    # Run inference using BaseTrainer's methods
     model_type = config['model']['model_type']
     is_bayesian = 'BNN' in model_type
     
     if is_bayesian:
-        test_outputs, test_targets, test_df = run_bayesian_inference(
-            model, test_loader, config, num_samples=100
+        # Use BaseTrainer's Bayesian inference method
+        num_samples = 100
+        bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
+            model, test_loader, num_samples=num_samples
         )
+        
+        # Extract outputs and targets for metrics calculation
+        test_outputs = torch.stack([
+            bayesian_results['mean'],
+            bayesian_results['total_std']
+        ], dim=1)
+        test_targets = bayesian_results['targets']
+        
     else:
-        test_outputs, test_targets = run_standard_inference(model, test_loader, config)
-        test_df = create_results_dataframe(test_outputs, test_targets, config)
+        # Use BaseTrainer's standard test method
+        test_outputs, test_targets = trainer.test_model(model, test_loader)
+        
+        # Create dataframe for plotting (simplified for non-Bayesian)
+        predictions = test_outputs[:, 0].numpy().flatten()
+        uncertainties = test_outputs[:, 1].numpy().flatten()
+        targets = test_targets.numpy().flatten()
+        
+        test_df = pd.DataFrame({
+            'target_stec': targets,
+            'pred_stec': predictions,
+            'pred_total_unc': uncertainties,
+            'pred_epistemic_unc': uncertainties * 0.1,  # Dummy values for non-Bayesian
+            'pred_aleatoric_unc': uncertainties * 0.9,
+        })
     
     # Calculate metrics
     metrics = calculate_metrics(test_outputs, test_targets, prefix="test")
     
-    # Save results
-    output_dir = os.path.join(experiment_dir, 'config_inference_results')
-    os.makedirs(output_dir, exist_ok=True)
+    # Use the same output directory structure as during training
+    # Set config['output_dir'] to match training behavior
+    config['output_dir'] = experiment_dir
     
-    # Save CSV
-    results_path = os.path.join(output_dir, 'inference_results.csv')
+    # Save CSV and summary files in main experiment directory
+    results_path = os.path.join(experiment_dir, 'inference_results.csv')
     test_df.to_csv(results_path, index=False)
     
     # Save summary
-    summary_path = os.path.join(output_dir, 'inference_summary.txt')
+    summary_path = os.path.join(experiment_dir, 'inference_summary.txt')
     with open(summary_path, 'w') as f:
         f.write(f"CONFIG-BASED INFERENCE SUMMARY\n")
         f.write("="*60 + "\n\n")
@@ -215,162 +184,29 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
         for k, v in metrics.items():
             f.write(f"{k}: {v:.4f}\n")
     
-    # Generate plots
+    # Create test_metrics directory for plots (same as during training)
+    # Note: plot_test_metrics() will automatically append 'test_metrics' to the path,
+    # so we pass the base experiment directory
+    
+    # Generate plots using existing plot functions
     try:
-        plot_test_metrics(test_df, output_dir=output_dir, 
+        # plot_test_metrics automatically creates test_metrics subdirectory
+        plot_test_metrics(test_df, output_dir=experiment_dir, 
                          feature_registry=config.get('feature_registry'))
         
         # Generate uncertainty analysis if available
         required_cols = ['pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc']
         if all(col in test_df.columns for col in required_cols):
-            plot_comprehensive_uncertainty_analysis(test_df, output_dir)
+            from utils.plot import plot_comprehensive_uncertainty_analysis
+            # For uncertainty analysis, manually create test_metrics path since it doesn't auto-append
+            plots_output_dir = os.path.join(experiment_dir, 'test_metrics')
+            os.makedirs(plots_output_dir, exist_ok=True)
+            plot_comprehensive_uncertainty_analysis(test_df, plots_output_dir)
         
     except Exception as e:
         logger.warning(f"Could not generate plots: {e}")
     
     return metrics, test_df
-
-def run_standard_inference(model, test_loader, config):
-    """Run standard inference for non-Bayesian models."""
-    model.eval()
-    all_outputs = []
-    all_targets = []
-    
-    device = config['device']
-    
-    with torch.no_grad():
-        for inputs, targets in tqdm(test_loader, desc="Inference"):
-            inputs = inputs.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-            
-            # Forward pass
-            outputs = model(inputs)
-            
-            # Handle different output formats
-            if isinstance(outputs, tuple):
-                pred_mean, pred_var = outputs
-                pred_std = torch.sqrt(torch.clamp(pred_var, min=1e-6))
-            elif outputs.dim() > 1 and outputs.shape[-1] == 2:
-                pred_mean = outputs[:, 0]
-                pred_var = torch.nn.functional.softplus(outputs[:, 1]) + 1e-6
-                pred_std = torch.sqrt(pred_var)
-            else:
-                pred_mean = outputs.squeeze()
-                pred_std = torch.ones_like(pred_mean) * 0.1
-            
-            # Store results
-            output_tensor = torch.stack([pred_mean, pred_std], dim=1)
-            all_outputs.append(output_tensor.cpu())
-            all_targets.append(targets.cpu())
-    
-    test_outputs = torch.cat(all_outputs)
-    test_targets = torch.cat(all_targets)
-    
-    return test_outputs, test_targets
-
-def run_bayesian_inference(model, test_loader, config, num_samples=100):
-    """Run Bayesian inference for uncertainty quantification."""
-    model.eval()
-    all_outputs = []
-    all_targets = []
-    final_df = pd.DataFrame()
-    
-    device = config['device']
-    feature_registry = config.get('feature_registry')
-    
-    with torch.no_grad():
-        for inputs, targets in tqdm(test_loader, desc="Bayesian Inference"):
-            bs = inputs.shape[0]
-            inputs = inputs.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-            
-            # Collect multiple samples
-            sample_predictions = []
-            sample_vars = []
-            
-            for _ in range(num_samples):
-                outputs = model(inputs)
-                
-                if isinstance(outputs, tuple):
-                    pred_mean, pred_var = outputs
-                elif outputs.dim() > 1 and outputs.shape[-1] == 2:
-                    pred_mean = outputs[:, 0]
-                    pred_var = torch.nn.functional.softplus(outputs[:, 1]) + 1e-6
-                else:
-                    pred_mean = outputs.squeeze()
-                    pred_var = torch.ones_like(pred_mean) * 1e-6
-                
-                sample_predictions.append(pred_mean.cpu())
-                sample_vars.append(pred_var.cpu())
-            
-            # Calculate uncertainties
-            sample_predictions = torch.stack(sample_predictions, dim=0)
-            sample_vars = torch.stack(sample_vars, dim=0)
-            
-            pred_mean = sample_predictions.mean(dim=0)
-            epistemic_var = sample_predictions.var(dim=0) if num_samples > 1 else torch.zeros_like(pred_mean)
-            aleatoric_var = sample_vars.mean(dim=0)
-            total_var = epistemic_var + aleatoric_var
-            
-            epistemic_std = torch.sqrt(epistemic_var)
-            aleatoric_std = torch.sqrt(aleatoric_var)
-            total_std = torch.sqrt(total_var)
-            
-            # Store results
-            output_tensor = torch.stack([pred_mean, total_std], dim=1)
-            all_outputs.append(output_tensor)
-            all_targets.append(targets.cpu())
-            
-            # Create detailed dataframe
-            inputs_original = inputs.cpu()  # Simplified - would need inverse transformation
-            feature_order = [f"feature_{i}" for i in range(inputs.shape[1])]
-            if feature_registry:
-                try:
-                    # Get feature names from registry
-                    feature_order = []
-                    for feature_type in feature_registry.feature_types:
-                        features = feature_registry.get_features_by_type(feature_type)
-                        feature_order.extend(features)
-                except:
-                    pass
-            
-            batch_df = pd.DataFrame(
-                torch.cat([
-                    inputs_original,
-                    targets.cpu().view(bs, -1),
-                    pred_mean.cpu().view(bs, -1),
-                    epistemic_std.cpu().view(bs, -1),
-                    aleatoric_std.cpu().view(bs, -1),
-                    total_std.cpu().view(bs, -1)
-                ], dim=1).numpy(),
-                columns=[
-                    *feature_order[:inputs.shape[1]],  # Ensure we don't exceed actual features
-                    'target_stec', 'pred_stec',
-                    'pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc'
-                ]
-            )
-            final_df = pd.concat([final_df, batch_df], ignore_index=True)
-    
-    test_outputs = torch.cat(all_outputs)
-    test_targets = torch.cat(all_targets)
-    
-    return test_outputs, test_targets, final_df
-
-def create_results_dataframe(test_outputs, test_targets, config):
-    """Create results dataframe for non-Bayesian models."""
-    predictions = test_outputs[:, 0].numpy().flatten()
-    uncertainties = test_outputs[:, 1].numpy().flatten()
-    targets = test_targets.numpy().flatten()
-    
-    df = pd.DataFrame({
-        'target_stec': targets,
-        'pred_stec': predictions,
-        'pred_total_unc': uncertainties,
-        'pred_epistemic_unc': uncertainties * 0.1,  # Dummy values
-        'pred_aleatoric_unc': uncertainties * 0.9,  # Dummy values
-    })
-    
-    return df
 
 def main():
     """Main function."""
@@ -404,8 +240,8 @@ def main():
         return 1
     
     try:
-        # Generate expected experiment name from config
-        experiment_name = generate_experiment_name(config)
+        # Generate expected experiment name using existing function
+        experiment_name = compute_exp_name(config)
         logger.info(f"Looking for experiment: {experiment_name}")
         
         # Find experiment directory
@@ -430,7 +266,7 @@ def main():
         
         logger.info(f"✅ INFERENCE COMPLETED!")
         logger.info(f"Experiment: {os.path.basename(experiment_dir)}")
-        logger.info(f"Results: {experiment_dir}/config_inference_results/")
+        logger.info(f"Results: {experiment_dir}/")
         for k, v in metrics.items():
             if 'mae' in k.lower() or 'mse' in k.lower() or 'rmse' in k.lower():
                 logger.info(f"  {k}: {v:.4f}")
@@ -447,5 +283,4 @@ def main():
         return 1
 
 if __name__ == '__main__':
-    import sys
-    sys.exit(main())
+    main()
