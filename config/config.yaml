@@ -33,7 +33,7 @@ data:
   train_subset_size: 500_000  # Number of samples to use per epoch
 
 model:
-  model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
+  model_type: MLP_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   hidden_dim: 256     # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   
@@ -44,7 +44,7 @@ model:
   # Deep model:    hidden_dim: 256, num_layers: 8  (~789K parameters)
   
 training:
-  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
+  loss_function: "MSELoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
   loss_weight: 10.0
   
   # Target weighting configuration for addressing underprediction of high values
@@ -69,7 +69,7 @@ pretrain:
   scheduler: none            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 50       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
-  patience: 5                   # Patience for early stopping
+  patience: 30                   # Patience for early stopping
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:
