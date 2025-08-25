@@ -10,13 +10,12 @@ from itertools import chain
 # Set global matplotlib parameters for scientific plots
 plt.rcParams.update({
     'font.size': 12,
-    'font.family': 'serif',
     'axes.labelsize': 14,
-    'axes.titlesize': 16,
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-    'legend.fontsize': 12,
-    'figure.titlesize': 18,
+    'axes.titlesize': 18,
+    'xtick.labelsize': 15,
+    'ytick.labelsize': 15,
+    'legend.fontsize': 15,
+    'figure.titlesize': 20,
     'axes.linewidth': 1.2,
     'grid.alpha': 0.3
 })
@@ -146,13 +145,13 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
     
     # Use slightly darker colors for the perfect balance
     train_scatter = ax.scatter(train_lon_j, train_lat_j, 
-                              s=scatter_size, c='#E60000', label='Training',  # Slightly darker red
+                              s=scatter_size, c="#0064d6ef", label='Training',  # Slightly darker red
                               zorder=3, alpha=alpha)
     val_scatter = ax.scatter(val_lon_j, val_lat_j, 
-                            s=scatter_size, c='#228B22', label='Validation',  # Slightly darker green
+                            s=scatter_size, c='#ff7f0e', label='Validation',  # Slightly darker green
                             zorder=4, alpha=alpha)
     test_scatter = ax.scatter(test_lon_j, test_lat_j, 
-                             s=scatter_size, c='#1E4ED8', label='Test',  # Slightly darker blue
+                             s=scatter_size, c='#d62728', label='Test',  # Slightly darker blue
                              zorder=5, alpha=alpha)
     
     # Add simplified title
@@ -174,8 +173,8 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
     
     # Create legend with title showing total
     legend = ax.legend(title=f'Total Stations: {total_stations}', 
-                      loc='lower left', frameon=True, fancybox=True, shadow=True,
-                      framealpha=0.9, edgecolor='black', facecolor='white')
+                      loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=3,
+                      frameon=True, fancybox=True, shadow=False)
     legend.get_frame().set_linewidth(1.2)
     legend.get_title().set_fontweight('bold')
     legend.get_title().set_fontsize(12)

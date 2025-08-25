@@ -11,7 +11,6 @@ import numpy as np
 # Set global matplotlib parameters for scientific plots
 plt.rcParams.update({
     'font.size': 12,
-    'font.family': 'serif',
     'axes.labelsize': 14,
     'axes.titlesize': 16,
     'xtick.labelsize': 12,
@@ -242,7 +241,7 @@ def plot_observations(dates, counts):
         doy = date.timetuple().tm_yday - 1  # 0-based DOY
         heatmap_data[year_to_idx[date.year], doy] = count
 
-    fig, ax = plt.subplots(figsize=(16, 10))
+    fig, ax = plt.subplots(figsize=(12, 8))
     
     # Use a better colormap for scientific data
     cmap = plt.cm.viridis
@@ -258,20 +257,20 @@ def plot_observations(dates, counts):
     # Set axis labels and ticks
     ax.set_xlabel("Day of Year", fontweight='bold')
     ax.set_ylabel("Year", fontweight='bold')
-    ax.set_title("STEC Database Daily Coverage\n(2010-2024)", 
-                fontweight='bold', pad=20)
+    ax.set_title("STEC Dataset Daily Coverage", 
+                fontweight='bold', pad=10)
+    
+    month_starts = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     
     # Better tick formatting
-    ax.set_xticks(np.arange(0, 366, 30))  # Every 30 days
-    ax.set_xticklabels(np.arange(1, 367, 30))
+    ax.set_xticks(month_starts)
+    ax.set_xticklabels(month_starts, fontsize=11)
     ax.set_yticks(range(len(years)))
     ax.set_yticklabels(years)
     
     # Add month labels on top
-    month_starts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    
     ax2 = ax.twiny()
     ax2.set_xlim(ax.get_xlim())
     ax2.set_xticks(month_starts)
