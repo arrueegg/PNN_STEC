@@ -28,6 +28,15 @@ class BaseTrainer:
         self.loss_weight = config['training']['loss_weight']
         self.eps = 1e-6
 
+        # KL annealing configuration
+        self.kl_annealing = config['training'].get('kl_annealing', {})
+        self.use_kl_annealing = self.kl_annealing.get('enabled', False)
+        if self.use_kl_annealing:
+            self.kl_warmup_epochs = self.kl_annealing.get('warmup_epochs', 20)
+            self.kl_start_weight = self.kl_annealing.get('start_weight', 0.0)
+            self.kl_end_weight = self.kl_annealing.get('end_weight', self.loss_weight)
+            self.logger.info(f"🔥 KL annealing enabled: {self.kl_start_weight} → {self.kl_end_weight} over {self.kl_warmup_epochs} epochs")
+
         # Train loss in log space?
         self.use_log_target = self.config['training'].get('log_target', True)
         # Use target standardization (normalize targets to [0,1] before log transform)?
@@ -298,11 +307,29 @@ class BaseTrainer:
             outputs[1] = variance (var_log if log-targets, else linear variance)
         """
         pred_mean, pred_var = outputs[0], outputs[1]
+        # Ensure consistent shapes by flattening both outputs
+        pred_mean = pred_mean.flatten() if pred_mean.dim() > 1 else pred_mean
+        pred_var = pred_var.flatten() if pred_var.dim() > 1 else pred_var
         return pred_mean, pred_var
+
+    def get_current_kl_weight(self, epoch):
+        """Compute current KL weight based on annealing schedule"""
+        if not self.use_kl_annealing:
+            return self.loss_weight
+        
+        if epoch < self.kl_warmup_epochs:
+            # Linear annealing from start_weight to end_weight
+            progress = epoch / self.kl_warmup_epochs
+            current_weight = self.kl_start_weight + progress * (self.kl_end_weight - self.kl_start_weight)
+        else:
+            # After warmup, use full weight
+            current_weight = self.kl_end_weight
+        
+        return current_weight
 
     # ---------- training / validation ----------
 
-    def train_epoch(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, optimizer):
+    def train_epoch(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, optimizer, epoch=0):
         model.train()
         running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
         all_outputs, all_targets = [], []
@@ -356,8 +383,12 @@ class BaseTrainer:
             mse_loss = criterion_mse(pred_mean_raw, training_targets)
             nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
             kld_loss = criterion_kld(model)
+            
+            # Use annealed KL weight
+            current_kl_weight = self.get_current_kl_weight(epoch)
+            
             if self.config['training']['loss_function'] == 'GaussianNLLLoss':
-                loss = nll_loss + self.loss_weight * kld_loss
+                loss = nll_loss + current_kl_weight * kld_loss
             elif self.config['training']['loss_function'] == 'MSELoss':
                 loss = mse_loss
             loss_end = self._sync_and_time()
@@ -449,7 +480,7 @@ class BaseTrainer:
                 running_variance / n_batches,
                 all_outputs, all_targets)
 
-    def validate_epoch(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld):
+    def validate_epoch(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, epoch=0):
         model.eval()
         running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
         all_outputs, all_targets = [], []
@@ -475,9 +506,12 @@ class BaseTrainer:
                 nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
                 kld_loss = criterion_kld(model)
                 
+                # Use same annealed KL weight as training
+                current_kl_weight = self.get_current_kl_weight(epoch)
+                
                 # Use same loss calculation logic as training
                 if self.config['training']['loss_function'] == 'GaussianNLLLoss':
-                    loss = nll_loss + self.loss_weight * kld_loss
+                    loss = nll_loss + current_kl_weight * kld_loss
                 elif self.config['training']['loss_function'] == 'MSELoss':
                     loss = mse_loss
 
@@ -878,12 +912,12 @@ class BaseTrainer:
 
             train_start = self._sync_and_time()
             train_loss, train_mse, train_nll, train_kld, train_variance, train_outputs, train_targets = \
-                self.train_epoch(model, train_loader, criterion_mse, criterion_nll, criterion_kld, optimizer)
+                self.train_epoch(model, train_loader, criterion_mse, criterion_nll, criterion_kld, optimizer, epoch)
             train_duration = self._sync_and_time() - train_start
             
             val_start = self._sync_and_time()
             val_loss, val_mse, val_nll, val_kld, val_variance, val_outputs, val_targets = \
-                self.validate_epoch(model, val_loader, criterion_mse, criterion_nll, criterion_kld)
+                self.validate_epoch(model, val_loader, criterion_mse, criterion_nll, criterion_kld, epoch)
             val_duration = self._sync_and_time() - val_start
 
             # Track losses for plotting
@@ -908,6 +942,7 @@ class BaseTrainer:
                     'val_kld': val_kld,
                     'val_variance': val_variance,
                     'learning_rate': scheduler.get_last_lr()[0] if scheduler else None,
+                    'kl_weight': self.get_current_kl_weight(epoch) if self.use_kl_annealing else self.loss_weight,
                     **train_metrics,
                     **val_metrics,
                     'epoch': epoch + 1

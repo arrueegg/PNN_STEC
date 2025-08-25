@@ -229,7 +229,7 @@ class BNN_NLL(torch.nn.Module):
         mean, variance = torch.split(x, 1, dim=1)
         variance = F.softplus(variance) + 1e-3  # Increased minimum variance to prevent negative GaussianNLLLoss
 
-        return mean, variance
+        return mean, variance 
     
 class Branch_BNN_NLL(nn.Module):
     def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):

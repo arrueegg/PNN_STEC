@@ -39,9 +39,6 @@ def main():
         logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
     config['device'] = device
 
-    # print scratch dir of config
-    print(f'scratch dir: {config["data"]["scratch_dir"]}', flush=True)
-
     # Initialize feature registry
     feature_registry = initialize_feature_registry(config)
         

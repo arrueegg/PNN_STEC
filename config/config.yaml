@@ -33,7 +33,7 @@ data:
   train_subset_size: 500_000  # Number of samples to use per epoch
 
 model:
-  model_type: MLP_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
+  model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   hidden_dim: 256     # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   
@@ -44,8 +44,15 @@ model:
   # Deep model:    hidden_dim: 256, num_layers: 8  (~789K parameters)
   
 training:
-  loss_function: "MSELoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 10.0
+  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
+  loss_weight: 0.1  # Reduced KL weight - was 10.0, now much smaller
+  
+  # KL annealing for BNN training (gradually increase KL weight)
+  kl_annealing:
+    enabled: true                    # Enable KL annealing
+    warmup_epochs: 20               # Number of epochs to warm up KL weight from 0 to full
+    start_weight: 0.0               # Starting KL weight (0 = no KL initially)
+    end_weight: 0.1                 # Final KL weight (should match loss_weight above)
   
   # Target weighting configuration for addressing underprediction of high values
   target_weighting:
@@ -61,15 +68,18 @@ training:
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 200
+  epochs: 5
   batchsize: 512
   num_workers: 12
   prefetch_factor: 4
   learning_rate: 0.01
-  scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
+  scheduler: none            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 50       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
-  patience: 10                   # Patience for early stopping
+  patience: 20                   # Increased patience for BNN training
+  save_model_every_epoch: False # Whether to save the model every epoch
+  early_stopping: true          # Whether to use early stopping
+  patience: 1                   # Patience for early stopping
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:
