@@ -5,7 +5,7 @@ year: 2023
 doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
-debug: True  
+debug: False  
 debug_single_batch: False  
 cluster: False
 
@@ -68,7 +68,7 @@ training:
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 5
+  epochs: 200
   batchsize: 512
   num_workers: 12
   prefetch_factor: 4
@@ -79,7 +79,7 @@ pretrain:
   patience: 20                   # Increased patience for BNN training
   save_model_every_epoch: False # Whether to save the model every epoch
   early_stopping: true          # Whether to use early stopping
-  patience: 1                   # Patience for early stopping
+  patience: 30                   # Patience for early stopping
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:

@@ -25,13 +25,16 @@ def define_grids():
             'data.train_subset_size': [10_000],
         },
         
-        # Standard grid (16 combinations) 
+        # Standard grid 
         'standard': {
-            'target': ['stec', 'vtec'],
-            'model.hidden_dim': [256, 512],
-            'model.num_layers': [4],
+            'target': ['stec'],
+            'model.hidden_dim': [256, 512, 1024],
+            'model.num_layers': [4, 8],
             'model.model_type': ['BNN_NLL', 'MLP_NLL'],
+            'pretrain.learning_rate': [0.01, 0.001],
+            'training.loss_weight': [1.0],
             'training.loss_function': ['GaussianNLLLoss', 'MSELoss'],
+            'training.target_weighting.enabled': [True, False],
         },
 
         # Custom grid (many combinations)
@@ -247,10 +250,10 @@ def generate_search(grid_name='quick', output_dir='hp_search', cluster_mode=Fals
 def main():
     parser = argparse.ArgumentParser(description='Simple hyperparameter search')
     parser.add_argument('--grid', choices=['mini', 'standard', 'custom'], 
-                       default='mini', help='Parameter grid to use')
+                       default='standard', help='Parameter grid to use')
     parser.add_argument('--output', default='hp_search',
                        help='Output directory')
-    parser.add_argument('--cluster', action='store_true', default=False,
+    parser.add_argument('--cluster', action='store_true', default=True,
                        help='Generate SLURM scripts for cluster execution')
     
     args = parser.parse_args()
