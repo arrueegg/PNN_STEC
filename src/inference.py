@@ -96,8 +96,8 @@ def split_test_data_by_date(test_df):
     interpolation_mask = test_df['year_month'] < cutoff_period
     extrapolation_mask = test_df['year_month'] >= cutoff_period
     
-    interpolation_df = test_df[interpolation_mask].copy()
-    extrapolation_df = test_df[extrapolation_mask].copy()
+    interpolation_df = test_df[interpolation_mask].copy().reset_index(drop=True)
+    extrapolation_df = test_df[extrapolation_mask].copy().reset_index(drop=True)
     
     # Create split information summary
     interpolation_months = sorted(interpolation_df['year_month'].unique()) if len(interpolation_df) > 0 else []
