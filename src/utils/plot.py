@@ -4,11 +4,38 @@ import os
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import seaborn as sns
 from datetime import datetime, timedelta
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from matplotlib.colors import LogNorm
+
+# Set presentation-ready matplotlib parameters
+plt.rcParams.update({
+    'font.size': 16,           # Base font size (increased from 14)
+    'axes.titlesize': 22,      # Title font size (increased from 18)
+    'axes.labelsize': 20,      # Axis label font size (increased from 16)
+    'xtick.labelsize': 16,     # X-tick label size (increased from 14)
+    'ytick.labelsize': 16,     # Y-tick label size (increased from 14)
+    'legend.fontsize': 16,     # Legend font size (increased from 12)
+    'figure.titlesize': 24,    # Figure title size (increased from 20)
+    'axes.grid': True,         # Enable grid by default
+    'grid.alpha': 0.3,         # Grid transparency
+    'lines.linewidth': 2,      # Thicker lines
+    'axes.linewidth': 1.2,     # Thicker axes
+    'xtick.major.width': 1.2,  # Thicker tick marks
+    'ytick.major.width': 1.2,
+    'figure.dpi': 300,         # High resolution
+    'savefig.dpi': 300,        # High DPI for saved figures
+    'savefig.bbox': 'tight',   # Tight bounding box
+})
+
+# Standardized figure sizes for consistent text scaling
+FIGSIZE_SQUARE = (12, 12)      # Square plots: scatter, correlation, calibration
+FIGSIZE_WIDE = (16, 10)        # Wide plots: spatial maps, multi-panel layouts  
+FIGSIZE_HISTOGRAM = (14, 8)    # Histogram/distribution plots
+FIGSIZE_HEATMAP = (16, 10)     # Heatmaps and spatial plots
 
 
 def ensure_dir(directory):
@@ -32,90 +59,176 @@ def plot_binned_boxplot(df, x_col, y_col, bins=20, output_dir='plots', bin_range
 
     grouped = df.groupby('x_bin')[y_col].apply(list)
     box_data = [grouped[bin] for bin in grouped.index]
-    x_labels = [f"{b.left:.0f}–{b.right:.0f}" for b in grouped.index]
+    x_labels = [f"{(b.left):.0f}–{b.right:.0f}" for b in grouped.index]
 
-    plt.figure(figsize=(12, 6))
-    plt.axhline(y=0, color='r', linestyle='-', linewidth=0.5, zorder=1)
-    plt.boxplot(box_data, labels=x_labels, showfliers=False, zorder=2)
-    plt.xticks(rotation=45, ha='right')
-    plt.xlabel(x_col)
-    plt.ylabel(y_col)
-    plt.title(f'{y_col} vs {x_col} (Binned Boxplot)')
-    plt.grid(axis='y')
+    fig, ax = plt.subplots(figsize=FIGSIZE_HISTOGRAM)
+    
+    # Add zero reference line
+    ax.axhline(y=0, color='red', linestyle='-', linewidth=2, zorder=1, alpha=0.8)
+    
+    # Create boxplot with better styling
+    bp = ax.boxplot(box_data, labels=x_labels, showfliers=False, zorder=2,
+                   patch_artist=True, notch=True)
+    
+    # Style the boxplot
+    for patch in bp['boxes']:
+        patch.set_facecolor('lightblue')
+        patch.set_alpha(0.7)
+    for element in ['whiskers', 'caps', 'medians']:
+        for item in bp[element]:
+            item.set_linewidth(2)
+    
+    ax.tick_params(axis='x', rotation=45, labelsize=18)
+    
+    # Improved axis labels based on column names
+    x_label = get_scientific_label(x_col)
+    y_label = get_scientific_label(y_col)
+    
+    ax.set_xlabel(x_label, fontweight='bold')
+    ax.set_ylabel(y_label, fontweight='bold')
+    ax.set_title(f'{y_label} vs {x_label}', fontweight='bold', pad=20)
+    
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/{y_col}_vs_{x_col}_boxplot.png')
+    filename = f'{output_dir}/{y_col}_vs_{x_col}_boxplot.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.close()
 
 
+def get_scientific_label(column_name):
+    """Convert column names to scientific presentation labels"""
+    label_mapping = {
+        'target_stec': 'Ground Truth STEC [TECU]',
+        'pred_stec': 'Predicted STEC [TECU]',
+        'residual': 'Residual [TECU]',
+        'mae': 'Mean Absolute Error [TECU]',
+        'doy': 'Day of Year',
+        'sod': 'Seconds of Day [s]',
+        'time': 'Local Solar Time [h]',
+        'satele': 'Elevation Angle [°]',
+        'satazi': 'Azimuth Angle [°]',
+        'lat_ipp': 'IPP Latitude [°]',
+        'lon_ipp': 'IPP Longitude [°]',
+        'sm_lat_ipp': 'Solar Magnetic IPP Latitude [°]',
+        'sm_lon_ipp': 'Solar Magnetic IPP Longitude [°]',
+        'kp': 'Kp Index',
+        'kp_binned': 'Kp Index (binned)',
+        'dst': 'Dst Index [nT]',
+        'f107': 'F10.7 Solar Flux [sfu]',
+        'sunspot': 'Sunspot Number',
+        'year': 'Year',
+        'pred_total_unc': 'Total Uncertainty [TECU]',
+        'pred_epistemic_unc': 'Epistemic Uncertainty [TECU]',
+        'pred_aleatoric_unc': 'Aleatoric Uncertainty [TECU]',
+    }
+    return label_mapping.get(column_name, column_name.replace('_', ' ').title())
+
+
 def plot_mae_vs_doy(df, output_dir='plots'):
+    """Plot Mean Absolute Error vs Day of Year"""
     df = df.copy()
     df['mae'] = np.abs(df['target_stec'] - df['pred_stec'])
     plot_binned_boxplot(df, 'doy', 'mae', bins=24, output_dir=output_dir)
 
 
 def plot_residuals_vs_feature(df, feature, num_bins=24, output_dir='plots', bin_range_dict=None):
+    """Plot residuals vs any feature with proper scientific formatting"""
     df = df.copy()
     df['residual'] = df['target_stec'] - df['pred_stec']
     plot_binned_boxplot(df, feature, 'residual', bins=num_bins, output_dir=output_dir, bin_range_dict=bin_range_dict)
 
 
 def plot_prediction_scatter(df, output_dir):
-    plt.figure(figsize=(8, 8))
+    """Create comprehensive prediction scatter plots with improved presentation formatting"""
     
     # Create hexagonal density plot with logarithmic scaling
-    plt.hexbin(df['target_stec'], df['pred_stec'], gridsize=50, cmap='BuGn', 
-               mincnt=1, norm=LogNorm())
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+    
+    hb = ax.hexbin(df['target_stec'], df['pred_stec'], gridsize=100, cmap='BuGn', 
+                   mincnt=1, norm=LogNorm(), alpha=0.8)
     
     # Add perfect prediction line
     min_val = min(df['target_stec'].min(), df['pred_stec'].min())
     max_val = max(df['target_stec'].max(), df['pred_stec'].max())
-    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    ax.plot([min_val, max_val], [min_val, max_val], 'r-', linewidth=3, 
+            label='Perfect Prediction', alpha=0.9)
     
-    plt.xlabel('True STEC')
-    plt.ylabel('Predicted STEC')
-    plt.title('Predicted vs. True STEC (Density Plot - Log Scale)')
-    plt.colorbar(label='Number of Points (log scale)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.axis('equal')
+    ax.set_xlabel('True STEC [TECU]', fontweight='bold')
+    ax.set_ylabel('Predicted STEC [TECU]', fontweight='bold')
+    ax.set_title('Predicted vs True STEC', fontweight='bold', pad=20)
+    
+    # colorbar
+    cbar = plt.colorbar(hb, ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label('Number of Points', fontweight='bold', rotation=270, labelpad=35)
+    cbar.ax.tick_params(labelsize=16)
+    
+    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+    
     plt.tight_layout()
     plt.savefig(f'{output_dir}/prediction_density.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    # Also create a 2D histogram version with log scale
-    plt.figure(figsize=(8, 8))
-    plt.hist2d(df['target_stec'], df['pred_stec'], bins=50, cmap='BuGn', 
-               norm=LogNorm())
-    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
-    plt.xlabel('True STEC')
-    plt.ylabel('Predicted STEC')
-    plt.title('Predicted vs. True STEC (2D Histogram - Log Scale)')
-    plt.colorbar(label='Density (log scale)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.axis('equal')
+    # 2D histogram version with log scale
+    min_v = float(np.nanmin([df['target_stec'].min(), df['pred_stec'].min()]))
+    max_v = float(np.nanmax([df['target_stec'].max(), df['pred_stec'].max()]))
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    # Force the histogram to use the same square data range
+    h = ax.hist2d(
+        df['target_stec'], df['pred_stec'],
+        bins=100, cmap='BuGn', norm=LogNorm(),
+        range=[[min_v, max_v], [min_v, max_v]], alpha=0.8
+    )
+
+    # Perfect diagonal within that same range
+    ax.plot([min_v, max_v], [min_v, max_v], 'r-', linewidth=3, label='Perfect Prediction', alpha=0.9)
+
+    ax.set_xlim(min_v, max_v)
+    ax.set_ylim(min_v, max_v)
+    ax.set_aspect('equal', adjustable='box')
+
+    ax.set_xlabel('True STEC [TECU]', fontweight='bold')
+    ax.set_ylabel('Predicted STEC [TECU]', fontweight='bold')
+    ax.set_title('Predicted vs True STEC', fontweight='bold', pad=20)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+
+    # keep colorbar from squeezing the square axes
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.1)
+    cbar = plt.colorbar(h[3], cax=cax)
+    cbar.set_label('Density', fontweight='bold', rotation=270, labelpad=35)
+    cbar.ax.tick_params(labelsize=16)
+
     plt.tight_layout()
     plt.savefig(f'{output_dir}/prediction_hist2d.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    # create a standard scatter plot
-    plt.figure(figsize=(8, 8))
-    plt.scatter(df['target_stec'], df['pred_stec'], alpha=0.2)
-    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
-    plt.xlabel('True STEC')
-    plt.ylabel('Predicted STEC')
-    plt.title('Predicted vs. True STEC (Scatter Plot)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.axis('equal')
+    # Standard scatter plot for comparison
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+    
+    ax.scatter(df['target_stec'], df['pred_stec'], alpha=0.3, s=1, c='blue')
+    ax.plot([min_val, max_val], [min_val, max_val], 'r-', linewidth=3, 
+            label='Perfect Prediction', alpha=0.9)
+    
+    ax.set_xlabel('True STEC [TECU]', fontweight='bold')
+    ax.set_ylabel('Predicted STEC [TECU]', fontweight='bold')
+    ax.set_title('Predicted vs True STEC', fontweight='bold', pad=20)
+    
+    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+    
     plt.tight_layout()
     plt.savefig(f'{output_dir}/prediction_scatter.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 
 def plot_spatial_error_map(df, output_dir):
-    # Create geographic heatmap with coastlines using cartopy
-    fig = plt.figure(figsize=(15, 8))
+    """Create geographic heatmap with coastlines using cartopy - presentation ready"""
+    fig = plt.figure(figsize=FIGSIZE_HEATMAP)
     ax = plt.axes(projection=ccrs.PlateCarree())
     
     heatmap_data = df.copy()
@@ -158,23 +271,29 @@ def plot_spatial_error_map(df, output_dir):
                     transform=ccrs.PlateCarree(), alpha=0.8,
                     vmin=0, vmax=vmax)
     
-    # Add coastlines and geographic features
-    ax.add_feature(cfeature.COASTLINE, linewidth=0.8, color='black')
+    # Add coastlines and geographic features with better styling
+    ax.add_feature(cfeature.COASTLINE, linewidth=1.2, color='black', alpha=0.8)
     
-    # Add gridlines
+    # Add gridlines with improved formatting
     gl = ax.gridlines(draw_labels=True, dms=False, x_inline=False, y_inline=False,
-                     linewidth=0.5, alpha=0.5, color='gray')
+                     linewidth=1, alpha=0.6, color='gray')
     gl.top_labels = False
     gl.right_labels = False
+    gl.xlabel_style = {'size': 14, 'weight': 'bold'}
+    gl.ylabel_style = {'size': 14, 'weight': 'bold'}
     
     # Set global extent
     ax.set_global()
     
-    # Add colorbar
+    # Add improved colorbar
     cbar = plt.colorbar(im, ax=ax, shrink=0.7, pad=0.05, extend='max')
-    cbar.set_label('Absolute Residual (STEC)', rotation=270, labelpad=15)
+    cbar.set_label('Absolute Residual [TECU]', rotation=270, labelpad=35, 
+                   fontweight='bold', fontsize=16)
+    cbar.ax.tick_params(labelsize=16)
     
-    plt.title('Spatial Distribution of Errors')
+    ax.set_title('Spatial Distribution of STEC Prediction Errors', 
+                fontweight='bold', fontsize=20, pad=25)
+    
     plt.tight_layout()
     plt.savefig(f'{output_dir}/spatial_error_heatmap.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -208,7 +327,7 @@ def plot_spatial_error_map_by_local_time(df, output_dir):
             continue
             
         # Create the spatial heatmap for this time bin
-        fig = plt.figure(figsize=(15, 8))
+        fig = plt.figure(figsize=FIGSIZE_HEATMAP)
         ax = plt.axes(projection=ccrs.PlateCarree())
         
         heatmap_data = group_df.copy()
@@ -261,12 +380,15 @@ def plot_spatial_error_map_by_local_time(df, output_dir):
         
         # Add colorbar
         cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.05, extend='max')
-        cbar.set_label('Absolute Residual (STEC)', rotation=270, labelpad=15)
+        cbar.set_label('Absolute Residual [TECU]', rotation=270, labelpad=35,
+                       fontweight='bold', fontsize=16)
+        cbar.ax.tick_params(labelsize=16)
         
         # Create title with time range
         time_start = int(time_bin.left)
         time_end = int(time_bin.right)
-        plt.title(f'Spatial Distribution of Errors ({time_start:02d}:00-{time_end:02d}:00 Local Solar Time)')
+        plt.title(f'Spatial Distribution of Errors {time_start:02d}:00-{time_end:02d}:00 Local Solar Time',
+                  fontweight='bold', fontsize=20, pad=20)
         plt.tight_layout()
         
         # Save with time in filename
@@ -277,145 +399,206 @@ def plot_spatial_error_map_by_local_time(df, output_dir):
 
 def plot_solar_magnetic_ipp_error_map(df, output_dir):
     """
-    Create spatial error heatmap for solar magnetic IPPs without coastlines.
-    Uses magnetic coordinates if available, otherwise falls back to geographic.
+    Spatial error heatmap for solar magnetic IPPs (no coastlines).
+    Keeps equal data aspect and avoids colorbar squeezing.
     """
-    # use magnetic coordinates 
+
+    # ---- Config ----
     lon_col = 'sm_lon_ipp'
     lat_col = 'sm_lat_ipp'
     coord_type = 'Solar Magnetic'
     filename = 'solar_magnetic_ipp_error_heatmap.png'
-    # Magnetic coordinates typically range -180 to 180 for longitude, -90 to 90 for latitude
+
+    # Edges (~2.5° bins)
     lon_edges = np.linspace(-180, 180, 145)
     lat_edges = np.linspace(-90, 90, 73)
-    
-    plt.figure(figsize=(15, 8))
-    heatmap_data = df.copy()
-    
-    # Create bins
-    heatmap_data['lon_bin'] = pd.cut(df[lon_col], bins=lon_edges)
-    heatmap_data['lat_bin'] = pd.cut(df[lat_col], bins=lat_edges)
 
-    # Group and compute residuals
-    grouped = heatmap_data.groupby(['lon_bin', 'lat_bin'])[['target_stec', 'pred_stec']].mean().reset_index()
-    grouped['residual'] = np.abs(grouped['target_stec'] - grouped['pred_stec'])
-    
-    # Get bin centers for plotting
-    grouped['lon_center'] = grouped['lon_bin'].apply(lambda x: x.mid)
-    grouped['lat_center'] = grouped['lat_bin'].apply(lambda x: x.mid)
-    
-    # Create 2D grid for heatmap
-    lon_centers = np.array([interval.mid for interval in pd.cut([], bins=lon_edges).categories])
-    lat_centers = np.array([interval.mid for interval in pd.cut([], bins=lat_edges).categories])
-    
-    # Initialize grid with NaN
-    Z = np.full((len(lat_centers), len(lon_centers)), np.nan)
-    
-    # Fill grid with residual values
-    for _, row in grouped.iterrows():
-        lon_idx = np.argmin(np.abs(lon_centers - row['lon_center']))
-        lat_idx = np.argmin(np.abs(lat_centers - row['lat_center']))
-        Z[lat_idx, lon_idx] = row['residual']
-    
-    # Create meshgrid for plotting
-    LON, LAT = np.meshgrid(lon_centers, lat_centers)
-    
-    # Plot heatmap using pcolormesh (without cartopy for magnetic coordinates)
-    vmax = np.nanpercentile(Z, 95)  # clip top 5% of values
-    im = plt.pcolormesh(LON, LAT, Z, cmap='coolwarm', shading='auto', 
-                       alpha=0.8, vmin=0, vmax=vmax)
-    
-    # Add gridlines (simple matplotlib grid)
-    plt.grid(True, alpha=0.3, color='gray', linewidth=0.5)
-    
-    # Set labels and limits
-    plt.xlabel(f'{coord_type} Longitude (degrees)')
-    plt.ylabel(f'{coord_type} Latitude (degrees)')
-    plt.xlim(-180, 180)
-    plt.ylim(-90, 90)
-    
-    # Add colorbar
-    cbar = plt.colorbar(im, shrink=0.8, pad=0.05, extend='max')
-    cbar.set_label('Absolute Residual (STEC)', rotation=270, labelpad=15)
-    
-    plt.title(f'{coord_type} IPP Spatial Distribution of Errors')
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/{filename}', dpi=300, bbox_inches='tight')
-    plt.close()
+    # Guard: keep only rows with required values
+    cols_needed = [lon_col, lat_col, 'target_stec', 'pred_stec']
+    data = df[cols_needed].dropna(subset=[lon_col, lat_col, 'target_stec', 'pred_stec']).copy()
+
+    if data.empty:
+        print("No data after dropping NaNs — nothing to plot.")
+        return
+
+    # Bin using pd.cut (right-closed, include_lowest to capture -180/-90)
+    data['lon_bin'] = pd.cut(data[lon_col], bins=lon_edges, include_lowest=True, right=True)
+    data['lat_bin'] = pd.cut(data[lat_col], bins=lat_edges, include_lowest=True, right=True)
+
+    # Categories from the actual cuts (critical to avoid mismatch)
+    lon_idx = data['lon_bin'].cat.categories
+    lat_idx = data['lat_bin'].cat.categories
+
+    # Group & residual per bin
+    grouped = (
+        data.groupby(['lat_bin', 'lon_bin'], observed=True)[['target_stec', 'pred_stec']]
+            .mean()
+    )
+    res = (grouped['target_stec'] - grouped['pred_stec']).abs()
+
+    # Build complete grid in the same interval space
+    res_grid = res.unstack('lon_bin').reindex(index=lat_idx, columns=lon_idx)
+
+    # Convert to Z; shape (ny, nx)
+    Z = res_grid.to_numpy()
+
+    # pcolormesh prefers **edge** arrays of length nx+1/ny+1; we already have edges
+    vmax = np.nanpercentile(Z, 95) if np.isfinite(Z).any() else 1.0
+
+    # Figure & axes
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+
+    im = ax.pcolormesh(lon_edges, lat_edges, Z, cmap='coolwarm',
+                       shading='auto', alpha=0.8, vmin=0, vmax=vmax)
+
+    # Axes formatting
+    ax.set_xlabel(f'{coord_type} Longitude [°]', fontweight='bold')
+    ax.set_ylabel(f'{coord_type} Latitude [°]', fontweight='bold')
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-90, 90)
+    ax.grid(True, alpha=0.3, color='gray', linewidth=0.5)
+
+    # Equal data aspect on the main axes
+    ax.set_aspect('equal', adjustable='box')
+
+    # Colorbar beside without squeezing
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="3.5%", pad=0.1)
+    cbar = fig.colorbar(im, cax=cax, extend='max')
+    cbar.set_label('Absolute Residual [TECU]', rotation=270, labelpad=35,
+                    fontsize=16, fontweight='bold')
+
+    ax.set_title(f'{coord_type} IPP Spatial Distribution of Errors',
+                 fontsize=20, pad=20, fontweight='bold')
+
+    fig.tight_layout()
+    fig.savefig(f'{output_dir}/{filename}', dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
 
 
 def plot_histogram_of_residuals(df, output_dir):
-    plt.figure(figsize=(8, 5))
+    """Create presentation-ready histogram of residuals"""
+    fig, ax = plt.subplots(figsize=FIGSIZE_HISTOGRAM)
+    
     residuals = df['target_stec'] - df['pred_stec']
-    plt.hist(residuals, bins=50, alpha=0.7)
-    plt.title('Histogram of Residuals')
-    plt.xlabel('Residual (STEC)')
-    plt.ylabel('Count')
-    plt.grid(True)
-    plt.savefig(f'{output_dir}/residual_histogram.png')
+    
+    # Create histogram with better styling
+    n, bins, patches = ax.hist(residuals, bins=50, alpha=0.7, color='steelblue', 
+                              edgecolor='black', linewidth=0.5)
+    
+    # Add statistics
+    mean_res = residuals.mean()
+    std_res = residuals.std()
+    median_res = residuals.median()
+    
+    # Add vertical lines for statistics
+    ax.axvline(mean_res, color='red', linestyle='--', linewidth=2, 
+              label=f'Mean: {mean_res:.3f} TECU', alpha=0.8)
+    ax.axvline(median_res, color='orange', linestyle='--', linewidth=2,
+              label=f'Median: {median_res:.3f} TECU', alpha=0.8)
+    ax.axvline(0, color='black', linestyle='-', linewidth=2,
+              label='Zero Bias', alpha=0.8)
+    
+    # Add text box with statistics
+    textstr = f'σ = {std_res:.3f} TECU\nN = {len(residuals):,}'
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+    ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=18,
+           verticalalignment='top', bbox=props)
+    
+    ax.set_xlabel('Residual [TECU]', fontweight='bold')
+    ax.set_ylabel('Frequency', fontweight='bold')
+    ax.set_title('Distribution of STEC Prediction Residuals', fontweight='bold', pad=20)
+    ax.legend(fontsize=18, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/residual_histogram.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 
 def plot_uncertainty_calibration(df, output_dir):
-    plt.figure(figsize=(8, 8))
+    """Create presentation-ready uncertainty calibration plots"""
     abs_residual = np.abs(df['target_stec'] - df['pred_stec'])
     
-    # Create hexagonal density plot with log scale
-    plt.hexbin(df['pred_total_unc'], abs_residual, gridsize=50, cmap='BuGn', 
-               mincnt=1, norm=LogNorm())
+    # Hexagonal density plot with log scale
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+    
+    hb = ax.hexbin(df['pred_total_unc'], abs_residual, gridsize=100, cmap='BuGn', 
+                   mincnt=1, norm=LogNorm(), alpha=0.8)
     
     # Add perfect calibration line
     max_val = max(df['pred_total_unc'].max(), abs_residual.max())
-    plt.plot([0, max_val], [0, max_val], 'k--', linewidth=2, label='Perfect Calibration')
+    ax.plot([0, max_val], [0, max_val], 'r-', linewidth=3, 
+            label='Perfect Calibration (1σ)', alpha=0.9)
     
-    plt.xlabel('Predicted Total Uncertainty')
-    plt.ylabel('|Residual|')
-    plt.title('Uncertainty Calibration (Density Plot - Log Scale)')
-    plt.colorbar(label='Number of Points (log scale)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    ax.set_xlabel('Predicted Total Uncertainty [TECU]', fontweight='bold')
+    ax.set_ylabel('|Residual| [TECU]', fontweight='bold')
+    ax.set_title('Uncertainty Calibration', fontweight='bold', pad=20)
+    
+    cbar = plt.colorbar(hb, ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label('Number of Points', fontweight='bold', rotation=270, labelpad=35)
+    cbar.ax.tick_params(labelsize=16)
+    
+    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/uncertainty_calibration_density.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_calibration_density.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    # Also create a 2D histogram version with log scale
-    plt.figure(figsize=(8, 8))
-    plt.hist2d(df['pred_total_unc'], abs_residual, bins=50, cmap='BuGn', 
-               norm=LogNorm())
-    plt.plot([0, max_val], [0, max_val], 'k--', linewidth=2, label='Perfect Calibration')
-    plt.xlabel('Predicted Total Uncertainty')
-    plt.ylabel('|Residual|')
-    plt.title('Uncertainty Calibration (2D Histogram - Log Scale)')
-    plt.colorbar(label='Density (log scale)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    # 2D histogram version with log scale
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+    
+    h = ax.hist2d(df['pred_total_unc'], abs_residual, bins=100, cmap='BuGn', 
+                  norm=LogNorm(), alpha=0.8)
+    
+    ax.plot([0, max_val], [0, max_val], 'r-', linewidth=3, 
+            label='Perfect Calibration (1σ)', alpha=0.9)
+    
+    ax.set_xlabel('Predicted Total Uncertainty [TECU]', fontweight='bold')
+    ax.set_ylabel('|Residual| [TECU]', fontweight='bold')
+    ax.set_title('Uncertainty Calibration', fontweight='bold', pad=20)
+    
+    cbar = plt.colorbar(h[3], ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label('Density', fontweight='bold', rotation=270, labelpad=35)
+    cbar.ax.tick_params(labelsize=16)
+    
+    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/uncertainty_calibration_hist2d.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_calibration_hist2d.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    # plot standard scatter plot
-    plt.figure(figsize=(8, 8))
-    plt.scatter(df['pred_total_unc'], abs_residual, alpha=0.2)
-    plt.plot([0, max_val], [0, max_val], 'r--', linewidth=2, label='Perfect Prediction')
-    plt.xlabel('Predicted Total Uncertainty')
-    plt.ylabel('|Residual|')
-    plt.title('Uncertainty Calibration (Scatter Plot)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.axis('equal')
+    # Standard scatter plot for comparison
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+    
+    ax.scatter(df['pred_total_unc'], abs_residual, alpha=0.3, s=1, c='blue')
+    ax.plot([0, max_val], [0, max_val], 'r-', linewidth=3, 
+            label='Perfect Calibration (1σ)', alpha=0.9)
+    
+    ax.set_xlabel('Predicted Total Uncertainty [TECU]', fontweight='bold')
+    ax.set_ylabel('|Residual| [TECU]', fontweight='bold')
+    ax.set_title('Uncertainty Calibration', fontweight='bold', pad=20)
+    
+    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+    
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/uncertainty_calibration_scatter.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_calibration_scatter.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 def plot_az_el_heatmap(df, output_dir, metric='residual'):
-    """ Plots a heatmap of residuals or MAE by azimuth and elevation with 95% quantiles on color scale.
+    """ Plots a presentation-ready heatmap of residuals or MAE by azimuth and elevation.
 
     Parameters:
         - df: DataFrame containing 'satazi', 'satele', 'target_stec', and 'pred_stec' columns.
         - output_dir: Directory to save the plot.
         - metric: Metric to plot ('residual' or 'mae').
     """
-    plt.figure(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=FIGSIZE_HEATMAP)
     heatmap_data = df.copy()
 
     # Fixed bins
@@ -432,15 +615,15 @@ def plot_az_el_heatmap(df, output_dir, metric='residual'):
     grouped = heatmap_data.groupby(['az_bin', 'el_bin'])[['target_stec', 'pred_stec']].mean().reset_index()
     if metric == 'residual':
         grouped['value'] = grouped['target_stec'] - grouped['pred_stec']
-        cbar_label = 'Residual'
-        title = 'Residuals by Azimuth and Elevation'
+        cbar_label = 'Residual [TECU]'
+        title = 'STEC Prediction Residuals by Satellite Geometry'
         filename = 'az_el_residuals_heatmap.png'
         cmap_colors = 'RdBu_r'
         center = 0
     elif metric == 'mae':
         grouped['value'] = np.abs(grouped['target_stec'] - grouped['pred_stec'])
-        cbar_label = 'Mean Absolute Error'
-        title = 'Mean Absolute Error by Azimuth and Elevation'
+        cbar_label = 'Mean Absolute Error [TECU]'
+        title = 'STEC Prediction MAE by Satellite Geometry'
         filename = 'az_el_mae_heatmap.png'
         cmap_colors = 'coolwarm'
         center = None
@@ -469,12 +652,17 @@ def plot_az_el_heatmap(df, output_dir, metric='residual'):
         data_max = np.nanmax(vals)
         extend = 'max' if data_max > vmax else 'neither'
 
-    # Plot (seaborn honors vmin/vmax; center is only needed for diverging maps)
-    ax = sns.heatmap(
+    # Create heatmap with improved styling
+    heatmap = sns.heatmap(
         pivot, cmap=cmap_colors, vmin=vmin, vmax=vmax,
-        cbar_kws={'label': cbar_label, 'extend': extend},
-        center=center
+        cbar_kws={'label': cbar_label, 'extend': extend, 'shrink': 0.8},
+        center=center, ax=ax, square=False
     )
+
+    # Improve colorbar formatting
+    cbar = heatmap.collections[0].colorbar
+    cbar.set_label(cbar_label, fontweight='bold', fontsize=16, rotation=270, labelpad=35)
+    cbar.ax.tick_params(labelsize=16)
 
     # Define nice tick values manually
     # X-axis (Azimuth: 0-360°) - every 60 degrees
@@ -498,7 +686,7 @@ def plot_az_el_heatmap(df, output_dir, metric='residual'):
             x_tick_labels.append(f'{az_val}°')
     
     ax.set_xticks(x_tick_positions)
-    ax.set_xticklabels(x_tick_labels, rotation=0)
+    ax.set_xticklabels(x_tick_labels, rotation=0, fontsize=18)
     
     # Y-axis (Elevation: 5-90°) - every 15 degrees plus min/max
     el_tick_values = [5, 15, 30, 45, 60, 75, 90]
@@ -523,13 +711,14 @@ def plot_az_el_heatmap(df, output_dir, metric='residual'):
             y_tick_labels.append(f'{el_val}°')
     
     ax.set_yticks(y_tick_positions)
-    ax.set_yticklabels(y_tick_labels, rotation=0)
+    ax.set_yticklabels(y_tick_labels, rotation=0, fontsize=18)
 
-    plt.xlabel('Azimuth')
-    plt.ylabel('Elevation')
-    plt.title(title)
+    ax.set_xlabel('Azimuth Angle [°]', fontweight='bold', fontsize=16)
+    ax.set_ylabel('Elevation Angle [°]', fontweight='bold', fontsize=16)
+    ax.set_title(title, fontweight='bold', fontsize=18, pad=25)
+    
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/{filename}')
+    plt.savefig(f'{output_dir}/{filename}', dpi=300, bbox_inches='tight')
     plt.close()
 
 def modify_df(df):
@@ -579,7 +768,7 @@ def get_default_bin_ranges(feature_registry):
 def plot_residuals_vs_date(df, output_dir='plots'):
     """
     Plots residuals aggregated by month using year and day-of-year.
-    Creates boxplots for each month present in the test data.
+    Creates presentation-ready boxplots for each month present in the test data.
     """
     df = df.copy()
     df['residual'] = df['target_stec'] - df['pred_stec']
@@ -618,20 +807,33 @@ def plot_residuals_vs_date(df, output_dir='plots'):
         print("No valid data for residuals vs date plot")
         return
     
-    plt.figure(figsize=(15, 6))
-    plt.axhline(y=0, color='r', linestyle='-', linewidth=0.5, zorder=1)
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     
-    # Create boxplot
-    bp = plt.boxplot(box_data, labels=month_labels, showfliers=False, zorder=2)
+    # Add zero reference line
+    ax.axhline(y=0, color='red', linestyle='-', linewidth=2, zorder=1, alpha=0.8)
+    
+    # Create boxplot with improved styling
+    bp = ax.boxplot(box_data, labels=month_labels, showfliers=False, zorder=2,
+                   patch_artist=True, notch=True)
+    
+    # Style the boxplot
+    for patch in bp['boxes']:
+        patch.set_facecolor('lightblue')
+        patch.set_alpha(0.7)
+    for element in ['whiskers', 'caps', 'medians']:
+        for item in bp[element]:
+            item.set_linewidth(2)
     
     # Rotate x-axis labels for better readability
-    plt.xticks(rotation=45, ha='right')
-    plt.xlabel('Month')
-    plt.ylabel('Residual (STEC)')
-    plt.title('Residuals by Month')
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
+    ax.tick_params(axis='x', rotation=45, labelsize=18)
+    ax.tick_params(axis='y', labelsize=18)
     
+    ax.set_xlabel('Month', fontweight='bold', fontsize=20)
+    ax.set_ylabel('Residual [TECU]', fontweight='bold', fontsize=20)
+    ax.set_title('STEC Prediction Residuals by Month', fontweight='bold', fontsize=22, pad=25)
+    ax.grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
     plt.savefig(f'{output_dir}/residuals_vs_date_monthly.png', dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -727,7 +929,9 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
     - 2σ: 95.45% of observations should fall within uncertainty bounds  
     - 3σ: 99.73% of observations should fall within uncertainty bounds
     """
-    ensure_dir(output_dir)
+    # Create uncertainty subdirectory
+    uncertainty_dir = os.path.join(output_dir, 'uncertainty_analysis')
+    ensure_dir(uncertainty_dir)
     
     # Calculate absolute residuals
     abs_residuals = np.abs(df['target_stec'] - df['pred_stec'])
@@ -781,7 +985,7 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
     colors = {'total': 'navy', 'epistemic': 'darkred', 'aleatoric': 'darkgreen', 'expected': 'gray'}
     
     # 1. Coverage comparison with clear interpretation
-    plt.figure(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     sigma_levels = ['1σ', '2σ', '3σ']
     expected_values = [68.27, 95.45, 99.73]
     total_observed = [total_coverage['1sigma']['observed'], 
@@ -798,56 +1002,80 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
     width = 0.2
     
     # Plot with clear legend and interpretation
-    plt.bar(x + 0.0*width, expected_values, width, label='Expected (Perfect)', 
-            alpha=0.8, color=colors['expected'], edgecolor='black', linewidth=1)
-    plt.bar(x + 1.0*width, total_observed, width, label='Total', 
-            alpha=0.8, color=colors['total'], edgecolor='black', linewidth=1)
-    plt.bar(x + 2.0*width, epistemic_observed, width, label='Epistemic (Model)', 
-            alpha=0.8, color=colors['epistemic'], edgecolor='black', linewidth=1)
-    plt.bar(x + 3.0*width, aleatoric_observed, width, label='Aleatoric (Data Noise)', 
-            alpha=0.8, color=colors['aleatoric'], edgecolor='black', linewidth=1)
+    bars1 = ax.bar(x + 0.0*width, expected_values, width, label='Expected (Perfect)', 
+                   alpha=0.8, color=colors['expected'], edgecolor='black', linewidth=1.5)
+    bars2 = ax.bar(x + 1.0*width, total_observed, width, label='Total', 
+                   alpha=0.8, color=colors['total'], edgecolor='black', linewidth=1.5)
+    bars3 = ax.bar(x + 2.0*width, epistemic_observed, width, label='Epistemic (Model)', 
+                   alpha=0.8, color=colors['epistemic'], edgecolor='black', linewidth=1.5)
+    bars4 = ax.bar(x + 3.0*width, aleatoric_observed, width, label='Aleatoric (Data Noise)', 
+                   alpha=0.8, color=colors['aleatoric'], edgecolor='black', linewidth=1.5)
     
     # Add horizontal reference lines
     for i, exp_val in enumerate(expected_values):
-        plt.axhline(y=exp_val, xmin=(i-0.4)/len(sigma_levels), xmax=(i+0.4)/len(sigma_levels), 
-                   color='red', linestyle='--', alpha=0.7, linewidth=2)
+        ax.axhline(y=exp_val, xmin=(i-0.4)/len(sigma_levels), xmax=(i+0.4)/len(sigma_levels), 
+                   color='red', linestyle='--', alpha=0.7, linewidth=3)
     
-    plt.xlabel('Sigma Levels', fontsize=14, fontweight='bold')
-    plt.ylabel('Coverage (%)', fontsize=14, fontweight='bold')
-    plt.title('Uncertainty Coverage Analysis\n(Closer to Expected = Better)', fontsize=16, fontweight='bold')
-    plt.xticks(x, sigma_levels)
-    plt.legend(fontsize=12)
-    plt.grid(True, alpha=0.3)
-    plt.ylim(0, 105)
+    ax.set_xlabel('Sigma Levels', fontsize=16, fontweight='bold')
+    ax.set_ylabel('Coverage [%]', fontsize=16, fontweight='bold')
+    ax.set_title('Uncertainty Coverage Analysis\nCloser to Expected = Better Calibrated', 
+                fontsize=20, fontweight='bold', pad=25)
+    ax.set_xticks(x + 1.5*width)
+    ax.set_xticklabels(sigma_levels, fontsize=18, fontweight='bold')
+    ax.legend(fontsize=18, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(0, 105)
+    
+    # Add value labels on bars
+    def autolabel(bars, values):
+        for bar, val in zip(bars, values):
+            height = bar.get_height()
+            ax.annotate(f'{val:.1f}%',
+                       xy=(bar.get_x() + bar.get_width() / 2, height),
+                       xytext=(0, 3),  # 3 points vertical offset
+                       textcoords="offset points",
+                       ha='center', va='bottom', fontsize=16, fontweight='bold')
+    
+    autolabel(bars1, expected_values)
+    autolabel(bars2, total_observed)
+    autolabel(bars3, epistemic_observed)
+    autolabel(bars4, aleatoric_observed)
+    
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/sigma_coverage_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{uncertainty_dir}/sigma_coverage_comparison.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # 2. Uncertainty distributions with clear interpretation
-    plt.figure(figsize=(12, 8))
-    plt.hist(total_unc, bins=50, alpha=0.7, label='Total', color=colors['total'])
-    plt.hist(epistemic_unc, bins=50, alpha=0.7, label='Epistemic (Model)', color=colors['epistemic'])
-    plt.hist(aleatoric_unc, bins=50, alpha=0.7, label='Aleatoric (Data Noise)', color=colors['aleatoric'])
+    fig, ax = plt.subplots(figsize=FIGSIZE_HISTOGRAM)
     
-    # Add mean lines
-    plt.axvline(total_unc.mean(), color=colors['total'], linestyle='--', linewidth=2, alpha=0.8, 
-                label=f'Total mean: {total_unc.mean():.3f}')
-    plt.axvline(epistemic_unc.mean(), color=colors['epistemic'], linestyle='--', linewidth=2, alpha=0.8,
-                label=f'Epistemic mean: {epistemic_unc.mean():.3f}')
-    plt.axvline(aleatoric_unc.mean(), color=colors['aleatoric'], linestyle='--', linewidth=2, alpha=0.8,
-                label=f'Aleatoric mean: {aleatoric_unc.mean():.3f}')
+    # Create histogram with better styling
+    n1, bins1, patches1 = ax.hist(total_unc, bins=50, alpha=0.7, label='Total', 
+                                  color=colors['total'], edgecolor='black', linewidth=0.5)
+    n2, bins2, patches2 = ax.hist(epistemic_unc, bins=50, alpha=0.7, label='Epistemic (Model)', 
+                                  color=colors['epistemic'], edgecolor='black', linewidth=0.5)
+    n3, bins3, patches3 = ax.hist(aleatoric_unc, bins=50, alpha=0.7, label='Aleatoric (Data Noise)', 
+                                  color=colors['aleatoric'], edgecolor='black', linewidth=0.5)
     
-    plt.xlabel('Uncertainty (TECU)', fontsize=14, fontweight='bold')
-    plt.ylabel('Density', fontsize=14, fontweight='bold')
-    plt.title('📊 Uncertainty Distributions\n(Dashed lines = means)', fontsize=16, fontweight='bold')
-    plt.legend(fontsize=11)
-    plt.grid(True, alpha=0.3)
+    # Add mean lines with improved styling
+    ax.axvline(total_unc.mean(), color=colors['total'], linestyle='--', linewidth=3, alpha=0.9, 
+               label=f'Total mean: {total_unc.mean():.3f} TECU')
+    ax.axvline(epistemic_unc.mean(), color=colors['epistemic'], linestyle='--', linewidth=3, alpha=0.9,
+               label=f'Epistemic mean: {epistemic_unc.mean():.3f} TECU')
+    ax.axvline(aleatoric_unc.mean(), color=colors['aleatoric'], linestyle='--', linewidth=3, alpha=0.9,
+               label=f'Aleatoric mean: {aleatoric_unc.mean():.3f} TECU')
+    
+    ax.set_xlabel('Uncertainty [TECU]', fontsize=16, fontweight='bold')
+    ax.set_ylabel('Frequency', fontsize=16, fontweight='bold')
+    ax.set_title('Uncertainty Distributions', fontsize=20, fontweight='bold', pad=25)
+    ax.legend(fontsize=18, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/uncertainty_distributions.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{uncertainty_dir}/uncertainty_distributions.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # 3. Calibration plot with sigma lines
-    plt.figure(figsize=(12, 10))
+    plt.figure(figsize=FIGSIZE_SQUARE)
     
     # Create scatter plots with different point sizes for clarity
     plt.scatter(total_unc, abs_residuals, alpha=0.4, s=4, label='Total', color=colors['total'])
@@ -860,26 +1088,26 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
     plt.plot([0, max_unc/2], [0, max_unc], 'k:', linewidth=2, alpha=0.6, label='Perfect 2σ line')
     plt.plot([0, max_unc/3], [0, max_unc], 'k:', linewidth=1, alpha=0.4, label='Perfect 3σ line')
     
-    plt.xlabel('Predicted Uncertainty (TECU)', fontsize=14, fontweight='bold')
-    plt.ylabel('|Residual| (TECU)', fontsize=14, fontweight='bold')
-    plt.title('Calibration Plot\n(Points on diagonal = perfect)', fontsize=16, fontweight='bold')
-    plt.legend(fontsize=11)
+    plt.xlabel('Predicted Uncertainty [TECU]', fontsize=18, fontweight='bold')
+    plt.ylabel('|Residual| [TECU]', fontsize=18, fontweight='bold')
+    plt.title('Calibration Plot', fontsize=18, fontweight='bold')
+    plt.legend(fontsize=16)
     plt.grid(True, alpha=0.3)
     plt.xscale('log')
     plt.yscale('log')
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/calibration_plot.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{uncertainty_dir}/calibration_plot.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # 4. Epistemic vs Aleatoric relationship
-    plt.figure(figsize=(12, 10))
+    plt.figure(figsize=FIGSIZE_SQUARE)
     scatter = plt.scatter(epistemic_unc, aleatoric_unc, alpha=0.5, s=4, c=abs_residuals, 
-                         cmap='viridis', norm=LogNorm())
-    plt.xlabel('Epistemic Uncertainty (TECU)', fontsize=14, fontweight='bold')
-    plt.ylabel('Aleatoric Uncertainty (TECU)', fontsize=14, fontweight='bold')
-    plt.title('Epistemic vs Aleatoric Uncertainty Relationship\n(Color = |residual|)', fontsize=16, fontweight='bold')
+                         cmap='BuGn', norm=LogNorm())
+    plt.xlabel('Epistemic Uncertainty [TECU]', fontsize=18, fontweight='bold')
+    plt.ylabel('Aleatoric Uncertainty [TECU]', fontsize=18, fontweight='bold')
+    plt.title('Epistemic vs Aleatoric Uncertainty Relationship', fontsize=18, fontweight='bold')
     cbar = plt.colorbar(scatter)
-    cbar.set_label('|Residual| (TECU)', fontsize=12)
+    cbar.set_label('|Residual| [TECU]', fontsize=16)
     plt.grid(True, alpha=0.3)
     
     # Add diagonal line to show epistemic=aleatoric
@@ -887,13 +1115,13 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
     max_val = max(epistemic_unc.max(), aleatoric_unc.max())
     plt.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.7, linewidth=2, 
              label='Equal uncertainties')
-    plt.legend(fontsize=12)
+    plt.legend(fontsize=16)
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/epistemic_vs_aleatoric.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{uncertainty_dir}/epistemic_vs_aleatoric.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # 5. Coverage vs uncertainty magnitude
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=FIGSIZE_HISTOGRAM)
     
     # Calculate rolling coverage for visualization
     for unc_vals, unc_name, color in [(total_unc, 'Total', colors['total']), 
@@ -921,18 +1149,18 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
     
     plt.axhline(68.27, color='red', linestyle='--', alpha=0.7, linewidth=2, 
                label='Expected 1σ (68.27%)')
-    plt.xlabel('Uncertainty Magnitude (TECU)', fontsize=14, fontweight='bold')
-    plt.ylabel('1σ Coverage (%)', fontsize=14, fontweight='bold')
-    plt.title('📈 Coverage vs Uncertainty Magnitude\n(Should be flat at ~68%)', fontsize=16, fontweight='bold')
-    plt.legend(fontsize=11)
+    plt.xlabel('Uncertainty Magnitude [TECU]', fontsize=18, fontweight='bold')
+    plt.ylabel('1σ Coverage (%)', fontsize=18, fontweight='bold')
+    plt.title('Coverage vs Uncertainty Magnitude', fontsize=18, fontweight='bold')
+    plt.legend(fontsize=16)
     plt.grid(True, alpha=0.3)
     plt.ylim(0, 100)
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/coverage_vs_magnitude.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{uncertainty_dir}/coverage_vs_magnitude.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # 6. Summary interpretation as text file
-    interpretation_file = f'{output_dir}/uncertainty_analysis_summary.txt'
+    interpretation_file = f'{uncertainty_dir}/uncertainty_analysis_summary.txt'
     with open(interpretation_file, 'w') as f:
         f.write("🏆 UNCERTAINTY ANALYSIS SUMMARY\n")
         f.write("="*50 + "\n\n")
@@ -973,7 +1201,7 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
     for unc_name, unc_values, color in uncertainty_types:
         
         # Plot 1: Calibration plot with confidence intervals
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=FIGSIZE_SQUARE)
         plt.hexbin(unc_values, abs_residuals, gridsize=50, cmap='BuGn', 
                    mincnt=1, norm=LogNorm())
         
@@ -983,37 +1211,37 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
         plt.plot([0, max_val], [0, 2*max_val], 'k:', linewidth=2, label='2σ line')
         plt.plot([0, max_val], [0, 3*max_val], 'k:', linewidth=1, label='3σ line')
         
-        plt.xlabel(f'{unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
-        plt.ylabel('|Residual| (TECU)', fontsize=12, fontweight='bold')
-        plt.title(f'{unc_name} Uncertainty Calibration Plot', fontsize=14, fontweight='bold')
-        plt.legend(fontsize=10)
+        plt.xlabel(f'{unc_name} Uncertainty [TECU]', fontsize=18, fontweight='bold')
+        plt.ylabel('|Residual| [TECU]', fontsize=18, fontweight='bold')
+        plt.title(f'{unc_name} Uncertainty Calibration Plot', fontsize=16, fontweight='bold')
+        plt.legend(fontsize=16)
         plt.grid(True, alpha=0.3)
         cbar = plt.colorbar()
-        cbar.set_label('Number of Points (log scale)', fontsize=10)
+        cbar.set_label('Number of Points', fontsize=16)
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_calibration_plot.png', 
+        plt.savefig(f'{uncertainty_dir}/{unc_name.lower()}_uncertainty_calibration_plot.png', 
                    dpi=300, bbox_inches='tight')
         plt.close()
         
         # Plot 2: Distribution histogram
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=FIGSIZE_HISTOGRAM)
         plt.hist(unc_values, bins=50, alpha=0.7, color=color, edgecolor='black', linewidth=0.5)
         plt.axvline(unc_values.mean(), color='red', linestyle='--', linewidth=2,
                    label=f'Mean: {unc_values.mean():.2f} TECU')
         plt.axvline(np.median(unc_values), color='orange', linestyle='--', linewidth=2,
                    label=f'Median: {np.median(unc_values):.2f} TECU')
-        plt.xlabel(f'{unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
-        plt.ylabel('Density', fontsize=12, fontweight='bold')
-        plt.title(f'{unc_name} Uncertainty Distribution', fontsize=14, fontweight='bold')
-        plt.legend(fontsize=11)
+        plt.xlabel(f'{unc_name} Uncertainty [TECU]', fontsize=16, fontweight='bold')
+        plt.ylabel('Density', fontsize=16, fontweight='bold')
+        plt.title(f'{unc_name} Uncertainty Distribution', fontsize=18, fontweight='bold')
+        plt.legend(fontsize=14)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_distribution.png', 
+        plt.savefig(f'{uncertainty_dir}/{unc_name.lower()}_uncertainty_distribution.png', 
                    dpi=300, bbox_inches='tight')
         plt.close()
         
         # Plot 3: Binned calibration plot
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=FIGSIZE_SQUARE)
         n_bins = 20
         bin_edges = np.linspace(0, np.percentile(unc_values, 95), n_bins + 1)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -1047,18 +1275,18 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
         max_plot_val = max(binned_mean_unc[valid_mask].max() if valid_mask.any() else 0, 
                           binned_mean_residual[valid_mask].max() if valid_mask.any() else 0)
         plt.plot([0, max_plot_val], [0, max_plot_val], 'k--', linewidth=2, label='Perfect Calibration')
-        plt.xlabel(f'Binned {unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
-        plt.ylabel('Mean |Residual| ± Std (TECU)', fontsize=12, fontweight='bold')
+        plt.xlabel(f'Binned {unc_name} Uncertainty [TECU]', fontsize=18, fontweight='bold')
+        plt.ylabel('Mean |Residual| ± Std [TECU]', fontsize=18, fontweight='bold')
         plt.title(f'Binned {unc_name} Uncertainty Calibration', fontsize=14, fontweight='bold')
         plt.legend(fontsize=11)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_binned_calibration.png', 
+        plt.savefig(f'{uncertainty_dir}/{unc_name.lower()}_uncertainty_binned_calibration.png', 
                    dpi=300, bbox_inches='tight')
         plt.close()
         
         # Plot 4: Coverage as a function of predicted uncertainty
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=FIGSIZE_HISTOGRAM)
         sorted_indices = np.argsort(unc_values)
         sorted_unc = unc_values[sorted_indices]
         sorted_residuals = abs_residuals[sorted_indices]
@@ -1094,19 +1322,19 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
         plt.axhline(95.45, color='gray', linestyle=':', alpha=0.7, linewidth=2, label='Expected 2σ (95.45%)')
         plt.axhline(99.73, color='gray', linestyle='-.', alpha=0.7, linewidth=2, label='Expected 3σ (99.73%)')
         
-        plt.xlabel(f'{unc_name} Uncertainty (TECU)', fontsize=12, fontweight='bold')
-        plt.ylabel('Coverage (%)', fontsize=12, fontweight='bold')
+        plt.xlabel(f'{unc_name} Uncertainty [TECU]', fontsize=18, fontweight='bold')
+        plt.ylabel('Coverage [%]', fontsize=18, fontweight='bold')
         plt.title(f'{unc_name} Uncertainty Coverage vs Magnitude', fontsize=14, fontweight='bold')
         plt.legend(fontsize=10)
         plt.grid(True, alpha=0.3)
         plt.ylim(0, 105)
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/{unc_name.lower()}_uncertainty_coverage_analysis.png', 
+        plt.savefig(f'{uncertainty_dir}/{unc_name.lower()}_uncertainty_coverage_analysis.png', 
                    dpi=300, bbox_inches='tight')
         plt.close()
     
     # 5. SAVE QUANTITATIVE RESULTS TO FILE
-    results_file = f'{output_dir}/uncertainty_analysis_results.txt'
+    results_file = f'{uncertainty_dir}/uncertainty_analysis_results.txt'
     with open(results_file, 'w') as f:
         f.write("COMPREHENSIVE UNCERTAINTY ANALYSIS RESULTS\n")
         f.write("="*60 + "\n\n")

@@ -45,7 +45,7 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.1  # Reduced KL weight - was 10.0, now much smaller
+  loss_weight: 0.1  
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
