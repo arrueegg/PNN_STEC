@@ -41,6 +41,7 @@ import sys
 import glob
 from tqdm import tqdm
 import logging
+from datetime import datetime, timedelta
 
 # Add the parent directory to sys.path to import project modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -56,6 +57,195 @@ from model.model import get_model
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger()
+
+def split_test_data_by_date(test_df):
+    """
+    Split test dataframe into interpolation and extrapolation subsets.
+    Simple rule: May 2024 and later = extrapolation, everything before = interpolation.
+    
+    Args:
+        test_df: Test dataframe with 'year' and 'doy' columns
+    
+    Returns:
+        tuple: (interpolation_df, extrapolation_df, split_info)
+    """
+    if 'year' not in test_df.columns or 'doy' not in test_df.columns:
+        logger.warning("Year or DOY columns not found in test data. Cannot split by date.")
+        return test_df, pd.DataFrame(), {}
+    
+    # Create datetime from year and doy
+    def create_date(row):
+        try:
+            year = int(row['year'])
+            doy = int(row['doy'])
+            date = datetime(year, 1, 1) + timedelta(days=doy - 1)
+            return date
+        except:
+            return None
+    
+    test_df = test_df.copy()
+    test_df['date'] = test_df.apply(create_date, axis=1)
+    test_df = test_df.dropna(subset=['date'])
+    
+    # Extract year-month periods for comparison
+    test_df['year_month'] = test_df['date'].dt.to_period('M')
+    
+    # Simple split: May 2024 and later = extrapolation, everything before = interpolation
+    cutoff_period = pd.Period('2024-05')
+    
+    interpolation_mask = test_df['year_month'] < cutoff_period
+    extrapolation_mask = test_df['year_month'] >= cutoff_period
+    
+    interpolation_df = test_df[interpolation_mask].copy()
+    extrapolation_df = test_df[extrapolation_mask].copy()
+    
+    # Create split information summary
+    interpolation_months = sorted(interpolation_df['year_month'].unique()) if len(interpolation_df) > 0 else []
+    extrapolation_months = sorted(extrapolation_df['year_month'].unique()) if len(extrapolation_df) > 0 else []
+    
+    split_info = {
+        'total_samples': len(test_df),
+        'interpolation_samples': len(interpolation_df),
+        'extrapolation_samples': len(extrapolation_df),
+        'interpolation_months': [str(m) for m in interpolation_months],
+        'extrapolation_months': [str(m) for m in extrapolation_months],
+        'interpolation_percentage': (len(interpolation_df) / len(test_df)) * 100 if len(test_df) > 0 else 0,
+        'extrapolation_percentage': (len(extrapolation_df) / len(test_df)) * 100 if len(test_df) > 0 else 0,
+        'cutoff_date': str(cutoff_period)
+    }
+    
+    return interpolation_df, extrapolation_df, split_info
+
+def save_temporal_split_metrics(interpolation_df, extrapolation_df, split_info, experiment_dir):
+    """
+    Calculate and save metrics for interpolation/extrapolation splits.
+    
+    Args:
+        interpolation_df: Test data before May 2024 (interpolation)
+        extrapolation_df: Test data May 2024 and later (extrapolation)
+        split_info: Dictionary with split information
+        experiment_dir: Experiment directory path
+    """
+    # Create test_metrics subdirectories
+    interpolation_dir = os.path.join(experiment_dir, 'interpolation')
+    extrapolation_dir = os.path.join(experiment_dir, 'extrapolation')
+
+    os.makedirs(interpolation_dir, exist_ok=True)
+    os.makedirs(extrapolation_dir, exist_ok=True)
+    
+    # Calculate metrics for each subset
+    metrics_summary = {}
+    
+    if len(interpolation_df) > 0:
+        # Convert dataframe to tensors for metrics calculation
+        interpolation_predictions = torch.stack([
+            torch.tensor(interpolation_df['pred_stec'].values, dtype=torch.float32),
+            torch.tensor(interpolation_df['pred_total_unc'].values, dtype=torch.float32)
+        ], dim=1)
+        interpolation_targets = torch.tensor(interpolation_df['target_stec'].values, dtype=torch.float32)
+        
+        interpolation_metrics = calculate_metrics(interpolation_predictions, interpolation_targets, prefix="interpolation")
+        metrics_summary['interpolation'] = interpolation_metrics
+        
+        # Save interpolation period summary
+        interpolation_summary_path = os.path.join(interpolation_dir, 'metrics_summary.txt')
+        with open(interpolation_summary_path, 'w') as f:
+            f.write("METRICS FOR INTERPOLATION (BEFORE MAY 2024)\n")
+            f.write("=" * 60 + "\n\n")
+            f.write("This includes test months before May 2024.\n")
+            f.write("These are months within or close to the training period.\n\n")
+            f.write(f"Cutoff date: {split_info['cutoff_date']}\n")
+            f.write(f"Number of samples: {len(interpolation_df):,}\n")
+            f.write(f"Percentage of total test data: {split_info['interpolation_percentage']:.1f}%\n")
+            f.write(f"Months included: {', '.join(split_info['interpolation_months'])}\n\n")
+            f.write("METRICS:\n")
+            f.write("-" * 20 + "\n")
+            for k, v in interpolation_metrics.items():
+                f.write(f"{k}: {v:.4f}\n")
+        
+        mae_value = interpolation_metrics.get('interpolation_MAE', 'N/A')
+        mae_str = f"{mae_value:.4f}" if isinstance(mae_value, (int, float)) else str(mae_value)
+        logger.info(f"Interpolation - Samples: {len(interpolation_df):,}, MAE: {mae_str}")
+    
+    if len(extrapolation_df) > 0:
+        # Convert dataframe to tensors for metrics calculation  
+        extrapolation_predictions = torch.stack([
+            torch.tensor(extrapolation_df['pred_stec'].values, dtype=torch.float32),
+            torch.tensor(extrapolation_df['pred_total_unc'].values, dtype=torch.float32)
+        ], dim=1)
+        extrapolation_targets = torch.tensor(extrapolation_df['target_stec'].values, dtype=torch.float32)
+        
+        extrapolation_metrics = calculate_metrics(extrapolation_predictions, extrapolation_targets, prefix="extrapolation")
+        metrics_summary['extrapolation'] = extrapolation_metrics
+        
+        # Save extrapolation period summary
+        extrapolation_summary_path = os.path.join(extrapolation_dir, 'metrics_summary.txt')
+        with open(extrapolation_summary_path, 'w') as f:
+            f.write("METRICS FOR EXTRAPOLATION (MAY 2024 AND LATER)\n")
+            f.write("=" * 60 + "\n\n")
+            f.write("This includes test months from May 2024 onwards.\n")
+            f.write("These are true forecasting/extrapolation months.\n\n")
+            f.write(f"Cutoff date: {split_info['cutoff_date']}\n")
+            f.write(f"Number of samples: {len(extrapolation_df):,}\n")
+            f.write(f"Percentage of total test data: {split_info['extrapolation_percentage']:.1f}%\n")
+            f.write(f"Months included: {', '.join(split_info['extrapolation_months'])}\n\n")
+            f.write("METRICS:\n")
+            f.write("-" * 20 + "\n")
+            for k, v in extrapolation_metrics.items():
+                f.write(f"{k}: {v:.4f}\n")
+        
+        mae_value = extrapolation_metrics.get('extrapolation_MAE', 'N/A')
+        mae_str = f"{mae_value:.4f}" if isinstance(mae_value, (int, float)) else str(mae_value)
+        logger.info(f"Extrapolation - Samples: {len(extrapolation_df):,}, MAE: {mae_str}")
+    
+    # Save combined temporal split summary
+    split_summary_path = os.path.join(experiment_dir, 'test_metrics', 'temporal_split_summary.txt')
+    with open(split_summary_path, 'w') as f:
+        f.write("TEMPORAL SPLIT ANALYSIS SUMMARY\n")
+        f.write("=" * 60 + "\n\n")
+        f.write(f"Split cutoff: {split_info['cutoff_date']}\n")
+        f.write(f"Total test samples: {split_info['total_samples']:,}\n\n")
+        
+        f.write("INTERPOLATION (BEFORE MAY 2024):\n")
+        f.write("-" * 35 + "\n")
+        f.write(f"Samples: {split_info['interpolation_samples']:,} ({split_info['interpolation_percentage']:.1f}%)\n")
+        f.write(f"Months: {', '.join(split_info['interpolation_months'])}\n")
+        if 'interpolation' in metrics_summary:
+            f.write("Key Metrics:\n")
+            for k, v in metrics_summary['interpolation'].items():
+                if any(metric in k.lower() for metric in ['mae', 'mse', 'rmse']):
+                    f.write(f"  {k}: {v:.4f}\n")
+        f.write("\n")
+        
+        f.write("EXTRAPOLATION (MAY 2024 AND LATER):\n")
+        f.write("-" * 38 + "\n")
+        f.write(f"Samples: {split_info['extrapolation_samples']:,} ({split_info['extrapolation_percentage']:.1f}%)\n")
+        f.write(f"Months: {', '.join(split_info['extrapolation_months'])}\n")
+        if 'extrapolation' in metrics_summary:
+            f.write("Key Metrics:\n")
+            for k, v in metrics_summary['extrapolation'].items():
+                if any(metric in k.lower() for metric in ['mae', 'mse', 'rmse']):
+                    f.write(f"  {k}: {v:.4f}\n")
+        f.write("\n")
+        
+        # Performance comparison if both subsets exist
+        if 'interpolation' in metrics_summary and 'extrapolation' in metrics_summary:
+            f.write("PERFORMANCE COMPARISON:\n")
+            f.write("-" * 25 + "\n")
+            for metric in ['MAE', 'MSE', 'RMSE']:
+                interpolation_key = f"interpolation_{metric}"
+                extrapolation_key = f"extrapolation_{metric}"
+                if interpolation_key in metrics_summary['interpolation'] and extrapolation_key in metrics_summary['extrapolation']:
+                    interpolation_val = metrics_summary['interpolation'][interpolation_key]
+                    extrapolation_val = metrics_summary['extrapolation'][extrapolation_key]
+                    diff = extrapolation_val - interpolation_val
+                    pct_change = (diff / interpolation_val) * 100 if interpolation_val != 0 else 0
+                    f.write(f"{metric}:\n")
+                    f.write(f"  Interpolation: {interpolation_val:.4f}\n")
+                    f.write(f"  Extrapolation: {extrapolation_val:.4f}\n")
+                    f.write(f"  Difference: {diff:+.4f} ({pct_change:+.1f}%)\n\n")
+    
+    return metrics_summary
 
 def find_experiment_directory(experiment_name, base_dir='experiments'):
     """Find the experiment directory that matches the generated name exactly."""
@@ -193,6 +383,46 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
         
     except Exception as e:
         logger.warning(f"Could not generate plots: {e}")
+    
+    # NEW: Temporal split analysis
+    try:
+        logger.info("Performing temporal split analysis...")
+        
+        # Simple split: May 2024 and later = extrapolation, everything before = interpolation
+        interpolation_df, extrapolation_df, split_info = split_test_data_by_date(test_df)
+        
+        # Calculate and save metrics for each subset
+        temporal_metrics = save_temporal_split_metrics(interpolation_df, extrapolation_df, split_info, experiment_dir)
+        
+        # Generate separate plots for each subset if they have sufficient data
+        if len(interpolation_df) > 1000:  # Minimum threshold for meaningful plots
+            try:
+                # plot_test_metrics automatically appends 'test_metrics', so we pass the base directory
+                interpolation_base_dir = os.path.join(experiment_dir, 'interpolation')
+                plot_test_metrics(interpolation_df, output_dir=interpolation_base_dir, 
+                                feature_registry=config.get('feature_registry'))
+                logger.info(f"Generated plots for interpolation data")
+            except Exception as e:
+                logger.warning(f"Could not generate plots for interpolation: {e}")
+        
+        if len(extrapolation_df) > 1000:  # Minimum threshold for meaningful plots
+            try:
+                # plot_test_metrics automatically appends 'test_metrics', so we pass the base directory
+                extrapolation_base_dir = os.path.join(experiment_dir, 'extrapolation')
+                plot_test_metrics(extrapolation_df, output_dir=extrapolation_base_dir,
+                                feature_registry=config.get('feature_registry'))
+                logger.info(f"Generated plots for extrapolation data")
+            except Exception as e:
+                logger.warning(f"Could not generate plots for extrapolation: {e}")
+        
+        # Log summary of temporal split
+        logger.info("Temporal split analysis completed:")
+        logger.info(f"  Total samples: {split_info['total_samples']:,}")
+        logger.info(f"  Interpolation: {split_info['interpolation_samples']:,} ({split_info['interpolation_percentage']:.1f}%)")
+        logger.info(f"  Extrapolation: {split_info['extrapolation_samples']:,} ({split_info['extrapolation_percentage']:.1f}%)")
+            
+    except Exception as e:
+        logger.warning(f"Temporal split analysis failed: {e}")
     
     return metrics, test_df
 

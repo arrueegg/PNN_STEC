@@ -519,6 +519,9 @@ def plot_histogram_of_residuals(df, output_dir):
 
 def plot_uncertainty_calibration(df, output_dir):
     """Create presentation-ready uncertainty calibration plots"""
+    # Ensure the uncertainty_analysis directory exists
+    ensure_dir(f'{output_dir}/uncertainty_analysis')
+    
     abs_residual = np.abs(df['target_stec'] - df['pred_stec'])
     
     # Hexagonal density plot with log scale
