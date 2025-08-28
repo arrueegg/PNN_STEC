@@ -992,7 +992,7 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
             if feature == 'target_stec':
                 plot_residuals_vs_feature_clipped(test_df, feature, num_bins=num_bins, 
                                                 output_dir=output_dir, bin_range_dict=bin_range_dict,
-                                                x_limits=None, y_limits=(-100, 100))
+                                                x_limits=(0.5,10.5), y_limits=(-50, 100))
 
     plot_prediction_scatter(test_df, output_dir)
     
