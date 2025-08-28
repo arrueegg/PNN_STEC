@@ -68,7 +68,7 @@ def plot_binned_boxplot(df, x_col, y_col, bins=20, output_dir='plots', bin_range
     
     # Create boxplot with better styling
     bp = ax.boxplot(box_data, labels=x_labels, showfliers=False, zorder=2,
-                   patch_artist=True, notch=True)
+                   patch_artist=True, notch=False)
     
     # Style the boxplot
     for patch in bp['boxes']:
@@ -97,7 +97,7 @@ def plot_binned_boxplot(df, x_col, y_col, bins=20, output_dir='plots', bin_range
 def get_scientific_label(column_name):
     """Convert column names to scientific presentation labels"""
     label_mapping = {
-        'target_stec': 'Ground Truth STEC [TECU]',
+        'target_stec': 'True STEC [TECU]',
         'pred_stec': 'Predicted STEC [TECU]',
         'residual': 'Residual [TECU]',
         'mae': 'Mean Absolute Error [TECU]',
@@ -135,6 +135,85 @@ def plot_residuals_vs_feature(df, feature, num_bins=24, output_dir='plots', bin_
     df = df.copy()
     df['residual'] = df['target_stec'] - df['pred_stec']
     plot_binned_boxplot(df, feature, 'residual', bins=num_bins, output_dir=output_dir, bin_range_dict=bin_range_dict)
+
+
+def plot_binned_boxplot_clipped(df, x_col, y_col, bins=20, output_dir='plots', bin_range_dict=None, 
+                               x_limits=None, y_limits=None, suffix='_clipped'):
+    """
+    Plots a boxplot of y_col values grouped by binned x_col intervals with axis clipping.
+    Allows feature-specific min/max binning through bin_range_dict.
+    
+    Args:
+        df: DataFrame with data
+        x_col: Column name for x-axis
+        y_col: Column name for y-axis  
+        bins: Number of bins
+        output_dir: Output directory
+        bin_range_dict: Dictionary with bin ranges
+        x_limits: Tuple (x_min, x_max) for x-axis limits
+        y_limits: Tuple (y_min, y_max) for y-axis limits
+        suffix: Suffix to add to filename
+    """
+    df = df.copy()
+
+    # Determine min and max from bin_range_dict if provided
+    if bin_range_dict and x_col in bin_range_dict:
+        min_val, max_val = bin_range_dict[x_col]
+        bin_edges = np.linspace(min_val, max_val, bins + 1)
+        df['x_bin'] = pd.cut(df[x_col], bins=bin_edges, include_lowest=True)
+    else:
+        df['x_bin'] = pd.cut(df[x_col], bins=bins)
+
+    grouped = df.groupby('x_bin')[y_col].apply(list)
+    box_data = [grouped[bin] for bin in grouped.index]
+    x_labels = [f"{(b.left):.0f}–{b.right:.0f}" for b in grouped.index]
+
+    fig, ax = plt.subplots(figsize=FIGSIZE_HISTOGRAM)
+    
+    # Add zero reference line
+    ax.axhline(y=0, color='red', linestyle='-', linewidth=2, zorder=1, alpha=0.8)
+    
+    # Create boxplot with better styling
+    bp = ax.boxplot(box_data, labels=x_labels, showfliers=False, zorder=2,
+                   patch_artist=True, notch=False)
+    
+    # Style the boxplot
+    for patch in bp['boxes']:
+        patch.set_facecolor('lightblue')
+        patch.set_alpha(0.7)
+    for element in ['whiskers', 'caps', 'medians']:
+        for item in bp[element]:
+            item.set_linewidth(2)
+    
+    # Apply axis limits if specified
+    if x_limits:
+        ax.set_xlim(x_limits)
+    if y_limits:
+        ax.set_ylim(y_limits)
+    
+    ax.tick_params(axis='x', rotation=45, labelsize=18)
+    
+    # Improved axis labels based on column names
+    x_label = get_scientific_label(x_col)
+    y_label = get_scientific_label(y_col)
+    
+    ax.set_xlabel(x_label, fontweight='bold')
+    ax.set_ylabel(y_label, fontweight='bold')
+    ax.set_title(f'{y_label} vs {x_label}', fontweight='bold', pad=20)
+    
+    plt.tight_layout()
+    filename = f'{output_dir}/{y_col}_vs_{x_col}_boxplot{suffix}.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_residuals_vs_feature_clipped(df, feature, num_bins=24, output_dir='plots', bin_range_dict=None,
+                                     x_limits=None, y_limits=None):
+    """Plot residuals vs any feature with axis clipping"""
+    df = df.copy()
+    df['residual'] = df['target_stec'] - df['pred_stec']
+    plot_binned_boxplot_clipped(df, feature, 'residual', bins=num_bins, output_dir=output_dir, 
+                               bin_range_dict=bin_range_dict, x_limits=x_limits, y_limits=y_limits)
 
 
 def plot_prediction_scatter(df, output_dir):
@@ -817,7 +896,7 @@ def plot_residuals_vs_date(df, output_dir='plots'):
     
     # Create boxplot with improved styling
     bp = ax.boxplot(box_data, labels=month_labels, showfliers=False, zorder=2,
-                   patch_artist=True, notch=True)
+                   patch_artist=True, notch=False)
     
     # Style the boxplot
     for patch in bp['boxes']:
@@ -889,6 +968,12 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
         if feature in available_features:
             plot_residuals_vs_feature(test_df, feature, num_bins=num_bins, 
                                     output_dir=output_dir, bin_range_dict=bin_range_dict)
+            
+            # Create clipped version for target_stec
+            if feature == 'target_stec':
+                plot_residuals_vs_feature_clipped(test_df, feature, num_bins=num_bins, 
+                                                output_dir=output_dir, bin_range_dict=bin_range_dict,
+                                                x_limits=None, y_limits=(-100, 100))
 
     plot_prediction_scatter(test_df, output_dir)
     

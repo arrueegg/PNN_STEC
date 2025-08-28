@@ -118,7 +118,9 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
     fig, ax = plt.subplots(figsize=(14, 8), subplot_kw={'projection': ccrs.PlateCarree()})
     
     # Add colorful stock image background
-    ax.stock_img()  # This gives the colorful satellite imagery background
+    ax.add_feature(cfeature.LAND, edgecolor='black', facecolor="#FFFFFF")
+    ax.add_feature(cfeature.OCEAN, facecolor="#ffffff")
+    ax.add_feature(cfeature.COASTLINE, edgecolor='black')  # Add coastlines
     
     # Add gridlines with better formatting
     gl = ax.gridlines(draw_labels=True, linewidth=0.8, color='gray', 
@@ -131,27 +133,20 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
     scatter_size = 35
     alpha = 1.0  # Fully opaque
     
-    # For dense areas, add slight random jitter to improve visibility
-    def add_jitter(lons, lats, jitter_amount=0.1):
-        """Add small random offset to coordinates for better visibility of overlapping points"""
-        jittered_lons = lons + np.random.normal(0, jitter_amount, len(lons))
-        jittered_lats = lats + np.random.normal(0, jitter_amount, len(lats))
-        return jittered_lons, jittered_lats
-    
     # Apply minimal jitter to help with overlapping stations
-    train_lon_j, train_lat_j = add_jitter(train_stations['lon'].values, train_stations['lat'].values)
-    val_lon_j, val_lat_j = add_jitter(val_stations['lon'].values, val_stations['lat'].values)
-    test_lon_j, test_lat_j = add_jitter(test_stations['lon'].values, test_stations['lat'].values)
-    
+    train_lon_j, train_lat_j = train_stations['lon'].values, train_stations['lat'].values
+    val_lon_j, val_lat_j = val_stations['lon'].values, val_stations['lat'].values
+    test_lon_j, test_lat_j = test_stations['lon'].values, test_stations['lat'].values
+
     # Use slightly darker colors for the perfect balance
     train_scatter = ax.scatter(train_lon_j, train_lat_j, 
-                              s=scatter_size, c="#0064d6ef", label='Training',  # Slightly darker red
+                              s=scatter_size, c="#215ACC", label='Training',  # Slightly darker red
                               zorder=3, alpha=alpha)
     val_scatter = ax.scatter(val_lon_j, val_lat_j, 
-                            s=scatter_size, c='#ff7f0e', label='Validation',  # Slightly darker green
+                            s=scatter_size, c="#5ACC21", label='Validation',  # Slightly darker green
                             zorder=4, alpha=alpha)
     test_scatter = ax.scatter(test_lon_j, test_lat_j, 
-                             s=scatter_size, c='#d62728', label='Test',  # Slightly darker blue
+                             s=scatter_size, c="#CC215A", label='Test',  # Slightly darker blue
                              zorder=5, alpha=alpha)
     
     # Add simplified title
@@ -181,9 +176,9 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
     
     # Set global extent
     ax.set_global()
-    
-    # Save with high quality
-    plt.savefig(output_file, bbox_inches='tight', dpi=300, facecolor='white')
+
+    # Save with high quality and transparent background
+    plt.savefig(output_file, bbox_inches='tight', dpi=300, transparent=True)
     plt.close()
     
     print(f"Station distribution map saved to: {output_file}")

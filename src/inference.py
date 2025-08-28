@@ -318,36 +318,20 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     model_type = config['model']['model_type']
     is_bayesian = 'BNN' in model_type
     
-    if is_bayesian:
-        # Use BaseTrainer's Bayesian inference method
-        num_samples = 100
-        bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
-            model, test_loader, num_samples=num_samples
-        )
-        
-        # Extract outputs and targets for metrics calculation
-        test_outputs = torch.stack([
-            bayesian_results['mean'],
-            bayesian_results['total_std']
-        ], dim=1)
-        test_targets = bayesian_results['targets']
-        
-    else:
-        # Use BaseTrainer's standard test method
-        test_outputs, test_targets = trainer.test_model(model, test_loader)
-        
-        # Create dataframe for plotting (simplified for non-Bayesian)
-        predictions = test_outputs[:, 0].numpy().flatten()
-        uncertainties = test_outputs[:, 1].numpy().flatten()
-        targets = test_targets.numpy().flatten()
-        
-        test_df = pd.DataFrame({
-            'target_stec': targets,
-            'pred_stec': predictions,
-            'pred_total_unc': uncertainties,
-            'pred_epistemic_unc': uncertainties * 0.1,  # Dummy values for non-Bayesian
-            'pred_aleatoric_unc': uncertainties * 0.9,
-        })
+    # Use Bayesian inference for both BNN and non-BNN models
+    # For non-BNN models, use num_samples=1 to get the same feature extraction
+    num_samples = 100 if is_bayesian else 1
+    
+    bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
+        model, test_loader, num_samples=num_samples
+    )
+    
+    # Extract outputs and targets for metrics calculation
+    test_outputs = torch.stack([
+        bayesian_results['mean'],
+        bayesian_results['total_std']
+    ], dim=1)
+    test_targets = bayesian_results['targets']
     
     # Calculate metrics
     metrics = calculate_metrics(test_outputs, test_targets, prefix="test")

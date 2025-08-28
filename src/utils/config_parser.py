@@ -85,6 +85,9 @@ def compute_exp_name(config: dict) -> str:
     subset_size = config['data'].get('train_subset_size', 500_000)
     use_swi = config['data'].get('use_SWI', False)
     log_target = config['training'].get('log_target', False)
+    target_weighting_config = config['training'].get('target_weighting', {})
+    target_weighting_enabled = target_weighting_config.get('enabled', False)
+    target_weighting_function = target_weighting_config.get('weight_function', 'linear')
     target = config.get('target', 'stec').upper()  # Add target type (STEC/VTEC)
     
     # Create abbreviated versions for cleaner names
@@ -109,14 +112,17 @@ def compute_exp_name(config: dict) -> str:
     else:
         subset_str = f"_sub{subset_size}"
     
-    # Only add SWI and log_target if they're enabled (non-default)
+    # Only add SWI, log_target and target_weighting if they're enabled (non-default)
     swi_str = "_SWI" if use_swi else ""
     log_str = "_logTgt" if log_target else ""
+    tw_str = f"_TW{target_weighting_function}" if target_weighting_enabled else ""
     
     if mode == 'finetune':
-        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
     elif mode == 'pretrain':
-        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}"
+        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
     
     return exp_name
 
