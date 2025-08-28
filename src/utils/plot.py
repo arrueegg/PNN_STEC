@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from matplotlib.colors import LogNorm
+from scipy.stats import pearsonr
+from sklearn.metrics import r2_score
 
 # Set presentation-ready matplotlib parameters
 plt.rcParams.update({
@@ -219,6 +221,10 @@ def plot_residuals_vs_feature_clipped(df, feature, num_bins=24, output_dir='plot
 def plot_prediction_scatter(df, output_dir):
     """Create comprehensive prediction scatter plots with improved presentation formatting"""
     
+    # Calculate Pearson correlation coefficient and coefficient of determination (R²)
+    r_value, p_value = pearsonr(df['target_stec'], df['pred_stec'])
+    r2_value = r2_score(df['target_stec'], df['pred_stec'])
+    
     # Create hexagonal density plot with logarithmic scaling
     fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
     
@@ -240,7 +246,11 @@ def plot_prediction_scatter(df, output_dir):
     cbar.set_label('Number of Points', fontweight='bold', rotation=270, labelpad=35)
     cbar.ax.tick_params(labelsize=16)
     
-    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    # Add legend with properly named scientific metrics
+    legend_elements = [plt.Line2D([0], [0], color='red', linewidth=3, label='Perfect Prediction'),
+                      plt.Line2D([0], [0], color='none', label=f'Pearson r = {r_value:.3f}'),
+                      plt.Line2D([0], [0], color='none', label=f'R² = {r2_value:.3f}')]
+    ax.legend(handles=legend_elements, loc='upper left', fontsize=14, framealpha=0.9)
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal')
     
@@ -272,7 +282,12 @@ def plot_prediction_scatter(df, output_dir):
     ax.set_ylabel('Predicted STEC [TECU]', fontweight='bold')
     ax.set_title('Predicted vs True STEC', fontweight='bold', pad=20)
     ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    
+    # Add legend with properly named scientific metrics
+    legend_elements = [plt.Line2D([0], [0], color='red', linewidth=3, label='Perfect Prediction'),
+                      plt.Line2D([0], [0], color='none', label=f'Pearson r = {r_value:.3f}'),
+                      plt.Line2D([0], [0], color='none', label=f'R² = {r2_value:.3f}')]
+    ax.legend(handles=legend_elements, loc='upper left', fontsize=14, framealpha=0.9)
 
     # keep colorbar from squeezing the square axes
     divider = make_axes_locatable(ax)
@@ -296,7 +311,11 @@ def plot_prediction_scatter(df, output_dir):
     ax.set_ylabel('Predicted STEC [TECU]', fontweight='bold')
     ax.set_title('Predicted vs True STEC', fontweight='bold', pad=20)
     
-    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+    # Add legend with properly named scientific metrics
+    legend_elements = [plt.Line2D([0], [0], color='red', linewidth=3, label='Perfect Prediction'),
+                      plt.Line2D([0], [0], color='none', label=f'Pearson r = {r_value:.3f}'),
+                      plt.Line2D([0], [0], color='none', label=f'R² = {r2_value:.3f}')]
+    ax.legend(handles=legend_elements, loc='upper left', fontsize=14, framealpha=0.9)
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal')
     
