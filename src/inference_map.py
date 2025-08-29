@@ -1,0 +1,700 @@
+#!/usr/bin/env python3
+"""
+Global Map Inference Script for PNN_STEC Project
+
+This script generates global STEC maps every hour for a specific date at fixed 
+(but modifiable) elevation and azimuth angles. It reuses existing components 
+from the codebase for consistent model loading and inference.
+
+Key Features:
+- Generates global grid of lat/lon points for inference
+- Fixed elevation and azimuth angles (configurable)
+- Hourly maps for a complete day (24 maps)
+- Reuses BaseTrainer for consistent inference
+- Saves results in the experiment folder of the model specified in config.yaml
+- Supports both Bayesian (BNN) and standard (MLP) neural network models
+
+Usage:
+    python src/inference_map.py --date 2024-05-15 --elevation 30.0 --azimuth 180.0
+
+Parameters:
+    --date: Date for map generation (YYYY-MM-DD format)
+    --elevation: Fixed elevation angle in degrees (default: 30.0)
+    --azimuth: Fixed azimuth angle in degrees (default: 180.0)
+    --lat_res: Latitude resolution in degrees (default: 2.5)
+    --lon_res: Longitude resolution in degrees (default: 5.0)
+
+Output:
+- Hourly numpy files (.npz) with global STEC predictions and metadata
+- Summary plots and statistics  
+- All saved to: experiments/<experiment_name>/global_maps/
+
+Note: This script uses numpy compressed files (.npz) for output. 
+To use NetCDF format, install netCDF4: pip install netCDF4
+"""
+
+import torch
+import numpy as np
+import pandas as pd
+import os
+import sys
+import argparse
+from datetime import datetime, timedelta
+from tqdm import tqdm
+import logging
+import h5py
+from pathlib import Path
+# Add the parent directory to sys.path to import project modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.config_parser import load_config, compute_exp_name
+from utils.feature_registry import initialize_feature_registry, FeatureType
+from utils.base_trainer import BaseTrainer
+from utils.data import CollateWithSH
+from model.model import get_model
+import matplotlib.pyplot as plt
+from utils.plot import FIGSIZE_WIDE
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+logger = logging.getLogger()
+
+try:
+    from spacepy import coordinates as coord
+    from spacepy.time import Ticktock
+    SPACEPY_AVAILABLE = True
+except ImportError:
+    SPACEPY_AVAILABLE = False
+    logger.warning("spacepy not available, will use geographic coordinates as placeholder")
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Generate global STEC maps")
+    parser.add_argument('--date', type=str, required=True,
+                       help='Date for map generation (YYYY-MM-DD format)')
+    parser.add_argument('--elevation', type=float, default=30.0,
+                       help='Fixed elevation angle in degrees (default: 30.0)')
+    parser.add_argument('--azimuth', type=float, default=180.0,
+                       help='Fixed azimuth angle in degrees (default: 180.0)')
+    parser.add_argument('--lat_res', type=float, default=2.5,
+                       help='Latitude resolution in degrees (default: 2.5)')
+    parser.add_argument('--lon_res', type=float, default=5.0,
+                       help='Longitude resolution in degrees (default: 5.0)')
+    parser.add_argument('--config_path', type=str, default='config/config.yaml',
+                       help='Path to config file (default: config/config.yaml)')
+    return parser.parse_args()
+
+def create_global_grid(lat_res=2.5, lon_res=5.0):
+    """
+    Create a global grid of latitude and longitude points.
+    
+    Args:
+        lat_res: Latitude resolution in degrees
+        lon_res: Longitude resolution in degrees
+    
+    Returns:
+        tuple: (lat_grid, lon_grid) as 2D arrays
+    """
+    # Create 1D arrays
+    lats = np.arange(-90, 90 + lat_res, lat_res)
+    lons = np.arange(-180, 180 + lon_res, lon_res)
+    
+    # Create 2D meshgrid
+    lon_grid, lat_grid = np.meshgrid(lons, lats)
+    
+    return lat_grid, lon_grid
+
+def load_swi_data(timestamp):
+    """
+    Load Space Weather Index (SWI) data for a given timestamp.
+    
+    Args:
+        timestamp: datetime object
+        
+    Returns:
+        dict: Dictionary with SWI feature values, or None if data not available
+    """
+    swi_file_path = "/home/space/data/IONO/SWI/omni_hourly_2010-2025.h5"
+    
+    if not Path(swi_file_path).exists():
+        logger.warning(f"SWI file not found at {swi_file_path}, using default values")
+        return None
+    
+    try:
+        with h5py.File(swi_file_path, 'r') as swi_file:
+            year = timestamp.year
+            doy = timestamp.timetuple().tm_yday
+            hour = timestamp.hour
+            
+            # Format DOY with 3 digits as in the data structure
+            doy3 = f"{doy:03d}"
+            
+            if str(year) not in swi_file:
+                logger.warning(f"Year {year} not found in SWI file")
+                return None
+                
+            if doy3 not in swi_file[str(year)]:
+                logger.warning(f"DOY {doy3} not found for year {year} in SWI file")
+                return None
+            
+            # Load the daily data (24 hours)
+            daily_data = swi_file[str(year)][doy3][:]
+            
+            if hour >= len(daily_data):
+                logger.warning(f"Hour {hour} not available for {year}-{doy3}")
+                return None
+            
+            # Get data for the specific hour
+            hourly_data = daily_data[hour]
+            
+            # Map to feature names based on the actual SWI features in feature_registry.py
+            # The order should match the data structure in the HDF5 file
+            swi_features = {
+                'Bartels_rotation_number': hourly_data[0] if len(hourly_data) > 0 else 0.0,
+                'Scalar_B,_nT': hourly_data[1] if len(hourly_data) > 1 else 0.0,
+                'Vector_B_Magnitude,nT': hourly_data[2] if len(hourly_data) > 2 else 0.0,
+                'Lat_Angle_of_B_GSE': hourly_data[3] if len(hourly_data) > 3 else 0.0,
+                'Long_Angle_of_B_GSE': hourly_data[4] if len(hourly_data) > 4 else 0.0,
+                'BZ,_nT_GSE': hourly_data[5] if len(hourly_data) > 5 else 0.0,
+                'BZ,_nT_GSM': hourly_data[6] if len(hourly_data) > 6 else 0.0,
+                'SW_Plasma_Speed,_km/s': hourly_data[7] if len(hourly_data) > 7 else 0.0,
+                'Flow_pressure': hourly_data[8] if len(hourly_data) > 8 else 0.0,
+                'E_electric_field': hourly_data[9] if len(hourly_data) > 9 else 0.0,
+                'Alfen_mach_number': hourly_data[10] if len(hourly_data) > 10 else 0.0,
+                'Kp_index': hourly_data[11] if len(hourly_data) > 11 else 0.0,
+                'R_Sunspot_No': hourly_data[12] if len(hourly_data) > 12 else 0.0,
+                'Dst-index,_nT': hourly_data[13] if len(hourly_data) > 13 else 0.0,
+                'AE-index,_nT': hourly_data[14] if len(hourly_data) > 14 else 0.0,
+                'ap_index,_nT': hourly_data[15] if len(hourly_data) > 15 else 0.0,
+                'f107_index': hourly_data[16] if len(hourly_data) > 16 else 0.0,
+                'pc-index': hourly_data[17] if len(hourly_data) > 17 else 0.0,
+                'AL-index,_nT': hourly_data[18] if len(hourly_data) > 18 else 0.0,
+                'AU-index,_nT': hourly_data[19] if len(hourly_data) > 19 else 0.0,
+                'Magnetosonic_Much_num': hourly_data[20] if len(hourly_data) > 20 else 0.0,
+                'Lyman_alpha': hourly_data[21] if len(hourly_data) > 21 else 0.0,
+            }
+            
+            logger.info(f"Loaded SWI data for {year}-{doy3} hour {hour}")
+            return swi_features
+            
+    except Exception as e:
+        logger.error(f"Error loading SWI data: {e}")
+        return None
+
+def calculate_ipp_coordinates(station_lat, station_lon, azimuth, elevation, ipp_height=450.0):
+    """
+    Calculate Ionospheric Pierce Point (IPP) coordinates.
+    
+    Args:
+        station_lat: Station latitude in degrees
+        station_lon: Station longitude in degrees  
+        azimuth: Satellite azimuth angle in degrees (0=North, 90=East)
+        elevation: Satellite elevation angle in degrees
+        ipp_height: IPP height in km (default: 450 km)
+        
+    Returns:
+        tuple: (ipp_lat, ipp_lon) in degrees
+    """
+    # Earth radius in km
+    RE = 6371.0
+    
+    # Convert to radians
+    lat_rad = np.deg2rad(station_lat)
+    lon_rad = np.deg2rad(station_lon)
+    az_rad = np.deg2rad(azimuth)
+    el_rad = np.deg2rad(elevation)
+    
+    # Calculate the central angle (psi) to the IPP
+    # Using thin shell approximation for ionosphere
+    sin_psi = (RE / (RE + ipp_height)) * np.cos(el_rad)
+    psi = np.arcsin(sin_psi)
+    
+    # Calculate IPP latitude
+    ipp_lat_rad = np.arcsin(np.sin(lat_rad) * np.cos(psi) + 
+                           np.cos(lat_rad) * np.sin(psi) * np.cos(az_rad))
+    
+    # Calculate IPP longitude
+    delta_lon = np.arcsin(np.sin(psi) * np.sin(az_rad) / np.cos(ipp_lat_rad))
+    ipp_lon_rad = lon_rad + delta_lon
+    
+    # Convert back to degrees
+    ipp_lat = np.rad2deg(ipp_lat_rad)
+    ipp_lon = np.rad2deg(ipp_lon_rad)
+    
+    # Normalize longitude to [-180, 180]
+    ipp_lon = ((ipp_lon + 180) % 360) - 180
+    
+    return ipp_lat, ipp_lon
+
+def coord_transform(input_type, output_type, lats, lons, epochs):
+    """
+    Transform coordinates using spacepy.
+    
+    Args:
+        input_type: Input coordinate system (e.g., 'GEO')
+        output_type: Output coordinate system (e.g., 'SM')
+        lats: Array of latitudes in degrees
+        lons: Array of longitudes in degrees
+        epochs: Array of datetime objects
+        
+    Returns:
+        Transformed coordinates object with .data attribute containing [[alt, lat, lon], ...]
+    """
+    if not SPACEPY_AVAILABLE:
+        return None
+        
+    try:
+        import numpy as np
+        coords = np.array([[1 + 450 / 6371, lat, lon] for lat, lon in zip(lats, lons)], dtype=np.float64)
+        geo_coords = coord.Coords(coords, input_type, 'sph')
+        geo_coords.ticks = Ticktock(epochs, 'UTC')
+        return geo_coords.convert(output_type, 'sph')
+    except Exception as e:
+        logger.warning(f"spacepy coordinate transformation failed: {e}")
+        return None
+
+def geographic_to_solar_magnetic(geo_lat, geo_lon, timestamp):
+    """
+    Convert geographic coordinates to solar magnetic coordinates using spacepy.
+    
+    Args:
+        geo_lat: Geographic latitude in degrees (scalar or array)
+        geo_lon: Geographic longitude in degrees (scalar or array)
+        timestamp: datetime object
+        
+    Returns:
+        tuple: (sm_lat, sm_lon) in degrees
+    """
+    if not SPACEPY_AVAILABLE:
+        logger.warning("spacepy not available, using geographic coordinates as solar magnetic placeholder")
+        if not hasattr(geo_lat, '__len__'):
+            return float(geo_lat), float(geo_lon)
+        else:
+            return geo_lat, geo_lon
+    
+    try:
+        # Handle scalar inputs
+        if not hasattr(geo_lat, '__len__'):
+            geo_lat = [geo_lat]
+            geo_lon = [geo_lon]
+            is_scalar = True
+        else:
+            is_scalar = False
+            
+        epochs = [timestamp] * len(geo_lat)
+        
+        # Transform coordinates
+        sm_coords = coord_transform('GEO', 'SM', geo_lat, geo_lon, epochs)
+        
+        if sm_coords is not None:
+            # Extract lat/lon from spacepy coords (format: [alt, lat, lon])
+            sm_lat = sm_coords.data[:, 1]  # latitude is second column
+            sm_lon = sm_coords.data[:, 2]  # longitude is third column
+            
+            if is_scalar:
+                return float(sm_lat[0]), float(sm_lon[0])
+            else:
+                return sm_lat, sm_lon
+        else:
+            # Fallback to geographic coordinates
+            logger.warning("Using geographic coordinates as solar magnetic placeholder")
+            if is_scalar:
+                return float(geo_lat[0]), float(geo_lon[0])
+            else:
+                return geo_lat, geo_lon
+                
+    except Exception as e:
+        logger.warning(f"Coordinate transformation failed: {e}, using geographic coordinates")
+        if not hasattr(geo_lat, '__len__'):
+            return float(geo_lat), float(geo_lon)
+        else:
+            return geo_lat, geo_lon
+
+def create_inference_data(date_str, hour, lat_grid, lon_grid, elevation, azimuth, config):
+    """
+    Create inference dataset for a specific hour and global grid using proper transformations.
+    
+    Args:
+        date_str: Date string in YYYY-MM-DD format
+        hour: Hour of day (0-23)
+        lat_grid: 2D array of latitudes
+        lon_grid: 2D array of longitudes  
+        elevation: Fixed elevation angle in degrees
+        azimuth: Fixed azimuth angle in degrees
+        config: Configuration dictionary
+    
+    Returns:
+        tuple: (torch.Tensor, grid_shape) - Feature tensor for inference and original grid shape
+    """
+    # Parse date
+    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+    timestamp = date_obj.replace(hour=hour)
+    year = date_obj.year
+    doy = date_obj.timetuple().tm_yday
+    sod = hour * 3600  # Convert hour to seconds of day
+    
+    # Flatten grids for vectorized operations
+    lat_flat = lat_grid.flatten()
+    lon_flat = lon_grid.flatten()
+    n_points = len(lat_flat)
+    
+    # Get feature registry
+    feature_registry = config.get('feature_registry')
+    if not feature_registry:
+        raise ValueError("Feature registry is required but not found in config")
+    
+    # Get enabled input features in the EXACT same order as training data
+    all_features = feature_registry.get_all_enabled_features()
+    target_features = feature_registry.get_features_by_type(FeatureType.TARGET)
+    target_feature = target_features[0] if target_features else 'stec'
+    
+    # Remove target from input features
+    input_features = [f for f in all_features if f != target_feature]
+    
+    # Load SWI data for this timestamp
+    swi_data_loaded = load_swi_data(timestamp)
+    
+    # Calculate all coordinate transformations once for efficiency
+    logger.info("Computing coordinate transformations for all grid points...")
+    
+    # Calculate IPP coordinates for all points
+    ipp_lats = []
+    ipp_lons = []
+    for i in range(n_points):
+        ipp_lat, ipp_lon = calculate_ipp_coordinates(lat_flat[i], lon_flat[i], azimuth, elevation)
+        ipp_lats.append(ipp_lat)
+        ipp_lons.append(ipp_lon)
+    
+    ipp_lats = np.array(ipp_lats)
+    ipp_lons = np.array(ipp_lons)
+    
+    # Transform station coordinates to solar magnetic (vectorized)
+    sm_lat_sta, sm_lon_sta = geographic_to_solar_magnetic(lat_flat, lon_flat, timestamp)
+    
+    # Transform IPP coordinates to solar magnetic (vectorized) 
+    sm_lat_ipp, sm_lon_ipp = geographic_to_solar_magnetic(ipp_lats, ipp_lons, timestamp)
+    
+    # Ensure we have arrays, not scalars
+    if not hasattr(sm_lat_sta, '__len__'):
+        sm_lat_sta = np.full(n_points, sm_lat_sta)
+        sm_lon_sta = np.full(n_points, sm_lon_sta)
+    if not hasattr(sm_lat_ipp, '__len__'):
+        sm_lat_ipp = np.full(n_points, sm_lat_ipp)
+        sm_lon_ipp = np.full(n_points, sm_lon_ipp)
+    
+    # Create raw feature vectors in the EXACT order used during training
+    logger.info("Creating feature vectors...")
+    feature_vectors = []
+    
+    for i in range(n_points):
+        feature_vector = []
+        
+        # Build feature vector in the order expected by the model
+        # This order MUST match the training data order exactly
+        for feature_name in input_features:
+            # Skip SWI features for now, they'll be added at the end
+            if feature_name in feature_registry.get_features_by_type(FeatureType.SWI):
+                continue
+                
+            if feature_name == 'year':
+                value = float(year)
+            elif feature_name == 'doy':
+                value = float(doy)
+            elif feature_name == 'sod':
+                value = float(sod)
+            elif feature_name == 'lat_ipp':
+                value = float(ipp_lats[i])
+            elif feature_name == 'lon_ipp':
+                value = float(ipp_lons[i])
+            elif feature_name == 'sm_lat_ipp':
+                value = float(sm_lat_ipp[i])
+            elif feature_name == 'sm_lon_ipp':
+                value = float(sm_lon_ipp[i])
+            elif feature_name == 'satazi':
+                value = float(azimuth)
+            elif feature_name == 'satele':
+                value = float(elevation)
+            elif feature_name == 'lat_sta':
+                value = float(lat_flat[i])
+            elif feature_name == 'lon_sta':
+                value = float(lon_flat[i])
+            elif feature_name == 'sm_lat_sta':
+                value = float(sm_lat_sta[i])
+            elif feature_name == 'sm_lon_sta':
+                value = float(sm_lon_sta[i])
+            else:
+                logger.warning(f"Unknown non-SWI feature {feature_name}, using default value 0.0")
+                value = 0.0
+            
+            feature_vector.append(value)
+        
+        # Add SWI features at the end (they're concatenated after main features in training)
+        swi_features = feature_registry.get_features_by_type(FeatureType.SWI)
+        for feature_name in swi_features:
+            if swi_data_loaded is not None and feature_name in swi_data_loaded:
+                value = float(swi_data_loaded[feature_name])
+            else:
+                value = 0.0  # Default value for SWI features
+                if swi_data_loaded is None and i == 0:  # Only log once
+                    logger.warning(f"Using default value for SWI feature {feature_name} (no SWI data loaded)")
+            feature_vector.append(value)
+        
+        feature_vectors.append(feature_vector)
+    
+    # Convert to tensor (raw features)
+    raw_features = torch.tensor(feature_vectors, dtype=torch.float32)
+    
+    logger.info(f"Created raw feature tensor with shape: {raw_features.shape}")
+    logger.info(f"Number of input features: {len(input_features)}")
+    
+    # Create CollateWithSH instance to apply transformations
+    collate_fn = CollateWithSH(config)
+    
+    # Apply transformations by creating a dummy batch
+    # We need to create (features, labels) pairs even though we don't use labels
+    dummy_labels = torch.zeros(n_points, 1)  # Dummy labels
+    batch_data = [(raw_features[i], dummy_labels[i]) for i in range(n_points)]
+    
+    # Apply transformations
+    transformed_features, _ = collate_fn(batch_data)
+    
+    logger.info(f"Transformed feature tensor shape: {transformed_features.shape}")
+    
+    return transformed_features, lat_grid.shape
+
+def run_model_inference(model, features, config, batch_size=10000):
+    """
+    Run model inference on features in batches.
+    
+    Args:
+        model: Trained model
+        features: Input features tensor
+        config: Configuration dictionary
+        batch_size: Batch size for inference
+    
+    Returns:
+        tuple: (predictions, uncertainties) if Bayesian, else (predictions, None)
+    """
+    model.eval()
+    device = next(model.parameters()).device
+    
+    # Determine if model is Bayesian
+    model_type = config['model']['model_type']
+    is_bayesian = 'BNN' in model_type
+    
+    all_predictions = []
+    all_uncertainties = [] if is_bayesian else None
+    
+    n_samples = features.shape[0]
+    n_batches = (n_samples + batch_size - 1) // batch_size
+    
+    logger.info(f"Running inference on {n_samples} points in {n_batches} batches")
+    
+    with torch.no_grad():
+        for i in tqdm(range(0, n_samples, batch_size), desc="Inference"):
+            batch_features = features[i:i+batch_size].to(device)
+            
+            if is_bayesian:
+                # For Bayesian models, run multiple forward passes
+                num_samples = 100
+                batch_preds = []
+                
+                for _ in range(num_samples):
+                    output = model(batch_features)
+                    if isinstance(output, tuple):
+                        pred = output[0]  # Mean prediction
+                    else:
+                        pred = output
+                    batch_preds.append(pred.cpu())
+                
+                # Calculate mean and uncertainty
+                batch_preds = torch.stack(batch_preds)
+                mean_pred = torch.mean(batch_preds, dim=0)
+                std_pred = torch.std(batch_preds, dim=0)
+                
+                all_predictions.append(mean_pred)
+                all_uncertainties.append(std_pred)
+            else:
+                # For standard models, single forward pass
+                output = model(batch_features)
+                if isinstance(output, tuple):
+                    pred = output[0]  # Mean prediction
+                else:
+                    pred = output
+                all_predictions.append(pred.cpu())
+    
+    # Concatenate all batches
+    predictions = torch.cat(all_predictions, dim=0)
+    uncertainties = torch.cat(all_uncertainties, dim=0) if is_bayesian else None
+    
+    return predictions, uncertainties
+
+def save_hourly_plot(lat_grid, lon_grid, stec_map, uncertainty_map,
+                     output_path, date_str, hour, elevation, azimuth):
+    """
+    Save individual hourly STEC map as PNG file.
+    
+    Args:
+        lat_grid: 2D latitude grid
+        lon_grid: 2D longitude grid
+        stec_map: 2D STEC prediction array
+        uncertainty_map: 2D uncertainty array (can be None)
+        output_path: Base path to save files (without extension)
+        date_str: Date string
+        hour: Hour of day
+        elevation: Elevation angle
+        azimuth: Azimuth angle
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    # Create the plot
+    im = ax.pcolormesh(lon_grid, lat_grid, stec_map, 
+                      cmap='viridis', shading='auto')
+    
+    # Customize the plot
+    ax.set_title(f'Global STEC Map - {date_str} {hour:02d}:00 UTC\n'
+                f'Elevation: {elevation}°, Azimuth: {azimuth}°', 
+                fontsize=14, pad=20)
+    ax.set_xlabel('Longitude [°]', fontsize=12)
+    ax.set_ylabel('Latitude [°]', fontsize=12)
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-90, 90)
+    ax.grid(True, alpha=0.3)
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label('STEC [TECU]', rotation=270, labelpad=20, fontsize=12)
+    
+    # Add statistics text
+    stats_text = f'Min: {np.nanmin(stec_map):.1f} TECU\n' \
+                f'Max: {np.nanmax(stec_map):.1f} TECU\n' \
+                f'Mean: {np.nanmean(stec_map):.1f} TECU'
+    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+            verticalalignment='top', bbox=dict(boxstyle='round', 
+            facecolor='wheat', alpha=0.8), fontsize=10)
+    
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(f"{output_path}.png", dpi=150, bbox_inches='tight')
+    plt.close()
+
+def find_experiment_directory(experiment_name, base_dir='experiments'):
+    """Find the experiment directory that matches the given name."""
+    if not os.path.exists(base_dir):
+        raise FileNotFoundError(f"Base directory {base_dir} does not exist")
+    
+    # Look for exact match first
+    exact_path = os.path.join(base_dir, experiment_name)
+    if os.path.exists(exact_path):
+        return exact_path
+    
+    # If no exact match, look for partial matches
+    matches = []
+    for item in os.listdir(base_dir):
+        item_path = os.path.join(base_dir, item)
+        if os.path.isdir(item_path) and experiment_name in item:
+            matches.append(item_path)
+    
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        raise ValueError(f"Multiple experiment directories match '{experiment_name}': {matches}")
+    else:
+        raise FileNotFoundError(f"No experiment directory found matching '{experiment_name}'")
+
+def find_model_checkpoint(experiment_dir):
+    """Find the model checkpoint in the experiment directory."""
+    model_dir = os.path.join(experiment_dir, 'model')
+    if not os.path.exists(model_dir):
+        raise FileNotFoundError(f"Model directory not found: {model_dir}")
+    
+    # Look for .pth files
+    pth_files = [f for f in os.listdir(model_dir) if f.endswith('.pth')]
+    
+    if len(pth_files) == 0:
+        raise FileNotFoundError(f"No model checkpoint (.pth) files found in {model_dir}")
+    elif len(pth_files) == 1:
+        return os.path.join(model_dir, pth_files[0])
+    else:
+        # If multiple, prefer the one with 'pretrain' in the name
+        pretrain_files = [f for f in pth_files if 'pretrain' in f.lower()]
+        if pretrain_files:
+            return os.path.join(model_dir, pretrain_files[0])
+        else:
+            return os.path.join(model_dir, pth_files[0])
+
+def main():
+    """Main function to generate global STEC maps."""
+    # Parse arguments
+    args = parse_args()
+    
+    # Load config
+    config = load_config(args.config_path)
+    config['device'] = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Initialize feature registry and add it to config
+    feature_registry = initialize_feature_registry(config)
+    config['feature_registry'] = feature_registry
+    
+    # Determine experiment name
+    experiment_name = compute_exp_name(config)
+    logger.info(f"Using experiment: {experiment_name}")
+    
+    # Find experiment directory
+    experiment_dir = find_experiment_directory(experiment_name)
+    logger.info(f"Found experiment directory: {experiment_dir}")
+    
+    # Find model checkpoint
+    checkpoint_path = find_model_checkpoint(experiment_dir)
+    logger.info(f"Found checkpoint: {checkpoint_path}")
+    
+    # Create output directory with date subfolder
+    output_dir = os.path.join(experiment_dir, 'global_maps', args.date)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create global grid
+    logger.info(f"Creating global grid with resolution {args.lat_res}° x {args.lon_res}°")
+    lat_grid, lon_grid = create_global_grid(args.lat_res, args.lon_res)
+    logger.info(f"Grid shape: {lat_grid.shape}")
+    
+    # Load model
+    logger.info("Loading model...")
+    model = get_model(config).to(config['device'])
+    checkpoint = torch.load(checkpoint_path, map_location=config['device'], weights_only=True)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+    
+    # Generate maps for each hour
+    logger.info(f"Generating maps for {args.date}")
+    hours = list(range(24))
+    
+    for hour in hours:
+        logger.info(f"Processing hour {hour:02d}:00 UTC")
+        
+        # Create inference data
+        features, grid_shape = create_inference_data(
+            args.date, hour, lat_grid, lon_grid, 
+            args.elevation, args.azimuth, config
+        )
+        
+        # Run inference
+        predictions, uncertainties = run_model_inference(model, features, config)
+        
+        # Reshape to grid
+        stec_map = predictions.squeeze().numpy().reshape(grid_shape)
+        uncertainty_map = uncertainties.squeeze().numpy().reshape(grid_shape) if uncertainties is not None else None
+        
+        # Save hourly plot
+        base_filename = f'stec_map_{args.date}_{hour:02d}00'
+        base_path = os.path.join(output_dir, base_filename)
+        save_hourly_plot(lat_grid, lon_grid, stec_map, uncertainty_map,
+                        base_path, args.date, hour, args.elevation, args.azimuth)
+        
+        logger.info(f"Saved {base_filename}.png (STEC range: {np.nanmin(stec_map):.2f} - {np.nanmax(stec_map):.2f} TECU)")
+    
+    logger.info(f"Global map generation complete!")
+    logger.info(f"Output saved to: {output_dir}")
+    logger.info(f"Generated {len(hours)} hourly map plots")
+
+if __name__ == "__main__":
+    main()
