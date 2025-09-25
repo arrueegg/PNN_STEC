@@ -792,7 +792,7 @@ def get_data_loaders(config, logger=None):
             elif train_subset and train_subset < len(ds):
                 # IMPORTANT: num_samples needs replacement=True
                 g = torch.Generator().manual_seed(seed)  # re-seed per epoch in your train loop if desired
-                sampler = RandomSampler(ds, replacement=True, num_samples=train_subset, generator=g)
+                sampler = RandomSampler(ds, replacement=False, num_samples=train_subset, generator=g)
                 shuffle = False
             else:
                 sampler = None
