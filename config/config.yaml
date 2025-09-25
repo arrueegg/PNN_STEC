@@ -19,10 +19,10 @@ timing_config:
 target: "stec" # stec or vtec
 
 data:
-  GNSS_data_path: "/home/space/data/IONO/STEC_DB_CASDCB"
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
   use_agg_h5: True
   scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
-  SWI_data_path: "/home/space/data/IONO/SWI/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
   move_to_scratch: True # Whether to move data to scratch for faster access
   every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data

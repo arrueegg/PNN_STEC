@@ -14,6 +14,26 @@ import warnings
 from datetime import datetime, timedelta
 warnings.filterwarnings("ignore")
 
+class EpochRandomSampler(RandomSampler):
+    """
+    RandomSampler that re-seeds itself each epoch to ensure different data sampling.
+    """
+    def __init__(self, data_source, replacement=False, num_samples=None, base_seed=42):
+        # Initialize with a temporary generator
+        temp_generator = torch.Generator().manual_seed(base_seed)
+        super().__init__(data_source, replacement, num_samples, temp_generator)
+        self.base_seed = base_seed
+        self.epoch = 0
+    
+    def __iter__(self):
+        # Re-seed the generator with base_seed + epoch for each epoch
+        self.generator.manual_seed(self.base_seed + self.epoch)
+        return super().__iter__()
+    
+    def set_epoch(self, epoch):
+        """Call this method at the beginning of each epoch"""
+        self.epoch = epoch
+
 torch.multiprocessing.set_start_method('fork', force=True)
 
 class H5Dataset(Dataset):
@@ -790,9 +810,8 @@ def get_data_loaders(config, logger=None):
                 shuffle = False
             # Regular training mode
             elif train_subset and train_subset < len(ds):
-                # IMPORTANT: num_samples needs replacement=True
-                g = torch.Generator().manual_seed(seed)  # re-seed per epoch in your train loop if desired
-                sampler = RandomSampler(ds, replacement=False, num_samples=train_subset, generator=g)
+                # Use custom sampler that re-seeds each epoch for different data sampling without replacement
+                sampler = EpochRandomSampler(ds, replacement=False, num_samples=train_subset, base_seed=seed)
                 shuffle = False
             else:
                 sampler = None

@@ -53,7 +53,10 @@ from utils.base_trainer import BaseTrainer
 from utils.data import CollateWithSH
 from model.model import get_model
 import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 from utils.plot import FIGSIZE_WIDE
+from PIL import Image
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -70,21 +73,27 @@ except ImportError:
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Generate global STEC maps")
-    parser.add_argument('--date', type=str, required=True,
+    parser.add_argument('--date', type=str, default='2024-07-01',
                        help='Date for map generation (YYYY-MM-DD format)')
-    parser.add_argument('--elevation', type=float, default=30.0,
-                       help='Fixed elevation angle in degrees (default: 30.0)')
+    parser.add_argument('--elevation', type=float, default=90.0,
+                       help='Fixed elevation angle in degrees (default: 90.0)')
     parser.add_argument('--azimuth', type=float, default=180.0,
                        help='Fixed azimuth angle in degrees (default: 180.0)')
-    parser.add_argument('--lat_res', type=float, default=2.5,
-                       help='Latitude resolution in degrees (default: 2.5)')
-    parser.add_argument('--lon_res', type=float, default=5.0,
-                       help='Longitude resolution in degrees (default: 5.0)')
+    parser.add_argument('--lat_res', type=float, default=1.0,
+                       help='Latitude resolution in degrees (default: 1.0)')
+    parser.add_argument('--lon_res', type=float, default=1.0,
+                       help='Longitude resolution in degrees (default: 1.0)')
     parser.add_argument('--config_path', type=str, default='config/config.yaml',
                        help='Path to config file (default: config/config.yaml)')
+    parser.add_argument('--create_gif', action='store_true', default=True,
+                       help='Create a GIF animation from all hourly maps')
+    parser.add_argument('--vmin', type=float, default=0,
+                       help='Minimum value for STEC colorscale (default: 0)')
+    parser.add_argument('--vmax', type=float, default=80,
+                       help='Maximum value for STEC colorscale (default: 80)')
     return parser.parse_args()
 
-def create_global_grid(lat_res=2.5, lon_res=5.0):
+def create_global_grid(lat_res=1.0, lon_res=1.0):
     """
     Create a global grid of latitude and longitude points.
     
@@ -147,34 +156,33 @@ def load_swi_data(timestamp):
             # Get data for the specific hour
             hourly_data = daily_data[hour]
             
-            # Map to feature names based on the actual SWI features in feature_registry.py
-            # The order should match the data structure in the HDF5 file
+            # Skip YEAR, DOY, HR columns (first 3) and map correctly to feature names
+            # Based on the actual column structure in the HDF5 file
             swi_features = {
-                'Bartels_rotation_number': hourly_data[0] if len(hourly_data) > 0 else 0.0,
-                'Scalar_B,_nT': hourly_data[1] if len(hourly_data) > 1 else 0.0,
-                'Vector_B_Magnitude,nT': hourly_data[2] if len(hourly_data) > 2 else 0.0,
-                'Lat_Angle_of_B_GSE': hourly_data[3] if len(hourly_data) > 3 else 0.0,
-                'Long_Angle_of_B_GSE': hourly_data[4] if len(hourly_data) > 4 else 0.0,
-                'BZ,_nT_GSE': hourly_data[5] if len(hourly_data) > 5 else 0.0,
-                'BZ,_nT_GSM': hourly_data[6] if len(hourly_data) > 6 else 0.0,
-                'SW_Plasma_Speed,_km/s': hourly_data[7] if len(hourly_data) > 7 else 0.0,
-                'Flow_pressure': hourly_data[8] if len(hourly_data) > 8 else 0.0,
-                'E_electric_field': hourly_data[9] if len(hourly_data) > 9 else 0.0,
-                'Alfen_mach_number': hourly_data[10] if len(hourly_data) > 10 else 0.0,
-                'Kp_index': hourly_data[11] if len(hourly_data) > 11 else 0.0,
-                'R_Sunspot_No': hourly_data[12] if len(hourly_data) > 12 else 0.0,
-                'Dst-index,_nT': hourly_data[13] if len(hourly_data) > 13 else 0.0,
-                'AE-index,_nT': hourly_data[14] if len(hourly_data) > 14 else 0.0,
-                'ap_index,_nT': hourly_data[15] if len(hourly_data) > 15 else 0.0,
-                'f107_index': hourly_data[16] if len(hourly_data) > 16 else 0.0,
-                'pc-index': hourly_data[17] if len(hourly_data) > 17 else 0.0,
-                'AL-index,_nT': hourly_data[18] if len(hourly_data) > 18 else 0.0,
-                'AU-index,_nT': hourly_data[19] if len(hourly_data) > 19 else 0.0,
-                'Magnetosonic_Much_num': hourly_data[20] if len(hourly_data) > 20 else 0.0,
-                'Lyman_alpha': hourly_data[21] if len(hourly_data) > 21 else 0.0,
+                'Bartels_rotation_number': hourly_data[3] if len(hourly_data) > 3 else 0.0,
+                'Scalar_B,_nT': hourly_data[4] if len(hourly_data) > 4 else 0.0,
+                'Vector_B_Magnitude,nT': hourly_data[5] if len(hourly_data) > 5 else 0.0,
+                'Lat_Angle_of_B_GSE': hourly_data[6] if len(hourly_data) > 6 else 0.0,
+                'Long_Angle_of_B_GSE': hourly_data[7] if len(hourly_data) > 7 else 0.0,
+                'BZ,_nT_GSE': hourly_data[8] if len(hourly_data) > 8 else 0.0,
+                'BZ,_nT_GSM': hourly_data[9] if len(hourly_data) > 9 else 0.0,
+                'SW_Plasma_Speed,_km/s': hourly_data[10] if len(hourly_data) > 10 else 0.0,
+                'Flow_pressure': hourly_data[11] if len(hourly_data) > 11 else 0.0,
+                'E_electric_field': hourly_data[12] if len(hourly_data) > 12 else 0.0,  # Note: file has typo 'E_elecrtric_field'
+                'Alfen_mach_number': hourly_data[13] if len(hourly_data) > 13 else 0.0,
+                'Kp_index': hourly_data[14] if len(hourly_data) > 14 else 0.0,
+                'R_Sunspot_No': hourly_data[15] if len(hourly_data) > 15 else 0.0,
+                'Dst-index,_nT': hourly_data[16] if len(hourly_data) > 16 else 0.0,
+                'AE-index,_nT': hourly_data[17] if len(hourly_data) > 17 else 0.0,
+                'ap_index,_nT': hourly_data[18] if len(hourly_data) > 18 else 0.0,
+                'f107_index': hourly_data[19] if len(hourly_data) > 19 else 0.0,
+                'pc-index': hourly_data[20] if len(hourly_data) > 20 else 0.0,
+                'AL-index,_nT': hourly_data[21] if len(hourly_data) > 21 else 0.0,
+                'AU-index,_nT': hourly_data[22] if len(hourly_data) > 22 else 0.0,
+                'Magnetosonic_Much_num': hourly_data[23] if len(hourly_data) > 23 else 0.0,
+                'Lyman_alpha': hourly_data[24] if len(hourly_data) > 24 else 0.0,
             }
             
-            logger.info(f"Loaded SWI data for {year}-{doy3} hour {hour}")
             return swi_features
             
     except Exception as e:
@@ -312,7 +320,7 @@ def geographic_to_solar_magnetic(geo_lat, geo_lon, timestamp):
 
 def create_inference_data(date_str, hour, lat_grid, lon_grid, elevation, azimuth, config):
     """
-    Create inference dataset for a specific hour and global grid using proper transformations.
+    Create inference dataset for a specific hour and global grid using CollateWithSH directly.
     
     Args:
         date_str: Date string in YYYY-MM-DD format
@@ -355,7 +363,7 @@ def create_inference_data(date_str, hour, lat_grid, lon_grid, elevation, azimuth
     swi_data_loaded = load_swi_data(timestamp)
     
     # Calculate all coordinate transformations once for efficiency
-    logger.info("Computing coordinate transformations for all grid points...")
+    logger.info("Processing global grid...")
     
     # Calculate IPP coordinates for all points
     ipp_lats = []
@@ -383,7 +391,6 @@ def create_inference_data(date_str, hour, lat_grid, lon_grid, elevation, azimuth
         sm_lon_ipp = np.full(n_points, sm_lon_ipp)
     
     # Create raw feature vectors in the EXACT order used during training
-    logger.info("Creating feature vectors...")
     feature_vectors = []
     
     for i in range(n_points):
@@ -444,27 +451,22 @@ def create_inference_data(date_str, hour, lat_grid, lon_grid, elevation, azimuth
     # Convert to tensor (raw features)
     raw_features = torch.tensor(feature_vectors, dtype=torch.float32)
     
-    logger.info(f"Created raw feature tensor with shape: {raw_features.shape}")
-    logger.info(f"Number of input features: {len(input_features)}")
-    
-    # Create CollateWithSH instance to apply transformations
+    # Create CollateWithSH instance to apply transformations exactly like in training
     collate_fn = CollateWithSH(config)
     
     # Apply transformations by creating a dummy batch
-    # We need to create (features, labels) pairs even though we don't use labels
+    # CollateWithSH expects a list of (features, labels) tuples
     dummy_labels = torch.zeros(n_points, 1)  # Dummy labels
     batch_data = [(raw_features[i], dummy_labels[i]) for i in range(n_points)]
     
     # Apply transformations
     transformed_features, _ = collate_fn(batch_data)
     
-    logger.info(f"Transformed feature tensor shape: {transformed_features.shape}")
-    
     return transformed_features, lat_grid.shape
 
 def run_model_inference(model, features, config, batch_size=10000):
     """
-    Run model inference on features in batches.
+    Run model inference on features in batches with proper target denormalization.
     
     Args:
         model: Trained model
@@ -478,6 +480,13 @@ def run_model_inference(model, features, config, batch_size=10000):
     model.eval()
     device = next(model.parameters()).device
     
+    # Get training configuration
+    use_log_target = config['training'].get('log_target', False)
+    use_target_standardization = config['training'].get('standardize_targets', False)
+    feature_registry = config.get('feature_registry')
+    target_name = config.get('target', 'stec')
+    eps = 1e-6
+    
     # Determine if model is Bayesian
     model_type = config['model']['model_type']
     is_bayesian = 'BNN' in model_type
@@ -487,8 +496,6 @@ def run_model_inference(model, features, config, batch_size=10000):
     
     n_samples = features.shape[0]
     n_batches = (n_samples + batch_size - 1) // batch_size
-    
-    logger.info(f"Running inference on {n_samples} points in {n_batches} batches")
     
     with torch.no_grad():
         for i in tqdm(range(0, n_samples, batch_size), desc="Inference"):
@@ -502,10 +509,18 @@ def run_model_inference(model, features, config, batch_size=10000):
                 for _ in range(num_samples):
                     output = model(batch_features)
                     if isinstance(output, tuple):
-                        pred = output[0]  # Mean prediction
+                        pred_mean_raw, pred_var_raw = output[0], output[1]
                     else:
-                        pred = output
-                    batch_preds.append(pred.cpu())
+                        pred_mean_raw = output
+                        pred_var_raw = torch.zeros_like(pred_mean_raw)
+                    
+                    # Apply transformations back to original space
+                    pred_linear = apply_model_output_transforms(
+                        pred_mean_raw.flatten(), pred_var_raw.flatten(), 
+                        use_log_target, use_target_standardization, 
+                        feature_registry, target_name, eps
+                    )
+                    batch_preds.append(pred_linear.cpu())
                 
                 # Calculate mean and uncertainty
                 batch_preds = torch.stack(batch_preds)
@@ -518,10 +533,19 @@ def run_model_inference(model, features, config, batch_size=10000):
                 # For standard models, single forward pass
                 output = model(batch_features)
                 if isinstance(output, tuple):
-                    pred = output[0]  # Mean prediction
+                    pred_mean_raw, pred_var_raw = output[0], output[1]
                 else:
-                    pred = output
-                all_predictions.append(pred.cpu())
+                    pred_mean_raw = output
+                    pred_var_raw = torch.zeros_like(pred_mean_raw)
+                
+                # Apply transformations back to original space
+                pred_linear = apply_model_output_transforms(
+                    pred_mean_raw.flatten(), pred_var_raw.flatten(),
+                    use_log_target, use_target_standardization,
+                    feature_registry, target_name, eps
+                )
+                
+                all_predictions.append(pred_linear.cpu())
     
     # Concatenate all batches
     predictions = torch.cat(all_predictions, dim=0)
@@ -529,10 +553,46 @@ def run_model_inference(model, features, config, batch_size=10000):
     
     return predictions, uncertainties
 
-def save_hourly_plot(lat_grid, lon_grid, stec_map, uncertainty_map,
-                     output_path, date_str, hour, elevation, azimuth):
+def apply_model_output_transforms(pred_mean_raw, pred_var_raw, use_log_target, 
+                                use_target_standardization, feature_registry, 
+                                target_name, eps):
     """
-    Save individual hourly STEC map as PNG file.
+    Apply the inverse of training transformations to get predictions in original scale.
+    
+    Args:
+        pred_mean_raw: Raw model output for mean
+        pred_var_raw: Raw model output for variance
+        use_log_target: Whether log-space training was used
+        use_target_standardization: Whether target standardization was used
+        feature_registry: Feature registry for denormalization
+        target_name: Name of target variable
+        eps: Small constant for numerical stability
+        
+    Returns:
+        Predictions in original scale
+    """
+    if use_log_target:
+        # Convert from log-space to linear space
+        # Apply log-normal transformation
+        point_standardized = torch.exp(pred_mean_raw + 0.5 * pred_var_raw) - eps
+    else:
+        # Already in linear space
+        point_standardized = pred_mean_raw
+    
+    # Apply target denormalization if standardization was used during training
+    if use_target_standardization and feature_registry:
+        normalization_params = feature_registry.get_normalization_params(target_name)
+        if normalization_params:
+            min_val, max_val = normalization_params
+            scale_factor = max_val - min_val
+            point_original = point_standardized * scale_factor + min_val
+            return point_original
+    return point_standardized
+
+def save_hourly_plot(lat_grid, lon_grid, stec_map, uncertainty_map,
+                     output_path, date_str, hour, elevation, azimuth, vmin=0, vmax=80):
+    """
+    Save individual hourly STEC map as PNG file with GIM-style formatting.
     
     Args:
         lat_grid: 2D latitude grid
@@ -544,39 +604,80 @@ def save_hourly_plot(lat_grid, lon_grid, stec_map, uncertainty_map,
         hour: Hour of day
         elevation: Elevation angle
         azimuth: Azimuth angle
+        vmin: Minimum value for colorscale
+        vmax: Maximum value for colorscale
     """
-    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    # Create figure with cartographic projection matching GIM style
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6), 
+                          subplot_kw={'projection': ccrs.PlateCarree()})
     
-    # Create the plot
+    # Create the STEC map plot with fixed colorscale
     im = ax.pcolormesh(lon_grid, lat_grid, stec_map, 
-                      cmap='viridis', shading='auto')
+                      cmap='gist_heat', shading='auto',
+                      transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax)
     
-    # Customize the plot
-    ax.set_title(f'Global STEC Map - {date_str} {hour:02d}:00 UTC\n'
-                f'Elevation: {elevation}°, Azimuth: {azimuth}°', 
-                fontsize=14, pad=20)
-    ax.set_xlabel('Longitude [°]', fontsize=12)
-    ax.set_ylabel('Latitude [°]', fontsize=12)
-    ax.set_xlim(-180, 180)
-    ax.set_ylim(-90, 90)
+    # Add coastlines (white like in GIM plots)
+    ax.coastlines(color='white')
+    
+    # Set title matching GIM style
+    ax.set_title(f'PNN STEC for {date_str} {hour:02d}:00 UTC\nElevation: {elevation}°, Azimuth: {azimuth}°', 
+                fontweight='bold', fontsize=16)
+    
+    # Set labels and formatting matching GIM style
+    ax.set_xlabel('Longitude', fontsize=14)
+    ax.set_ylabel('Latitude', fontsize=14)
+    ax.set_aspect('equal')
+    ax.set_xticks(np.arange(-180, 181, 60))
+    ax.set_yticks(np.arange(-90, 91, 30))
+    ax.tick_params(labelsize=12)
     ax.grid(True, alpha=0.3)
     
-    # Add colorbar
-    cbar = plt.colorbar(im, ax=ax, shrink=0.8)
-    cbar.set_label('STEC [TECU]', rotation=270, labelpad=20, fontsize=12)
+    # Set global extent
+    ax.set_global()
     
-    # Add statistics text
-    stats_text = f'Min: {np.nanmin(stec_map):.1f} TECU\n' \
-                f'Max: {np.nanmax(stec_map):.1f} TECU\n' \
-                f'Mean: {np.nanmean(stec_map):.1f} TECU'
-    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-            verticalalignment='top', bbox=dict(boxstyle='round', 
-            facecolor='wheat', alpha=0.8), fontsize=10)
+    # Add colorbar matching GIM style
+    cbar = fig.colorbar(im, ax=ax, label='STEC (TECU)', shrink=0.8)
+    cbar.ax.tick_params(labelsize=12)
+    cbar.set_label('STEC (TECU)', fontsize=14)
     
     # Save the plot
     plt.tight_layout()
-    plt.savefig(f"{output_path}.png", dpi=150, bbox_inches='tight')
+    plt.savefig(f"{output_path}.png", dpi=300, bbox_inches='tight')
     plt.close()
+
+
+def create_gif(image_paths, output_path, duration=500):
+    """
+    Create a GIF from a list of image paths.
+    
+    Parameters:
+    image_paths (list): List of paths to PNG images
+    output_path (str): Path for the output GIF file
+    duration (int): Duration between frames in milliseconds
+    """
+    if not image_paths:
+        logger.warning("No images found to create GIF")
+        return
+    
+    # Load all images
+    images = []
+    for path in image_paths:
+        if os.path.exists(path):
+            img = Image.open(path)
+            images.append(img)
+    
+    if images:
+        # Save as GIF
+        images[0].save(
+            output_path,
+            save_all=True,
+            append_images=images[1:],
+            duration=duration,
+            loop=0
+        )
+        logger.info(f"GIF created: {output_path}")
+    else:
+        logger.warning("No valid images found to create GIF")
 
 def find_experiment_directory(experiment_name, base_dir='experiments'):
     """Find the experiment directory that matches the given name."""
@@ -642,11 +743,9 @@ def main():
     
     # Find experiment directory
     experiment_dir = find_experiment_directory(experiment_name)
-    logger.info(f"Found experiment directory: {experiment_dir}")
     
     # Find model checkpoint
     checkpoint_path = find_model_checkpoint(experiment_dir)
-    logger.info(f"Found checkpoint: {checkpoint_path}")
     
     # Create output directory with date subfolder
     output_dir = os.path.join(experiment_dir, 'global_maps', args.date)
@@ -668,6 +767,9 @@ def main():
     logger.info(f"Generating maps for {args.date}")
     hours = list(range(24))
     
+    # List to store image paths for GIF creation
+    image_paths = []
+    
     for hour in hours:
         logger.info(f"Processing hour {hour:02d}:00 UTC")
         
@@ -684,17 +786,28 @@ def main():
         stec_map = predictions.squeeze().numpy().reshape(grid_shape)
         uncertainty_map = uncertainties.squeeze().numpy().reshape(grid_shape) if uncertainties is not None else None
         
-        # Save hourly plot
+        # Save hourly plot with GIM-style formatting
         base_filename = f'stec_map_{args.date}_{hour:02d}00'
         base_path = os.path.join(output_dir, base_filename)
         save_hourly_plot(lat_grid, lon_grid, stec_map, uncertainty_map,
-                        base_path, args.date, hour, args.elevation, args.azimuth)
+                        base_path, args.date, hour, args.elevation, args.azimuth,
+                        vmin=args.vmin, vmax=args.vmax)
+        
+        # Store image path for GIF creation
+        image_paths.append(f"{base_path}.png")
         
         logger.info(f"Saved {base_filename}.png (STEC range: {np.nanmin(stec_map):.2f} - {np.nanmax(stec_map):.2f} TECU)")
+    
+    # Create GIF if requested
+    if args.create_gif:
+        gif_path = os.path.join(output_dir, f'stec_daily_{args.date}.gif')
+        create_gif(image_paths, gif_path, duration=500)
     
     logger.info(f"Global map generation complete!")
     logger.info(f"Output saved to: {output_dir}")
     logger.info(f"Generated {len(hours)} hourly map plots")
+    if args.create_gif:
+        logger.info(f"Daily GIF saved to: {gif_path}")
 
 if __name__ == "__main__":
     main()
