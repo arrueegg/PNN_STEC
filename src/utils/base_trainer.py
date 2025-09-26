@@ -1063,10 +1063,10 @@ class BaseTrainer:
         setup_start = self._sync_and_time()
 
         if not self.config["debug"]:
-            # Use the same experiment name as the output directory
-            # Extract experiment name from output_dir path
+            # Use the sweep-aware wandb setup
+            from utils.wandb_sweep_integration import setup_wandb_for_sweep
             experiment_name = os.path.basename(self.config['output_dir'])
-            wandb.init(project=self.config['project_name'], name=experiment_name, config=self.config)
+            setup_wandb_for_sweep(self.config, experiment_name)
 
         # Time model initialization
         model_init_start = self._sync_and_time()
@@ -1097,6 +1097,10 @@ class BaseTrainer:
             gc.collect()
             print(" ")
             self.logger.info(f"Epoch {epoch+1}/{epochs}")
+            
+            # Update sampler epoch for different data sampling each epoch
+            if hasattr(train_loader.sampler, 'set_epoch'):
+                train_loader.sampler.set_epoch(epoch)
             
             # Time data loading and training phases with proper synchronization
             epoch_start = self._sync_and_time()

@@ -41,10 +41,7 @@ class H5Dataset(Dataset):
         self.config = config
         self.split = split
         # open the aggregated split file
-        self.file = h5py.File(h5_path, 'r', swmr=True,
-                              rdcc_nbytes=128*1024*1024,
-                              rdcc_w0=0.75,
-                              rdcc_nslots=100_003)
+        self.file = h5py.File(h5_path, 'r', swmr=True)
         self.data = self.file['data']
         
         # Get feature registry
@@ -115,10 +112,9 @@ class H5Dataset(Dataset):
         if self.use_SWI:
             year = str(int(row['year']))
             doy3 = f"{int(row['doy']):03d}"
-            # read that day's SWI array and pick the hour
-            daily = self.swi_file[year][doy3][:]
             hour = int(row['sod'] // 3600)
-            swi_row = daily[hour]
+            # FIXED: Load only the specific hour, not the entire day
+            swi_row = self.swi_file[year][doy3][hour]  # Load only one hour
             swi_values = swi_row[self.swi_mask]
             
             # Append raw SWI features without normalization
@@ -733,13 +729,15 @@ def get_data_loaders(config, logger=None):
      # ---- config knobs ----
     train_subset = config['data'].get('train_subset_size', 50_000)
     total_size = train_subset / 0.7
-    val_subset = max(int(total_size * 0.15), 200_000)
-    test_subset = max(int(total_size * 0.15), 1_000_000)
+    val_subset = max(int(total_size * 0.15), 500_000)
+    test_subset = max(int(total_size * 0.15), 5_000_000)
+    if config['data'].get('use_all_test_samples', False):
+        test_subset = None  # Use all test samples
     device = config['device']
     seed = int(config.get('seed', 42))
     bs   = config['pretrain']['batchsize']
     nw   = config['pretrain']['num_workers']
-    pf   = config['pretrain']['prefetch_factor']
+    pf   = config['pretrain']['prefetch_factor'] if config['pretrain']['prefetch_factor'] else None
     use_agg_h5 = config['data'].get('use_agg_h5', False)
     build_agg_h5 = config['data'].get('build_agg_h5', True)
     
@@ -811,7 +809,9 @@ def get_data_loaders(config, logger=None):
             # Regular training mode
             elif train_subset and train_subset < len(ds):
                 # Use custom sampler that re-seeds each epoch for different data sampling without replacement
-                sampler = EpochRandomSampler(ds, replacement=False, num_samples=train_subset, base_seed=seed)
+                sampler = EpochRandomSampler(ds, replacement=True, num_samples=train_subset, base_seed=seed)
+                #g = torch.Generator().manual_seed(seed)  # re-seed per epoch in your train loop if desired
+                #sampler = RandomSampler(ds, replacement=True, num_samples=train_subset, generator=g)                
                 shuffle = False
             else:
                 sampler = None
@@ -821,7 +821,7 @@ def get_data_loaders(config, logger=None):
                 ds,
                 batch_size=bs,
                 num_workers=nw,
-                persistent_workers=True,
+                persistent_workers=False,  # FIXED: Disable to prevent H5 file handle leaks
                 prefetch_factor=pf,
                 shuffle=shuffle,
                 sampler=sampler,
@@ -852,7 +852,7 @@ def get_data_loaders(config, logger=None):
                 batch_size=bs,
                 num_workers=nw,
                 prefetch_factor=pf,
-                persistent_workers=True,
+                persistent_workers=False,  # FIXED: Disable to prevent H5 file handle leaks  
                 shuffle=False,
                 sampler=sampler,
                 collate_fn=collate_fn,

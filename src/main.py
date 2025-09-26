@@ -10,6 +10,7 @@ from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner
 from utils.feature_registry import initialize_feature_registry, FeatureType
+from utils.wandb_sweep_integration import integrate_wandb_sweep_config, setup_wandb_for_sweep
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -25,6 +26,10 @@ def setup_seed(seed):
 
 def main():
     config = parse_config()
+    
+    # Integrate wandb sweep parameters if active
+    config = integrate_wandb_sweep_config(config)
+    
     setup_seed(config['random_seed'])
 
     gc.collect()
