@@ -24,6 +24,3 @@ Shuyins_code/
 #**/plots/
 **/dSTEC/
 hp_search/
-
-# Ignore some config files.
-config/*_*.yaml

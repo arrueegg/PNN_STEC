@@ -1,0 +1,39 @@
+# Quick test sweep - minimal parameters, fast execution
+program: src/main.py
+method: random
+metric:
+  goal: minimize
+  name: val_loss
+
+parameters:
+  # Minimal model space for quick testing
+  model.model_type:
+    values: ['MLP_NLL', 'BNN_NLL']
+  
+  model.hidden_dim:
+    values: [128, 256]
+  
+  model.num_layers:
+    values: [3, 4]
+
+  # Basic training params
+  pretrain.learning_rate:
+    values: [0.001, 0.01]
+  
+  pretrain.batchsize:
+    values: [512, 1024]
+  
+  # Fast training for testing
+  pretrain.epochs:
+    value: 5
+  
+  data.train_subset_size:
+    value: 50_000
+
+# Quick termination for testing
+early_terminate:
+  type: hyperband
+  min_iter: 3
+  eta: 2
+
+run_cap: 8  # Small number of runs for testing
