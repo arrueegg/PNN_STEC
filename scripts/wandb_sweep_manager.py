@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
 WandB Sweep Manager for Euler Cluster
-
-This script creates a wandb sweep and submits multiple parallel agents to SLURM
-for distributed hyperparameter optimization.
+Creates wandb sweeps and submits parallel agents to SLURM.
 """
 
 import os
@@ -16,25 +14,26 @@ import wandb
 
 def create_sweep(sweep_config_path, project_name="PNN_STEC"):
     """Create a wandb sweep and return the sweep ID"""
-    
-    # Load sweep configuration
     with open(sweep_config_path, 'r') as f:
         sweep_config = yaml.safe_load(f)
     
     print(f"📋 Creating wandb sweep for project: {project_name}")
     print(f"📄 Using config: {sweep_config_path}")
     
-    # Initialize wandb and create sweep
-    sweep_id = wandb.sweep(sweep_config, project=project_name)
+    # Get the entity name
+    entity = wandb.api.default_entity
+    if not entity:
+        entity = "arno-rueegg"  # fallback to known entity
+    
+    sweep_id = wandb.sweep(sweep_config, project=project_name, entity=entity)
     
     print(f"🆔 Sweep created with ID: {sweep_id}")
-    print(f"🌐 View sweep at: https://wandb.ai/{wandb.api.default_entity}/{project_name}/sweeps/{sweep_id}")
+    print(f"🌐 View sweep at: https://wandb.ai/{entity}/{project_name}/sweeps/{sweep_id}")
     
     return sweep_id
 
 def submit_agents(sweep_id, num_agents, project_name="PNN_STEC"):
     """Submit multiple wandb agents to SLURM"""
-    
     print(f"🚀 Submitting {num_agents} agents to cluster...")
     
     job_ids = []
@@ -42,20 +41,14 @@ def submit_agents(sweep_id, num_agents, project_name="PNN_STEC"):
     script_dir.mkdir(exist_ok=True)
     
     for agent_id in range(1, num_agents + 1):
-        # Create individual SLURM script for this agent
         slurm_script_path = script_dir / f"wandb_agent_{agent_id:03d}.sh"
-        
-        # Generate SLURM script content
         slurm_content = generate_slurm_script(sweep_id, project_name, agent_id)
         
-        # Write SLURM script
         with open(slurm_script_path, 'w') as f:
             f.write(slurm_content)
         
-        # Make script executable
         os.chmod(slurm_script_path, 0o755)
         
-        # Submit to SLURM
         try:
             result = subprocess.run(
                 ['sbatch', '--parsable', str(slurm_script_path)],
@@ -84,7 +77,6 @@ def submit_agents(sweep_id, num_agents, project_name="PNN_STEC"):
 def generate_slurm_script(sweep_id, project_name, agent_id):
     """Generate SLURM script content for a wandb agent"""
     
-    # Cluster configuration (copied from config/cluster_config.py)
     CLUSTER_PATHS = {'main_dir': '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC'}
     MODULE_COMMANDS = [
         'module load stack/2024-06 python_cuda/3.11.6',
@@ -113,7 +105,6 @@ def generate_slurm_script(sweep_id, project_name, agent_id):
 # Load modules
 """
     
-    # Add module loading commands
     for module_cmd in MODULE_COMMANDS:
         slurm_script += f"{module_cmd}\n"
     
@@ -126,17 +117,25 @@ source ${{main_dir}}/env/bin/activate
 
 export OMP_NUM_THREADS=${{SLURM_CPUS_PER_TASK:-1}}
 export MKL_NUM_THREADS=${{SLURM_CPUS_PER_TASK:-1}}
-
-# Set cluster mode for config
 export CLUSTER_MODE=true
 
-# Set WandB environment variables
+# W&B configuration
+export WANDB_DIR="$SCRATCH/wandb_runs/$SLURM_JOB_ID"
+export TMPDIR="$SCRATCH/tmp/$SLURM_JOB_ID"
+mkdir -p "$WANDB_DIR" "$TMPDIR"
+
+unset WANDB_DISABLE_SERVICE
+unset WANDB_DISABLED
+
+export WANDB_START_METHOD=thread
+export WANDB_CONSOLE=off
+export WANDB_SILENT=true
 export WANDB_PROJECT="{project_name}"
 export WANDB_SWEEP_ID="{sweep_id}"
+export CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-0}}
 
-# Run WandB agent
 echo "🚀 Starting WandB agent {agent_id}"
-wandb agent --count 1 {sweep_id}
+wandb agent --count 1 arno-rueegg/{project_name}/{sweep_id}
 echo "✅ Completed WandB agent {agent_id}"
 """
     
@@ -157,22 +156,18 @@ def main():
     
     args = parser.parse_args()
     
-    # Validate config file exists
     if not Path(args.config).exists():
         print(f"❌ Config file not found: {args.config}")
         sys.exit(1)
     
-    # Create logs directory
     Path("hp_search/logs").mkdir(parents=True, exist_ok=True)
     
-    # Create or use existing sweep
     if args.sweep_id:
         sweep_id = args.sweep_id
         print(f"🔄 Using existing sweep: {sweep_id}")
     else:
         sweep_id = create_sweep(args.config, args.project)
     
-    # Submit agents unless create-only mode
     if not args.create_only:
         submit_agents(sweep_id, args.agents, args.project)
     else:

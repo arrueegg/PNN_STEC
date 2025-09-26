@@ -21,8 +21,21 @@ def integrate_wandb_sweep_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     
     # Check if we're in a wandb sweep
+    logger.info(f"🔍 W&B integration check: wandb.run={wandb.run}, has_config_keys={hasattr(wandb.config, 'keys') if wandb.run else 'N/A'}")
     if not wandb.run or not hasattr(wandb.config, 'keys'):
         logger.info("No active wandb sweep detected, using base config")
+        
+        # Still check for cluster mode even without W&B sweep
+        cluster_mode = os.environ.get('CLUSTER_MODE', 'false').lower() == 'true'
+        logger.info(f"🖥️  Cluster mode check: CLUSTER_MODE={os.environ.get('CLUSTER_MODE', 'not set')}, cluster_mode={cluster_mode}")
+        if cluster_mode:
+            logger.info("🔧 Applying cluster mode configuration without W&B sweep")
+            config['cluster'] = True
+            config['data']['scratch_dir'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/'
+            config['data']['GNSS_data_path'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB'
+            config['data']['SWI_data_path'] = '/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/SWI/'
+            logger.info("✅ Applied cluster mode configuration")
+            
         return config
     
     logger.info("🔄 Integrating wandb sweep parameters...")
