@@ -6,13 +6,13 @@ metric:
 parameters:
   # Model architecture parameters
   model.model_type:
-    values: ['BNN_NLL', 'MLP_NLL', 'Branch_BNN_NLL', 'MLP_MCDropout_NLL']
+    values: ['BNN_NLL', 'MLP_NLL']
   
   model.hidden_dim:
-    values: [128, 256, 512, 1024]
+    values: [256, 512, 1024]
   
   model.num_layers:
-    values: [3, 4, 6, 8]
+    values: [2, 4, 6, 8]
 
   # Training hyperparameters
   pretrain.learning_rate:
@@ -21,7 +21,7 @@ parameters:
     max: 0.1
   
   pretrain.batchsize:
-    values: [256, 512, 1024, 2048]
+    values: [512, 1024, 2048]
   
   training.loss_weight:
     distribution: log_uniform_values
@@ -33,7 +33,7 @@ parameters:
     values: ['GaussianNLLLoss', 'MSELoss']
   
   training.optimizer:
-    values: ['Adam', 'AdamW']
+    values: ['Adam']
   
   training.weight_decay:
     distribution: uniform
@@ -42,7 +42,7 @@ parameters:
 
   # KL annealing for BNN models
   training.kl_annealing.warmup_epochs:
-    values: [10, 20, 30, 50]
+    values: [5, 10, 20]
   
   training.kl_annealing.end_weight:
     distribution: log_uniform_values
@@ -54,7 +54,7 @@ parameters:
     values: [true, false]
   
   training.target_weighting.weight_function:
-    values: ['linear', 'quadratic', 'log', 'quantile']
+    values: ['linear', 'quadratic']
   
   training.target_weighting.high_value_weight:
     distribution: uniform
@@ -70,7 +70,7 @@ parameters:
 
   # Data configuration
   data.train_subset_size:
-    values: [100_000, 250_000, 500_000, 1_000_000]
+    values: [500_000, 1_000_000, 2_000_000]
 
 # Early termination configuration
 early_terminate:
