@@ -36,7 +36,7 @@ parameters:
     values: ['Adam', 'AdamW']
   
   training.weight_decay:
-    distribution: log_uniform_values
+    distribution: uniform
     min: 0.0
     max: 0.01
 

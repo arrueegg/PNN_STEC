@@ -1,5 +1,5 @@
 #!/bin/bash
-"""
+: '
 Simple WandB Sweep Launcher
 
 Usage:
@@ -8,7 +8,7 @@ Usage:
 Examples:
     ./launch_wandb_sweep.sh 8                             # Use 8 agents with default config
     ./launch_wandb_sweep.sh 16 config/custom_sweep.yaml   # Use 16 agents with custom config
-"""
+'
 
 # Default values
 NUM_AGENTS=${1:-8}
