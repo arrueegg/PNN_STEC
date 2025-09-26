@@ -2,11 +2,11 @@ program: scripts/wandb_run_wrapper.py
 method: bayes  # bayes, grid, random
 metric:
   goal: minimize
-  name: val_loss
+  name: val_MAE
 parameters:
   # Model architecture parameters
   model.model_type:
-    values: ['BNN_NLL', 'MLP_NLL']
+    values: ['MLP_NLL', 'BNN_NLL']
   
   model.hidden_dim:
     values: [256, 512, 1024]
@@ -30,10 +30,10 @@ parameters:
 
   # Training configuration
   training.loss_function:
-    values: ['GaussianNLLLoss', 'MSELoss']
+    values: ['MSELoss', 'GaussianNLLLoss']
   
   training.optimizer:
-    values: ['Adam']
+    values: ['Adam', 'AdamW']
   
   training.weight_decay:
     distribution: uniform

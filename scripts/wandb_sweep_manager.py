@@ -85,7 +85,7 @@ def generate_slurm_script(sweep_id, project_name, agent_id):
     DEFAULT_SLURM_SETTINGS = {
         'ntasks': 1,
         'cpus_per_task': 12,
-        'time': '2:00:00',
+        'time': '4:00:00',
         'mem_per_cpu': '10G',
         'gpus': 1
     }
@@ -135,7 +135,7 @@ export WANDB_SWEEP_ID="{sweep_id}"
 export CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-0}}
 
 echo "🚀 Starting WandB agent {agent_id}"
-wandb agent --count 1 arno-rueegg/{project_name}/{sweep_id}
+wandb agent arno-rueegg/{project_name}/{sweep_id}
 echo "✅ Completed WandB agent {agent_id}"
 """
     
