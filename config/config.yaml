@@ -59,7 +59,7 @@ training:
   
   # Target weighting configuration for addressing underprediction of high values
   target_weighting:
-    enabled: true                    # Enable weighted loss based on target values
+    enabled: false                    # Enable weighted loss based on target values
     weight_function: "linear"      # Options: linear, quadratic, log, quantile
     high_value_threshold: 0.75       # For quantile weighting: percentile threshold (0.75 = 75th percentile)
     high_value_weight: 3.0           # For quantile weighting: weight multiplier for high values
@@ -76,8 +76,8 @@ pretrain:
   num_workers: 12 
   prefetch_factor: 4
   learning_rate: 0.001
-  scheduler: none            # none, StepLR, CosineAnnealingLR
-  scheduler_step_size: 50       # Step size for scheduler (reduces lr every X epochs)
+  scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
+  scheduler_step_size: 200       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
   patience: 20                   # Increased patience for BNN training
   save_model_every_epoch: False # Whether to save the model every epoch

@@ -58,7 +58,6 @@ def integrate_wandb_sweep_config(config: Dict[str, Any]) -> Dict[str, Any]:
         
         # KL annealing parameters
         'training.kl_annealing.warmup_epochs': ('training', 'kl_annealing', 'warmup_epochs'),
-        'training.kl_annealing.end_weight': ('training', 'kl_annealing', 'end_weight'),
         
         # Target weighting parameters
         'training.target_weighting.enabled': ('training', 'target_weighting', 'enabled'),

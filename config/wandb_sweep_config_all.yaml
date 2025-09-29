@@ -1,0 +1,82 @@
+program: scripts/wandb_run_wrapper.py
+method: bayes  # bayes, grid, random
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters
+  model.model_type:
+    values: ['MLP_NLL', 'BNN_NLL', DE_MLP']
+  
+  model.hidden_dim:
+    values: [256, 512, 1024]
+  
+  model.num_layers:
+    values: [2, 4, 6, 8]
+
+  model.prior_sigma:
+    distribution: log_uniform_values
+    min: 0.01
+    max: 0.2
+
+  # Training hyperparameters
+  pretrain.learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.1
+  
+  pretrain.batchsize:
+    values: [512, 1024, 2048, 4096]
+  
+  training.loss_weight:
+    distribution: log_uniform_values
+    min: 0.01
+    max: 10.0
+
+  # Training configuration
+  training.loss_function:
+    values: ['MSELoss', 'GaussianNLLLoss']
+  
+  #training.optimizer:
+    #values: ['Adam', 'AdamW']
+  
+  #training.weight_decay:
+    #distribution: uniform
+    #min: 0.0
+    #max: 0.01
+
+  # KL annealing for BNN models
+  training.kl_annealing.warmup_epochs:
+    values: [5, 10, 20]
+
+  # Target weighting
+  #training.target_weighting.enabled:
+    #values: [true, false]
+  
+  #training.target_weighting.weight_function:
+    #values: ['linear', 'quadratic']
+  
+  training.target_weighting.high_value_weight:
+    distribution: uniform
+    min: 1.0
+    max: 5.0
+
+  # Scheduler configuration
+  pretrain.scheduler:
+    values: ['StepLR', 'CosineAnnealingLR']
+  
+  pretrain.scheduler_step_size:
+    values: [20, 50, 100]
+
+  # Data configuration
+  #data.train_subset_size:
+    #values: [500_000]
+
+# Early termination configuration
+early_terminate:
+  type: hyperband
+  min_iter: 10
+  eta: 3
+
+# Count limits
+run_cap: 100  # Maximum number of runs in this sweep

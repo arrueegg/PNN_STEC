@@ -6,7 +6,7 @@ metric:
 parameters:
   # Model architecture parameters
   model.model_type:
-    values: ['MLP_NLL', 'BNN_NLL']
+    values: ['BNN_NLL']
   
   model.hidden_dim:
     values: [256, 512, 1024]
@@ -26,7 +26,7 @@ parameters:
     max: 0.1
   
   pretrain.batchsize:
-    values: [512, 1024, 2048]
+    values: [512, 1024, 2048, 4096]
   
   training.loss_weight:
     distribution: log_uniform_values
@@ -37,29 +37,24 @@ parameters:
   training.loss_function:
     values: ['MSELoss', 'GaussianNLLLoss']
   
-  training.optimizer:
-    values: ['Adam', 'AdamW']
+  #training.optimizer:
+    #values: ['Adam', 'AdamW']
   
-  training.weight_decay:
-    distribution: uniform
-    min: 0.0
-    max: 0.01
+  #training.weight_decay:
+    #distribution: uniform
+    #min: 0.0
+    #max: 0.01
 
   # KL annealing for BNN models
   training.kl_annealing.warmup_epochs:
     values: [5, 10, 20]
-  
-  training.kl_annealing.end_weight:
-    distribution: log_uniform_values
-    min: 0.001
-    max: 1.0
 
   # Target weighting
-  training.target_weighting.enabled:
-    values: [true, false]
+  #training.target_weighting.enabled:
+    #values: [true, false]
   
-  training.target_weighting.weight_function:
-    values: ['linear', 'quadratic']
+  #training.target_weighting.weight_function:
+    #values: ['linear', 'quadratic']
   
   training.target_weighting.high_value_weight:
     distribution: uniform
@@ -67,15 +62,15 @@ parameters:
     max: 5.0
 
   # Scheduler configuration
-  pretrain.scheduler:
-    values: ['none', 'StepLR', 'CosineAnnealingLR']
+  #pretrain.scheduler:
+    #values: ['StepLR', 'CosineAnnealingLR']
   
-  pretrain.scheduler_step_size:
-    values: [20, 50, 100]
+  #pretrain.scheduler_step_size:
+    #values: [20, 50, 100]
 
   # Data configuration
-  data.train_subset_size:
-    values: [500_000, 1_000_000, 2_000_000]
+  #data.train_subset_size:
+    #values: [500_000]
 
 # Early termination configuration
 early_terminate:

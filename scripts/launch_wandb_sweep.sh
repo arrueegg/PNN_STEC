@@ -12,7 +12,10 @@ Examples:
 
 # Default values
 NUM_AGENTS=${1:-8}
-SWEEP_CONFIG=${2:-"config/wandb_sweep_config.yaml"}
+#SWEEP_CONFIG=${2:-"config/wandb_sweep_config_all.yaml"}
+SWEEP_CONFIG=${2:-"config/wandb_sweep_config_BNN.yaml"}
+#SWEEP_CONFIG=${2:-"config/wandb_sweep_config_DE.yaml"}
+#SWEEP_CONFIG=${2:-"config/wandb_sweep_config_MLP.yaml"}
 
 echo "🚀 Launching WandB Sweep"
 echo "📊 Agents: $NUM_AGENTS"
