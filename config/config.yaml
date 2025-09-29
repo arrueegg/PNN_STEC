@@ -37,12 +37,9 @@ model:
   model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP
   hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
+  prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
   
-  # Examples for hyperparameter tuning (BNN):
-  # Small model:   hidden_dim: 64,  num_layers: 2  (~13K parameters)
-  # Medium model:  hidden_dim: 128, num_layers: 3  (~67K parameters) 
-  # Large model:   hidden_dim: 512, num_layers: 5  (~1.3M parameters)
-  # Deep model:    hidden_dim: 256, num_layers: 8  (~789K parameters)
+
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss

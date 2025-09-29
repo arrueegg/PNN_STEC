@@ -206,21 +206,21 @@ class BNN_mse(torch.nn.Module):
         return x
     
 class BNN_NLL(torch.nn.Module):
-    def __init__(self, n_in=3, hidden_dim=256, num_layers=4):
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4, prior_sigma=0.1):
         super().__init__()
         
         # Create layers dynamically
         self.layers = nn.ModuleList()
         
         # First layer
-        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=n_in, out_features=hidden_dim))
+        self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=prior_sigma, in_features=n_in, out_features=hidden_dim))
         
         # Hidden layers
         for _ in range(num_layers - 1):
-            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim))
-        
+            self.layers.append(bnn.BayesLinear(prior_mu=0, prior_sigma=prior_sigma, in_features=hidden_dim, out_features=hidden_dim))
+
         # Output layer (2 outputs for mean and variance)
-        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=2)
+        self.output_layer = bnn.BayesLinear(prior_mu=0, prior_sigma=prior_sigma, in_features=hidden_dim, out_features=2)
 
     def forward(self, x):
         for layer in self.layers:
@@ -281,6 +281,7 @@ def get_model(config):
     model_type = config['model']['model_type']
     hidden_dim = config['model'].get('hidden_dim', 256)  # Default to 256 if not specified
     num_layers = config['model'].get('num_layers', 4)    # Default to 4 if not specified
+    prior_sigma = config['model'].get('prior_sigma', 0.1)  # Default prior sigma for BNNs
     
     # Get input features count from feature registry, accounting for transformations
     feature_registry = config.get('feature_registry')
@@ -344,7 +345,7 @@ def get_model(config):
     elif model_type == 'BNN_mse':
         return BNN_mse(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'BNN_NLL':
-        model = BNN_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        model = BNN_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers, prior_sigma=prior_sigma)
         return model
     elif model_type == 'Branch_BNN_NLL':
         model = Branch_BNN_NLL(n_in=in_features, num_SWI_params=num_SWI_params, hidden_dim=hidden_dim, num_layers=num_layers)
