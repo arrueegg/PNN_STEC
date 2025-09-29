@@ -313,6 +313,207 @@ class BaseTrainer:
         pred_var = pred_var.flatten() if pred_var.dim() > 1 else pred_var
         return pred_mean, pred_var
 
+    def train_epoch_ensemble(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, optimizer, epoch=0):
+        """
+        Specialized training for Deep Ensemble models.
+        Trains all ensemble members simultaneously or sequentially based on config.
+        """
+        model.train()
+        running_loss = running_mse = running_nll = running_kld = running_variance = 0.0
+        all_outputs, all_targets = [], []
+        disable_tqdm = self.config.get('cluster', False)
+        
+        # Get ensemble training configuration
+        ensemble_config = self.config['model'].get('ensemble_training', {})
+        train_method = ensemble_config.get('method', 'simultaneous')  # 'simultaneous' or 'sequential'
+        
+        epoch_start_time = self._sync_and_time()
+        
+        for i, (inputs, targets) in tqdm(enumerate(dataloader), total=len(dataloader),
+                                         disable=disable_tqdm, desc="Ensemble Training"):
+            
+            inputs = inputs.to(self.device, non_blocking=True)
+            training_targets, original_targets = self._targets_to_training_space(targets)
+            
+            optimizer.zero_grad()
+            total_loss = 0.0
+            
+            if train_method == 'simultaneous':
+                # Train all ensemble members with same data simultaneously
+                outputs = model(inputs)  # This calls the ensemble forward method
+                pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+                
+                pred_mean_raw = pred_mean_raw.flatten()
+                pred_var_raw = pred_var_raw.flatten()
+                
+                mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                kld_loss = criterion_kld(model)
+                
+                current_kl_weight = self.get_current_kl_weight(epoch)
+                
+                if self.config['training']['loss_function'] == 'GaussianNLLLoss':
+                    loss = nll_loss + current_kl_weight * kld_loss
+                elif self.config['training']['loss_function'] == 'MSELoss':
+                    loss = mse_loss
+                
+                total_loss = loss
+                
+            elif train_method == 'sequential':
+                # Train each ensemble member with the same batch sequentially
+                all_predictions, all_variances = model.forward_individual(inputs)
+                
+                for member_idx, (pred_mean, pred_var) in enumerate(zip(all_predictions, all_variances)):
+                    pred_mean = pred_mean.flatten()
+                    pred_var = pred_var.flatten()
+                    
+                    mse_loss = criterion_mse(pred_mean, training_targets)
+                    nll_loss = criterion_nll(pred_mean, training_targets, pred_var)
+                    
+                    # For ensemble, KL loss only applies to BNN members (not relevant for MLP ensemble)
+                    kld_loss = torch.tensor(0.0, device=self.device)
+                    
+                    if self.config['training']['loss_function'] == 'GaussianNLLLoss':
+                        member_loss = nll_loss
+                    elif self.config['training']['loss_function'] == 'MSELoss':
+                        member_loss = mse_loss
+                    
+                    total_loss += member_loss
+                
+                # Average loss across ensemble members
+                total_loss = total_loss / len(all_predictions)
+            
+            total_loss.backward()
+            optimizer.step()
+
+            # Accumulate losses for logging
+            running_loss += total_loss.item()
+            if train_method == 'simultaneous':
+                running_mse += mse_loss.item()
+                running_nll += nll_loss.item()
+                running_kld += kld_loss.item()
+            
+            # Store outputs for metrics calculation
+            if train_method == 'simultaneous':
+                if self.use_log_target:
+                    point_linear, std_linear, var_linear = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
+                else:
+                    point_linear, std_linear, var_linear = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
+                all_outputs.append(point_linear.cpu())
+            else:
+                # For sequential training, use ensemble mean for metrics
+                ensemble_mean = torch.mean(torch.stack(all_predictions), dim=0).flatten()
+                if self.use_log_target:
+                    point_linear, _, _ = self._pred_log_to_linear(ensemble_mean, torch.zeros_like(ensemble_mean))
+                else:
+                    point_linear, _, _ = self._pred_linear_from_linear(ensemble_mean, torch.zeros_like(ensemble_mean))
+                all_outputs.append(point_linear.cpu())
+            
+            all_targets.append(original_targets.cpu())
+
+            if self.config.get('debug_single_batch', False):
+                break
+
+        # Calculate epoch metrics
+        epoch_end_time = self._sync_and_time()
+        epoch_duration = epoch_end_time - epoch_start_time
+        
+        if self.timing_enabled:
+            self._log_timing(f"Ensemble training epoch {epoch}", epoch_duration)
+
+        avg_loss = running_loss / len(dataloader)
+        avg_mse = running_mse / len(dataloader) if train_method == 'simultaneous' else 0.0
+        avg_nll = running_nll / len(dataloader) if train_method == 'simultaneous' else 0.0
+        avg_kld = running_kld / len(dataloader) if train_method == 'simultaneous' else 0.0
+
+        all_outputs_tensor = torch.cat(all_outputs, dim=0).detach()
+        all_targets_tensor = torch.cat(all_targets, dim=0)
+        train_metrics = calculate_metrics(all_outputs_tensor, all_targets_tensor, prefix="train")
+        
+        # Convert to numpy for compatibility with training loop
+        all_outputs_numpy = all_outputs_tensor.cpu().numpy()
+        all_targets_numpy = all_targets_tensor.cpu().numpy()
+        train_metrics['predictions'] = all_outputs_numpy
+        train_metrics['targets'] = all_targets_numpy
+
+        return avg_loss, avg_mse, avg_nll, avg_kld, train_metrics
+
+    def validate_epoch_ensemble(self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, epoch=0):
+        """
+        Specialized validation for Deep Ensemble models.
+        """
+        model.eval()
+        running_loss = running_mse = running_nll = running_kld = 0.0
+        all_outputs, all_targets = [], []
+        disable_tqdm = self.config.get('cluster', False)
+        
+        val_start_time = self._sync_and_time()
+
+        with torch.no_grad():
+            for inputs, targets in tqdm(dataloader, desc="Ensemble Validation", disable=disable_tqdm):
+                inputs = inputs.to(self.device, non_blocking=True)
+                training_targets, original_targets = self._targets_to_training_space(targets)
+
+                # Get ensemble prediction (aggregated)
+                outputs = model(inputs)
+                pred_mean_raw, pred_var_raw = self.compute_mean_var(outputs)
+                
+                pred_mean_raw = pred_mean_raw.flatten()
+                pred_var_raw = pred_var_raw.flatten()
+
+                # Losses in training space
+                mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                kld_loss = torch.tensor(0.0, device=self.device)  # No KL loss for MLP ensembles
+                
+                if self.config['training']['loss_function'] == 'GaussianNLLLoss':
+                    loss = nll_loss
+                elif self.config['training']['loss_function'] == 'MSELoss':
+                    loss = mse_loss
+
+                # Accumulate losses
+                running_loss += loss.item()
+                running_mse += mse_loss.item()
+                running_nll += nll_loss.item()
+                running_kld += kld_loss.item()
+
+                # Back-transform to linear space for metrics/logging
+                if self.use_log_target:
+                    point_linear, std_linear, var_linear = self._pred_log_to_linear(pred_mean_raw, pred_var_raw)
+                else:
+                    point_linear, std_linear, var_linear = self._pred_linear_from_linear(pred_mean_raw, pred_var_raw)
+
+                all_outputs.append(point_linear.cpu())
+                all_targets.append(original_targets.cpu())
+
+                if self.config.get('debug_single_batch', False):
+                    break
+
+        # Calculate epoch metrics
+        val_end_time = self._sync_and_time()
+        val_duration = val_end_time - val_start_time
+        
+        if self.timing_enabled:
+            self._log_timing(f"Ensemble validation epoch {epoch}", val_duration)
+
+        n_batches = len(dataloader)
+        avg_loss = running_loss / n_batches
+        avg_mse = running_mse / n_batches
+        avg_nll = running_nll / n_batches
+        avg_kld = running_kld / n_batches
+
+        all_outputs_tensor = torch.cat(all_outputs, dim=0)
+        all_targets_tensor = torch.cat(all_targets, dim=0)
+        val_metrics = calculate_metrics(all_outputs_tensor, all_targets_tensor, prefix="val")
+        
+        # Convert to numpy for compatibility
+        all_outputs_numpy = all_outputs_tensor.cpu().numpy()
+        all_targets_numpy = all_targets_tensor.cpu().numpy()
+        val_metrics['predictions'] = all_outputs_numpy
+        val_metrics['targets'] = all_targets_numpy
+
+        return avg_loss, avg_mse, avg_nll, avg_kld, val_metrics
+
     def get_current_kl_weight(self, epoch):
         """Compute current KL weight based on annealing schedule"""
         if not self.use_kl_annealing:
@@ -697,36 +898,52 @@ class BaseTrainer:
                 bs = inputs.size(0)
                 inputs = inputs.to(self.device, non_blocking=True)
 
-                per_sample_means = []
-                per_sample_alea_vars = []
-
-                for _ in range(num_samples):
-                    outputs = model(inputs)
-                    mean_raw, var_raw = self.compute_mean_var(outputs)
-
-                    if self.use_log_target:
-                        # Log-normal moments for this pass
-                        mean_y = torch.exp(mean_raw + 0.5 * var_raw) - self.eps
-                        var_alea_y = (torch.exp(var_raw) - 1.0) * torch.exp(2 * mean_raw + var_raw)
-                    else:
-                        mean_y = mean_raw
-                        var_alea_y = var_raw
-
-                    per_sample_means.append(mean_y.cpu())
-                    per_sample_alea_vars.append(var_alea_y.cpu())
-
-                pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
-                alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
-
-                stec_mean = pred_stack.mean(dim=0)
-                if num_samples == 1:
-                    epistemic_var = torch.zeros_like(pred_stack[0])  # No epistemic uncertainty
+                # Check if this is an ensemble model
+                model_type = self.config['model']['model_type']
+                if model_type == 'DE_MLP':
+                    # For ensemble models, use the decomposed uncertainty method
+                    ensemble_mean, aleatoric_var, epistemic_var, total_var = model.get_uncertainties(inputs)
+                    
+                    # Move to CPU and handle shapes
+                    stec_mean = ensemble_mean.cpu().flatten()
+                    epistemic_var = epistemic_var.cpu().flatten()
+                    aleatoric_var = aleatoric_var.cpu().flatten()
+                    
+                    batch_means.append(stec_mean)
+                    batch_epistemic_vars.append(epistemic_var)
+                    batch_aleatoric_vars.append(aleatoric_var)
                 else:
-                    epistemic_var = pred_stack.var(dim=0)             # Var over means
-                aleatoric_var = alea_var_stack.mean(dim=0)            # Mean aleatoric var
-                batch_means.append(stec_mean)
-                batch_epistemic_vars.append(epistemic_var)
-                batch_aleatoric_vars.append(aleatoric_var)
+                    # Original BNN sampling logic
+                    per_sample_means = []
+                    per_sample_alea_vars = []
+
+                    for _ in range(num_samples):
+                        outputs = model(inputs)
+                        mean_raw, var_raw = self.compute_mean_var(outputs)
+
+                        if self.use_log_target:
+                            # Log-normal moments for this pass
+                            mean_y = torch.exp(mean_raw + 0.5 * var_raw) - self.eps
+                            var_alea_y = (torch.exp(var_raw) - 1.0) * torch.exp(2 * mean_raw + var_raw)
+                        else:
+                            mean_y = mean_raw
+                            var_alea_y = var_raw
+
+                        per_sample_means.append(mean_y.cpu())
+                        per_sample_alea_vars.append(var_alea_y.cpu())
+
+                    pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
+                    alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
+
+                    stec_mean = pred_stack.mean(dim=0)
+                    if num_samples == 1:
+                        epistemic_var = torch.zeros_like(pred_stack[0])  # No epistemic uncertainty
+                    else:
+                        epistemic_var = pred_stack.var(dim=0)             # Var over means
+                    aleatoric_var = alea_var_stack.mean(dim=0)            # Mean aleatoric var
+                    batch_means.append(stec_mean)
+                    batch_epistemic_vars.append(epistemic_var)
+                    batch_aleatoric_vars.append(aleatoric_var)
                 all_targets.append(targets.cpu())
 
                 # Build per-batch DF using feature registry
@@ -1106,13 +1323,38 @@ class BaseTrainer:
             epoch_start = self._sync_and_time()
 
             train_start = self._sync_and_time()
-            train_loss, train_mse, train_nll, train_kld, train_variance, train_outputs, train_targets = \
-                self.train_epoch(model, train_loader, criterion_mse, criterion_nll, criterion_kld, optimizer, epoch)
+            
+            # Check if model is an ensemble and use appropriate training method
+            model_type = self.config['model']['model_type']
+            if model_type == 'DE_MLP':
+                train_loss, train_mse, train_nll, train_kld, train_metrics = \
+                    self.train_epoch_ensemble(model, train_loader, criterion_mse, criterion_nll, criterion_kld, optimizer, epoch)
+                # Extract outputs and targets for compatibility
+                train_outputs = train_metrics.get('predictions', [])
+                train_targets = train_metrics.get('targets', [])
+                train_variance = 0.0  # Ensemble handles variance internally
+            else:
+                train_loss, train_mse, train_nll, train_kld, train_variance, train_outputs, train_targets = \
+                    self.train_epoch(model, train_loader, criterion_mse, criterion_nll, criterion_kld, optimizer, epoch)
+                train_metrics = calculate_metrics(train_outputs, train_targets, prefix="train")
+            
             train_duration = self._sync_and_time() - train_start
             
             val_start = self._sync_and_time()
-            val_loss, val_mse, val_nll, val_kld, val_variance, val_outputs, val_targets = \
-                self.validate_epoch(model, val_loader, criterion_mse, criterion_nll, criterion_kld, epoch)
+            
+            # Use appropriate validation method for ensemble models
+            if model_type == 'DE_MLP':
+                val_loss, val_mse, val_nll, val_kld, val_metrics = \
+                    self.validate_epoch_ensemble(model, val_loader, criterion_mse, criterion_nll, criterion_kld, epoch)
+                # Extract outputs and targets for compatibility
+                val_outputs = val_metrics.get('predictions', [])
+                val_targets = val_metrics.get('targets', [])
+                val_variance = 0.0  # Ensemble handles variance internally
+            else:
+                val_loss, val_mse, val_nll, val_kld, val_variance, val_outputs, val_targets = \
+                    self.validate_epoch(model, val_loader, criterion_mse, criterion_nll, criterion_kld, epoch)
+                val_metrics = calculate_metrics(val_outputs, val_targets, prefix="val")
+            
             val_duration = self._sync_and_time() - val_start
 
             # Track losses for plotting
@@ -1120,8 +1362,10 @@ class BaseTrainer:
             
             # Time metrics calculation
             metrics_start = self._sync_and_time()
-            train_metrics = calculate_metrics(train_outputs, train_targets, prefix="train")
-            val_metrics = calculate_metrics(val_outputs, val_targets, prefix="val")
+            # Metrics already calculated in ensemble methods, just use them
+            if model_type != 'DE_MLP':
+                train_metrics = calculate_metrics(train_outputs, train_targets, prefix="train")
+                val_metrics = calculate_metrics(val_outputs, val_targets, prefix="val")
             metrics_duration = self._sync_and_time() - metrics_start
 
             if not self.config["debug"]:

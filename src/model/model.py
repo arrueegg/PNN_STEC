@@ -274,14 +274,115 @@ class Branch_BNN_NLL(nn.Module):
         variance = F.softplus(variance) + 1e-3  # Increased minimum variance to prevent negative GaussianNLLLoss
 
         return mean, variance
-    
 
-# Model selection function
+
+class DeepEnsemble_MLP(torch.nn.Module):
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4, ensemble_size=5):
+        super().__init__()
+        self.ensemble_size = ensemble_size
+        
+        # Create ensemble of MLP_NLL models
+        self.ensemble_models = nn.ModuleList([
+            MLP_NLL(n_in=n_in, hidden_dim=hidden_dim, num_layers=num_layers) 
+            for _ in range(ensemble_size)
+        ])
+        
+        # Initialize each ensemble member differently for diversity
+        self._initialize_ensemble_diversity()
+    
+    def _initialize_ensemble_diversity(self):
+        """Initialize ensemble members with different seeds for diversity"""
+        for i, model in enumerate(self.ensemble_models):
+            # Use different seeds for each ensemble member
+            torch.manual_seed(42 + i)  # Base seed + member index
+            for param in model.parameters():
+                if param.dim() > 1:  # Weights
+                    nn.init.xavier_normal_(param)
+                else:  # Biases
+                    nn.init.constant_(param, 0.0)
+            
+            # Initialize output bias to STEC mean for each member
+            with torch.no_grad():
+                model.output_layer.bias.fill_(15.5)
+                model.output_layer.weight.normal_(0, 0.01)
+    
+    def forward(self, x):
+        """
+        Forward pass through ensemble.
+        Returns aggregated mean and total uncertainty (aleatoric + epistemic).
+        """
+        predictions = []
+        variances = []
+        
+        # Get predictions from all ensemble members
+        for model in self.ensemble_models:
+            mean, var = model(x)
+            predictions.append(mean)
+            variances.append(var)
+        
+        # Stack predictions: [ensemble_size, batch_size, 1]
+        predictions = torch.stack(predictions, dim=0)
+        variances = torch.stack(variances, dim=0)
+        
+        # Ensemble mean (epistemic uncertainty reduction)
+        ensemble_mean = torch.mean(predictions, dim=0)
+        
+        # Aleatoric uncertainty (average of individual model uncertainties)
+        aleatoric_uncertainty = torch.mean(variances, dim=0)
+        
+        # Epistemic uncertainty (variance of predictions across ensemble)
+        epistemic_uncertainty = torch.var(predictions, dim=0, unbiased=True)
+        
+        # Total uncertainty = aleatoric + epistemic
+        total_uncertainty = aleatoric_uncertainty + epistemic_uncertainty
+        
+        return ensemble_mean, total_uncertainty
+    
+    def forward_individual(self, x):
+        """
+        Forward pass returning predictions from all individual ensemble members.
+        Useful for training where we might want to train members individually.
+        """
+        all_predictions = []
+        all_variances = []
+        
+        for model in self.ensemble_models:
+            mean, var = model(x)
+            all_predictions.append(mean)
+            all_variances.append(var)
+        
+        return all_predictions, all_variances
+    
+    def get_uncertainties(self, x):
+        """
+        Get decomposed uncertainties for analysis.
+        Returns: ensemble_mean, aleatoric_uncertainty, epistemic_uncertainty, total_uncertainty
+        """
+        predictions = []
+        variances = []
+        
+        for model in self.ensemble_models:
+            mean, var = model(x)
+            predictions.append(mean)
+            variances.append(var)
+        
+        predictions = torch.stack(predictions, dim=0)
+        variances = torch.stack(variances, dim=0)
+        
+        ensemble_mean = torch.mean(predictions, dim=0)
+        aleatoric_uncertainty = torch.mean(variances, dim=0)
+        epistemic_uncertainty = torch.var(predictions, dim=0, unbiased=True)
+        total_uncertainty = aleatoric_uncertainty + epistemic_uncertainty
+        
+        return ensemble_mean, aleatoric_uncertainty, epistemic_uncertainty, total_uncertainty
+
+
 def get_model(config):
     model_type = config['model']['model_type']
     hidden_dim = config['model'].get('hidden_dim', 256)  # Default to 256 if not specified
     num_layers = config['model'].get('num_layers', 4)    # Default to 4 if not specified
     prior_sigma = config['model'].get('prior_sigma', 0.1)  # Default prior sigma for BNNs
+    ensemble_size = config['model'].get('ensemble_size', 5)  # Default ensemble size
     
     # Get input features count from feature registry, accounting for transformations
     feature_registry = config.get('feature_registry')
@@ -336,6 +437,9 @@ def get_model(config):
         return BranchMLP(n_in=in_features, num_SWI_params=num_SWI_params, hidden_dim=hidden_dim, num_layers=num_layers)
     elif model_type == 'MLP_NLL':
         model = MLP_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        return model
+    elif model_type == 'DE_MLP':
+        model = DeepEnsemble_MLP(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers, ensemble_size=ensemble_size)
         return model
     elif model_type == 'MLP_MCDropout_mse':
         return MLP_MCDropout_mse(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)

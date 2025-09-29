@@ -80,6 +80,7 @@ def compute_exp_name(config: dict) -> str:
     # Model architecture parameters
     hidden_dim = config['model'].get('hidden_dim', 256)
     num_layers = config['model'].get('num_layers', 3)
+    ensemble_size = config['model'].get('ensemble_size', 5)  # For ensemble models
     
     # Additional config parameters
     subset_size = config['data'].get('train_subset_size', 500_000)
@@ -104,6 +105,9 @@ def compute_exp_name(config: dict) -> str:
     weight_decay_str = f"_wd{weight_decay:.0e}".replace('e-0', 'e-').replace('e+0', 'e+') if weight_decay > 0.0 else ""
     loss_weight_str = f"_lw{loss_weight:.0e}".replace('e-0', 'e-').replace('e+0', 'e+').replace('e0', '')
     
+    # Add ensemble size for ensemble models
+    ensemble_str = f"_ens{ensemble_size}" if model == 'DE_MLP' else ""
+    
     # Add subset size (format large numbers nicely)
     if subset_size >= 1_000_000:
         subset_str = f"_sub{subset_size//1_000_000}M"
@@ -118,9 +122,9 @@ def compute_exp_name(config: dict) -> str:
     tw_str = f"_TW{target_weighting_function}" if target_weighting_enabled else ""
     
     if mode == 'finetune':
-        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
     elif mode == 'pretrain':
-        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
     else:
         raise ValueError(f"Unknown mode: {mode}")
     
