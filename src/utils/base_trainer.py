@@ -35,7 +35,7 @@ class BaseTrainer:
         if self.use_kl_annealing:
             self.kl_warmup_epochs = self.kl_annealing.get('warmup_epochs', 20)
             self.kl_start_weight = self.kl_annealing.get('start_weight', 0.0)
-            self.logger.info(f"🔥 KL annealing enabled: {self.kl_start_weight} → {self.kl_end_weight} over {self.kl_warmup_epochs} epochs")
+            self.logger.info(f"🔥 KL annealing enabled: {self.kl_start_weight} → {self.loss_weight} over {self.kl_warmup_epochs} epochs")
 
         # Train loss in log space?
         self.use_log_target = self.config['training'].get('log_target', True)
@@ -519,12 +519,12 @@ class BaseTrainer:
             return self.loss_weight
         
         if epoch < self.kl_warmup_epochs:
-            # Linear annealing from start_weight to end_weight
+            # Linear annealing from start_weight to loss_weight
             progress = epoch / self.kl_warmup_epochs
-            current_weight = self.kl_start_weight + progress * (self.kl_end_weight - self.kl_start_weight)
+            current_weight = self.kl_start_weight + progress * (self.loss_weight - self.kl_start_weight)
         else:
-            # After warmup, use full weight
-            current_weight = self.kl_end_weight
+            # After warmup, use full loss weight
+            current_weight = self.loss_weight
         
         return current_weight
 
