@@ -41,11 +41,6 @@ parameters:
   
   #training.target_weighting.weight_function:
     #values: ['linear', 'quadratic']
-  
-  training.target_weighting.high_value_weight:
-    distribution: uniform
-    min: 1.0
-    max: 5.0
 
   # Scheduler configuration
   #pretrain.scheduler:

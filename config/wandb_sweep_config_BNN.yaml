@@ -35,7 +35,7 @@ parameters:
 
   # Training configuration
   training.loss_function:
-    values: ['MSELoss', 'GaussianNLLLoss']
+    values: ['GaussianNLLLoss']
   
   #training.optimizer:
     #values: ['Adam', 'AdamW']
@@ -55,11 +55,6 @@ parameters:
   
   #training.target_weighting.weight_function:
     #values: ['linear', 'quadratic']
-  
-  training.target_weighting.high_value_weight:
-    distribution: uniform
-    min: 1.0
-    max: 5.0
 
   # Scheduler configuration
   #pretrain.scheduler:
