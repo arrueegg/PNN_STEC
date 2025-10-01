@@ -31,12 +31,12 @@ data:
   max_elevation: 90.0
   shuffle: True
   train_subset_size: 500_000  # Number of samples to use per epoch
-  use_all_test_samples: False  # Whether to use all test samples for evaluation
+  use_all_test_samples: True  # Whether to use all test samples for evaluation
 
 model:
   model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
   hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
-  num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
+  num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
   
   # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
@@ -44,16 +44,14 @@ model:
   ensemble_training:
     method: "simultaneous"  # "simultaneous" or "sequential" training of ensemble members
   
-
-  
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 1.0 
+  loss_weight: 0.5
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
     enabled: true                    # Enable KL annealing
-    warmup_epochs: 20               # Number of epochs to warm up KL weight from 0 to full
+    warmup_epochs: 5               # Number of epochs to warm up KL weight from 0 to full
     start_weight: 0.0               # Starting KL weight (0 = no KL initially)
     end_weight: 0.1                 # Final KL weight (should match loss_weight above)
   
@@ -75,11 +73,10 @@ pretrain:
   batchsize: 512
   num_workers: 12 
   prefetch_factor: 4
-  learning_rate: 0.001
+  learning_rate: 0.002
   scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 200       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
-  patience: 20                   # Increased patience for BNN training
   save_model_every_epoch: False # Whether to save the model every epoch
   early_stopping: true          # Whether to use early stopping
   patience: 30                   # Patience for early stopping

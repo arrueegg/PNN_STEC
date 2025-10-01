@@ -310,6 +310,8 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     model.eval()
     
     # Load data
+    config['data']['use_all_test_samples'] = True
+    config['pretrain']['batchsize'] = 4096
     train_loader, val_loader, test_loader = get_data_loaders(config, logger)
 
     del train_loader, val_loader
