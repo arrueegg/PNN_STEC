@@ -311,7 +311,7 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     model.eval()
     
     # Load test data only (more efficient for inference)
-    config['data']['use_all_test_samples'] = True
+    config['data']['use_all_test_samples'] = False
     config['pretrain']['batchsize'] = 4096
     test_loader = get_test_data_loader(config, logger)
 
@@ -326,7 +326,8 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     # Always use the full, optimized Bayesian inference to ensure all input variables
     # are preserved for detailed analysis and plotting.
     dataset_size = len(test_loader.dataset)
-    logger.info(f"📊 Using FULL inference for complete analysis ({dataset_size:,} samples)")
+    if config['data'].get('use_all_test_samples', False):
+        logger.info(f"📊 Using FULL inference for complete analysis ({dataset_size:,} samples)")
 
     bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
         model, test_loader, num_samples=num_samples

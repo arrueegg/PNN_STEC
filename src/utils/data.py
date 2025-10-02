@@ -882,7 +882,7 @@ def get_test_data_loader(config, logger=None):
     test_subset = None
     if not config['data'].get('use_all_test_samples', True):
         total_size = config['data'].get('train_subset_size', 50_000) / 0.7
-        test_subset = max(int(total_size * 0.15), 5_000_000)
+        test_subset = max(int(total_size * 0.15), 10_000_000)
     
     # Build splits if requested (only if they don't exist)
     if use_agg_h5 and build_agg_h5:
