@@ -903,7 +903,7 @@ class BaseTrainer:
         torch.cuda.empty_cache()
 
         with torch.no_grad():
-            for batch_idx, (inputs, targets) in enumerate(tqdm(dataloader, desc="Bayesian Inference")):
+            for batch_idx, (inputs, targets) in enumerate(tqdm(dataloader, desc="Bayesian Inference", miniters=total_batches//1000)):
                 bs = inputs.size(0)
                 inputs = inputs.to(self.device, non_blocking=True)
 

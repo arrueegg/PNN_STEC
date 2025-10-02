@@ -729,8 +729,8 @@ def get_data_loaders(config, logger=None):
      # ---- config knobs ----
     train_subset = config['data'].get('train_subset_size', 50_000)
     total_size = train_subset / 0.7
-    val_subset = max(int(total_size * 0.15), 500_000)
-    test_subset = max(int(total_size * 0.15), 5_000_000)
+    val_subset = max(int(total_size * 0.15), 2_000_000)
+    test_subset = max(int(total_size * 0.15), 10_000_000)
     if config['data'].get('use_all_test_samples', False):
         test_subset = None  # Use all test samples
     device = config['device']
