@@ -1,0 +1,92 @@
+# General configuration
+project_name: "PNN_STEC"
+output_dir: "experiments/"
+year: 2023
+doy: 1
+mode: pretrain # pretrain, finetune
+random_seed: 42
+debug: False  
+debug_single_batch: False  
+cluster: true
+
+enable_timing: False  # Enable detailed performance timing (useful for debugging/optimization)
+# Timing configuration - only active when enable_timing=True
+timing_config:
+  detailed_batch_timing: False  # Time individual batch operations (warning: can slow training)
+  save_timing_to_file: True     # Save timing statistics to CSV file in experiment directory
+  log_timing_every_n_batches: 100  # Log timing info every N batches during training (0 = disable periodic logs)
+
+target: "stec" # stec or vtec
+
+data:
+  GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
+  use_agg_h5: True
+  scratch_dir: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
+  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/SWI/
+  move_to_scratch: True # Whether to move data to scratch for faster access
+  every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
+  use_SWI: True # Whether to use Space Weather Indices as input data
+  SH_degree: 0
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 500_000  # Number of samples to use per epoch
+  use_all_test_samples: True  # Whether to use all test samples for evaluation
+
+model:
+  model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
+  hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
+  num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
+  prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
+  
+  # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
+  ensemble_size: 5    # Number of ensemble members (default: 5)
+  ensemble_training:
+    method: "simultaneous"  # "simultaneous" or "sequential" training of ensemble members
+  
+training:
+  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
+  loss_weight: 0.5
+  
+  # KL annealing for BNN training (gradually increase KL weight)
+  kl_annealing:
+    enabled: true                    # Enable KL annealing
+    warmup_epochs: 5               # Number of epochs to warm up KL weight from 0 to full
+    start_weight: 0.0               # Starting KL weight (0 = no KL initially)
+    end_weight: 0.1                 # Final KL weight (should match loss_weight above)
+  
+  # Target weighting configuration for addressing underprediction of high values
+  target_weighting:
+    enabled: false                    # Enable weighted loss based on target values
+    weight_function: "linear"      # Options: linear, quadratic, log, quantile
+    high_value_threshold: 0.75       # For quantile weighting: percentile threshold (0.75 = 75th percentile)
+    high_value_weight: 3.0           # For quantile weighting: weight multiplier for high values
+  
+  optimizer: "Adam"             # SGD, Adam, AdamW
+  weight_decay: 0.0             # Weight decay for regularization
+  standardize_targets: False        # Disable target standardization to avoid negative loss
+  log_target: False              # Disable log-space training
+  log_space_point: "mean"        # For compatibility
+
+pretrain:
+  epochs: 200
+  batchsize: 512
+  num_workers: 12 
+  prefetch_factor: 4
+  learning_rate: 0.002
+  scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
+  scheduler_step_size: 200       # Step size for scheduler (reduces lr every X epochs)
+  early_stopping: true          # Whether to use early stopping
+  save_model_every_epoch: False # Whether to save the model every epoch
+  early_stopping: true          # Whether to use early stopping
+  patience: 30                   # Patience for early stopping
+  save_model_every_epoch: False # Whether to save the model every epoch
+
+finetune:
+  epochs: 5
+  num_workers: 4
+  learning_rate: 0.001
+  scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
+  scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
+
+

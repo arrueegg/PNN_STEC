@@ -860,3 +860,96 @@ def get_data_loaders(config, logger=None):
             )
 
     return loaders['train'], loaders['val'], loaders['test']
+
+
+def get_test_data_loader(config, logger=None):
+    """
+    Get only the test data loader for inference.
+    More efficient than loading train/val/test when only test is needed.
+    """
+    collate_fn = CollateWithSH(config)
+    
+    # Configuration
+    device = config['device']
+    seed = int(config.get('seed', 42))
+    bs = config['pretrain']['batchsize']
+    nw = config['pretrain']['num_workers']
+    pf = config['pretrain']['prefetch_factor'] if config['pretrain']['prefetch_factor'] else None
+    use_agg_h5 = config['data'].get('use_agg_h5', False)
+    build_agg_h5 = config['data'].get('build_agg_h5', True)
+    
+    # For inference, we typically want all test samples
+    test_subset = None
+    if not config['data'].get('use_all_test_samples', True):
+        total_size = config['data'].get('train_subset_size', 50_000) / 0.7
+        test_subset = max(int(total_size * 0.15), 5_000_000)
+    
+    # Build splits if requested (only if they don't exist)
+    if use_agg_h5 and build_agg_h5:
+        test_path = os.path.join(config['data']['scratch_dir'], "test.h5")
+        if not os.path.exists(test_path):
+            if logger:
+                logger.info("Test data file not found, building aggregated H5 files...")
+            preprocessor = DataPreprocessor(config, logger)
+            success = preprocessor.build_split_h5()
+            if not success:
+                raise RuntimeError("Failed to build split H5 files")
+    
+    # Load test dataset
+    split = 'test'
+    if config['data'].get('use_agg_h5', False):
+        # Move SWI data to scratch if needed
+        swi_scratch_path = os.path.join(config['data']['scratch_dir'], "omni_hourly_2010-2025.h5")
+        if not os.path.exists(swi_scratch_path):
+            swi_path = os.path.join(config['data']['SWI_data_path'], "omni_hourly_2010-2025.h5")
+            if not os.path.exists(swi_path):
+                downloader = OmniDownloader(config['data']['SWI_data_path'], "20100101", "20250625")
+                downloader.run()
+            shutil.copy(swi_path, swi_scratch_path)
+            config['data']['SWI_data_path'] = os.path.dirname(swi_scratch_path)
+        
+        path = os.path.join(config['data']['scratch_dir'], f"{split}.h5")
+        
+        # Use RAM-based dataset if running on cluster
+        if config.get('cluster', False):
+            if logger:
+                logger.info(f"🚀 Using RAM-based dataset for {split} (cluster mode)")
+            ds = H5RAMDataset(config, path, split)
+        else:
+            ds = H5Dataset(config, path, split)
+    else:
+        preprocessor = DataPreprocessor(config, logger)
+        file_splits = preprocessor.get_split_file_lists()
+        datasets = []
+        
+        for file_path in tqdm(file_splits[split], desc=f"Loading {split}"):
+            # Extract year and doy from file path
+            year = file_path.split('/')[-3]
+            doy = file_path.split('/')[-2] 
+            datasets.append(PyTablesDatasetSplit(file_path, year, doy, split, config))
+        ds = torch.utils.data.ConcatDataset(datasets)
+    
+    # Apply subset if requested
+    if test_subset and test_subset < len(ds):
+        cache_dir = './val_test_subsets_idx'
+        cache_path = os.path.join(config['data']['scratch_dir'], cache_dir, f"{split}_subset_idx.pt")
+        idx = get_fixed_subset_indices(ds, test_subset, cache_path, seed=seed)
+        ds = Subset(ds, idx)
+    
+    # Create test data loader
+    test_loader = DataLoader(
+        ds,
+        batch_size=bs,
+        num_workers=nw,
+        prefetch_factor=pf,
+        persistent_workers=False,
+        shuffle=False,
+        sampler=SequentialSampler(ds),
+        collate_fn=collate_fn,
+        pin_memory=(device != 'cpu'),
+    )
+    
+    if logger:
+        logger.info(f"✅ Test data loader created: {len(ds):,} samples, batch size {bs}")
+    
+    return test_loader

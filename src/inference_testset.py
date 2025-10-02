@@ -47,7 +47,7 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.config_parser import parse_config, compute_exp_name
-from utils.data import get_data_loaders
+from utils.data import get_test_data_loader
 from utils.feature_registry import initialize_feature_registry
 from utils.metrics import calculate_metrics
 from utils.plot import plot_test_metrics
@@ -290,6 +290,7 @@ def find_model_checkpoint(experiment_dir, config):
 def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     """Run the complete inference pipeline using BaseTrainer."""
     logger.info(f"Running inference...")
+    logger.info("💾 Loading test data only (optimized for inference)")
     
     # Setup device
     device = config['device']
@@ -309,12 +310,10 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     
-    # Load data
+    # Load test data only (more efficient for inference)
     config['data']['use_all_test_samples'] = True
     config['pretrain']['batchsize'] = 4096
-    train_loader, val_loader, test_loader = get_data_loaders(config, logger)
-
-    del train_loader, val_loader
+    test_loader = get_test_data_loader(config, logger)
 
     # Run inference using BaseTrainer's methods
     model_type = config['model']['model_type']
@@ -324,6 +323,11 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     # For non-BNN models, use num_samples=1 to get the same feature extraction
     num_samples = 100 if is_bayesian else 1
     
+    # Always use the full, optimized Bayesian inference to ensure all input variables
+    # are preserved for detailed analysis and plotting.
+    dataset_size = len(test_loader.dataset)
+    logger.info(f"📊 Using FULL inference for complete analysis ({dataset_size:,} samples)")
+
     bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
         model, test_loader, num_samples=num_samples
     )
@@ -422,16 +426,8 @@ def main():
         torch.cuda.manual_seed(42)
     
     try:
-        # Load config using the existing parser (without command line args)
-        import sys
-        # Temporarily modify sys.argv to avoid argument parsing conflicts
-        original_argv = sys.argv[:]
-        sys.argv = [sys.argv[0]]  # Keep only script name
-        
+        # Load config using the existing parser (respecting command line args)
         config = parse_config()
-        
-        # Restore original argv
-        sys.argv = original_argv
         
         # Set device
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

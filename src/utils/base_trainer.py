@@ -876,6 +876,8 @@ class BaseTrainer:
     def bayesian_inference_total_uncertainty(self, model, dataloader, num_samples=100):
         """
         Compute predictive mean and total uncertainty (epistemic + aleatoric) in ORIGINAL space.
+        OPTIMIZED VERSION: Fixes performance degradation issues.
+        
         For log-targets, each forward pass is mapped via log-normal moments:
             mean_y_s = exp(mu + 0.5*sigma2) - eps
             var_y_alea_s = (exp(sigma2) - 1) * exp(2*mu + sigma2)
@@ -885,15 +887,23 @@ class BaseTrainer:
         """
         model.eval()
 
-        final_df = pd.DataFrame()
+        # OPTIMIZATION 1: Use lists for batch DataFrames, concat once at end
+        batch_dataframes = []
         batch_means = []
         batch_epistemic_vars = []
         batch_aleatoric_vars = []
         all_targets = []
 
+        # Progress tracking
+        total_batches = len(dataloader)
+        processed_samples = 0
+        
+        # Memory management
+        gc.collect()
+        torch.cuda.empty_cache()
+
         with torch.no_grad():
-            for inputs, targets in tqdm(dataloader, desc="Bayesian Inference",
-                                        disable=self.config.get('cluster', False)):
+            for batch_idx, (inputs, targets) in enumerate(tqdm(dataloader, desc="Bayesian Inference")):
                 bs = inputs.size(0)
                 inputs = inputs.to(self.device, non_blocking=True)
 
@@ -903,20 +913,18 @@ class BaseTrainer:
                     # For ensemble models, use the decomposed uncertainty method
                     ensemble_mean, aleatoric_var, epistemic_var, total_var = model.get_uncertainties(inputs)
                     
-                    # Move to CPU and handle shapes
-                    stec_mean = ensemble_mean.cpu().flatten()
-                    epistemic_var = epistemic_var.cpu().flatten()
-                    aleatoric_var = aleatoric_var.cpu().flatten()
+                    # OPTIMIZATION 2: Keep on GPU longer, batch CPU transfer
+                    stec_mean = ensemble_mean.flatten()
+                    epistemic_var = epistemic_var.flatten()
+                    aleatoric_var = aleatoric_var.flatten()
                     
-                    batch_means.append(stec_mean)
-                    batch_epistemic_vars.append(epistemic_var)
-                    batch_aleatoric_vars.append(aleatoric_var)
                 else:
-                    # Original BNN sampling logic
+                    # OPTIMIZATION 2: Batch GPU operations, minimize CPU transfers
+                    # Original BNN sampling logic - but optimized
                     per_sample_means = []
                     per_sample_alea_vars = []
 
-                    for _ in range(num_samples):
+                    for sample_idx in range(num_samples):
                         outputs = model(inputs)
                         mean_raw, var_raw = self.compute_mean_var(outputs)
 
@@ -928,9 +936,11 @@ class BaseTrainer:
                             mean_y = mean_raw
                             var_alea_y = var_raw
 
-                        per_sample_means.append(mean_y.cpu())
-                        per_sample_alea_vars.append(var_alea_y.cpu())
+                        # Keep on GPU until all samples done
+                        per_sample_means.append(mean_y)
+                        per_sample_alea_vars.append(var_alea_y)
 
+                    # OPTIMIZATION 2: Stack and compute on GPU, then transfer once
                     pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
                     alea_var_stack = torch.stack(per_sample_alea_vars, dim=0) # [S, B]
 
@@ -940,11 +950,14 @@ class BaseTrainer:
                     else:
                         epistemic_var = pred_stack.var(dim=0)             # Var over means
                     aleatoric_var = alea_var_stack.mean(dim=0)            # Mean aleatoric var
-                    batch_means.append(stec_mean)
-                    batch_epistemic_vars.append(epistemic_var)
-                    batch_aleatoric_vars.append(aleatoric_var)
+
+                # OPTIMIZATION 2: Single CPU transfer per batch
+                batch_means.append(stec_mean.cpu())
+                batch_epistemic_vars.append(epistemic_var.cpu())
+                batch_aleatoric_vars.append(aleatoric_var.cpu())
                 all_targets.append(targets.cpu())
 
+                # OPTIMIZATION 1: Create DataFrame and append to list (not concat!)
                 # Build per-batch DF using feature registry
                 inputs_original, feature_order = self.inverse_transform_features(inputs)
 
@@ -953,9 +966,9 @@ class BaseTrainer:
                         inputs_original.cpu(),
                         targets.cpu().view(bs, -1),
                         stec_mean.cpu().view(bs, -1),
-                        torch.sqrt(epistemic_var).cpu().view(bs, -1),
-                        torch.sqrt(aleatoric_var).cpu().view(bs, -1),
-                        torch.sqrt(epistemic_var + aleatoric_var).cpu().view(bs, -1)
+                        torch.sqrt(epistemic_var.cpu()).view(bs, -1),
+                        torch.sqrt(aleatoric_var.cpu()).view(bs, -1),
+                        torch.sqrt((epistemic_var + aleatoric_var).cpu()).view(bs, -1)
                     ], dim=1).numpy(),
                     columns=[
                         *feature_order,
@@ -963,7 +976,24 @@ class BaseTrainer:
                         'pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc'
                     ]
                 )
-                final_df = pd.concat([final_df, batch_df], ignore_index=True)
+                batch_dataframes.append(batch_df)
+                
+                processed_samples += bs
+                
+                # OPTIMIZATION 3: Periodic memory cleanup (every 50 batches)
+                if (batch_idx + 1) % 50 == 0:
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+        # OPTIMIZATION 1: Single DataFrame concat at the end (O(n) instead of O(n²))
+        self.logger.info("📊 Combining results from all batches...")
+        final_df = pd.concat(batch_dataframes, ignore_index=True)
+        
+        # Final cleanup
+        del batch_dataframes
+        gc.collect()
+        torch.cuda.empty_cache()
 
         mean = torch.cat(batch_means).squeeze()
         epistemic_var = torch.cat(batch_epistemic_vars)
@@ -972,6 +1002,8 @@ class BaseTrainer:
 
         total_var = epistemic_var + aleatoric_var
         total_std = torch.sqrt(total_var)
+
+        self.logger.info(f"✅ Bayesian inference completed: {processed_samples:,} samples processed")
 
         return {
             'baysian_mae': torch.mean(torch.abs(mean - targets)),
