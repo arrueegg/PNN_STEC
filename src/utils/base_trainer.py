@@ -1019,10 +1019,45 @@ class BaseTrainer:
         if use_minimal_features:
             self.logger.info(f"� Using essential features only for large dataset ({dataset_size:,} samples) to prevent OOM")
         
-        # OPTIMIZATION 1: Single DataFrame concat at the end (O(n) instead of O(n²))
+        # OPTIMIZATION 1: Use iterative concatenation to avoid memory spikes
         if batch_dataframes:
-            self.logger.info("📊 Combining results from all batches...")
-            final_df = pd.concat(batch_dataframes, ignore_index=True)
+            self.logger.info("📊 Combining results from all batches using iterative concatenation...")
+            
+            # Iterative concatenation in chunks to avoid memory spikes
+            chunk_size = 50  # Process 50 DataFrames at a time
+            final_df = None
+            
+            for i in range(0, len(batch_dataframes), chunk_size):
+                chunk_end = min(i + chunk_size, len(batch_dataframes))
+                chunk_dfs = batch_dataframes[i:chunk_end]
+                
+                # Concatenate this chunk
+                if len(chunk_dfs) == 1:
+                    chunk_df = chunk_dfs[0]
+                else:
+                    chunk_df = pd.concat(chunk_dfs, ignore_index=True)
+                
+                # Add to final result
+                if final_df is None:
+                    final_df = chunk_df
+                else:
+                    final_df = pd.concat([final_df, chunk_df], ignore_index=True)
+                
+                # Free memory immediately
+                del chunk_dfs, chunk_df
+                
+                # Progress update
+                if i + chunk_size < len(batch_dataframes):
+                    self.logger.info(f"   Processed {chunk_end}/{len(batch_dataframes)} batch DataFrames...")
+                
+                # Periodic garbage collection
+                if (i // chunk_size) % 10 == 0:  # Every 10 chunks (500 DataFrames)
+                    gc.collect()
+            
+            # Final cleanup of batch list
+            del batch_dataframes
+            gc.collect()
+            
         else:
             # Create DataFrame with essential features for plotting
             if use_minimal_features:
@@ -1056,7 +1091,6 @@ class BaseTrainer:
                 final_df = pd.DataFrame()  # Empty DataFrame fallback
         
         # Final cleanup
-        del batch_dataframes
         gc.collect()
         torch.cuda.empty_cache()
 
