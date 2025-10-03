@@ -77,7 +77,7 @@ class H5Dataset(Dataset):
             self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
 
     def __len__(self):
-        return self.data.shape[0]
+        return len(self.data)
 
     def __getitem__(self, idx):
         row = self.data[idx]

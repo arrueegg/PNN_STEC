@@ -893,6 +893,11 @@ class BaseTrainer:
         batch_epistemic_vars = []
         batch_aleatoric_vars = []
         all_targets = []
+        
+        # For large datasets, collect essential features separately to avoid full feature extraction
+        dataset_size = len(dataloader.dataset)
+        use_minimal_features = dataset_size >= 5_000_000
+        batch_essential_features = [] if use_minimal_features else None
 
         # Progress tracking
         total_batches = len(dataloader)
@@ -957,26 +962,46 @@ class BaseTrainer:
                 batch_aleatoric_vars.append(aleatoric_var.cpu())
                 all_targets.append(targets.cpu())
 
-                # OPTIMIZATION 1: Create DataFrame and append to list (not concat!)
-                # Build per-batch DF using feature registry
-                inputs_original, feature_order = self.inverse_transform_features(inputs)
+                # OPTIMIZATION 1: Handle DataFrame creation based on dataset size
+                if not use_minimal_features:
+                    # Small dataset: Create full DataFrame with all features
+                    inputs_original, feature_order = self.inverse_transform_features(inputs)
 
-                batch_df = pd.DataFrame(
-                    torch.cat([
-                        inputs_original.cpu(),
-                        targets.cpu().view(bs, -1),
-                        stec_mean.cpu().view(bs, -1),
-                        torch.sqrt(epistemic_var.cpu()).view(bs, -1),
-                        torch.sqrt(aleatoric_var.cpu()).view(bs, -1),
-                        torch.sqrt((epistemic_var + aleatoric_var).cpu()).view(bs, -1)
-                    ], dim=1).numpy(),
-                    columns=[
-                        *feature_order,
-                        'target_stec', 'pred_stec',
-                        'pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc'
+                    batch_df = pd.DataFrame(
+                        torch.cat([
+                            inputs_original.cpu(),
+                            targets.cpu().view(bs, -1),
+                            stec_mean.cpu().view(bs, -1),
+                            torch.sqrt(epistemic_var.cpu()).view(bs, -1),
+                            torch.sqrt(aleatoric_var.cpu()).view(bs, -1),
+                            torch.sqrt((epistemic_var + aleatoric_var).cpu()).view(bs, -1)
+                        ], dim=1).numpy(),
+                        columns=[
+                            *feature_order,
+                            'target_stec', 'pred_stec',
+                            'pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc'
+                        ]
+                    )
+                    batch_dataframes.append(batch_df)
+                else:
+                    # Large dataset: Extract only essential features for plotting
+                    inputs_original, feature_order = self.inverse_transform_features(inputs)
+                    
+                    # Define essential features needed for key plots
+                    essential_feature_names = [
+                        'lon_ipp', 'lat_ipp', 'sm_lat_ipp',  # Spatial plotting
+                        'year', 'doy', 'time',              # Temporal plotting  
+                        'satazi', 'satele',                  # Directional plotting
+                        'kp_binned', 'dst', 'f107'          # Space weather (if available)
                     ]
-                )
-                batch_dataframes.append(batch_df)
+                    
+                    # Extract essential features that exist in the feature order
+                    batch_essential = {}
+                    for i, feature_name in enumerate(feature_order):
+                        if feature_name in essential_feature_names:
+                            batch_essential[feature_name] = inputs_original[:, i]
+                    
+                    batch_essential_features.append(batch_essential)
                 
                 processed_samples += bs
                 
@@ -986,9 +1011,49 @@ class BaseTrainer:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
 
+        # MEMORY OPTIMIZATION: For very large datasets, create DataFrame with essential features only
+        # to avoid OOM errors during concatenation while preserving key plotting capabilities
+        dataset_size = len(dataloader.dataset)
+        use_minimal_features = dataset_size >= 5_000_000  # Only use minimal features for ≥5M samples
+        
+        if use_minimal_features:
+            self.logger.info(f"� Using essential features only for large dataset ({dataset_size:,} samples) to prevent OOM")
+        
         # OPTIMIZATION 1: Single DataFrame concat at the end (O(n) instead of O(n²))
-        self.logger.info("📊 Combining results from all batches...")
-        final_df = pd.concat(batch_dataframes, ignore_index=True)
+        if batch_dataframes:
+            self.logger.info("📊 Combining results from all batches...")
+            final_df = pd.concat(batch_dataframes, ignore_index=True)
+        else:
+            # Create DataFrame with essential features for plotting
+            if use_minimal_features:
+                self.logger.info("📊 Creating DataFrame with essential plotting features for large dataset...")
+                mean_tensor = torch.cat(batch_means).squeeze()
+                epistemic_tensor = torch.cat(batch_epistemic_vars)
+                aleatoric_tensor = torch.cat(batch_aleatoric_vars)
+                targets_tensor = torch.cat(all_targets)
+                total_std_tensor = torch.sqrt(epistemic_tensor + aleatoric_tensor)
+                
+                # Extract essential features from the last batch for structure
+                # We'll reconstruct minimal features from stored batch data
+                essential_features = {}
+                if batch_essential_features:
+                    # Concatenate all essential features
+                    for feature_name in batch_essential_features[0].keys():
+                        feature_data = torch.cat([batch[feature_name] for batch in batch_essential_features])
+                        essential_features[feature_name] = feature_data.cpu().numpy()
+                
+                # Create DataFrame with predictions + essential features
+                df_dict = {
+                    'target_stec': targets_tensor.cpu().numpy(),
+                    'pred_stec': mean_tensor.cpu().numpy(),
+                    'pred_epistemic_unc': torch.sqrt(epistemic_tensor).cpu().numpy(),
+                    'pred_aleatoric_unc': torch.sqrt(aleatoric_tensor).cpu().numpy(),
+                    'pred_total_unc': total_std_tensor.cpu().numpy(),
+                    **essential_features
+                }
+                final_df = pd.DataFrame(df_dict)
+            else:
+                final_df = pd.DataFrame()  # Empty DataFrame fallback
         
         # Final cleanup
         del batch_dataframes

@@ -300,28 +300,29 @@ def plot_prediction_scatter(df, output_dir):
     plt.savefig(f'{output_dir}/prediction_hist2d.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    # Standard scatter plot for comparison
-    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
-    
-    ax.scatter(df['target_stec'], df['pred_stec'], alpha=0.3, s=1, c='blue')
-    ax.plot([min_val, max_val], [min_val, max_val], 'r-', linewidth=3, 
-            label='Perfect Prediction', alpha=0.9)
-    
-    ax.set_xlabel('True STEC [TECU]', fontweight='bold')
-    ax.set_ylabel('Predicted STEC [TECU]', fontweight='bold')
-    ax.set_title('Predicted vs True STEC', fontweight='bold', pad=20)
-    
-    # Add legend with properly named scientific metrics
-    legend_elements = [plt.Line2D([0], [0], color='red', linewidth=3, label='Perfect Prediction'),
-                      plt.Line2D([0], [0], color='none', label=f'Pearson r = {r_value:.3f}'),
-                      plt.Line2D([0], [0], color='none', label=f'R² = {r2_value:.3f}')]
-    ax.legend(handles=legend_elements, loc='upper left', fontsize=14, framealpha=0.9)
-    ax.grid(True, alpha=0.3)
-    ax.set_aspect('equal')
-    
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/prediction_scatter.png', dpi=300, bbox_inches='tight')
-    plt.close()
+    # Standard scatter plot for comparison (only if less than 1M points)
+    if len(df) < 1_000_000:
+        fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+        
+        ax.scatter(df['target_stec'], df['pred_stec'], alpha=0.3, s=1, c='blue')
+        ax.plot([min_val, max_val], [min_val, max_val], 'r-', linewidth=3, 
+                label='Perfect Prediction', alpha=0.9)
+        
+        ax.set_xlabel('True STEC [TECU]', fontweight='bold')
+        ax.set_ylabel('Predicted STEC [TECU]', fontweight='bold')
+        ax.set_title('Predicted vs True STEC (Sample)', fontweight='bold', pad=20)
+        
+        # Add legend with properly named scientific metrics
+        legend_elements = [plt.Line2D([0], [0], color='red', linewidth=3, label='Perfect Prediction'),
+                          plt.Line2D([0], [0], color='none', label=f'Pearson r = {r_value:.3f}'),
+                          plt.Line2D([0], [0], color='none', label=f'R² = {r2_value:.3f}')]
+        ax.legend(handles=legend_elements, loc='upper left', fontsize=14, framealpha=0.9)
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal')
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/prediction_scatter.png', dpi=300, bbox_inches='tight')
+        plt.close()
 
 
 def plot_spatial_error_map(df, output_dir):
@@ -615,8 +616,259 @@ def plot_histogram_of_residuals(df, output_dir):
     plt.close()
 
 
+def plot_uncertainty_calibration_binned(df, output_dir):
+    """
+    Creates a binned calibration plot comparing total, epistemic, and aleatoric uncertainty.
+    This is a more advanced version of a reliability diagram.
+    """
+    ensure_dir(f'{output_dir}/uncertainty_analysis')
+    
+    df = df.copy()
+    df['abs_residual'] = np.abs(df['target_stec'] - df['pred_stec'])
+
+    uncertainty_types = {
+        'Total': 'pred_total_unc',
+        'Epistemic': 'pred_epistemic_unc',
+        'Aleatoric': 'pred_aleatoric_unc'
+    }
+
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+    
+    max_unc = 0
+
+    for label, col in uncertainty_types.items():
+        if col not in df.columns:
+            continue
+
+        # Create bins based on predicted uncertainty quantiles for robustness
+        try:
+            df[f'{col}_bin'] = pd.qcut(df[col], q=20, duplicates='drop')
+        except ValueError:
+            # Fallback to linear bins if qcut fails (e.g., not enough unique values)
+            df[f'{col}_bin'] = pd.cut(df[col], bins=20)
+
+        # Calculate mean predicted uncertainty and mean residual for each bin
+        binned_data = df.groupby(f'{col}_bin', observed=True).agg(
+            mean_pred_unc=(col, 'mean'),
+            std_pred_unc=(col, 'std'),
+            mean_abs_residual=('abs_residual', 'mean')
+        ).dropna()
+
+        ax.errorbar(binned_data['mean_pred_unc'], binned_data['mean_abs_residual'], 
+                    xerr=binned_data['std_pred_unc'],
+                    marker='o', linestyle='-', label=f'{label} Uncertainty', capsize=3)
+        
+        if not binned_data.empty:
+            max_unc = max(max_unc, binned_data['mean_pred_unc'].max())
+
+    if max_unc > 0:
+        # Add perfect calibration line
+        ax.plot([0, max_unc], [0, max_unc], 'r--', linewidth=2, label='Perfect Calibration')
+
+    ax.set_xlabel('Mean Predicted Uncertainty (in bin) [TECU]', fontweight='bold')
+    ax.set_ylabel('Mean Absolute Residual (in bin) [TECU]', fontweight='bold')
+    ax.set_title('Binned Uncertainty Calibration', fontweight='bold', pad=20)
+    ax.legend(fontsize=14)
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
+
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_calibration_binned.png', dpi=300)
+    plt.close()
+
+
+def plot_coverage_probability(df, output_dir):
+    """
+    Plots the coverage probability for total, epistemic, and aleatoric uncertainty.
+    This shows how often the true value falls within the predicted uncertainty interval.
+    """
+    ensure_dir(f'{output_dir}/uncertainty_analysis')
+    
+    df = df.copy()
+    residuals = df['target_stec'] - df['pred_stec']
+
+    uncertainty_types = {
+        'Total': 'pred_total_unc',
+        'Epistemic': 'pred_epistemic_unc',
+        'Aleatoric': 'pred_aleatoric_unc'
+    }
+
+    coverage_levels = np.linspace(0, 3, 31)  # From 0 to 3 sigma
+    
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+
+    for label, col in uncertainty_types.items():
+        if col not in df.columns or df[col].isnull().all():
+            continue
+
+        observed_coverage = []
+        for sigma in coverage_levels:
+            is_covered = np.abs(residuals) <= (sigma * df[col])
+            coverage_fraction = is_covered.mean()
+            observed_coverage.append(coverage_fraction)
+        
+        ax.plot(coverage_levels, observed_coverage, marker='.', linestyle='-', label=f'Observed ({label})')
+
+    # Expected coverage for a Gaussian distribution
+    from scipy.stats import norm
+    expected_coverage = [norm.cdf(s) - norm.cdf(-s) for s in coverage_levels]
+    ax.plot(coverage_levels, expected_coverage, 'r--', label='Expected (Gaussian)', linewidth=2)
+
+    ax.set_xlabel('Predicted Uncertainty Interval (Number of Sigmas)', fontweight='bold')
+    ax.set_ylabel('Observed Coverage Probability', fontweight='bold')
+    ax.set_title('Uncertainty Coverage Probability', fontweight='bold', pad=20)
+    ax.legend(fontsize=14)
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+    ax.set_xlim(0, 3)
+    ax.set_ylim(0, 1)
+    ax.set_xticks(np.arange(0, 3.5, 0.5))
+    ax.set_yticks(np.arange(0, 1.1, 0.1))
+
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_coverage_probability.png', dpi=300)
+    plt.close()
+
+
+def plot_binned_uncertainty_analysis(df, output_dir):
+    """
+    Creates a comprehensive binned uncertainty analysis plot similar to the provided example.
+    It shows the distribution of absolute error against total uncertainty, along with
+    mean model and data uncertainties.
+    """
+    ensure_dir(f'{output_dir}/uncertainty_analysis')
+    df = df.copy()
+
+    # --- Data Preparation ---
+    df['abs_error'] = (df['target_stec'] - df['pred_stec']).abs()
+    
+    # Create proper bins based on uncertainty VALUE ranges (not sample counts)
+    max_unc = df['pred_total_unc'].quantile(0.95)  # Use 95th percentile to avoid outliers
+    n_bins = min(30, max(10, len(df) // 300))  # Adaptive number of bins
+    
+    # Create equal-width bins from 0 to max_unc
+    bin_edges = np.linspace(0, max_unc, n_bins + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    
+    # Assign each point to a bin
+    df['unc_bin'] = pd.cut(df['pred_total_unc'], bins=bin_edges, include_lowest=True, labels=False)
+    
+    # Filter out points beyond our max_unc threshold
+    df = df.dropna(subset=['unc_bin'])
+
+    # --- Calculate Metrics per Bin ---
+    # Group by the created bins and filter for bins with sufficient data
+    valid_groups = []
+    plot_positions = []
+    mean_abs_error = []
+    mean_model_unc = []
+    mean_data_unc = []
+    box_data = []
+    
+    for bin_idx in range(len(bin_centers)):
+        bin_data = df[df['unc_bin'] == bin_idx]
+        if len(bin_data) >= 5:  # Only bins with at least 5 points
+            valid_groups.append(bin_idx)
+            plot_positions.append(bin_centers[bin_idx])
+            mean_abs_error.append(bin_data['abs_error'].mean())
+            mean_model_unc.append(bin_data['pred_epistemic_unc'].mean())
+            mean_data_unc.append(bin_data['pred_aleatoric_unc'].mean())
+            box_data.append(bin_data['abs_error'].values)
+    
+    if not valid_groups:
+        print("Warning: No bins with sufficient data for uncertainty analysis")
+        return
+
+    # --- Plotting ---
+    fig, ax = plt.subplots(figsize=(16, 12))
+
+    # 1. Boxplots for Absolute Error
+    if box_data:  # Only plot if we have data
+        bp = ax.boxplot(box_data, positions=plot_positions, 
+                        widths=min(0.8, (max_unc / n_bins) * 0.8),  # Scale width to bin size
+                        showfliers=False, patch_artist=True,
+                        boxprops=dict(facecolor='white', edgecolor='black'),
+                        whiskerprops=dict(color='black'),
+                        capprops=dict(color='black'),
+                        medianprops=dict(color='orange'))
+
+        # 2. Scatter plot for outliers (fliers)
+        for i, (pos, data) in enumerate(zip(plot_positions, box_data)):
+            # Manually identify fliers (points outside 1.5 * IQR)
+            q1 = np.percentile(data, 25)
+            q3 = np.percentile(data, 75)
+            iqr = q3 - q1
+            upper_bound = q3 + 1.5 * iqr
+            fliers_data = [f for f in data if f > upper_bound]
+            if fliers_data:
+                ax.scatter([pos] * len(fliers_data), fliers_data,
+                           color='black', marker='.', s=10, zorder=10)
+
+        # 3. Line plots for mean values
+        ax.plot(plot_positions, mean_abs_error, color='orange', marker='o', linestyle='-', 
+                label='Absolute Prediction Error', zorder=20)
+        ax.plot(plot_positions, mean_model_unc, color='black', marker='o', linestyle='-', 
+                label='Model Uncertainty (Epistemic)', zorder=20)
+        ax.plot(plot_positions, mean_data_unc, color='blue', marker='o', linestyle='-', 
+                label='Data Uncertainty (Aleatoric)', zorder=20)
+
+    # 4. Perfect Calibration Line
+    ax.plot([0, max_unc], [0, max_unc], 'r--', label='Perfect Calibration', zorder=15)
+
+    # --- Formatting ---
+    ax.set_xlabel('Total Uncertainty (TECU)', fontweight='bold', fontsize=14)
+    ax.set_ylabel('Values (TECU)', fontweight='bold', fontsize=14)
+    ax.set_title('Binned Uncertainty & Error Analysis', fontweight='bold', pad=20, fontsize=16)
+    
+    # Improve x-axis tick formatting
+    if plot_positions:
+        # Create readable x-axis ticks
+        x_max = max(plot_positions) * 1.1
+        
+        # Set reasonable number of ticks based on the range
+        if x_max <= 10:
+            x_ticks = np.arange(0, x_max + 1, 1)
+        elif x_max <= 20:
+            x_ticks = np.arange(0, x_max + 2, 2)
+        elif x_max <= 50:
+            x_ticks = np.arange(0, x_max + 5, 5)
+        else:
+            x_ticks = np.arange(0, x_max + 10, 10)
+        
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels([f'{int(tick)}' for tick in x_ticks], fontsize=12)
+        ax.tick_params(axis='x', labelsize=12)
+        ax.tick_params(axis='y', labelsize=12)
+    
+    ax.legend(fontsize=12, framealpha=0.9)
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+    
+    # Set axis limits to show all data properly
+    if plot_positions:
+        x_max = max(plot_positions) * 1.1
+        y_max = max(max(mean_abs_error), max(mean_model_unc), max(mean_data_unc)) * 1.2
+        
+        # Also consider the boxplot data for y-axis
+        if box_data:
+            max_box_val = max([np.percentile(data, 95) for data in box_data])
+            y_max = max(y_max, max_box_val * 1.1)
+        
+        ax.set_xlim(0, x_max)
+        ax.set_ylim(0, y_max)
+    else:
+        ax.set_xlim(0, 50)
+        ax.set_ylim(0, 50)
+
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/uncertainty_analysis/binned_uncertainty_error_analysis.png', dpi=300)
+    plt.close(fig)
+
+
 def plot_uncertainty_calibration(df, output_dir):
-    """Create presentation-ready uncertainty calibration plots"""
+    """DEPRECATED: Creates presentation-ready uncertainty calibration plots. 
+    Now replaced by plot_uncertainty_calibration_binned.
+    """
     # Ensure the uncertainty_analysis directory exists
     ensure_dir(f'{output_dir}/uncertainty_analysis')
     
@@ -672,24 +924,25 @@ def plot_uncertainty_calibration(df, output_dir):
     plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_calibration_hist2d.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    # Standard scatter plot for comparison
-    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
-    
-    ax.scatter(df['pred_total_unc'], abs_residual, alpha=0.3, s=1, c='blue')
-    ax.plot([0, max_val], [0, max_val], 'r-', linewidth=3, 
-            label='Perfect Calibration (1σ)', alpha=0.9)
-    
-    ax.set_xlabel('Predicted Total Uncertainty [TECU]', fontweight='bold')
-    ax.set_ylabel('|Residual| [TECU]', fontweight='bold')
-    ax.set_title('Uncertainty Calibration', fontweight='bold', pad=20)
-    
-    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
-    ax.grid(True, alpha=0.3)
-    ax.set_aspect('equal')
-    
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_calibration_scatter.png', dpi=300, bbox_inches='tight')
-    plt.close()
+    # Standard scatter plot for comparison (only if less than 1M points)
+    if len(df) < 1_000_000:
+        fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+        
+        ax.scatter(df['pred_total_unc'], abs_residual, alpha=0.3, s=1, c='blue')
+        ax.plot([0, max_val], [0, max_val], 'r-', linewidth=3, 
+                label='Perfect Calibration (1σ)', alpha=0.9)
+        
+        ax.set_xlabel('Predicted Total Uncertainty [TECU]', fontweight='bold')
+        ax.set_ylabel('|Residual| [TECU]', fontweight='bold')
+        ax.set_title('Uncertainty Calibration (Sample)', fontweight='bold', pad=20)
+        
+        ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal')
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/uncertainty_analysis/uncertainty_calibration_scatter.png', dpi=300, bbox_inches='tight')
+        plt.close()
 
 def plot_az_el_heatmap(df, output_dir, metric='residual'):
     """ Plots a presentation-ready heatmap of residuals or MAE by azimuth and elevation.
@@ -938,6 +1191,140 @@ def plot_residuals_vs_date(df, output_dir='plots'):
     plt.savefig(f'{output_dir}/residuals_vs_date_monthly.png', dpi=300, bbox_inches='tight')
     plt.close()
 
+def calc_rmse(x):
+    """Helper function to calculate Root Mean Square Error."""
+    return np.sqrt(np.mean(x**2))
+
+def plot_box_by_date(df, output_dir):
+    """
+    Creates a two-panel plot showing RMSE/MAE and residual boxplots over time.
+    """
+    df = df.copy()
+    df['error'] = df['target_stec'] - df['pred_stec']
+    df['ae'] = np.abs(df['error'])
+
+    # Create datetime from year and doy
+    def create_date(row):
+        try:
+            year = int(row['year'])
+            doy = int(row['doy'])
+            date = datetime(year, 1, 1) + timedelta(days=doy - 1)
+            return date
+        except:
+            return None
+    
+    df['date'] = df.apply(create_date, axis=1)
+    df = df.dropna(subset=['date'])
+    df['year_month'] = df['date'].dt.to_period('M').astype(str)
+
+    order = sorted(df["year_month"].unique())
+    pos = np.arange(len(order))
+    
+    # Calculate metrics, ensuring order is maintained
+    rmse_lat = df.groupby("year_month")['error'].apply(calc_rmse).reindex(order).reset_index()
+    mae_lat = df.groupby("year_month")["ae"].mean().reindex(order).reset_index()
+
+    grouped = df.groupby('year_month')['error'].apply(list).reindex(order)
+    box_data = [grouped[date] for date in order]
+
+    fig, axs = plt.subplots(2, 1, figsize=(16, 12), sharex=True, gridspec_kw={'hspace': 0.1})
+    fig.align_ylabels()
+
+    # Top panel: RMSE and MAE
+    axs[0].plot(pos, rmse_lat['error'], marker='o', label="RMSE")
+    axs[0].plot(pos, mae_lat['ae'], marker='o', label="MAE")
+    axs[0].legend(loc="upper right", fontsize=14, framealpha=0.9)
+    axs[0].set_ylim(bottom=0)
+    axs[0].set_ylabel("RMSE/MAE [TECU]")
+    axs[0].set_title('Monthly Performance Metrics', fontweight='bold', pad=20)
+
+    # Bottom panel: Boxplot of residuals
+    axs[1].axhline(y=0, color='red', linestyle='-', linewidth=1.0, zorder=1, alpha=0.8)
+    bp = axs[1].boxplot(box_data, widths=0.5, positions=pos,
+                        showfliers=False, zorder=2, patch_artist=True, notch=False)
+    
+    for patch in bp['boxes']:
+        patch.set_facecolor('lightblue')
+        patch.set_alpha(0.7)
+    for element in ['whiskers', 'caps', 'medians']:
+        for item in bp[element]:
+            item.set_linewidth(1.2)
+
+    axs[1].set_xticks(pos)
+    axs[1].set_xticklabels(order, rotation=45, ha='right')
+    axs[1].set_ylim([-30, 30])
+    axs[1].set_xlabel('Year-Month')
+    axs[1].set_ylabel("Residual [TECU]")
+    
+    axs[0].grid(True, alpha=0.3)
+    axs[1].grid(True, alpha=0.3)
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    plt.savefig(f'{output_dir}/year_month_summary.png', bbox_inches='tight')  
+    plt.close(fig)
+
+def plot_box_by_lat(df, output_dir):
+    """
+    Creates a two-panel plot showing RMSE/MAE and residual boxplots by solar magnetic latitude.
+    """
+    df = df.copy()
+    df['error'] = df['target_stec'] - df['pred_stec']
+    df['ae'] = np.abs(df['error'])
+    
+    # Use sm_lat_ipp as the magnetic latitude column
+    lat_col = 'sm_lat_ipp'
+    if lat_col not in df.columns:
+        return # Skip if column doesn't exist
+
+    bins = np.arange(-90, 91, 10)
+    df['lat_bin'] = pd.cut(df[lat_col], bins=bins, include_lowest=True, right=False)
+    
+    # Ensure all bins are present, even if empty
+    all_bins = pd.IntervalIndex.from_breaks(bins, closed='left')
+
+    rmse_lat = df.groupby("lat_bin", observed=False)['error'].apply(calc_rmse).reindex(all_bins).reset_index()
+    mae_lat = df.groupby("lat_bin", observed=False)["ae"].mean().reindex(all_bins).reset_index()
+
+    grouped = df.groupby('lat_bin', observed=False)['error'].apply(list).reindex(all_bins)
+    box_data = [grouped[bin] if len(grouped[bin]) > 0 else [np.nan] for bin in grouped.index]
+    
+    bin_centers = [ (interval.left + interval.right) / 2 for interval in grouped.index ]
+
+    fig, axs = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={'hspace': 0.1})
+    fig.align_ylabels()
+
+    # Top panel: RMSE and MAE
+    axs[0].plot(bin_centers, rmse_lat['error'], marker='o', label="RMSE")
+    axs[0].plot(bin_centers, mae_lat['ae'], marker='o', label="MAE")
+    axs[0].legend(loc="upper right", fontsize=14, framealpha=0.9)
+    axs[0].set_xlim([-90, 90])
+    axs[0].set_ylim(bottom=0)
+    axs[0].set_ylabel("RMSE/MAE (TECU)")
+    axs[0].set_title('Performance by Solar Magnetic Latitude', fontweight='bold', pad=20)
+
+    # Bottom panel: Boxplot of residuals
+    axs[1].axhline(y=0, color='red', linestyle='-', linewidth=1, zorder=1, alpha=0.8)
+    bp = axs[1].boxplot(box_data, positions=bin_centers, widths=5,
+                        showfliers=False, zorder=2, patch_artist=True, notch=False)
+    
+    for patch in bp['boxes']:
+        patch.set_facecolor('lightblue')
+        patch.set_alpha(0.7)
+    for element in ['whiskers', 'caps', 'medians']:
+        for item in bp[element]:
+            item.set_linewidth(1.2)
+
+    axs[1].set_xticks(bins)
+    axs[1].set_xticklabels([f"{b}" for b in bins], rotation=45)
+    axs[1].set_ylim([-30, 30])
+    axs[1].set_xlabel('Solar Magnetic Latitude [°]')
+    axs[1].set_ylabel("Residual (TECU)")
+    
+    axs[0].grid(True, alpha=0.3)
+    axs[1].grid(True, alpha=0.3)
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    plt.savefig(f'{output_dir}/mLat_summary.png', bbox_inches='tight')  
+    plt.close(fig)
+
 def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
     output_dir = os.path.join(output_dir, 'test_metrics')
     ensure_dir(output_dir)
@@ -968,6 +1355,10 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
     # Plot residuals vs date if year and doy are available
     if 'year' in available_features and 'doy' in available_features:
         plot_residuals_vs_date(test_df, output_dir)
+        plot_box_by_date(test_df, output_dir)
+
+    if 'sm_lat_ipp' in available_features:
+        plot_box_by_lat(test_df, output_dir)
     
     # Define feature-specific plot configurations
     plot_configs = [
@@ -1010,13 +1401,22 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
     
     required_directional = ['satazi', 'satele']
     if all(col in available_features for col in required_directional):
-        plot_az_el_heatmap(test_df, output_dir, metric='mae')
         plot_az_el_heatmap(test_df, output_dir, metric='residual')
+        plot_az_el_heatmap(test_df, output_dir, metric='mae')
 
     plot_histogram_of_residuals(test_df, output_dir)
-    plot_uncertainty_calibration(test_df, output_dir)
+
+    # Uncertainty plots (only if uncertainty columns are present)
+    uncertainty_cols = ['pred_total_unc', 'pred_epistemic_unc', 'pred_aleatoric_unc']
+    if any(col in available_features for col in uncertainty_cols):
+        plot_uncertainty_calibration_binned(test_df, output_dir)
+        plot_coverage_probability(test_df, output_dir)
+        if all(col in available_features for col in uncertainty_cols):
+            plot_binned_uncertainty_analysis(test_df, output_dir)
+        # The old plot_uncertainty_calibration is now deprecated and not called by default
+        # plot_uncertainty_calibration(test_df, output_dir)
     
-    # New comprehensive uncertainty analysis
+    # Comprehensive uncertainty analysis (if all uncertainty types are available)
     if all(col in available_features for col in ['pred_epistemic_unc', 'pred_aleatoric_unc', 'pred_total_unc']):
         plot_comprehensive_uncertainty_analysis(test_df, output_dir)
 
@@ -1473,4 +1873,4 @@ def plot_comprehensive_uncertainty_analysis(df, output_dir):
         f.write(f"Total uncertainty:     {corr_total:.4f} (p={p_total:.2e})\n")
         f.write(f"Epistemic uncertainty: {corr_epistemic:.4f} (p={p_epistemic:.2e})\n")
         f.write(f"Aleatoric uncertainty: {corr_aleatoric:.4f} (p={p_aleatoric:.2e})\n")
-    
+        

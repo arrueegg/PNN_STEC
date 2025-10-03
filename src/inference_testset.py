@@ -311,7 +311,7 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     model.eval()
     
     # Load test data only (more efficient for inference)
-    config['data']['use_all_test_samples'] = False
+    config['data']['use_all_test_samples'] = True
     config['pretrain']['batchsize'] = 4096
     test_loader = get_test_data_loader(config, logger)
 
