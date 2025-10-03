@@ -1396,8 +1396,12 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
         if 'time' in available_features:
             plot_spatial_error_map_by_local_time(test_df, output_dir)
         
-        # Plot solar magnetic IPP error map
-        plot_solar_magnetic_ipp_error_map(test_df, output_dir)
+        # Plot solar magnetic IPP error map (requires solar magnetic coordinates)
+        required_solar_magnetic = ['sm_lon_ipp', 'sm_lat_ipp']
+        if all(col in available_features for col in required_solar_magnetic):
+            plot_solar_magnetic_ipp_error_map(test_df, output_dir)
+        else:
+            print("Skipping solar magnetic IPP error map - missing required columns")
     
     required_directional = ['satazi', 'satele']
     if all(col in available_features for col in required_directional):
