@@ -85,7 +85,7 @@ def generate_slurm_script(sweep_id, project_name, agent_id):
     DEFAULT_SLURM_SETTINGS = {
         'ntasks': 1,
         'cpus_per_task': 12,
-        'time': '4:00:00',
+        'time': '8:00:00',
         'mem_per_cpu': '10G',
         'gpus': 1
     }

@@ -2,8 +2,8 @@
 
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=4:00:00
-#SBATCH --mem-per-cpu=2G
+#SBATCH --time=8:00:00
+#SBATCH --mem-per-cpu=12G
 #SBATCH --gpus=1
 #SBATCH --output=hp_search/logs/custom-trial-%j.out
 #SBATCH --job-name=custom_trial_%j

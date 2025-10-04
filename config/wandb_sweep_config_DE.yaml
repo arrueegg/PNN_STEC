@@ -25,7 +25,7 @@ parameters:
 
   # Training configuration
   training.loss_function:
-    values: ['MSELoss', 'GaussianNLLLoss']
+    values: ['GaussianNLLLoss']
   
   #training.optimizer:
     #values: ['Adam', 'AdamW']
