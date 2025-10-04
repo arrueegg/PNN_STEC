@@ -2,6 +2,7 @@
 import os
 import time
 import torch
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import wandb
@@ -944,6 +945,9 @@ class BaseTrainer:
                         # Keep on GPU until all samples done
                         per_sample_means.append(mean_y)
                         per_sample_alea_vars.append(var_alea_y)
+                        
+                        # Clean up intermediate tensors immediately
+                        del outputs, mean_raw, var_raw, mean_y, var_alea_y
 
                     # OPTIMIZATION 2: Stack and compute on GPU, then transfer once
                     pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
@@ -956,25 +960,31 @@ class BaseTrainer:
                         epistemic_var = pred_stack.var(dim=0)             # Var over means
                     aleatoric_var = alea_var_stack.mean(dim=0)            # Mean aleatoric var
 
-                # OPTIMIZATION 2: Single CPU transfer per batch
-                batch_means.append(stec_mean.cpu())
-                batch_epistemic_vars.append(epistemic_var.cpu())
-                batch_aleatoric_vars.append(aleatoric_var.cpu())
-                all_targets.append(targets.cpu())
+                # OPTIMIZATION 2: Immediate conversion to numpy to completely break GPU references
+                batch_means.append(stec_mean.detach().cpu().numpy())
+                batch_epistemic_vars.append(epistemic_var.detach().cpu().numpy()) 
+                batch_aleatoric_vars.append(aleatoric_var.detach().cpu().numpy())
+                all_targets.append(targets.detach().cpu().numpy())
 
                 # OPTIMIZATION 1: Handle DataFrame creation based on dataset size
                 if not use_minimal_features:
                     # Small dataset: Create full DataFrame with all features
                     inputs_original, feature_order = self.inverse_transform_features(inputs)
 
+                    # Convert numpy arrays back to tensors for DataFrame creation
+                    targets_tensor = torch.from_numpy(all_targets[-1])
+                    means_tensor = torch.from_numpy(batch_means[-1])
+                    epistemic_tensor = torch.from_numpy(batch_epistemic_vars[-1])
+                    aleatoric_tensor = torch.from_numpy(batch_aleatoric_vars[-1])
+
                     batch_df = pd.DataFrame(
                         torch.cat([
                             inputs_original.cpu(),
-                            targets.cpu().view(bs, -1),
-                            stec_mean.cpu().view(bs, -1),
-                            torch.sqrt(epistemic_var.cpu()).view(bs, -1),
-                            torch.sqrt(aleatoric_var.cpu()).view(bs, -1),
-                            torch.sqrt((epistemic_var + aleatoric_var).cpu()).view(bs, -1)
+                            targets_tensor.view(bs, -1),
+                            means_tensor.view(bs, -1),
+                            torch.sqrt(epistemic_tensor).view(bs, -1),
+                            torch.sqrt(aleatoric_tensor).view(bs, -1),
+                            torch.sqrt((epistemic_tensor + aleatoric_tensor)).view(bs, -1)
                         ], dim=1).numpy(),
                         columns=[
                             *feature_order,
@@ -1002,6 +1012,16 @@ class BaseTrainer:
                             batch_essential[feature_name] = inputs_original[:, i]
                     
                     batch_essential_features.append(batch_essential)
+                
+                # Comprehensive GPU memory cleanup
+                if model_type != 'DE_MLP':  # For BNN models, clean up sampling tensors
+                    if 'pred_stack' in locals():
+                        del pred_stack, alea_var_stack, per_sample_means, per_sample_alea_vars
+                
+                # Clean up all GPU tensors
+                del stec_mean, epistemic_var, aleatoric_var, inputs
+                if 'inputs_original' in locals():
+                    del inputs_original
                 
                 processed_samples += bs
                 
@@ -1094,10 +1114,11 @@ class BaseTrainer:
         gc.collect()
         torch.cuda.empty_cache()
 
-        mean = torch.cat(batch_means).squeeze()
-        epistemic_var = torch.cat(batch_epistemic_vars)
-        aleatoric_var = torch.cat(batch_aleatoric_vars)
-        targets = torch.cat(all_targets)
+        # Concatenate numpy arrays and convert back to tensors for final results
+        mean = torch.from_numpy(np.concatenate(batch_means)).squeeze()
+        epistemic_var = torch.from_numpy(np.concatenate(batch_epistemic_vars))
+        aleatoric_var = torch.from_numpy(np.concatenate(batch_aleatoric_vars))
+        targets = torch.from_numpy(np.concatenate(all_targets))
 
         total_var = epistemic_var + aleatoric_var
         total_std = torch.sqrt(total_var)
