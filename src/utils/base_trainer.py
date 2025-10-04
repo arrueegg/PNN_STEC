@@ -888,7 +888,7 @@ class BaseTrainer:
         """
         model.eval()
 
-        # OPTIMIZATION 1: Use lists for batch DataFrames, concat once at end
+        # OPTIMIZATION 1: Use lists for batch DataFrames, concat once at end  
         batch_dataframes = []
         batch_means = []
         batch_epistemic_vars = []
@@ -931,23 +931,28 @@ class BaseTrainer:
                     per_sample_alea_vars = []
 
                     for sample_idx in range(num_samples):
-                        outputs = model(inputs)
-                        mean_raw, var_raw = self.compute_mean_var(outputs)
+                        with torch.no_grad():  # Extra safety
+                            outputs = model(inputs)
+                            mean_raw, var_raw = self.compute_mean_var(outputs)
 
-                        if self.use_log_target:
-                            # Log-normal moments for this pass
-                            mean_y = torch.exp(mean_raw + 0.5 * var_raw) - self.eps
-                            var_alea_y = (torch.exp(var_raw) - 1.0) * torch.exp(2 * mean_raw + var_raw)
-                        else:
-                            mean_y = mean_raw
-                            var_alea_y = var_raw
+                            if self.use_log_target:
+                                # Log-normal moments for this pass
+                                mean_y = torch.exp(mean_raw + 0.5 * var_raw) - self.eps
+                                var_alea_y = (torch.exp(var_raw) - 1.0) * torch.exp(2 * mean_raw + var_raw)
+                            else:
+                                mean_y = mean_raw
+                                var_alea_y = var_raw
 
-                        # Keep on GPU until all samples done
-                        per_sample_means.append(mean_y)
-                        per_sample_alea_vars.append(var_alea_y)
-                        
-                        # Clean up intermediate tensors immediately
-                        del outputs, mean_raw, var_raw, mean_y, var_alea_y
+                            # Detach everything to completely break computation graph
+                            mean_y = mean_y.detach()
+                            var_alea_y = var_alea_y.detach()
+
+                            # Keep on GPU until all samples done
+                            per_sample_means.append(mean_y)
+                            per_sample_alea_vars.append(var_alea_y)
+                            
+                            # Clean up intermediate tensors immediately
+                            del outputs, mean_raw, var_raw, mean_y, var_alea_y
 
                     # OPTIMIZATION 2: Stack and compute on GPU, then transfer once
                     pred_stack = torch.stack(per_sample_means, dim=0)        # [S, B]
@@ -960,31 +965,35 @@ class BaseTrainer:
                         epistemic_var = pred_stack.var(dim=0)             # Var over means
                     aleatoric_var = alea_var_stack.mean(dim=0)            # Mean aleatoric var
 
-                # OPTIMIZATION 2: Immediate conversion to numpy to completely break GPU references
-                batch_means.append(stec_mean.detach().cpu().numpy())
-                batch_epistemic_vars.append(epistemic_var.detach().cpu().numpy()) 
-                batch_aleatoric_vars.append(aleatoric_var.detach().cpu().numpy())
-                all_targets.append(targets.detach().cpu().numpy())
+                # OPTIMIZATION 2: Move to CPU immediately and store as CPU tensors (not numpy)
+                stec_mean_cpu = stec_mean.detach().cpu()
+                epistemic_var_cpu = epistemic_var.detach().cpu()
+                aleatoric_var_cpu = aleatoric_var.detach().cpu()
+                targets_cpu = targets.detach().cpu()
+                
+                batch_means.append(stec_mean_cpu)
+                batch_epistemic_vars.append(epistemic_var_cpu) 
+                batch_aleatoric_vars.append(aleatoric_var_cpu)
+                all_targets.append(targets_cpu)
+                
+                # Immediately clear references to CPU tensors to prevent accumulation
+                del stec_mean_cpu, epistemic_var_cpu, aleatoric_var_cpu, targets_cpu
 
                 # OPTIMIZATION 1: Handle DataFrame creation based on dataset size
                 if not use_minimal_features:
                     # Small dataset: Create full DataFrame with all features
                     inputs_original, feature_order = self.inverse_transform_features(inputs)
-
-                    # Convert numpy arrays back to tensors for DataFrame creation
-                    targets_tensor = torch.from_numpy(all_targets[-1])
-                    means_tensor = torch.from_numpy(batch_means[-1])
-                    epistemic_tensor = torch.from_numpy(batch_epistemic_vars[-1])
-                    aleatoric_tensor = torch.from_numpy(batch_aleatoric_vars[-1])
+                    # Ensure inputs_original is on CPU
+                    inputs_original = inputs_original.cpu()
 
                     batch_df = pd.DataFrame(
                         torch.cat([
-                            inputs_original.cpu(),
-                            targets_tensor.view(bs, -1),
-                            means_tensor.view(bs, -1),
-                            torch.sqrt(epistemic_tensor).view(bs, -1),
-                            torch.sqrt(aleatoric_tensor).view(bs, -1),
-                            torch.sqrt((epistemic_tensor + aleatoric_tensor)).view(bs, -1)
+                            inputs_original,
+                            targets_cpu.view(bs, -1),
+                            stec_mean_cpu.view(bs, -1),
+                            torch.sqrt(epistemic_var_cpu).view(bs, -1),
+                            torch.sqrt(aleatoric_var_cpu).view(bs, -1),
+                            torch.sqrt((epistemic_var_cpu + aleatoric_var_cpu)).view(bs, -1)
                         ], dim=1).numpy(),
                         columns=[
                             *feature_order,
@@ -1009,27 +1018,42 @@ class BaseTrainer:
                     batch_essential = {}
                     for i, feature_name in enumerate(feature_order):
                         if feature_name in essential_feature_names:
-                            batch_essential[feature_name] = inputs_original[:, i]
+                            # Use .clone() to create independent copies and break memory references
+                            batch_essential[feature_name] = inputs_original[:, i].clone()
                     
                     batch_essential_features.append(batch_essential)
                 
-                # Comprehensive GPU memory cleanup
-                if model_type != 'DE_MLP':  # For BNN models, clean up sampling tensors
-                    if 'pred_stack' in locals():
-                        del pred_stack, alea_var_stack, per_sample_means, per_sample_alea_vars
-                
-                # Clean up all GPU tensors
+                # Comprehensive GPU memory cleanup - IMMEDIATELY after CPU transfer
                 del stec_mean, epistemic_var, aleatoric_var, inputs
                 if 'inputs_original' in locals():
                     del inputs_original
                 
+                # For BNN models, clean up sampling tensors immediately
+                if model_type != 'DE_MLP':  
+                    if 'pred_stack' in locals():
+                        del pred_stack, alea_var_stack, per_sample_means, per_sample_alea_vars
+                
+                # Clean up remaining variables that could retain references (but keep bs for later use)
+                if 'feature_order' in locals():
+                    del feature_order
+                if 'batch_essential' in locals():
+                    del batch_essential
+                if 'batch_df' in locals():
+                    del batch_df
+                
+                # Additional variables from ensemble path
+                if 'ensemble_mean' in locals():
+                    del ensemble_mean, total_var
+                
+                # Force CUDA cache cleanup every batch to prevent accumulation
+                torch.cuda.empty_cache()
+                
                 processed_samples += bs
                 
-                # OPTIMIZATION 3: Periodic memory cleanup (every 50 batches)
-                if (batch_idx + 1) % 50 == 0:
+                # Additional cleanup every 10 batches
+                if (batch_idx + 1) % 10 == 0:
                     gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
 
         # MEMORY OPTIMIZATION: For very large datasets, create DataFrame with essential features only
         # to avoid OOM errors during concatenation while preserving key plotting capabilities
@@ -1088,14 +1112,20 @@ class BaseTrainer:
                 targets_tensor = torch.cat(all_targets)
                 total_std_tensor = torch.sqrt(epistemic_tensor + aleatoric_tensor)
                 
-                # Extract essential features from the last batch for structure
-                # We'll reconstruct minimal features from stored batch data
+                # Extract essential features from stored batch data
                 essential_features = {}
                 if batch_essential_features:
-                    # Concatenate all essential features
+                    # Concatenate all essential features safely
                     for feature_name in batch_essential_features[0].keys():
-                        feature_data = torch.cat([batch[feature_name] for batch in batch_essential_features])
-                        essential_features[feature_name] = feature_data.cpu().numpy()
+                        try:
+                            feature_tensors = [batch[feature_name] for batch in batch_essential_features]
+                            feature_data = torch.cat(feature_tensors)
+                            essential_features[feature_name] = feature_data.cpu().numpy()
+                            # Clean up intermediate tensors
+                            del feature_tensors, feature_data
+                        except Exception as e:
+                            self.logger.warning(f"Failed to concatenate feature {feature_name}: {e}")
+                            continue
                 
                 # Create DataFrame with predictions + essential features
                 df_dict = {
@@ -1114,11 +1144,11 @@ class BaseTrainer:
         gc.collect()
         torch.cuda.empty_cache()
 
-        # Concatenate numpy arrays and convert back to tensors for final results
-        mean = torch.from_numpy(np.concatenate(batch_means)).squeeze()
-        epistemic_var = torch.from_numpy(np.concatenate(batch_epistemic_vars))
-        aleatoric_var = torch.from_numpy(np.concatenate(batch_aleatoric_vars))
-        targets = torch.from_numpy(np.concatenate(all_targets))
+        # Concatenate CPU tensors directly
+        mean = torch.cat(batch_means).squeeze()
+        epistemic_var = torch.cat(batch_epistemic_vars)
+        aleatoric_var = torch.cat(batch_aleatoric_vars)
+        targets = torch.cat(all_targets)
 
         total_var = epistemic_var + aleatoric_var
         total_std = torch.sqrt(total_var)
