@@ -319,26 +319,82 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     model_type = config['model']['model_type']
     is_bayesian = 'BNN' in model_type
     
-    # Use Bayesian inference for both BNN and non-BNN models
-    # For non-BNN models, use num_samples=1 to get the same feature extraction
-    num_samples = 100 if is_bayesian else 1
+    # Check if inference results already exist
+    results_path = os.path.join(experiment_dir, 'inference_results.csv')
     
-    # Always use the full, optimized Bayesian inference to ensure all input variables
-    # are preserved for detailed analysis and plotting.
-    dataset_size = len(test_loader.dataset)
-    if config['data'].get('use_all_test_samples', False):
-        logger.info(f"📊 Using FULL inference for complete analysis ({dataset_size:,} samples)")
+    if os.path.exists(results_path):
+        logger.info(f"🔄 Found existing inference results: {results_path}")
+        logger.info(f"📂 Loading pre-computed results instead of running inference...")
+        
+        try:
+            # Load existing results
+            test_df = pd.read_csv(results_path)
+            logger.info(f"✅ Loaded DataFrame with shape: {test_df.shape}")
+            
+            # Extract the required data for metrics calculation
+            bayesian_results = {
+                'mean': torch.tensor(test_df['pred_stec'].values, dtype=torch.float32),
+                'epistemic_std': torch.tensor(test_df['pred_epistemic_unc'].values, dtype=torch.float32),
+                'aleatoric_std': torch.tensor(test_df['pred_aleatoric_unc'].values, dtype=torch.float32),
+                'total_std': torch.tensor(test_df['pred_total_unc'].values, dtype=torch.float32),
+                'targets': torch.tensor(test_df['target_stec'].values, dtype=torch.float32)
+            }
+            
+            # Extract outputs and targets for metrics calculation
+            test_outputs = torch.stack([
+                bayesian_results['mean'],
+                bayesian_results['total_std']
+            ], dim=1)
+            test_targets = bayesian_results['targets']
+            
+            logger.info(f"🚀 Skipped inference - using cached results with {len(test_targets):,} samples")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load existing results: {e}")
+            logger.info(f"🔄 Falling back to running inference...")
+            
+            # Fall back to running inference
+            run_inference = True
+    else:
+        logger.info(f"🚀 No existing results found, running inference...")
+        run_inference = True
+    
+    # Run inference if needed
+    if 'run_inference' in locals() and run_inference:
+        # Use Bayesian inference for both BNN and non-BNN models
+        # For non-BNN models, use num_samples=1 to get the same feature extraction
+        num_samples = 100 if is_bayesian else 1
+        
+        # Always use the full, optimized Bayesian inference to ensure all input variables
+        # are preserved for detailed analysis and plotting.
+        dataset_size = len(test_loader.dataset)
+        if config['data'].get('use_all_test_samples', False):
+            logger.info(f"📊 Using FULL inference for complete analysis ({dataset_size:,} samples)")
 
-    bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
-        model, test_loader, num_samples=num_samples
-    )
-    
-    # Extract outputs and targets for metrics calculation
-    test_outputs = torch.stack([
-        bayesian_results['mean'],
-        bayesian_results['total_std']
-    ], dim=1)
-    test_targets = bayesian_results['targets']
+        bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
+            model, test_loader, num_samples=num_samples
+        )
+        
+        # Extract outputs and targets for metrics calculation
+        test_outputs = torch.stack([
+            bayesian_results['mean'],
+            bayesian_results['total_std']
+        ], dim=1)
+        test_targets = bayesian_results['targets']
+        
+        # Save the complete results DataFrame (only when we just ran inference)
+        try:
+            if test_df is not None and not test_df.empty:
+                test_df.to_csv(results_path, index=False)
+                logger.info(f"💾 Saved complete inference results: {results_path}")
+                logger.info(f"📊 DataFrame shape: {test_df.shape} (rows, columns)")
+            else:
+                logger.warning("⚠️ No DataFrame data to save (empty or None)")
+        except Exception as e:
+            logger.warning(f"❌ Failed to save inference results DataFrame: {e}")
+    else:
+        # We loaded from cache, targets already extracted above
+        pass
     
     # Calculate metrics
     metrics = calculate_metrics(test_outputs, test_targets, prefix="test")
