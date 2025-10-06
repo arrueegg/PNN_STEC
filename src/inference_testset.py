@@ -313,6 +313,9 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     # Load test data only (more efficient for inference)
     config['data']['use_all_test_samples'] = True
     config['pretrain']['batchsize'] = 4096
+    if not 'BNN' in config['model']['model_type']:
+        config['pretrain']['batchsize'] = 4096 * 8  # Larger batch size for non-BNN models
+        config['pretrain']['num_workers'] = 16
     test_loader = get_test_data_loader(config, logger)
 
     # Run inference using BaseTrainer's methods

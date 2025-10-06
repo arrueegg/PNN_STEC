@@ -764,6 +764,7 @@ def plot_binned_uncertainty_analysis(df, output_dir):
     mean_abs_error = []
     mean_model_unc = []
     mean_data_unc = []
+    mean_total_unc = []
     box_data = []
     
     for bin_idx in range(len(bin_centers)):
@@ -774,6 +775,7 @@ def plot_binned_uncertainty_analysis(df, output_dir):
             mean_abs_error.append(bin_data['abs_error'].mean())
             mean_model_unc.append(bin_data['pred_epistemic_unc'].mean())
             mean_data_unc.append(bin_data['pred_aleatoric_unc'].mean())
+            mean_total_unc.append(bin_data['pred_total_unc'].mean())
             box_data.append(bin_data['abs_error'].values)
     
     if not valid_groups:
@@ -781,7 +783,7 @@ def plot_binned_uncertainty_analysis(df, output_dir):
         return
 
     # --- Plotting ---
-    fig, ax = plt.subplots(figsize=(16, 12))
+    fig, ax = plt.subplots(figsize=(10, 8))
 
     # 1. Boxplots for Absolute Error
     if box_data:  # Only plot if we have data
@@ -793,7 +795,7 @@ def plot_binned_uncertainty_analysis(df, output_dir):
                         capprops=dict(color='black'),
                         medianprops=dict(color='orange'))
 
-        # 2. Scatter plot for outliers (fliers)
+        """# 2. Scatter plot for outliers (fliers)
         for i, (pos, data) in enumerate(zip(plot_positions, box_data)):
             # Manually identify fliers (points outside 1.5 * IQR)
             q1 = np.percentile(data, 25)
@@ -803,7 +805,7 @@ def plot_binned_uncertainty_analysis(df, output_dir):
             fliers_data = [f for f in data if f > upper_bound]
             if fliers_data:
                 ax.scatter([pos] * len(fliers_data), fliers_data,
-                           color='black', marker='.', s=10, zorder=10)
+                           color='black', marker='.', s=10, zorder=10)"""
 
         # 3. Line plots for mean values
         ax.plot(plot_positions, mean_abs_error, color='orange', marker='o', linestyle='-', 
@@ -812,6 +814,8 @@ def plot_binned_uncertainty_analysis(df, output_dir):
                 label='Model Uncertainty (Epistemic)', zorder=20)
         ax.plot(plot_positions, mean_data_unc, color='blue', marker='o', linestyle='-', 
                 label='Data Uncertainty (Aleatoric)', zorder=20)
+        ax.plot(plot_positions, mean_total_unc, color='red', marker='o', linestyle='-', 
+                label='Total Uncertainty', zorder=20)
 
     # 4. Perfect Calibration Line
     ax.plot([0, max_unc], [0, max_unc], 'r--', label='Perfect Calibration', zorder=15)
@@ -841,13 +845,13 @@ def plot_binned_uncertainty_analysis(df, output_dir):
         ax.tick_params(axis='x', labelsize=12)
         ax.tick_params(axis='y', labelsize=12)
     
-    ax.legend(fontsize=12, framealpha=0.9)
+    ax.legend(fontsize=12, framealpha=0.9, loc='upper left')
     ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
     
     # Set axis limits to show all data properly
     if plot_positions:
         x_max = max(plot_positions) * 1.1
-        y_max = max(max(mean_abs_error), max(mean_model_unc), max(mean_data_unc)) * 1.2
+        y_max = max(max(mean_abs_error), max(mean_model_unc), max(mean_data_unc), max(mean_total_unc)) * 1.2
         
         # Also consider the boxplot data for y-axis
         if box_data:
@@ -862,6 +866,116 @@ def plot_binned_uncertainty_analysis(df, output_dir):
 
     plt.tight_layout()
     plt.savefig(f'{output_dir}/uncertainty_analysis/binned_uncertainty_error_analysis.png', dpi=300)
+    plt.close(fig)
+
+
+def plot_binned_uncertainty_analysis_lines_only(df, output_dir):
+    """
+    Creates a clean line-only version of the binned uncertainty analysis plot.
+    Shows only the lines for absolute error, epistemic uncertainty, aleatoric uncertainty,
+    and total uncertainty without the boxplots for a cleaner visualization.
+    """
+    ensure_dir(f'{output_dir}/uncertainty_analysis')
+    df = df.copy()
+
+    # --- Data Preparation ---
+    df['abs_error'] = (df['target_stec'] - df['pred_stec']).abs()
+    
+    # Create proper bins based on uncertainty VALUE ranges (not sample counts)
+    max_unc = df['pred_total_unc'].quantile(0.95)  # Use 95th percentile to avoid outliers
+    n_bins = min(30, max(10, len(df) // 300))  # Adaptive number of bins
+    
+    # Create equal-width bins from 0 to max_unc
+    bin_edges = np.linspace(0, max_unc, n_bins + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    
+    # Assign each point to a bin
+    df['unc_bin'] = pd.cut(df['pred_total_unc'], bins=bin_edges, include_lowest=True, labels=False)
+    
+    # Filter out points beyond our max_unc threshold
+    df = df.dropna(subset=['unc_bin'])
+
+    # --- Calculate Metrics per Bin ---
+    # Group by the created bins and filter for bins with sufficient data
+    valid_groups = []
+    plot_positions = []
+    mean_abs_error = []
+    mean_model_unc = []
+    mean_data_unc = []
+    mean_total_unc = []
+    
+    for bin_idx in range(len(bin_centers)):
+        bin_data = df[df['unc_bin'] == bin_idx]
+        if len(bin_data) >= 5:  # Only bins with at least 5 points
+            valid_groups.append(bin_idx)
+            plot_positions.append(bin_centers[bin_idx])
+            mean_abs_error.append(bin_data['abs_error'].mean())
+            mean_model_unc.append(bin_data['pred_epistemic_unc'].mean())
+            mean_data_unc.append(bin_data['pred_aleatoric_unc'].mean())
+            mean_total_unc.append(bin_data['pred_total_unc'].mean())
+    
+    if not valid_groups:
+        print("Warning: No bins with sufficient data for uncertainty analysis")
+        return
+
+    # --- Plotting ---
+    fig, ax = plt.subplots(figsize=(14, 10))
+
+    # Line plots for mean values only
+    ax.plot(plot_positions, mean_abs_error, color='orange', marker='o', linestyle='-', 
+            linewidth=2.5, markersize=6, label='Absolute Prediction Error', zorder=20)
+    ax.plot(plot_positions, mean_model_unc, color='black', marker='s', linestyle='-', 
+            linewidth=2.5, markersize=6, label='Model Uncertainty (Epistemic)', zorder=20)
+    ax.plot(plot_positions, mean_data_unc, color='blue', marker='^', linestyle='-', 
+            linewidth=2.5, markersize=6, label='Data Uncertainty (Aleatoric)', zorder=20)
+    ax.plot(plot_positions, mean_total_unc, color='red', marker='d', linestyle='-', 
+            linewidth=2.5, markersize=6, label='Total Uncertainty', zorder=20)
+
+    # Perfect Calibration Line
+    ax.plot([0, max_unc], [0, max_unc], 'gray', linestyle='--', linewidth=2, 
+            label='Perfect Calibration', zorder=15, alpha=0.7)
+
+    # --- Formatting ---
+    ax.set_xlabel('Total Uncertainty (TECU)', fontweight='bold', fontsize=14)
+    ax.set_ylabel('Values (TECU)', fontweight='bold', fontsize=14)
+    ax.set_title('Binned Uncertainty & Error Analysis', fontweight='bold', pad=20, fontsize=16)
+    
+    # Improve x-axis tick formatting
+    if plot_positions:
+        # Create readable x-axis ticks
+        x_max = max(plot_positions) * 1.1
+        
+        # Set reasonable number of ticks based on the range
+        if x_max <= 10:
+            x_ticks = np.arange(0, x_max + 1, 1)
+        elif x_max <= 20:
+            x_ticks = np.arange(0, x_max + 2, 2)
+        elif x_max <= 50:
+            x_ticks = np.arange(0, x_max + 5, 5)
+        else:
+            x_ticks = np.arange(0, x_max + 10, 10)
+        
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels([f'{int(tick)}' for tick in x_ticks], fontsize=12)
+        ax.tick_params(axis='x', labelsize=12)
+        ax.tick_params(axis='y', labelsize=12)
+    
+    ax.legend(fontsize=12, framealpha=0.9, loc='upper left')
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+    
+    # Set axis limits to show all data properly
+    if plot_positions:
+        x_max = max(plot_positions) * 1.1
+        y_max = max(max(mean_abs_error), max(mean_model_unc), max(mean_data_unc), max(mean_total_unc)) * 1.2
+        
+        ax.set_xlim(0, x_max)
+        ax.set_ylim(0, y_max)
+    else:
+        ax.set_xlim(0, 50)
+        ax.set_ylim(0, 50)
+
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/uncertainty_analysis/binned_uncertainty_error_analysis_lines_only.png', dpi=300)
     plt.close(fig)
 
 
@@ -1417,6 +1531,7 @@ def plot_test_metrics(test_df, output_dir='plots', feature_registry=None):
         plot_coverage_probability(test_df, output_dir)
         if all(col in available_features for col in uncertainty_cols):
             plot_binned_uncertainty_analysis(test_df, output_dir)
+            plot_binned_uncertainty_analysis_lines_only(test_df, output_dir)
         # The old plot_uncertainty_calibration is now deprecated and not called by default
         # plot_uncertainty_calibration(test_df, output_dir)
     
