@@ -19,5 +19,5 @@ source ${main_dir}/env/bin/activate
 
 # Run trial
 echo "🚀 Starting custom run"
-python src/main.py --config_path config/config_DE_MLP.yaml
+python src/main.py --config_path config/config_cluster.yaml
 echo "✅ Completed custom run"
