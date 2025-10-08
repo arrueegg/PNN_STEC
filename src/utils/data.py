@@ -34,10 +34,10 @@ warnings.warn(
 
 # Re-export all functionality from the new modular data package for backward compatibility
 try:
-    from data.datasets import H5Dataset, H5RAMDataset, PyTablesDatasetSplit  
-    from data.samplers import EpochRandomSampler, get_fixed_subset_indices
-    from data.collation import CollateWithSH
-    from data.loaders import get_data_loaders, get_test_data_loader
+    from data_loader.datasets import H5Dataset, H5RAMDataset, PyTablesDatasetSplit  
+    from data_loader.samplers import EpochRandomSampler, get_fixed_subset_indices
+    from data_loader.collation import CollateWithSH
+    from data_loader.loaders import get_data_loaders, get_test_data_loader
 except ImportError as e:
     # Fallback error message if the new modular structure isn't available
     raise ImportError(

@@ -441,6 +441,7 @@ class DataPreprocessor:
         Returns:
             True if successful, False otherwise
         """
+        print('')
         self.logger.info("=== Starting GNSS/STEC Data Preprocessing ===")
 
         # Setup temporary directory

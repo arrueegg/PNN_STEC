@@ -47,7 +47,7 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.config_parser import parse_config, compute_exp_name
-from data import get_test_data_loader
+from data_loader import get_test_data_loader
 from utils.feature_registry import initialize_feature_registry
 from utils.metrics import calculate_metrics
 from viz import plot_test_metrics
@@ -206,46 +206,61 @@ def save_temporal_split_metrics(interpolation_df, extrapolation_df, split_info, 
         f.write(f"Split cutoff: {split_info['cutoff_date']}\n")
         f.write(f"Total test samples: {split_info['total_samples']:,}\n\n")
         
-        f.write("INTERPOLATION (BEFORE MAY 2024):\n")
+        f.write("INTERPOLATION (UNTIL APRIL 2024):\n")
         f.write("-" * 35 + "\n")
         f.write(f"Samples: {split_info['interpolation_samples']:,} ({split_info['interpolation_percentage']:.1f}%)\n")
         f.write(f"Months: {', '.join(split_info['interpolation_months'])}\n")
-        if 'interpolation' in metrics_summary:
-            f.write("Key Metrics:\n")
-            for k, v in metrics_summary['interpolation'].items():
-                if any(metric in k.lower() for metric in ['mae', 'mse', 'rmse']):
-                    f.write(f"  {k}: {v:.4f}\n")
-        f.write("\n")
+        _write_key_metrics(f, metrics_summary.get('interpolation'), "Key Metrics:")
         
         f.write("EXTRAPOLATION (MAY 2024 AND LATER):\n")
         f.write("-" * 38 + "\n")
         f.write(f"Samples: {split_info['extrapolation_samples']:,} ({split_info['extrapolation_percentage']:.1f}%)\n")
         f.write(f"Months: {', '.join(split_info['extrapolation_months'])}\n")
-        if 'extrapolation' in metrics_summary:
-            f.write("Key Metrics:\n")
-            for k, v in metrics_summary['extrapolation'].items():
-                if any(metric in k.lower() for metric in ['mae', 'mse', 'rmse']):
-                    f.write(f"  {k}: {v:.4f}\n")
-        f.write("\n")
+        _write_key_metrics(f, metrics_summary.get('extrapolation'), "Key Metrics:")
         
         # Performance comparison if both subsets exist
-        if 'interpolation' in metrics_summary and 'extrapolation' in metrics_summary:
-            f.write("PERFORMANCE COMPARISON:\n")
-            f.write("-" * 25 + "\n")
-            for metric in ['MAE', 'MSE', 'RMSE']:
-                interpolation_key = f"interpolation_{metric}"
-                extrapolation_key = f"extrapolation_{metric}"
-                if interpolation_key in metrics_summary['interpolation'] and extrapolation_key in metrics_summary['extrapolation']:
-                    interpolation_val = metrics_summary['interpolation'][interpolation_key]
-                    extrapolation_val = metrics_summary['extrapolation'][extrapolation_key]
-                    diff = extrapolation_val - interpolation_val
-                    pct_change = (diff / interpolation_val) * 100 if interpolation_val != 0 else 0
-                    f.write(f"{metric}:\n")
-                    f.write(f"  Interpolation: {interpolation_val:.4f}\n")
-                    f.write(f"  Extrapolation: {extrapolation_val:.4f}\n")
-                    f.write(f"  Difference: {diff:+.4f} ({pct_change:+.1f}%)\n\n")
+        _write_performance_comparison(f, 
+                                    metrics_summary.get('interpolation'),
+                                    metrics_summary.get('extrapolation'))
     
     return metrics_summary
+
+
+def _write_key_metrics(f, metrics_dict, title):
+    """Helper function to write key metrics for a split."""
+    if metrics_dict:
+        f.write(f"{title}\n")
+        for k, v in metrics_dict.items():
+            if any(metric in k.lower() for metric in ['mae', 'mse', 'rmse']):
+                f.write(f"  {k}: {v:.4f}\n")
+    f.write("\n")
+
+
+def _write_performance_comparison(f, interpolation_metrics, extrapolation_metrics):
+    """Helper function to write performance comparison between interpolation and extrapolation."""
+    if not (interpolation_metrics and extrapolation_metrics):
+        return
+        
+    f.write("PERFORMANCE COMPARISON:\n")
+    f.write("-" * 25 + "\n")
+    
+    for metric in ['MAE', 'MSE', 'RMSE']:
+        interpolation_key = f"interpolation_{metric}"
+        extrapolation_key = f"extrapolation_{metric}"
+        
+        if (interpolation_key in interpolation_metrics and 
+            extrapolation_key in extrapolation_metrics):
+            
+            interpolation_val = interpolation_metrics[interpolation_key]
+            extrapolation_val = extrapolation_metrics[extrapolation_key]
+            diff = extrapolation_val - interpolation_val
+            pct_change = (diff / interpolation_val) * 100 if interpolation_val != 0 else 0
+            
+            f.write(f"{metric}:\n")
+            f.write(f"  Interpolation: {interpolation_val:.4f}\n")
+            f.write(f"  Extrapolation: {extrapolation_val:.4f}\n")
+            f.write(f"  Difference: {diff:+.4f} ({pct_change:+.1f}%)\n\n")
+
 
 def find_experiment_directory(experiment_name, base_dir='experiments'):
     """Find the experiment directory that matches the generated name exactly."""

@@ -2,7 +2,6 @@
 Training Utilities Module for PNN_STEC Training
 
 This module provides utility functions for training, including:
-- Performance timing and profiling
 - KL annealing for Bayesian networks
 - Checkpointing and model saving
 - Loss tracking and visualization
@@ -12,11 +11,9 @@ Extracted from BaseTrainer to separate utility concerns.
 """
 
 import os
-import time
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt
-import csv
 
 
 class TrainingUtils:
@@ -38,140 +35,12 @@ class TrainingUtils:
                 f"🔥 KL annealing enabled: {self.kl_start_weight} → {self.loss_weight} over {self.kl_warmup_epochs} epochs"
             )
 
-        # Timing instrumentation for performance debugging
-        self.timing_enabled = config.get("enable_timing", False)
-        timing_config = config.get("timing_config", {})
-        self.detailed_batch_timing = (
-            timing_config.get("detailed_batch_timing", False) and self.timing_enabled
-        )
-        self.save_timing_to_file = timing_config.get("save_timing_to_file", True)
-        self.log_timing_frequency = timing_config.get("log_timing_every_n_batches", 100)
-
-        if self.timing_enabled:
-            self.logger.info("🔍 Performance timing enabled")
-            if self.detailed_batch_timing:
-                self.logger.info("⚠️  Detailed batch timing enabled (may slow training)")
-            if self.save_timing_to_file:
-                self.logger.info("📁 Timing statistics will be saved to file")
-        else:
-            self.logger.info("⏱️  Performance timing disabled")
-
-        self.timing_stats = {}
-
         # Loss tracking
         self.train_losses = []
         self.val_losses = []
         self.epochs_tracked = []
 
-    # ---------- Timing utilities ----------
-
-    def sync_and_time(self):
-        """Synchronize CUDA operations and return current time for accurate timing"""
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        return time.time()
-
-    def log_timing(self, step_name, duration, additional_info=""):
-        """Log timing information for performance debugging"""
-        if self.timing_enabled:
-            if step_name not in self.timing_stats:
-                self.timing_stats[step_name] = []
-            self.timing_stats[step_name].append(duration)
-            info_str = f" ({additional_info})" if additional_info else ""
-            self.logger.info(f"⏱️  {step_name}: {duration:.3f}s{info_str}")
-
-    def print_timing_summary(self):
-        """Print comprehensive summary of timing statistics"""
-        if self.timing_enabled and self.timing_stats:
-            self.logger.info("📊 PERFORMANCE TIMING SUMMARY:")
-            self.logger.info("=" * 70)
-
-            # Sort by total time to show most time-consuming operations first
-            sorted_stats = sorted(
-                self.timing_stats.items(), key=lambda x: sum(x[1]), reverse=True
-            )
-
-            total_measured_time = sum(
-                sum(times) for times in self.timing_stats.values()
-            )
-
-            for step_name, times in sorted_stats:
-                avg_time = sum(times) / len(times)
-                total_time = sum(times)
-                min_time = min(times)
-                max_time = max(times)
-                percentage = (
-                    (total_time / total_measured_time * 100)
-                    if total_measured_time > 0
-                    else 0
-                )
-
-                self.logger.info(f"  {step_name}:")
-                self.logger.info(
-                    f"    Total: {total_time:.1f}s ({percentage:.1f}%) | "
-                    f"Avg: {avg_time:.3f}s | Count: {len(times)} | "
-                    f"Range: {min_time:.3f}s - {max_time:.3f}s"
-                )
-
-            self.logger.info(f"\n  Total measured time: {total_measured_time:.1f}s")
-            self.logger.info("=" * 70)
-
-    def save_timing_stats(self):
-        """Save timing statistics to a CSV file"""
-        if self.timing_enabled and self.save_timing_to_file and self.timing_stats:
-            timing_file = os.path.join(
-                self.config["output_dir"], "timing_statistics.csv"
-            )
-
-            with open(timing_file, "w", newline="") as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(
-                    [
-                        "Step",
-                        "Total_Time_s",
-                        "Average_Time_s",
-                        "Count",
-                        "Min_Time_s",
-                        "Max_Time_s",
-                        "Percentage",
-                    ]
-                )
-
-                total_measured_time = sum(
-                    sum(times) for times in self.timing_stats.values()
-                )
-
-                # Sort by total time
-                sorted_stats = sorted(
-                    self.timing_stats.items(), key=lambda x: sum(x[1]), reverse=True
-                )
-
-                for step_name, times in sorted_stats:
-                    total_time = sum(times)
-                    avg_time = total_time / len(times)
-                    min_time = min(times)
-                    max_time = max(times)
-                    percentage = (
-                        (total_time / total_measured_time * 100)
-                        if total_measured_time > 0
-                        else 0
-                    )
-
-                    writer.writerow(
-                        [
-                            step_name,
-                            f"{total_time:.3f}",
-                            f"{avg_time:.3f}",
-                            len(times),
-                            f"{min_time:.3f}",
-                            f"{max_time:.3f}",
-                            f"{percentage:.2f}",
-                        ]
-                    )
-
-            self.logger.info(f"📁 Timing statistics saved to: {timing_file}")
-
-    # ---------- KL annealing ----------
+        # ---------- KL Weight utilities ----------
 
     def get_current_kl_weight(self, epoch):
         """Compute current KL weight based on annealing schedule"""

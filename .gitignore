@@ -17,7 +17,7 @@ env.bak/
 venv.bak/
 wandb/
 *data/
-*data*/
+./data/
 
 # Ignore logs and temp files
 *.log

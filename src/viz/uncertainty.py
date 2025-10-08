@@ -178,7 +178,7 @@ def plot_binned_uncertainty_analysis(
     df: pd.DataFrame, output_dir: str = "plots"
 ) -> None:
     """
-    Comprehensive uncertainty analysis with multiple binning approaches.
+    Individual uncertainty analysis plots with multiple binning approaches.
 
     Args:
         df: DataFrame with uncertainty columns and predictions
@@ -203,9 +203,6 @@ def plot_binned_uncertainty_analysis(
     # True value bins
     df["true_bin"] = pd.qcut(df["target_stec"], q=n_bins, duplicates="drop")
 
-    # Create comprehensive plot
-    fig, axes = plt.subplots(2, 3, figsize=(24, 16))
-
     # 1. Uncertainty vs Observed Error (by uncertainty bins)
     unc_stats = (
         df.groupby("unc_bin", observed=True)
@@ -213,17 +210,22 @@ def plot_binned_uncertainty_analysis(
         .reset_index()
     )
 
-    axes[0, 0].scatter(
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.scatter(
         unc_stats["pred_total_unc"], unc_stats["abs_residual"], s=100, alpha=0.7
     )
 
     # Perfect calibration line
     max_val = max(unc_stats["pred_total_unc"].max(), unc_stats["abs_residual"].max())
-    axes[0, 0].plot([0, max_val], [0, max_val], "r--", linewidth=2)
-    axes[0, 0].set_xlabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
-    axes[0, 0].set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
-    axes[0, 0].set_title("Uncertainty Calibration", fontweight="bold")
-    axes[0, 0].grid(True, alpha=0.3)
+    ax.plot([0, max_val], [0, max_val], "r--", linewidth=2, label="Perfect Calibration")
+    ax.set_xlabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
+    ax.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
+    ax.set_title("Uncertainty Calibration", fontweight="bold", pad=20)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+    save_plot(fig, "calibration_plot.png", output_dir)
+    plt.close(fig)
 
     # 2. Uncertainty vs Prediction Value
     pred_stats = (
@@ -232,30 +234,38 @@ def plot_binned_uncertainty_analysis(
         .reset_index()
     )
 
-    axes[0, 1].scatter(
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(
         pred_stats["pred_stec"],
         pred_stats["pred_total_unc"],
         s=100,
         alpha=0.7,
         color="green",
     )
-    axes[0, 1].set_xlabel("Mean Predicted STEC [TECU]", fontweight="bold")
-    axes[0, 1].set_ylabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
-    axes[0, 1].set_title("Uncertainty vs Prediction", fontweight="bold")
-    axes[0, 1].grid(True, alpha=0.3)
+    ax.set_xlabel("Mean Predicted STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
+    ax.set_title("Uncertainty vs Prediction", fontweight="bold", pad=20)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_plot(fig, "uncertainty_vs_prediction.png", output_dir)
+    plt.close(fig)
 
     # 3. Error vs Prediction Value
-    axes[0, 2].scatter(
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(
         pred_stats["pred_stec"],
         pred_stats["abs_residual"],
         s=100,
         alpha=0.7,
         color="orange",
     )
-    axes[0, 2].set_xlabel("Mean Predicted STEC [TECU]", fontweight="bold")
-    axes[0, 2].set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
-    axes[0, 2].set_title("Error vs Prediction", fontweight="bold")
-    axes[0, 2].grid(True, alpha=0.3)
+    ax.set_xlabel("Mean Predicted STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
+    ax.set_title("Error vs Prediction", fontweight="bold", pad=20)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_plot(fig, "error_vs_prediction.png", output_dir)
+    plt.close(fig)
 
     # 4. Uncertainty vs True Value
     true_stats = (
@@ -264,51 +274,59 @@ def plot_binned_uncertainty_analysis(
         .reset_index()
     )
 
-    axes[1, 0].scatter(
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(
         true_stats["target_stec"],
         true_stats["pred_total_unc"],
         s=100,
         alpha=0.7,
         color="purple",
     )
-    axes[1, 0].set_xlabel("Mean True STEC [TECU]", fontweight="bold")
-    axes[1, 0].set_ylabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
-    axes[1, 0].set_title("Uncertainty vs True Value", fontweight="bold")
-    axes[1, 0].grid(True, alpha=0.3)
+    ax.set_xlabel("Mean True STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
+    ax.set_title("Uncertainty vs True Value", fontweight="bold", pad=20)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_plot(fig, "uncertainty_vs_true_value.png", output_dir)
+    plt.close(fig)
 
     # 5. Error vs True Value
-    axes[1, 1].scatter(
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(
         true_stats["target_stec"],
         true_stats["abs_residual"],
         s=100,
         alpha=0.7,
         color="red",
     )
-    axes[1, 1].set_xlabel("Mean True STEC [TECU]", fontweight="bold")
-    axes[1, 1].set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
-    axes[1, 1].set_title("Error vs True Value", fontweight="bold")
-    axes[1, 1].grid(True, alpha=0.3)
+    ax.set_xlabel("Mean True STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
+    ax.set_title("Error vs True Value", fontweight="bold", pad=20)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_plot(fig, "error_vs_true_value.png", output_dir)
+    plt.close(fig)
 
     # 6. Uncertainty distribution
-    axes[1, 2].hist(
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.hist(
         df["pred_total_unc"], bins=50, alpha=0.7, color="skyblue", density=True
     )
-    axes[1, 2].axvline(
+    ax.axvline(
         df["pred_total_unc"].mean(),
         color="red",
         linestyle="--",
         linewidth=2,
         label=f'Mean: {df["pred_total_unc"].mean():.3f}',
     )
-    axes[1, 2].set_xlabel("Predicted Uncertainty [TECU]", fontweight="bold")
-    axes[1, 2].set_ylabel("Density", fontweight="bold")
-    axes[1, 2].set_title("Uncertainty Distribution", fontweight="bold")
-    axes[1, 2].legend()
-    axes[1, 2].grid(True, alpha=0.3)
-
-    plt.suptitle("Comprehensive Uncertainty Analysis", fontsize=24, fontweight="bold")
+    ax.set_xlabel("Predicted Uncertainty [TECU]", fontweight="bold")
+    ax.set_ylabel("Density", fontweight="bold")
+    ax.set_title("Uncertainty Distribution", fontweight="bold", pad=20)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    save_plot(fig, "comprehensive_uncertainty_analysis.png", output_dir)
+    save_plot(fig, "uncertainty_distributions.png", output_dir)
+    plt.close(fig)
 
 
 def plot_uncertainty_calibration(df: pd.DataFrame, output_dir: str = "plots") -> None:

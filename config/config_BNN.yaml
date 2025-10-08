@@ -9,13 +9,6 @@ debug: False
 debug_single_batch: False  
 cluster: False
 
-enable_timing: False  # Enable detailed performance timing (useful for debugging/optimization)
-# Timing configuration - only active when enable_timing=True
-timing_config:
-  detailed_batch_timing: False  # Time individual batch operations (warning: can slow training)
-  save_timing_to_file: True     # Save timing statistics to CSV file in experiment directory
-  log_timing_every_n_batches: 100  # Log timing info every N batches during training (0 = disable periodic logs)
-
 target: "stec" # stec or vtec
 
 data:
@@ -71,7 +64,7 @@ training:
 
 pretrain:
   epochs: 200
-  batchsize: 512
+  batchsize: 400
   num_workers: 12 
   prefetch_factor: 4
   learning_rate: 0.002

@@ -6,7 +6,7 @@ using composition of specialized manager classes instead of a monolithic design.
 
 The BaseTrainer acts as a coordinator, delegating responsibilities to:
 - DataTransforms: Target/feature transformations and normalization
-- TrainingUtils: Timing, KL annealing, checkpointing, loss tracking
+- TrainingUtils: KL annealing, checkpointing, loss tracking
 - TrainManager: Training epoch execution and optimization
 - ValidationManager: Validation, testing, and feature processing
 - InferenceManager: Bayesian inference and uncertainty quantification
@@ -228,9 +228,6 @@ class BaseTrainer:
 
         self.logger.info("Training model...")
 
-        # Time overall training setup with proper synchronization
-        setup_start = self.training_utils.sync_and_time()
-
         if not self.config["debug"]:
             # Use the sweep-aware wandb setup
             from utils.wandb_sweep_integration import setup_wandb_for_sweep
@@ -238,17 +235,8 @@ class BaseTrainer:
             experiment_name = os.path.basename(self.config["output_dir"])
             setup_wandb_for_sweep(self.config, experiment_name)
 
-        # Time model initialization
-        model_init_start = self.training_utils.sync_and_time()
         model = init_model_fn(seed)
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing(
-                "Model Initialization",
-                self.training_utils.sync_and_time() - model_init_start,
-            )
 
-        # Time criterion and optimizer setup
-        criterion_start = self.training_utils.sync_and_time()
         criterion_mse = get_criterion(self.config, "MSELoss")
         criterion_nll = get_criterion(self.config, "GaussianNLLLoss")
         criterion_kld = get_criterion(self.config, "BKLLoss")
@@ -257,16 +245,6 @@ class BaseTrainer:
         scheduler = None
         if self.config[training_key]["scheduler"]:
             scheduler = get_scheduler(self.config, optimizer)
-
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing(
-                "Criterion & Optimizer Setup",
-                self.training_utils.sync_and_time() - criterion_start,
-            )
-            self.training_utils.log_timing(
-                "Total Training Setup",
-                self.training_utils.sync_and_time() - setup_start,
-            )
 
         best_val_loss = float("inf")
         patience_counter = 0
@@ -280,11 +258,6 @@ class BaseTrainer:
             # Update sampler epoch for different data sampling each epoch
             if hasattr(train_loader.sampler, "set_epoch"):
                 train_loader.sampler.set_epoch(epoch)
-
-            # Time data loading and training phases with proper synchronization
-            epoch_start = self.training_utils.sync_and_time()
-
-            train_start = self.training_utils.sync_and_time()
 
             # Check if model is an ensemble and use appropriate training method
             model_type = self.config["model"]["model_type"]
@@ -326,10 +299,6 @@ class BaseTrainer:
                     train_outputs, train_targets, prefix="train"
                 )
 
-            train_duration = self.training_utils.sync_and_time() - train_start
-
-            val_start = self.training_utils.sync_and_time()
-
             # Use appropriate validation method for ensemble models
             if model_type == "DE_MLP":
                 val_loss, val_mse, val_nll, val_kld, val_metrics = (
@@ -365,20 +334,15 @@ class BaseTrainer:
                 )
                 val_metrics = calculate_metrics(val_outputs, val_targets, prefix="val")
 
-            val_duration = self.training_utils.sync_and_time() - val_start
-
             # Track losses for plotting
             self.track_losses(epoch + 1, train_loss, val_loss)
 
-            # Time metrics calculation
-            metrics_start = self.training_utils.sync_and_time()
             # Metrics already calculated in ensemble methods, just use them
             if model_type != "DE_MLP":
                 train_metrics = calculate_metrics(
                     train_outputs, train_targets, prefix="train"
                 )
                 val_metrics = calculate_metrics(val_outputs, val_targets, prefix="val")
-            metrics_duration = self.training_utils.sync_and_time() - metrics_start
 
             if not self.config["debug"]:
                 wandb.log(
@@ -410,26 +374,13 @@ class BaseTrainer:
                 f"Train Loss: {train_loss:.2f}, Validation Loss: {val_loss:.2f}"
             )
 
-            # Log epoch timing summary with synchronized timing
-            epoch_total = self.training_utils.sync_and_time() - epoch_start
-            if self.training_utils.timing_enabled:
-                self.logger.info(
-                    f"⏱️  Epoch {epoch+1} timing: total={epoch_total:.1f}s, train={train_duration:.1f}s, val={val_duration:.1f}s, metrics={metrics_duration:.3f}s"
-                )
-
             if (
                 val_loss < best_val_loss
                 or self.config[training_key]["save_model_every_epoch"]
             ):
-                checkpoint_start = self.training_utils.sync_and_time()
                 best_val_loss = self.save_checkpoint(
                     model, optimizer, epoch, val_loss, best_val_loss, model_dir, seed
                 )
-                if self.training_utils.timing_enabled:
-                    self.training_utils.log_timing(
-                        "Checkpoint Save",
-                        self.training_utils.sync_and_time() - checkpoint_start,
-                    )
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -448,58 +399,35 @@ class BaseTrainer:
         # Save loss curve
         self.save_final_losses(self.config["output_dir"])
 
-        # Load best checkpoint for testing with synchronized timing
-        checkpoint_load_start = self.training_utils.sync_and_time()
+        # Load best checkpoint for testing
         filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{seed:02}.pth"
         checkpoint_path = os.path.join(model_dir, filename)
         checkpoint = torch.load(checkpoint_path, weights_only=True)
         model.load_state_dict(checkpoint["model_state_dict"])
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing(
-                "Checkpoint Load",
-                self.training_utils.sync_and_time() - checkpoint_load_start,
-            )
 
-        # Time testing phase with proper synchronization
-        test_start = self.training_utils.sync_and_time()
         test_outputs, test_targets = self.test_model(model, test_loader)
         test_metrics = calculate_metrics(test_outputs, test_targets, prefix="test")
         self.logger.info(
             "Test metrics: "
             + ", ".join(f"{k}: {v:.2f}" for k, v in test_metrics.items())
         )
-        test_duration = self.training_utils.sync_and_time() - test_start
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing("Test Phase", test_duration)
 
         # Clear CUDA cache and garbage collector
         torch.cuda.empty_cache()
         gc.collect()
 
-        # Time Bayesian inference with proper synchronization
-        bayesian_start = self.training_utils.sync_and_time()
+        # Bayesian inference
         num_samples = 100 if "BNN" in self.config["model"]["model_type"] else 1
         bayesian_results, test_res_df = self.bayesian_inference_total_uncertainty(
             model, test_loader, num_samples=num_samples
         )
-        bayesian_duration = self.training_utils.sync_and_time() - bayesian_start
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing(
-                "Bayesian Inference", bayesian_duration, f"{num_samples} samples"
-            )
 
-        # Time plotting with proper synchronization
-        plot_start = self.training_utils.sync_and_time()
         # Plotting test metrics from bayesian inference
         plot_test_metrics(
             test_res_df,
             output_dir=self.config["output_dir"],
             feature_registry=self.feature_registry,
         )
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing(
-                "Plotting", self.training_utils.sync_and_time() - plot_start
-            )
 
         # Temporal split analysis
         try:
@@ -595,8 +523,8 @@ class BaseTrainer:
             )
             wandb.finish()
 
-        # Print comprehensive timing summary and save to file
-        if self.training_utils.timing_enabled:
-            self.training_utils.print_timing_summary()
-            if self.training_utils.save_timing_to_file:
-                self.training_utils.save_timing_stats()
+        # Clear CUDA cache and garbage collector
+        torch.cuda.empty_cache()
+        gc.collect()
+
+        return model, test_metrics

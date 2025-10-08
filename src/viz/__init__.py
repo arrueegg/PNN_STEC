@@ -16,9 +16,11 @@ from .distributions import (
     plot_mae_vs_doy,
     plot_residuals_vs_feature,
     plot_residuals_vs_feature_clipped,
+    plot_box_by_date,
 )
 from .performance import (
     plot_prediction_scatter,
+    plot_prediction_density,
     plot_az_el_heatmap,
     plot_residuals_vs_date,
 )
@@ -26,6 +28,7 @@ from .spatial import (
     plot_spatial_error_map,
     plot_spatial_error_map_by_local_time,
     plot_solar_magnetic_ipp_error_map,
+    plot_box_by_lat,
 )
 from .uncertainty import (
     plot_uncertainty_calibration_binned,
@@ -64,14 +67,17 @@ __all__ = [
     "plot_mae_vs_doy",
     "plot_residuals_vs_feature",
     "plot_residuals_vs_feature_clipped",
+    "plot_box_by_date",
     # Performance plots
     "plot_prediction_scatter",
+    "plot_prediction_density",
     "plot_az_el_heatmap",
     "plot_residuals_vs_date",
     # Spatial plots
     "plot_spatial_error_map",
     "plot_spatial_error_map_by_local_time",
     "plot_solar_magnetic_ipp_error_map",
+    "plot_box_by_lat",
     # Uncertainty plots
     "plot_uncertainty_calibration_binned",
     "plot_coverage_probability",
@@ -105,17 +111,31 @@ def plot_test_metrics(
     feature_registry: Optional[Any] = None,
 ) -> None:
     """
-    Generate comprehensive test metrics plots.
+    Generate comprehensive test metrics plots organized in subfolders.
 
-    This is the main interface function that creates all standard evaluation plots.
+    This is the main interface function that creates all standard evaluation plots
+    and organizes them into structured subfolders.
 
     Args:
         test_df: DataFrame with test results
         output_dir: Directory to save plots
         feature_registry: Optional feature registry for binning ranges
     """
-    # Ensure output directory exists
-    ensure_dir(output_dir)
+    # Create organized subdirectories
+    test_metrics_dir = f"{output_dir}/test_metrics"
+    prediction_dir = f"{test_metrics_dir}/prediction_analysis"
+    uncertainty_dir = f"{test_metrics_dir}/uncertainty_analysis"
+    spatial_dir = f"{test_metrics_dir}/spatial_analysis"
+    temporal_dir = f"{test_metrics_dir}/temporal_analysis"
+    feature_dir = f"{test_metrics_dir}/feature_analysis"
+    
+    # Ensure all directories exist
+    ensure_dir(test_metrics_dir)
+    ensure_dir(prediction_dir)
+    ensure_dir(uncertainty_dir)
+    ensure_dir(spatial_dir)
+    ensure_dir(temporal_dir)
+    ensure_dir(feature_dir)
 
     # Prepare data
     df = modify_df(test_df)
@@ -125,60 +145,100 @@ def plot_test_metrics(
 
     print(f"Generating plots for {len(df):,} test samples...")
 
-    # Core performance plots
+    # Core performance plots in prediction_analysis/
     print("Creating prediction scatter plot...")
-    plot_prediction_scatter(df, output_dir)
+    plot_prediction_scatter(df, prediction_dir)
+
+    print("Creating prediction density plot...")
+    plot_prediction_density(df, prediction_dir)
 
     print("Creating residual histogram...")
-    plot_histogram_of_residuals(df, output_dir)
+    plot_histogram_of_residuals(df, prediction_dir)
 
-    # Spatial analysis
+    # Spatial analysis in spatial_analysis/
     print("Creating spatial error maps...")
     if "lat_ipp" in df.columns and "lon_ipp" in df.columns:
-        plot_spatial_error_map(df, output_dir)
+        plot_spatial_error_map(df, spatial_dir)
 
         if "time" in df.columns:
-            plot_spatial_error_map_by_local_time(df, output_dir)
+            spatial_time_dir = f"{spatial_dir}/by_local_time"
+            ensure_dir(spatial_time_dir)
+            plot_spatial_error_map_by_local_time(df, spatial_time_dir)
 
     if "sm_lat_ipp" in df.columns and "sm_lon_ipp" in df.columns:
-        plot_solar_magnetic_ipp_error_map(df, output_dir)
+        plot_solar_magnetic_ipp_error_map(df, spatial_dir)
 
-    # Angular analysis
+    # Angular analysis in spatial_analysis/
     if "satazi" in df.columns and "satele" in df.columns:
         print("Creating azimuth-elevation heatmaps...")
-        plot_az_el_heatmap(df, output_dir, metric="residual")
-        plot_az_el_heatmap(df, output_dir, metric="mae")
+        plot_az_el_heatmap(df, spatial_dir, metric="residual")
+        plot_az_el_heatmap(df, spatial_dir, metric="mae")
 
-    # Temporal analysis
+    # Temporal analysis in temporal_analysis/
     if "doy" in df.columns:
         print("Creating temporal analysis plots...")
-        plot_mae_vs_doy(df, output_dir)
+        plot_mae_vs_doy(df, temporal_dir)
         plot_residuals_vs_feature(
-            df, "doy", output_dir=output_dir, bin_range_dict=bin_range_dict
+            df, "doy", output_dir=temporal_dir, bin_range_dict=bin_range_dict
         )
 
     if any(col in df.columns for col in ["datetime", "year"]):
-        plot_residuals_vs_date(df, output_dir)
+        plot_residuals_vs_date(df, temporal_dir)
+    
+    # Plot summary by date if year and doy are available
+    if 'year' in df.columns and 'doy' in df.columns:
+        print("Creating temporal summary plots...")
+        plot_box_by_date(df, temporal_dir)
 
-    # Feature-specific analysis
-    features_to_analyze = ["time", "satele", "satazi", "kp", "f107", "dst"]
+    # Plot summary by magnetic latitude if available
+    if 'sm_lat_ipp' in df.columns:
+        print("Creating latitude band analysis...")
+        plot_box_by_lat(df, spatial_dir)
+
+    # Feature-specific analysis in feature_analysis/
+    features_to_analyze = ["time", "satele", "satazi", "kp", "f107", "dst", "target_stec", "pred_stec"]
     for feature in features_to_analyze:
         if feature in df.columns:
             print(f"Creating residual analysis for {feature}...")
+            
+            # Determine number of bins based on feature
+            if feature == "time":
+                num_bins = 24
+            elif feature == "doy":
+                num_bins = 24
+            elif feature == "satele":
+                num_bins = 17
+            elif feature == "satazi":
+                num_bins = 24
+            elif feature in ["kp", "kp_binned"]:
+                num_bins = 9
+            elif feature in ["dst", "f107", "sunspot"]:
+                num_bins = 20 if feature == "dst" else 10
+            else:
+                num_bins = 20  # default for target_stec, pred_stec
+                
             plot_residuals_vs_feature(
-                df, feature, output_dir=output_dir, bin_range_dict=bin_range_dict
+                df, feature, num_bins=num_bins, output_dir=feature_dir, bin_range_dict=bin_range_dict
             )
+            
+            # Create clipped version for target_stec
+            if feature == 'target_stec':
+                plot_residuals_vs_feature_clipped(
+                    df, feature, num_bins=num_bins, 
+                    output_dir=feature_dir, bin_range_dict=bin_range_dict,
+                    x_limits=(0.5, 10.5), y_limits=(-50, 100)
+                )
 
-    # Uncertainty analysis (if uncertainty data available)
+    # Uncertainty analysis in uncertainty_analysis/ subfolder
     uncertainty_cols = [col for col in df.columns if "unc" in col.lower()]
     if uncertainty_cols:
         print("Creating uncertainty analysis plots...")
         df_unc = prepare_uncertainty_data(df)
 
-        plot_uncertainty_calibration_binned(df_unc, output_dir)
-        plot_coverage_probability(df_unc, output_dir)
-        plot_binned_uncertainty_analysis(df_unc, output_dir)
-        plot_uncertainty_calibration(df_unc, output_dir)
+        plot_uncertainty_calibration_binned(df_unc, uncertainty_dir)
+        plot_coverage_probability(df_unc, uncertainty_dir)
+        plot_binned_uncertainty_analysis(df_unc, uncertainty_dir)
+        plot_uncertainty_calibration(df_unc, uncertainty_dir)
 
     # Calculate and save performance metrics
     metrics = calculate_performance_metrics(df)
@@ -186,7 +246,7 @@ def plot_test_metrics(
     # Save metrics to file
     import os
 
-    metrics_file = os.path.join(output_dir, "performance_metrics.txt")
+    metrics_file = os.path.join(test_metrics_dir, "performance_metrics.txt")
     with open(metrics_file, "w") as f:
         f.write("Model Performance Metrics\n")
         f.write("=" * 30 + "\n\n")
@@ -196,8 +256,18 @@ def plot_test_metrics(
             else:
                 f.write(f"{key}: {value:.6f}\n")
 
-    print(f"All plots saved to: {output_dir}")
-    print(f"Performance metrics saved to: {metrics_file}")
+    print(f"All plots saved to: {test_metrics_dir}")
+    print(f"├── prediction_analysis/    - Prediction scatter plots, residual histograms")
+    print(f"├── spatial_analysis/       - Spatial error maps, lat/lon analysis")
+    print(f"├── temporal_analysis/      - Time-based analysis, seasonal patterns")
+    print(f"├── feature_analysis/       - Feature-specific residual analysis")
+    print(f"├── uncertainty_analysis/   - Uncertainty calibration and coverage")
+    print(f"└── performance_metrics.txt - Summary statistics")
+    
+    if uncertainty_cols:
+        print(f"Uncertainty analysis: {len([f for f in os.listdir(uncertainty_dir) if f.endswith('.png')])} plots")
+    if "time" in df.columns and "lat_ipp" in df.columns:
+        print(f"Spatial by time analysis: {spatial_time_dir}")
 
 
 def plot_comprehensive_uncertainty_analysis(

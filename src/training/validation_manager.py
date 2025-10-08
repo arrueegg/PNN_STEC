@@ -35,10 +35,6 @@ class ValidationManager:
         all_outputs, all_targets = [], []
         disable_tqdm = self.config.get("cluster", False)
 
-        # Timing instrumentation for validation with proper synchronization
-        val_start_time = self.training_utils.sync_and_time()
-        val_batch_count = 0
-
         with torch.no_grad():
             for inputs, targets in tqdm(
                 dataloader, desc="Validation", disable=disable_tqdm
@@ -99,15 +95,6 @@ class ValidationManager:
                 )
                 all_targets.append(original_targets.detach().cpu())
 
-                val_batch_count += 1
-
-        # Log validation timing with proper synchronization
-        val_total = self.training_utils.sync_and_time() - val_start_time
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing(
-                "Validation Epoch Total", val_total, f"{val_batch_count} batches"
-            )
-
         all_outputs = torch.cat(all_outputs)
         all_targets = torch.cat(all_targets)
 
@@ -132,8 +119,6 @@ class ValidationManager:
         running_loss = running_mse = running_nll = running_kld = 0.0
         all_outputs, all_targets = [], []
         disable_tqdm = self.config.get("cluster", False)
-
-        val_start_time = self.training_utils.sync_and_time()
 
         with torch.no_grad():
             for inputs, targets in tqdm(
@@ -192,14 +177,6 @@ class ValidationManager:
                     break
 
         # Calculate epoch metrics
-        val_end_time = self.training_utils.sync_and_time()
-        val_duration = val_end_time - val_start_time
-
-        if self.training_utils.timing_enabled:
-            self.training_utils.log_timing(
-                f"Ensemble validation epoch {epoch}", val_duration
-            )
-
         n_batches = len(dataloader)
         avg_loss = running_loss / n_batches
         avg_mse = running_mse / n_batches

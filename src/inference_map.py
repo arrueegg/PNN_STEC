@@ -50,7 +50,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config_parser import load_config, compute_exp_name
 from utils.feature_registry import initialize_feature_registry, FeatureType
 from training import BaseTrainer
-from data import CollateWithSH
+from data_loader import CollateWithSH
 from model.model import get_model
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
@@ -158,29 +158,34 @@ def load_swi_data(timestamp):
             
             # Skip YEAR, DOY, HR columns (first 3) and map correctly to feature names
             # Based on the actual column structure in the HDF5 file
+            swi_feature_mapping = [
+                ('Bartels_rotation_number', 3),
+                ('Scalar_B,_nT', 4),
+                ('Vector_B_Magnitude,nT', 5),
+                ('Lat_Angle_of_B_GSE', 6),
+                ('Long_Angle_of_B_GSE', 7),
+                ('BZ,_nT_GSE', 8),
+                ('BZ,_nT_GSM', 9),
+                ('SW_Plasma_Speed,_km/s', 10),
+                ('Flow_pressure', 11),
+                ('E_electric_field', 12),  # Note: file has typo 'E_elecrtric_field'
+                ('Alfen_mach_number', 13),
+                ('Kp_index', 14),
+                ('R_Sunspot_No', 15),
+                ('Dst-index,_nT', 16),
+                ('AE-index,_nT', 17),
+                ('ap_index,_nT', 18),
+                ('f107_index', 19),
+                ('pc-index', 20),
+                ('AL-index,_nT', 21),
+                ('AU-index,_nT', 22),
+                ('Magnetosonic_Much_num', 23),
+                ('Lyman_alpha', 24),
+            ]
+            
             swi_features = {
-                'Bartels_rotation_number': hourly_data[3] if len(hourly_data) > 3 else 0.0,
-                'Scalar_B,_nT': hourly_data[4] if len(hourly_data) > 4 else 0.0,
-                'Vector_B_Magnitude,nT': hourly_data[5] if len(hourly_data) > 5 else 0.0,
-                'Lat_Angle_of_B_GSE': hourly_data[6] if len(hourly_data) > 6 else 0.0,
-                'Long_Angle_of_B_GSE': hourly_data[7] if len(hourly_data) > 7 else 0.0,
-                'BZ,_nT_GSE': hourly_data[8] if len(hourly_data) > 8 else 0.0,
-                'BZ,_nT_GSM': hourly_data[9] if len(hourly_data) > 9 else 0.0,
-                'SW_Plasma_Speed,_km/s': hourly_data[10] if len(hourly_data) > 10 else 0.0,
-                'Flow_pressure': hourly_data[11] if len(hourly_data) > 11 else 0.0,
-                'E_electric_field': hourly_data[12] if len(hourly_data) > 12 else 0.0,  # Note: file has typo 'E_elecrtric_field'
-                'Alfen_mach_number': hourly_data[13] if len(hourly_data) > 13 else 0.0,
-                'Kp_index': hourly_data[14] if len(hourly_data) > 14 else 0.0,
-                'R_Sunspot_No': hourly_data[15] if len(hourly_data) > 15 else 0.0,
-                'Dst-index,_nT': hourly_data[16] if len(hourly_data) > 16 else 0.0,
-                'AE-index,_nT': hourly_data[17] if len(hourly_data) > 17 else 0.0,
-                'ap_index,_nT': hourly_data[18] if len(hourly_data) > 18 else 0.0,
-                'f107_index': hourly_data[19] if len(hourly_data) > 19 else 0.0,
-                'pc-index': hourly_data[20] if len(hourly_data) > 20 else 0.0,
-                'AL-index,_nT': hourly_data[21] if len(hourly_data) > 21 else 0.0,
-                'AU-index,_nT': hourly_data[22] if len(hourly_data) > 22 else 0.0,
-                'Magnetosonic_Much_num': hourly_data[23] if len(hourly_data) > 23 else 0.0,
-                'Lyman_alpha': hourly_data[24] if len(hourly_data) > 24 else 0.0,
+                name: hourly_data[idx] if len(hourly_data) > idx else 0.0
+                for name, idx in swi_feature_mapping
             }
             
             return swi_features

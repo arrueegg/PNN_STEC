@@ -217,28 +217,50 @@ def create_default_registry(config: dict) -> FeatureRegistry:
     # 5. SWI features (if enabled) - these come last in your data construction
     if config['data'].get('use_SWI', False):
         swi_features_with_normalization = [
-            ('Bartels_rotation_number', (2407, 3000)),
-            ('Scalar_B,_nT', (0, 70)),
-            ('Vector_B_Magnitude,nT', (0.0, 70)),
-            ('Lat_Angle_of_B_GSE', (-90, 90)),
-            ('Long_Angle_of_B_GSE', (0.0, 360.0)),
-            ('BZ,_nT_GSE', (-50, 35)),
-            ('BZ,_nT_GSM', (-50, 35)),
-            ('SW_Plasma_Speed,_km/s', (240.0, 1100.0)),
-            ('Flow_pressure', (0, 60)),
-            ('E_electric_field', (-20, 30)),
-            ('Alfen_mach_number', (0, 120)),
+            # Bartels rotation number (solar cycle indicator)
+            #('Bartels_rotation_number', (2407, 3000)),
+            # Scalar magnetic field strength in nT
+            #('Scalar_B,_nT', (0, 70)),
+            # Vector magnetic field magnitude in nT
+            #('Vector_B_Magnitude,nT', (0.0, 70)),
+            # Latitude angle of magnetic field in GSE coordinates
+            #('Lat_Angle_of_B_GSE', (-90, 90)),
+            # Longitude angle of magnetic field in GSE coordinates
+            #('Long_Angle_of_B_GSE', (0.0, 360.0)),
+            # BZ component of magnetic field in GSE coordinates
+            #('BZ,_nT_GSE', (-50, 35)),
+            # BZ component of magnetic field in GSM coordinates
+            #('BZ,_nT_GSM', (-50, 35)),
+            # Solar wind plasma speed in km/s
+            #('SW_Plasma_Speed,_km/s', (240.0, 1100.0)),
+            # Solar wind flow pressure
+            #('Flow_pressure', (0, 60)),
+            # Electric field in mV/m
+            #('E_electric_field', (-20, 30)),
+            # Alfvén Mach number
+            #('Alfen_mach_number', (0, 120)),
+            # Planetary Kp index (geomagnetic activity)
             ('Kp_index', (0.0, 100.0)),
+            # Relative sunspot number
             ('R_Sunspot_No', (0.0, 300.0)),
+            # Disturbance storm time index in nT
             ('Dst-index,_nT', (-450, 100)),
+            # Auroral electrojet index in nT
             ('AE-index,_nT', (0.0, 2500.0)),
+            # Planetary ap index in nT
             ('ap_index,_nT', (0.0, 300.0)),
+            # Solar radio flux at 10.7 cm
             ('f107_index', (62, 420)),
-            ('pc-index', (-6, 16)),
-            ('AL-index,_nT', (-2000.0, 20.0)),
-            ('AU-index,_nT', (-200.0, 1200.0)),
-            ('Magnetosonic_Much_num', (0, 15)),
-            ('Lyman_alpha', (0, 0.015)),
+            # Polar cap index
+            #('pc-index', (-6, 16)),
+            # AL index (auroral lower) in nT
+            #('AL-index,_nT', (-2000.0, 20.0)),
+            # AU index (auroral upper) in nT
+            #('AU-index,_nT', (-200.0, 1200.0)),
+            # Magnetosonic Mach number
+            #('Magnetosonic_Much_num', (0, 15)),
+            # Lyman-alpha solar radiation
+            #('Lyman_alpha', (0, 0.015)),
         ]
         
         for feature, normalization in swi_features_with_normalization:

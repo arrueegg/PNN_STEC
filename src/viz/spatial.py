@@ -350,3 +350,73 @@ def plot_solar_magnetic_ipp_error_map(
 
     plt.tight_layout()
     save_plot(fig, "solar_magnetic_error_map.png", output_dir)
+
+
+def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
+    """
+    Creates a two-panel plot showing RMSE/MAE and residual boxplots by solar magnetic latitude.
+    
+    Args:
+        df: DataFrame with test results containing sm_lat_ipp, target_stec, pred_stec
+        output_dir: Directory to save the plot
+    """
+    from analysis.metrics import calc_rmse
+    
+    df = df.copy()
+    df['error'] = df['target_stec'] - df['pred_stec']
+    df['ae'] = np.abs(df['error'])
+    
+    # Use sm_lat_ipp as the magnetic latitude column
+    lat_col = 'sm_lat_ipp'
+    if lat_col not in df.columns:
+        return # Skip if column doesn't exist
+
+    bins = np.arange(-90, 91, 10)
+    df['lat_bin'] = pd.cut(df[lat_col], bins=bins, include_lowest=True, right=False)
+    
+    # Ensure all bins are present, even if empty
+    all_bins = pd.IntervalIndex.from_breaks(bins, closed='left')
+
+    rmse_lat = df.groupby("lat_bin", observed=False)['error'].apply(calc_rmse).reindex(all_bins).reset_index()
+    mae_lat = df.groupby("lat_bin", observed=False)["ae"].mean().reindex(all_bins).reset_index()
+
+    grouped = df.groupby('lat_bin', observed=False)['error'].apply(list).reindex(all_bins)
+    box_data = [grouped[bin] if len(grouped[bin]) > 0 else [np.nan] for bin in grouped.index]
+    
+    bin_centers = [ (interval.left + interval.right) / 2 for interval in grouped.index ]
+
+    fig, axs = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={'hspace': 0.1})
+    fig.align_ylabels()
+
+    # Top panel: RMSE and MAE
+    axs[0].plot(bin_centers, rmse_lat['error'], marker='o', label="RMSE")
+    axs[0].plot(bin_centers, mae_lat['ae'], marker='o', label="MAE")
+    axs[0].legend(loc="upper right", fontsize=14, framealpha=0.9)
+    axs[0].set_xlim([-90, 90])
+    axs[0].set_ylim(bottom=0)
+    axs[0].set_ylabel("RMSE/MAE (TECU)")
+    axs[0].set_title('Performance by Solar Magnetic Latitude', fontweight='bold', pad=20)
+
+    # Bottom panel: Boxplot of residuals
+    axs[1].axhline(y=0, color='red', linestyle='-', linewidth=1, zorder=1, alpha=0.8)
+    bp = axs[1].boxplot(box_data, positions=bin_centers, widths=5,
+                        showfliers=False, zorder=2, patch_artist=True, notch=False)
+    
+    for patch in bp['boxes']:
+        patch.set_facecolor('lightblue')
+        patch.set_alpha(0.7)
+    for element in ['whiskers', 'caps', 'medians']:
+        for item in bp[element]:
+            item.set_linewidth(1.2)
+
+    axs[1].set_xticks(bins)
+    axs[1].set_xticklabels([f"{b}" for b in bins], rotation=45)
+    axs[1].set_ylim([-30, 30])
+    axs[1].set_xlabel('Solar Magnetic Latitude [°]')
+    axs[1].set_ylabel("Residual (TECU)")
+    
+    axs[0].grid(True, alpha=0.3)
+    axs[1].grid(True, alpha=0.3)
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    save_plot(fig, 'mLat_summary.png', output_dir)
+    plt.close(fig)

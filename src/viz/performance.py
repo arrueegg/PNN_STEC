@@ -10,9 +10,11 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from scipy.stats import pearsonr
 from sklearn.metrics import r2_score
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .base import (
     FIGSIZE_WIDE,
+    FIGSIZE_SQUARE,
     get_scientific_label,
     save_plot,
 )
@@ -20,7 +22,7 @@ from .base import (
 
 def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None:
     """
-    Create comprehensive scatter plot of predictions vs true values.
+    Create individual scatter plots of predictions vs true values.
 
     Args:
         df: DataFrame with 'target_stec' and 'pred_stec' columns
@@ -37,16 +39,14 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
     mae = np.mean(np.abs(y_true - y_pred))
     bias = np.mean(y_pred - y_true)
 
-    # Create plot
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
-
     # 1. Main scatter plot
-    h = ax1.hist2d(y_true, y_pred, bins=50, cmap="Blues", norm=LogNorm())
+    fig, ax = plt.subplots(figsize=(10, 8))
+    h = ax.hist2d(y_true, y_pred, bins=50, cmap="Blues", norm=LogNorm())
 
     # Perfect prediction line
     min_val = min(y_true.min(), y_pred.min())
     max_val = max(y_true.max(), y_pred.max())
-    ax1.plot(
+    ax.plot(
         [min_val, max_val],
         [min_val, max_val],
         "r-",
@@ -55,69 +55,76 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
         label="Perfect Prediction",
     )
 
-    ax1.set_xlabel("True STEC [TECU]", fontweight="bold")
-    ax1.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
-    ax1.set_title("Predictions vs True Values", fontweight="bold", pad=20)
-    ax1.legend()
+    ax.set_xlabel("True STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
+    ax.set_title("Predictions vs True Values", fontweight="bold", pad=20)
+    ax.legend()
 
     # Add colorbar
-    cbar = fig.colorbar(h[3], ax=ax1)
+    cbar = fig.colorbar(h[3], ax=ax)
     cbar.set_label("Count (log scale)", fontweight="bold")
 
-    # 2. Residuals vs predictions
-    residuals = y_true - y_pred
-    ax2.scatter(y_pred, residuals, alpha=0.3, s=1)
-    ax2.axhline(y=0, color="red", linestyle="--", linewidth=2)
-    ax2.set_xlabel("Predicted STEC [TECU]", fontweight="bold")
-    ax2.set_ylabel("Residuals [TECU]", fontweight="bold")
-    ax2.set_title("Residuals vs Predictions", fontweight="bold", pad=20)
+    plt.tight_layout()
+    save_plot(fig, "prediction_scatter.png", output_dir)
+    plt.close(fig)
 
-    # 3. Residuals histogram
-    ax3.hist(
+    # 2. 2D histogram version
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.hist2d(y_true, y_pred, bins=100, cmap="viridis")
+    ax.plot([min_val, max_val], [min_val, max_val], "r-", linewidth=2, alpha=0.8)
+    ax.set_xlabel("True STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
+    ax.set_title("Prediction Quality (2D Histogram)", fontweight="bold", pad=20)
+    plt.tight_layout()
+    save_plot(fig, "prediction_hist2d.png", output_dir)
+    plt.close(fig)
+
+    # 3. Density plot version
+    fig, ax = plt.subplots(figsize=(10, 8))
+    # Use hexbin for density
+    hb = ax.hexbin(y_true, y_pred, gridsize=50, cmap='Blues', mincnt=1)
+    ax.plot([min_val, max_val], [min_val, max_val], "r-", linewidth=2, alpha=0.8)
+    ax.set_xlabel("True STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
+    ax.set_title("Prediction Density", fontweight="bold", pad=20)
+    cb = fig.colorbar(hb, ax=ax)
+    cb.set_label("Count", fontweight="bold")
+    plt.tight_layout()
+    save_plot(fig, "prediction_density.png", output_dir)
+    plt.close(fig)
+
+    # 4. Residuals vs predictions
+    residuals = y_true - y_pred
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(y_pred, residuals, alpha=0.3, s=1)
+    ax.axhline(y=0, color="red", linestyle="--", linewidth=2)
+    ax.set_xlabel("Predicted STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Residuals [TECU]", fontweight="bold")
+    ax.set_title("Residuals vs Predictions", fontweight="bold", pad=20)
+    plt.tight_layout()
+    save_plot(fig, "residuals_vs_predictions.png", output_dir)
+    plt.close(fig)
+
+    # 5. Residuals histogram
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.hist(
         residuals, bins=50, density=True, alpha=0.7, color="skyblue", edgecolor="black"
     )
-    ax3.axvline(0, color="red", linestyle="--", linewidth=2)
-    ax3.axvline(
+    ax.axvline(0, color="red", linestyle="--", linewidth=2)
+    ax.axvline(
         np.mean(residuals),
         color="orange",
         linestyle="-",
         linewidth=2,
         label=f"Mean: {np.mean(residuals):.3f}",
     )
-    ax3.set_xlabel("Residuals [TECU]", fontweight="bold")
-    ax3.set_ylabel("Density", fontweight="bold")
-    ax3.set_title("Residual Distribution", fontweight="bold", pad=20)
-    ax3.legend()
-
-    # 4. Metrics text
-    ax4.axis("off")
-    metrics_text = f"""
-    Model Performance Metrics
-    
-    R² Score: {r2:.4f}
-    Correlation: {corr:.4f} (p={p_value:.2e})
-    RMSE: {rmse:.4f} TECU
-    MAE: {mae:.4f} TECU
-    Bias: {bias:.4f} TECU
-    
-    Data Points: {len(y_true):,}
-    
-    True STEC Range: {y_true.min():.2f} - {y_true.max():.2f} TECU
-    Pred STEC Range: {y_pred.min():.2f} - {y_pred.max():.2f} TECU
-    """
-    ax4.text(
-        0.1,
-        0.9,
-        metrics_text,
-        transform=ax4.transAxes,
-        fontsize=16,
-        verticalalignment="top",
-        fontfamily="monospace",
-        bbox=dict(boxstyle="round", facecolor="lightgray", alpha=0.8),
-    )
-
+    ax.set_xlabel("Residuals [TECU]", fontweight="bold")
+    ax.set_ylabel("Density", fontweight="bold")
+    ax.set_title("Residual Distribution", fontweight="bold", pad=20)
+    ax.legend()
     plt.tight_layout()
-    save_plot(fig, "prediction_scatter_comprehensive.png", output_dir)
+    save_plot(fig, "residual_histogram.png", output_dir)
+    plt.close(fig)
 
 
 def plot_az_el_heatmap(
@@ -247,3 +254,56 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     plt.xticks(rotation=45)
     plt.tight_layout()
     save_plot(fig, "residuals_vs_date.png", output_dir)
+
+
+def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None:
+    """
+    Create standalone prediction density plot using 2D histogram with color mapping.
+    
+    Args:
+        df: DataFrame with 'target_stec' and 'pred_stec' columns
+        output_dir: Directory to save plot
+    """
+    # Extract data
+    y_true = df["target_stec"].values
+    y_pred = df["pred_stec"].values
+    
+    # Calculate metrics
+    r_value, _ = pearsonr(y_true, y_pred)
+    r2_value = r2_score(y_true, y_pred)
+    
+    # Density scatter plot with enhanced visuals
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
+    
+    # Create density plot
+    h = ax.hist2d(y_true, y_pred, bins=100, cmap='plasma', norm=LogNorm(), alpha=0.8)
+    
+    # Perfect prediction line
+    min_val = min(y_true.min(), y_pred.min())
+    max_val = max(y_true.max(), y_pred.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r-', linewidth=3, 
+            label='Perfect Prediction', alpha=0.9)
+    
+    ax.set_xlabel('True STEC [TECU]', fontsize=16, fontweight='bold')
+    ax.set_ylabel('Predicted STEC [TECU]', fontsize=16, fontweight='bold')
+    ax.set_title('Prediction Density Analysis', fontsize=20, fontweight='bold', pad=25)
+    
+    # Add colorbar
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.1)
+    cbar = plt.colorbar(h[3], cax=cax)
+    cbar.set_label('Density', fontweight='bold', rotation=270, labelpad=35)
+    cbar.ax.tick_params(labelsize=16)
+    
+    # Add legend with metrics
+    legend_elements = [
+        plt.Line2D([0], [0], color='red', linewidth=3, label='Perfect Prediction'),
+        plt.Line2D([0], [0], color='none', label=f'Pearson r = {r_value:.3f}'),
+        plt.Line2D([0], [0], color='none', label=f'R² = {r2_value:.3f}')
+    ]
+    ax.legend(handles=legend_elements, loc='upper left', fontsize=14, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+    
+    plt.tight_layout()
+    save_plot(fig, "prediction_density.png", output_dir)

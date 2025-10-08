@@ -37,11 +37,9 @@ def main():
 
     # Set up device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logger.info(f"Device: {device}")
     logger.info(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         logger.info(f"CUDA device count: {torch.cuda.device_count()}")
-        logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
     config['device'] = device
 
     # Initialize feature registry
@@ -51,6 +49,7 @@ def main():
     config['feature_registry'] = feature_registry
     
     # Log feature configuration
+    print('')
     logger.info("=== Feature Configuration ===")
     logger.info(f"Total features: {feature_registry.get_total_features()}")
     for feature_type in FeatureType:
@@ -62,12 +61,6 @@ def main():
     # Clear CUDA cache
     torch.cuda.empty_cache()
 
-    # Split data into train, validation, and test sets
-    #data_path = "./temp_data/"
-    #os.makedirs(data_path, exist_ok=True)
-    #split(config, data_path)
-    #config['data']['GNSS_data_path'] = data_path
-
     # Add split indices to the data
     renew_splits = False
     if renew_splits:
@@ -75,20 +68,22 @@ def main():
         add_split_indices(config)
     data_path = config['data']['GNSS_data_path']
 
-    logger.info(f"Starting model training in {config['mode']} mode.")
     
     if config['mode'] == 'pretrain':
+        print('')
         logging.info('Starting pretraining...')
         trainer = Pretrainer(config, logger)
     elif config['mode'] == 'finetune':
         folder = f"{config['pretrain_folder']}/model/"
         model_path = os.listdir(folder)
         if not model_path:
+            print('')
             logging.info(f"Pretrained model not found.")
             logging.info('Starting pretraining...')
             config = parse_config(mode='pretrain', device=device, data_path=data_path)
             Pretrainer(config, logger)
             config = parse_config(mode='finetune', device=device, data_path=data_path)
+        print('')
         logging.info('Starting finetuning...')
         trainer = Finetuner(config, logger)
     else:
