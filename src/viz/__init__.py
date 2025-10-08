@@ -17,6 +17,8 @@ from .distributions import (
     plot_residuals_vs_feature,
     plot_residuals_vs_feature_clipped,
     plot_box_by_date,
+    plot_residuals_vs_local_time,
+    plot_residuals_vs_solar_indices,
 )
 from .performance import (
     plot_prediction_scatter,
@@ -35,6 +37,9 @@ from .uncertainty import (
     plot_coverage_probability,
     plot_binned_uncertainty_analysis,
     plot_uncertainty_calibration,
+    plot_sigma_coverage_comparison,
+    plot_uncertainty_distributions,
+    plot_binned_uncertainty_error_analysis,
 )
 from .base import (
     FIGSIZE_SQUARE,
@@ -44,6 +49,7 @@ from .base import (
     ensure_dir,
     get_scientific_label,
     configure_plotting,
+    create_temporal_metrics_summaries,
 )
 
 # Import analysis utilities
@@ -68,6 +74,8 @@ __all__ = [
     "plot_residuals_vs_feature",
     "plot_residuals_vs_feature_clipped",
     "plot_box_by_date",
+    "plot_residuals_vs_local_time",
+    "plot_residuals_vs_solar_indices",
     # Performance plots
     "plot_prediction_scatter",
     "plot_prediction_density",
@@ -83,6 +91,9 @@ __all__ = [
     "plot_coverage_probability",
     "plot_binned_uncertainty_analysis",
     "plot_uncertainty_calibration",
+    "plot_sigma_coverage_comparison",
+    "plot_uncertainty_distributions",
+    "plot_binned_uncertainty_error_analysis",
     # Constants and utilities
     "FIGSIZE_SQUARE",
     "FIGSIZE_WIDE",
@@ -91,6 +102,7 @@ __all__ = [
     "ensure_dir",
     "get_scientific_label",
     "configure_plotting",
+    "create_temporal_metrics_summaries",
     # Analysis utilities
     "modify_df",
     "get_default_bin_ranges",
@@ -229,6 +241,11 @@ def plot_test_metrics(
                     x_limits=(0.5, 10.5), y_limits=(-50, 100)
                 )
 
+    # Additional feature analysis plots - Local time and solar indices
+    print("Creating local time and solar index residual analysis...")
+    plot_residuals_vs_local_time(df, feature_dir)
+    plot_residuals_vs_solar_indices(df, feature_dir)
+
     # Uncertainty analysis in uncertainty_analysis/ subfolder
     uncertainty_cols = [col for col in df.columns if "unc" in col.lower()]
     if uncertainty_cols:
@@ -239,6 +256,9 @@ def plot_test_metrics(
         plot_coverage_probability(df_unc, uncertainty_dir)
         plot_binned_uncertainty_analysis(df_unc, uncertainty_dir)
         plot_uncertainty_calibration(df_unc, uncertainty_dir)
+        plot_sigma_coverage_comparison(df_unc, uncertainty_dir)
+        plot_uncertainty_distributions(df_unc, uncertainty_dir)
+        plot_binned_uncertainty_error_analysis(df_unc, uncertainty_dir)
 
     # Calculate and save performance metrics
     metrics = calculate_performance_metrics(df)
@@ -255,6 +275,10 @@ def plot_test_metrics(
                 f.write(f"{key}: {value:.2e}\n")
             else:
                 f.write(f"{key}: {value:.6f}\n")
+
+    # Create temporal metrics summaries
+    print("Creating temporal metrics summaries...")
+    create_temporal_metrics_summaries(df, test_metrics_dir)
 
     print(f"All plots saved to: {test_metrics_dir}")
     print(f"├── prediction_analysis/    - Prediction scatter plots, residual histograms")

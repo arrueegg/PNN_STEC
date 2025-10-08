@@ -51,11 +51,10 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     spatial_stats["lat_center"] = spatial_stats["lat_bin"].apply(lambda x: x.mid)
     spatial_stats["lon_center"] = spatial_stats["lon_bin"].apply(lambda x: x.mid)
 
-    # Create figure with subplots
-    fig = plt.figure(figsize=(20, 12))
-
-    # MAE map
-    ax1 = fig.add_subplot(2, 2, 1, projection=ccrs.PlateCarree())
+    # Create standalone plots instead of subplots
+    
+    # 1. MAE map - standalone
+    fig1, ax1 = plt.subplots(figsize=(12, 8), subplot_kw={'projection': ccrs.PlateCarree()})
     scatter1 = ax1.scatter(
         spatial_stats["lon_center"],
         spatial_stats["lat_center"],
@@ -77,8 +76,12 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     cbar1 = plt.colorbar(scatter1, cax=cax1)
     cbar1.set_label("MAE [TECU]", fontweight="bold")
 
-    # Residual map
-    ax2 = fig.add_subplot(2, 2, 2, projection=ccrs.PlateCarree())
+    plt.tight_layout()
+    save_plot(fig1, "spatial_error_map_mae.png", output_dir)
+    plt.close(fig1)
+
+    # 2. Residual map - standalone
+    fig2, ax2 = plt.subplots(figsize=(12, 8), subplot_kw={'projection': ccrs.PlateCarree()})
     # Center colormap at zero for residuals
     vmax = max(
         abs(spatial_stats["residual_mean"].min()),
@@ -107,8 +110,12 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     cbar2 = plt.colorbar(scatter2, cax=cax2)
     cbar2.set_label("Residual [TECU]", fontweight="bold")
 
-    # Sample count map
-    ax3 = fig.add_subplot(2, 2, 3, projection=ccrs.PlateCarree())
+    plt.tight_layout()
+    save_plot(fig2, "spatial_error_map_residual.png", output_dir)
+    plt.close(fig2)
+
+    # 3. Sample count map - standalone
+    fig3, ax3 = plt.subplots(figsize=(12, 8), subplot_kw={'projection': ccrs.PlateCarree()})
     scatter3 = ax3.scatter(
         spatial_stats["lon_center"],
         spatial_stats["lat_center"],
@@ -130,45 +137,37 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     cbar3 = plt.colorbar(scatter3, cax=cax3)
     cbar3.set_label("Count", fontweight="bold")
 
-    # Statistics text
-    ax4 = fig.add_subplot(2, 2, 4)
-    ax4.axis("off")
-
-    stats_text = f"""
-    Spatial Error Statistics
-    
-    Total Grid Cells: {len(spatial_stats)}
-    
-    MAE Statistics:
-    Mean: {spatial_stats['mae_mean'].mean():.4f} TECU
-    Std:  {spatial_stats['mae_mean'].std():.4f} TECU
-    Min:  {spatial_stats['mae_mean'].min():.4f} TECU
-    Max:  {spatial_stats['mae_mean'].max():.4f} TECU
-    
-    Residual Statistics:
-    Mean: {spatial_stats['residual_mean'].mean():.4f} TECU
-    Std:  {spatial_stats['residual_mean'].std():.4f} TECU
-    Min:  {spatial_stats['residual_mean'].min():.4f} TECU
-    Max:  {spatial_stats['residual_mean'].max():.4f} TECU
-    
-    Sample Count:
-    Total: {spatial_stats['count'].sum():,}
-    Mean per cell: {spatial_stats['count'].mean():.0f}
-    """
-
-    ax4.text(
-        0.1,
-        0.9,
-        stats_text,
-        transform=ax4.transAxes,
-        fontsize=14,
-        verticalalignment="top",
-        fontfamily="monospace",
-        bbox=dict(boxstyle="round", facecolor="lightgray", alpha=0.8),
-    )
-
     plt.tight_layout()
-    save_plot(fig, "spatial_error_map_comprehensive.png", output_dir)
+    save_plot(fig3, "spatial_error_map_count.png", output_dir)
+    plt.close(fig3)
+
+    # 4. Save statistics to text file
+    stats_text = f"""Spatial Error Statistics
+
+Total Grid Cells: {len(spatial_stats)}
+
+MAE Statistics:
+Mean: {spatial_stats['mae_mean'].mean():.4f} TECU
+Std:  {spatial_stats['mae_mean'].std():.4f} TECU
+Min:  {spatial_stats['mae_mean'].min():.4f} TECU
+Max:  {spatial_stats['mae_mean'].max():.4f} TECU
+
+Residual Statistics:
+Mean: {spatial_stats['residual_mean'].mean():.4f} TECU
+Std:  {spatial_stats['residual_mean'].std():.4f} TECU
+Min:  {spatial_stats['residual_mean'].min():.4f} TECU
+Max:  {spatial_stats['residual_mean'].max():.4f} TECU
+
+Sample Count:
+Total: {spatial_stats['count'].sum():,}
+Mean per cell: {spatial_stats['count'].mean():.0f}
+"""
+
+    # Save metrics to text file
+    import os
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "spatial_error_map_metrics.txt"), "w") as f:
+        f.write(stats_text)
 
 
 def plot_spatial_error_map_by_local_time(

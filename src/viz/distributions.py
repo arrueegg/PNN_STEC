@@ -26,7 +26,7 @@ def plot_binned_boxplot(
     bin_range_dict: Optional[Dict[str, tuple]] = None,
 ) -> None:
     """
-    Plot boxplot of y_col values grouped by binned x_col intervals.
+    Plot boxplot of y_col values grouped by binned x_col intervals with MAE/RMSE overlay.
 
     Args:
         df: DataFrame with data
@@ -46,10 +46,21 @@ def plot_binned_boxplot(
     else:
         df["x_bin"] = pd.cut(df[x_col], bins=bins)
 
-    # Group data by bins
-    grouped = df.groupby("x_bin", observed=True)[y_col].apply(list)
-    box_data = [grouped[bin] for bin in grouped.index]
-    x_labels = [f"{(b.left):.0f}–{b.right:.0f}" for b in grouped.index]
+    # Group data by bins and calculate statistics
+    grouped = df.groupby("x_bin", observed=True)
+    box_data = [grouped.get_group(bin)[y_col].tolist() for bin in grouped.groups]
+    x_labels = [f"{(b.left):.0f}–{b.right:.0f}" for b in grouped.groups]
+    
+    # Calculate MAE and RMSE if y_col is residual
+    if y_col == 'residual' and 'target_stec' in df.columns and 'pred_stec' in df.columns:
+        bin_stats = []
+        for bin_val in grouped.groups:
+            bin_data = grouped.get_group(bin_val)
+            mae = np.mean(np.abs(bin_data[y_col]))
+            rmse = np.sqrt(np.mean(bin_data[y_col] ** 2))
+            bin_stats.append({'mae': mae, 'rmse': rmse})
+    else:
+        bin_stats = None
 
     # Create plot
     fig, ax = plt.subplots(figsize=FIGSIZE_HISTOGRAM)
@@ -74,6 +85,21 @@ def plot_binned_boxplot(
     for element in ["whiskers", "caps", "medians"]:
         for item in bp[element]:
             item.set_linewidth(2)
+
+    # Add MAE and RMSE lines if available (on same y-axis as boxplots)
+    if bin_stats:
+        positions = range(1, len(bin_stats) + 1)  # boxplot positions start at 1
+        mae_values = [stat['mae'] for stat in bin_stats]
+        rmse_values = [stat['rmse'] for stat in bin_stats]
+        
+        # Plot MAE and RMSE lines on the same axis as the boxplots
+        ax.plot(positions, mae_values, color='green', marker='o', linewidth=3, 
+                markersize=8, label='MAE', alpha=0.9, zorder=10)
+        ax.plot(positions, rmse_values, color='orange', marker='s', linewidth=3, 
+                markersize=8, label='RMSE', alpha=0.9, zorder=10)
+        
+        # Add legend for MAE/RMSE
+        ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
 
     ax.tick_params(axis="x", rotation=45, labelsize=18)
 
@@ -344,3 +370,211 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     plt.tight_layout(rect=[0, 0, 1, 0.98])
     save_plot(fig, 'year_month_summary.png', output_dir)
     plt.close(fig)
+
+
+def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") -> None:
+    """
+    Plot residuals vs local solar time with combined boxplot and metrics overlay.
+    
+    Args:
+        df: DataFrame with residuals and time columns
+        output_dir: Directory to save plot
+    """
+    if 'time' not in df.columns:
+        if 'sod' in df.columns:
+            df = df.copy()
+            df['time'] = df['sod'] / 3600.0  # Convert seconds to hours
+        else:
+            print("Warning: Neither 'time' nor 'sod' column found. Skipping local time analysis.")
+            return
+    else:
+        df = df.copy()
+    df['residual'] = df['target_stec'] - df['pred_stec']
+    df['abs_residual'] = np.abs(df['residual'])
+    
+    # Create hourly bins (0-24 hours)
+    df['hour_bin'] = pd.cut(df['time'], bins=24, labels=range(24))
+    
+    # Calculate statistics per hour
+    hourly_stats = df.groupby('hour_bin', observed=True).agg({
+        'residual': ['mean', 'std', 'count'],
+        'abs_residual': 'mean'
+    }).reset_index()
+    
+    # Flatten column names
+    hourly_stats.columns = ['hour', 'mean_residual', 'std_residual', 'count', 'mae']
+    
+    # Calculate RMSE for each hour
+    rmse_list = []
+    for hour in hourly_stats['hour']:
+        hour_data = df[df['hour_bin'] == hour]
+        if len(hour_data) > 0:
+            rmse = np.sqrt(np.mean((hour_data['target_stec'] - hour_data['pred_stec']) ** 2))
+            rmse_list.append(rmse)
+        else:
+            rmse_list.append(np.nan)
+    
+    hourly_stats['rmse'] = rmse_list
+    hourly_stats['hour_numeric'] = hourly_stats['hour'].astype(int)
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    # Prepare boxplot data
+    box_data = []
+    box_positions = []
+    for hour in range(24):
+        hour_residuals = df[df['hour_bin'] == hour]['residual'].values
+        if len(hour_residuals) >= 5:  # Only include hours with sufficient data
+            box_data.append(hour_residuals)
+            box_positions.append(hour)
+    
+    # Create boxplot
+    if box_data:
+        bp = ax.boxplot(box_data, positions=box_positions, widths=0.6, 
+                       showfliers=False, patch_artist=True,
+                       boxprops=dict(facecolor='lightblue', edgecolor='black', alpha=0.7),
+                       whiskerprops=dict(color='black'),
+                       capprops=dict(color='black'),
+                       medianprops=dict(color='red', linewidth=2))
+    
+    # Plot MAE and RMSE lines on same axis as boxplots
+    if hourly_stats is not None and not hourly_stats.empty:
+        ax.plot(hourly_stats['hour_numeric'], hourly_stats['mae'], 
+                color='green', marker='o', linewidth=3, markersize=8, 
+                label='MAE', alpha=0.9, zorder=10)
+        ax.plot(hourly_stats['hour_numeric'], hourly_stats['rmse'], 
+                color='orange', marker='s', linewidth=3, markersize=8, 
+                label='RMSE', alpha=0.9, zorder=10)
+        
+        # Add legend
+        ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
+    
+    # Styling
+    ax.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
+    ax.set_xlabel('Local Solar Time [hours]', fontweight='bold', fontsize=14)
+    ax.set_ylabel('Residual [TECU]', fontweight='bold', fontsize=14)
+    ax.set_title('Residuals vs Local Solar Time', fontweight='bold', pad=20, fontsize=16)
+    
+    # Set x-axis
+    ax.set_xlim(-0.5, 23.5)
+    ax.set_xticks(range(0, 24, 3))
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    save_plot(fig, "residuals_vs_local_time.png", output_dir)
+
+
+def plot_residuals_vs_solar_indices(df: pd.DataFrame, output_dir: str = "plots") -> None:
+    """
+    Plot residuals vs solar indices (F10.7 and Dst) with combined boxplot and metrics overlay.
+    
+    Args:
+        df: DataFrame with residuals and solar index columns
+        output_dir: Directory to save plot
+    """
+    df = df.copy()
+    df['residual'] = df['target_stec'] - df['pred_stec']
+    df['abs_residual'] = np.abs(df['residual'])
+    
+    # Check which solar indices are available
+    solar_indices = []
+    if 'f107_index' in df.columns:
+        solar_indices.append(('f107_index', 'F10.7 Solar Flux [sfu]'))
+    elif 'f107' in df.columns:
+        solar_indices.append(('f107', 'F10.7 Solar Flux [sfu]'))
+    
+    if 'Dst-index,_nT' in df.columns:
+        solar_indices.append(('Dst-index,_nT', 'Dst Index [nT]'))
+    elif 'dst' in df.columns:
+        solar_indices.append(('dst', 'Dst Index [nT]'))
+    
+    if not solar_indices:
+        print("Warning: No solar indices (f107, dst) found. Skipping solar index analysis.")
+        return
+    
+    # Create subplots for each available solar index
+    n_indices = len(solar_indices)
+    fig, axes = plt.subplots(n_indices, 1, figsize=(14, 6*n_indices))
+    if n_indices == 1:
+        axes = [axes]
+    
+    for i, (col, label) in enumerate(solar_indices):
+        ax = axes[i]
+        
+        # Create bins for the solar index
+        n_bins = 15
+        df[f'{col}_bin'] = pd.qcut(df[col], q=n_bins, duplicates='drop')
+        
+        # Calculate statistics per bin
+        bin_stats = df.groupby(f'{col}_bin', observed=True).agg({
+            col: 'mean',
+            'residual': ['mean', 'std', 'count'],
+            'abs_residual': 'mean'
+        }).reset_index()
+        
+        # Flatten column names
+        bin_stats.columns = ['bin', 'bin_center', 'mean_residual', 'std_residual', 'count', 'mae']
+        
+        # Calculate RMSE for each bin
+        rmse_list = []
+        for bin_val in bin_stats['bin']:
+            bin_data = df[df[f'{col}_bin'] == bin_val]
+            if len(bin_data) > 0:
+                rmse = np.sqrt(np.mean((bin_data['target_stec'] - bin_data['pred_stec']) ** 2))
+                rmse_list.append(rmse)
+            else:
+                rmse_list.append(np.nan)
+        
+        bin_stats['rmse'] = rmse_list
+        
+        # Prepare boxplot data
+        box_data = []
+        box_positions = []
+        for j, bin_val in enumerate(bin_stats['bin']):
+            bin_residuals = df[df[f'{col}_bin'] == bin_val]['residual'].values
+            if len(bin_residuals) >= 5:  # Only include bins with sufficient data
+                box_data.append(bin_residuals)
+                box_positions.append(j)
+        
+        # Create boxplot
+        if box_data:
+            bp = ax.boxplot(box_data, positions=box_positions, widths=0.6, 
+                           showfliers=False, patch_artist=True,
+                           boxprops=dict(facecolor='lightblue', edgecolor='black', alpha=0.7),
+                           whiskerprops=dict(color='black'),
+                           capprops=dict(color='black'),
+                           medianprops=dict(color='red', linewidth=2))
+        
+        # Plot MAE and RMSE lines on same axis as boxplots
+        ax.plot(range(len(bin_stats)), bin_stats['mae'], 
+                color='green', marker='o', linewidth=3, markersize=8, 
+                label='MAE', alpha=0.9, zorder=10)
+        ax.plot(range(len(bin_stats)), bin_stats['rmse'], 
+                color='orange', marker='s', linewidth=3, markersize=8, 
+                label='RMSE', alpha=0.9, zorder=10)
+        
+        # Styling
+        ax.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
+        ax.set_xlabel(label, fontweight='bold', fontsize=14)
+        ax.set_ylabel('Residual [TECU]', fontweight='bold', fontsize=14)
+        ax.set_title(f'Residuals vs {label}', fontweight='bold', pad=20, fontsize=16)
+        
+        # Add legend
+        ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
+        
+        # Format x-axis with bin centers
+        n_ticks = min(8, len(bin_stats))
+        tick_indices = np.linspace(0, len(bin_stats)-1, n_ticks, dtype=int)
+        tick_labels = [f'{bin_stats.iloc[idx]["bin_center"]:.1f}' for idx in tick_indices]
+        
+        ax.set_xticks(tick_indices)
+        ax.set_xticklabels(tick_labels)
+        ax.set_xlim(-0.5, len(bin_stats) - 0.5)
+        ax.grid(True, alpha=0.3)
+        
+        # Add legend for metrics
+        ax2.legend(loc='upper right', fontsize=12, framealpha=0.9)
+    
+    plt.tight_layout()
+    save_plot(fig, "residuals_vs_solar_indices.png", output_dir)
