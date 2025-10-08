@@ -50,7 +50,7 @@ from utils.config_parser import parse_config, compute_exp_name
 from utils.data import get_test_data_loader
 from utils.feature_registry import initialize_feature_registry
 from utils.metrics import calculate_metrics
-from utils.plot import plot_test_metrics
+from viz import plot_test_metrics
 from utils.base_trainer import BaseTrainer
 from model.model import get_model
 

@@ -12,7 +12,7 @@ import sys
 # Add src to path
 sys.path.append('/scratch2/arrueegg/WP4/PNN_STEC/src')
 
-from utils.plot import plot_binned_uncertainty_analysis, plot_binned_uncertainty_analysis_lines_only
+from viz import plot_binned_uncertainty_analysis, plot_binned_uncertainty_analysis_lines_only
 
 def test_uncertainty_plots():
     """Test the uncertainty plotting functions with sample data"""

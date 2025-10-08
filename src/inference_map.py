@@ -55,7 +55,7 @@ from model.model import get_model
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-from utils.plot import FIGSIZE_WIDE
+from viz.base import FIGSIZE_WIDE
 from PIL import Image
 
 # Setup logging

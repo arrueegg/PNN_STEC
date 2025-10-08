@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from utils.loss_function import get_criterion
 from utils.optimizers import get_optimizer, get_scheduler
 from utils.metrics import calculate_metrics
-from utils.plot import plot_test_metrics
+from viz import plot_test_metrics
 from utils.feature_registry import create_default_registry, FeatureType
 
 gc.collect()
