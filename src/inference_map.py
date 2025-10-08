@@ -49,7 +49,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.config_parser import load_config, compute_exp_name
 from utils.feature_registry import initialize_feature_registry, FeatureType
-from utils.base_trainer import BaseTrainer
+from training import BaseTrainer
 from utils.data import CollateWithSH
 from model.model import get_model
 import matplotlib.pyplot as plt

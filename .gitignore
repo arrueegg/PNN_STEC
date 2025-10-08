@@ -3,6 +3,8 @@
 *.pyc
 .vscode/
 .github/
+.pytest_cache/
+.ruff_cache/
 launch.json
 env/
 wandb/

@@ -2,7 +2,7 @@
 
 from model.model import get_model, init_kaiming
 from utils.data import get_data_loaders
-from utils.base_trainer import BaseTrainer
+from training import BaseTrainer
 
 class Finetuner(BaseTrainer):
     def __init__(self, config, logger):
