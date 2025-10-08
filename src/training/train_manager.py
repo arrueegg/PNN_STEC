@@ -267,16 +267,101 @@ class TrainManager:
             all_targets.numpy(),
         )
 
-    def train_epoch_ensemble(
-        self,
-        model,
-        dataloader,
-        criterion_mse,
-        criterion_nll,
-        criterion_kld,
-        optimizer,
-        epoch=0,
+    def train_ensemble_epoch(
+        self, model, dataloader, optimizer, criterion_mse, criterion_nll, criterion_kld, epoch
     ):
+        """
+        Specialized training for Deep Ensemble models.
+        Trains all ensemble members simultaneously.
+        """
+        model.train()
+        running_loss = running_mse = running_nll = running_kld = 0.0
+        all_outputs, all_targets = [], []
+        disable_tqdm = self.config.get("cluster", False)
+
+        epoch_start_time = self.training_utils.sync_and_time()
+
+        for i, (inputs, targets) in tqdm(
+            enumerate(dataloader),
+            total=len(dataloader),
+            disable=disable_tqdm,
+            desc="Ensemble Training",
+        ):
+
+            inputs = inputs.to(self.device, non_blocking=True)
+            training_targets, original_targets = (
+                self.data_transforms.targets_to_training_space(targets)
+            )
+
+            optimizer.zero_grad()
+
+            # Train all ensemble members with same data simultaneously
+            outputs = model(inputs)  # This calls the ensemble forward method
+            pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(
+                outputs
+            )
+
+            pred_mean_raw = pred_mean_raw.flatten()
+            pred_var_raw = pred_var_raw.flatten()
+
+            mse_loss = criterion_mse(pred_mean_raw, training_targets)
+            nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+            kld_loss = criterion_kld(model)
+
+            current_kl_weight = self.training_utils.get_current_kl_weight(epoch)
+
+            if self.config["training"]["loss_function"] == "GaussianNLLLoss":
+                loss = nll_loss + current_kl_weight * kld_loss
+            elif self.config["training"]["loss_function"] == "MSELoss":
+                loss = mse_loss
+
+            loss.backward()
+            optimizer.step()
+
+            # Accumulate losses for logging
+            running_loss += loss.item()
+            running_mse += mse_loss.item()
+            running_nll += nll_loss.item()
+            running_kld += kld_loss.item()
+
+            # Store outputs for metrics calculation
+            if self.use_log_target:
+                point_linear, std_linear, var_linear = (
+                    self.data_transforms.pred_log_to_linear(
+                        pred_mean_raw, pred_var_raw
+                    )
+                )
+            else:
+                point_linear, std_linear, var_linear = (
+                    self.data_transforms.pred_linear_from_linear(
+                        pred_mean_raw, pred_var_raw
+                    )
+                )
+            all_outputs.append(point_linear.cpu())
+            all_targets.append(original_targets.cpu())
+
+            if self.config.get("debug_single_batch", False):
+                break
+
+        # Calculate epoch metrics
+        epoch_end_time = self.training_utils.sync_and_time()
+        epoch_duration = epoch_end_time - epoch_start_time
+
+        if self.training_utils.timing_enabled:
+            self.training_utils.log_timing(
+                f"Ensemble training epoch {epoch}", epoch_duration
+            )
+
+        avg_loss = running_loss / len(dataloader)
+        avg_mse = running_mse / len(dataloader)
+        avg_nll = running_nll / len(dataloader)
+        avg_kld = running_kld / len(dataloader)
+
+        all_outputs_tensor = torch.cat(all_outputs, dim=0).detach()
+        all_targets_tensor = torch.cat(all_targets, dim=0)
+        train_metrics = calculate_metrics(
+            all_outputs_tensor, all_targets_tensor, prefix="train"
+        )
         """
         Specialized training for Deep Ensemble models.
         Trains all ensemble members simultaneously or sequentially based on config.

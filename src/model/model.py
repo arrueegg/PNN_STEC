@@ -338,21 +338,6 @@ class DeepEnsemble_MLP(torch.nn.Module):
         
         return ensemble_mean, total_uncertainty
     
-    def forward_individual(self, x):
-        """
-        Forward pass returning predictions from all individual ensemble members.
-        Useful for training where we might want to train members individually.
-        """
-        all_predictions = []
-        all_variances = []
-        
-        for model in self.ensemble_models:
-            mean, var = model(x)
-            all_predictions.append(mean)
-            all_variances.append(var)
-        
-        return all_predictions, all_variances
-    
     def get_uncertainties(self, x):
         """
         Get decomposed uncertainties for analysis.

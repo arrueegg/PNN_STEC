@@ -1,12 +1,20 @@
 # Ignore Python cache, virtual environments and wandb files
 **/__pycache__/
 *.pyc
+*.pyo
+*.pyd
+__pycache__/
+.Python
 .vscode/
 .github/
 .pytest_cache/
 .ruff_cache/
 launch.json
 env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 wandb/
 *data/
 *data*/
@@ -17,6 +25,23 @@ wandb/
 temp/
 **/temp_data/
 **/logs/
+
+# Ignore IDE and OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Ignore backup files
+*_backup.py
+*_old.py
+*.bak
 
 # Ignore specific files
 experiments/

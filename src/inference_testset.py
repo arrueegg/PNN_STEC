@@ -47,7 +47,7 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.config_parser import parse_config, compute_exp_name
-from utils.data import get_test_data_loader
+from data import get_test_data_loader
 from utils.feature_registry import initialize_feature_registry
 from utils.metrics import calculate_metrics
 from viz import plot_test_metrics
@@ -310,8 +310,8 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     
-    # Load test data only (more efficient for inference)
-    config['data']['use_all_test_samples'] = True
+    # Load test data with larger batch size for faster inference
+    config['data']['test_size'] = 'full'  # Use full test set for comprehensive inference
     config['pretrain']['batchsize'] = 4096
     if not 'BNN' in config['model']['model_type']:
         config['pretrain']['batchsize'] = 4096 * 8  # Larger batch size for non-BNN models
@@ -371,7 +371,8 @@ def run_inference_pipeline(config, experiment_dir, checkpoint_path):
         # Always use the full, optimized Bayesian inference to ensure all input variables
         # are preserved for detailed analysis and plotting.
         dataset_size = len(test_loader.dataset)
-        if config['data'].get('use_all_test_samples', False):
+        test_size_config = config['data'].get('test_size', 'full')
+        if test_size_config == 'full':
             logger.info(f"📊 Using FULL inference for complete analysis ({dataset_size:,} samples)")
 
         bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(

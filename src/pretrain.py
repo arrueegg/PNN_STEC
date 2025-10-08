@@ -1,7 +1,7 @@
 # pretrainer.py
 
 from model.model import get_model, init_kaiming
-from utils.data import get_data_loaders
+from data import get_data_loaders
 from training import BaseTrainer
 
 class Pretrainer(BaseTrainer):
