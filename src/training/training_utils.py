@@ -186,9 +186,9 @@ class TrainingUtils:
         split_date = datetime(2024, 5, 1)
 
         def create_date(row):
-            """Convert year and day_of_year to datetime"""
+            """Convert year and doy to datetime"""
             year = int(row["year"])
-            doy = int(row["day_of_year"])
+            doy = int(row["doy"])
             return datetime(year, 1, 1) + timedelta(days=doy - 1)
 
         # Create datetime column for filtering
@@ -230,10 +230,15 @@ class TrainingUtils:
 
         # Calculate metrics for each subset
         if len(interpolation_df) > 0:
+            # Create tensors for metrics calculation (expected format)
+            interpolation_predictions = torch.stack([
+                torch.tensor(interpolation_df['pred_stec'].values, dtype=torch.float32),
+                torch.tensor(interpolation_df['pred_total_unc'].values, dtype=torch.float32)
+            ], dim=1)
+            interpolation_targets = torch.tensor(interpolation_df['target_stec'].values, dtype=torch.float32)
+            
             interp_metrics = calculate_metrics(
-                interpolation_df["predictions"].values,
-                interpolation_df["targets"].values,
-                interpolation_df.get("std_predictions", None),
+                interpolation_predictions, interpolation_targets, prefix="interpolation"
             )
             interp_metrics["data_type"] = "interpolation"
             interp_metrics["sample_count"] = len(interpolation_df)
@@ -241,10 +246,15 @@ class TrainingUtils:
             interp_metrics = {"data_type": "interpolation", "sample_count": 0}
 
         if len(extrapolation_df) > 0:
+            # Create tensors for metrics calculation (expected format)
+            extrapolation_predictions = torch.stack([
+                torch.tensor(extrapolation_df['pred_stec'].values, dtype=torch.float32),
+                torch.tensor(extrapolation_df['pred_total_unc'].values, dtype=torch.float32)
+            ], dim=1)
+            extrapolation_targets = torch.tensor(extrapolation_df['target_stec'].values, dtype=torch.float32)
+            
             extrap_metrics = calculate_metrics(
-                extrapolation_df["predictions"].values,
-                extrapolation_df["targets"].values,
-                extrapolation_df.get("std_predictions", None),
+                extrapolation_predictions, extrapolation_targets, prefix="extrapolation"
             )
             extrap_metrics["data_type"] = "extrapolation"
             extrap_metrics["sample_count"] = len(extrapolation_df)

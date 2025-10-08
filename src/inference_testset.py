@@ -61,7 +61,7 @@ logger = logging.getLogger()
 def split_test_data_by_date(test_df):
     """
     Split test dataframe into interpolation and extrapolation subsets.
-    Simple rule: May 2024 and later = extrapolation, everything before = interpolation.
+    Simple rule: May 2024 and later = extrapolation, April 2024 and before = interpolation.
     
     Args:
         test_df: Test dataframe with 'year' and 'doy' columns
@@ -90,8 +90,8 @@ def split_test_data_by_date(test_df):
     # Extract year-month periods for comparison
     test_df['year_month'] = test_df['date'].dt.to_period('M')
     
-    # Simple split: May 2024 and later = extrapolation, everything before = interpolation
-    cutoff_period = pd.Period('2024-05')
+    # Simple split: May 2024 and later = extrapolation, April 2024 and before = interpolation
+    cutoff_period = pd.Period('2024-05')  # This means May 2024+
     
     interpolation_mask = test_df['year_month'] < cutoff_period
     extrapolation_mask = test_df['year_month'] >= cutoff_period

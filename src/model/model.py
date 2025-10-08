@@ -60,7 +60,7 @@ class BranchMLP(nn.Module):
     def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
         super().__init__()
 
-        self.split = 3 + num_SWI_params  # time features (sod normalized, cos(doy), sin(doy)) + SWI features
+        self.split = 6 + num_SWI_params  # time features (sod normalized, cos(doy), sin(doy)) + SWI features
 
         # Spatial branch (lat, lon, etc.)
         spatial_layers = []

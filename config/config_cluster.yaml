@@ -1,8 +1,4 @@
-# Generdebug: False  
-debug_single_batch: False  
-cluster: True
-
-target: "stec" # stec or vtection
+# General configuration
 project_name: "PNN_STEC"
 output_dir: "experiments/"
 year: 2023
@@ -11,7 +7,7 @@ mode: pretrain # pretrain, finetune
 random_seed: 42
 debug: False  
 debug_single_batch: False  
-cluster: true
+cluster: True
 
 target: "stec" # stec or vtec
 
@@ -28,8 +24,8 @@ data:
   max_elevation: 90.0
   shuffle: True
   train_subset_size: 500_000  # Number of samples to use per epoch
-  val_size: 'full'  # Number of validation samples to use ('full' for entire val set, or integer for specific count)
-  test_size: 'full'  # Number of test samples to use ('full' for entire test set, or integer for specific count)
+  val_size: 1_000_000  # Number of validation samples to use ('full' for entire val set, or integer for specific count)
+  test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
 
 model:
   model_type: DE_MLP # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
@@ -39,8 +35,6 @@ model:
   
   # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
   ensemble_size: 5    # Number of ensemble members (default: 5)
-  ensemble_training:
-    method: "simultaneous"  # "simultaneous" or "sequential" training of ensemble members
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
@@ -71,13 +65,12 @@ pretrain:
   batchsize: 512
   num_workers: 12 
   prefetch_factor: 4
-  learning_rate: 0.0002
+  learning_rate: 0.002
   scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 200       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
-  save_model_every_epoch: False # Whether to save the model every epoch
-  early_stopping: true          # Whether to use early stopping
   patience: 30                   # Patience for early stopping
+  save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:
   epochs: 5

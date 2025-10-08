@@ -10,7 +10,7 @@ from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner
 from utils.feature_registry import initialize_feature_registry, FeatureType
-from utils.wandb_sweep_integration import integrate_wandb_sweep_config, setup_wandb_for_sweep
+from utils.wandb_sweep_integration import integrate_wandb_sweep_config
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -80,9 +80,14 @@ def main():
             print('')
             logging.info(f"Pretrained model not found.")
             logging.info('Starting pretraining...')
-            config = parse_config(mode='pretrain', device=device, data_path=data_path)
-            Pretrainer(config, logger)
+            # Preserve the feature registry when switching to pretrain mode
+            original_feature_registry = config['feature_registry']
+            pretrain_config = parse_config(mode='pretrain', device=device, data_path=data_path)
+            pretrain_config['feature_registry'] = original_feature_registry
+            Pretrainer(pretrain_config, logger)
+            # Preserve feature registry when switching back to finetune
             config = parse_config(mode='finetune', device=device, data_path=data_path)
+            config['feature_registry'] = original_feature_registry
         print('')
         logging.info('Starting finetuning...')
         trainer = Finetuner(config, logger)

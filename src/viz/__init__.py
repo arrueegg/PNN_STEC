@@ -164,9 +164,6 @@ def plot_test_metrics(
     print("Creating prediction density plot...")
     plot_prediction_density(df, prediction_dir)
 
-    print("Creating residual histogram...")
-    plot_histogram_of_residuals(df, prediction_dir)
-
     # Spatial analysis in spatial_analysis/
     print("Creating spatial error maps...")
     if "lat_ipp" in df.columns and "lon_ipp" in df.columns:
@@ -189,7 +186,6 @@ def plot_test_metrics(
     # Temporal analysis in temporal_analysis/
     if "doy" in df.columns:
         print("Creating temporal analysis plots...")
-        plot_mae_vs_doy(df, temporal_dir)
         plot_residuals_vs_feature(
             df, "doy", output_dir=temporal_dir, bin_range_dict=bin_range_dict
         )
@@ -252,10 +248,8 @@ def plot_test_metrics(
         print("Creating uncertainty analysis plots...")
         df_unc = prepare_uncertainty_data(df)
 
-        plot_uncertainty_calibration_binned(df_unc, uncertainty_dir)
         plot_coverage_probability(df_unc, uncertainty_dir)
         plot_binned_uncertainty_analysis(df_unc, uncertainty_dir)
-        plot_uncertainty_calibration(df_unc, uncertainty_dir)
         plot_sigma_coverage_comparison(df_unc, uncertainty_dir)
         plot_uncertainty_distributions(df_unc, uncertainty_dir)
         plot_binned_uncertainty_error_analysis(df_unc, uncertainty_dir)

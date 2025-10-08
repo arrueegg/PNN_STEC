@@ -572,9 +572,6 @@ def plot_residuals_vs_solar_indices(df: pd.DataFrame, output_dir: str = "plots")
         ax.set_xticklabels(tick_labels)
         ax.set_xlim(-0.5, len(bin_stats) - 0.5)
         ax.grid(True, alpha=0.3)
-        
-        # Add legend for metrics
-        ax2.legend(loc='upper right', fontsize=12, framealpha=0.9)
     
     plt.tight_layout()
     save_plot(fig, "residuals_vs_solar_indices.png", output_dir)

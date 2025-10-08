@@ -5,7 +5,7 @@ year: 2023
 doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
-debug: True  
+debug: False  
 debug_single_batch: False  
 cluster: False
 
@@ -24,13 +24,13 @@ data:
   max_elevation: 90.0
   shuffle: True
   train_subset_size: 500_000  # Number of samples to use per epoch
-  val_size: 300_00  # Number of validation samples to use ('full' for entire val set, or integer for specific count)
-  test_size: 1_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
+  val_size: 1_000_000  # Number of validation samples to use ('full' for entire val set, or integer for specific count)
+  test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
 
 model:
-  model_type: DE_MLP # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
+  model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
   hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
-  num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
+  num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
   
   # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
@@ -61,11 +61,11 @@ training:
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 5
+  epochs: 200
   batchsize: 512
   num_workers: 12 
   prefetch_factor: 4
-  learning_rate: 0.0002
+  learning_rate: 0.002
   scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 200       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping

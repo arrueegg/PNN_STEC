@@ -68,89 +68,7 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
     save_plot(fig, "prediction_scatter.png", output_dir)
     plt.close(fig)
 
-    # 2. 2D histogram version (using hist2d with same formatting as density plot)
-    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
-    
-    # Set proper axis limits: min=0, equal max for both axes
-    min_val_hist = 0  # Always start from 0
-    max_val_hist = max(y_true.max(), y_pred.max())
-    
-    # Create 2D histogram instead of hexbin
-    h = ax.hist2d(y_true, y_pred, bins=50, cmap='plasma', 
-                  range=[[min_val_hist, max_val_hist], [min_val_hist, max_val_hist]])
-    
-    # Perfect prediction line
-    ax.plot([min_val_hist, max_val_hist], [min_val_hist, max_val_hist], "r-", linewidth=3, alpha=0.9, label='Perfect Prediction')
-    
-    # Set equal axis limits
-    ax.set_xlim(min_val_hist, max_val_hist)
-    ax.set_ylim(min_val_hist, max_val_hist)
-    
-    ax.set_xlabel("True STEC [TECU]", fontsize=16, fontweight="bold")
-    ax.set_ylabel("Predicted STEC [TECU]", fontsize=16, fontweight="bold")
-    ax.set_title("Prediction Quality (2D Histogram)", fontsize=20, fontweight="bold", pad=25)
-    
-    # Add colorbar
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.1)
-    cbar = plt.colorbar(h[3], cax=cax)
-    cbar.set_label('Count', fontweight='bold', rotation=270, labelpad=35)
-    cbar.ax.tick_params(labelsize=16)
-    
-    # Add legend and styling
-    ax.legend(loc='upper left', fontsize=14, framealpha=0.9)
-    ax.grid(True, alpha=0.3)
-    ax.set_aspect('equal')
-    
-    plt.tight_layout()
-    save_plot(fig, "prediction_hist2d.png", output_dir)
-    plt.close(fig)
 
-    # 3. Density plot version
-    fig, ax = plt.subplots(figsize=(10, 8))
-    # Use hexbin for density
-    hb = ax.hexbin(y_true, y_pred, gridsize=50, cmap='Blues', mincnt=1)
-    ax.plot([min_val, max_val], [min_val, max_val], "r-", linewidth=2, alpha=0.8)
-    ax.set_xlabel("True STEC [TECU]", fontweight="bold")
-    ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
-    ax.set_title("Prediction Density", fontweight="bold", pad=20)
-    cb = fig.colorbar(hb, ax=ax)
-    cb.set_label("Count", fontweight="bold")
-    plt.tight_layout()
-    save_plot(fig, "prediction_density.png", output_dir)
-    plt.close(fig)
-
-    # 4. Residuals vs predictions
-    residuals = y_true - y_pred
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(y_pred, residuals, alpha=0.3, s=1)
-    ax.axhline(y=0, color="red", linestyle="--", linewidth=2)
-    ax.set_xlabel("Predicted STEC [TECU]", fontweight="bold")
-    ax.set_ylabel("Residuals [TECU]", fontweight="bold")
-    ax.set_title("Residuals vs Predictions", fontweight="bold", pad=20)
-    plt.tight_layout()
-    save_plot(fig, "residuals_vs_predictions.png", output_dir)
-    plt.close(fig)
-
-    # 5. Residuals histogram
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.hist(
-        residuals, bins=50, density=True, alpha=0.7, color="skyblue", edgecolor="black"
-    )
-    ax.axvline(0, color="red", linestyle="--", linewidth=2)
-    ax.axvline(
-        np.mean(residuals),
-        color="orange",
-        linestyle="-",
-        linewidth=2,
-        label=f"Mean: {np.mean(residuals):.3f}",
-    )
-    ax.set_xlabel("Residuals [TECU]", fontweight="bold")
-    ax.set_ylabel("Density", fontweight="bold")
-    ax.set_title("Residual Distribution", fontweight="bold", pad=20)
-    ax.legend()
-    plt.tight_layout()
-    save_plot(fig, "residual_histogram.png", output_dir)
     plt.close(fig)
 
 
@@ -357,9 +275,9 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None
     # Hexagon density plot with enhanced visuals
     fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
     
-    # Create hexbin plot with finer gridsize and log scale
+    # Create hexbin plot with even finer gridsize and BuGn colormap
     from matplotlib.colors import LogNorm
-    hb = ax.hexbin(y_true, y_pred, gridsize=80, cmap='plasma', mincnt=1, 
+    hb = ax.hexbin(y_true, y_pred, gridsize=100, cmap='BuGn', mincnt=1, 
                    extent=[min_val, max_val, min_val, max_val], norm=LogNorm())
     
     # Perfect prediction line

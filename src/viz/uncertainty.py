@@ -103,77 +103,6 @@ def plot_uncertainty_calibration_binned(
     save_plot(fig, "uncertainty_calibration_binned.png", output_dir)
 
 
-def plot_coverage_probability(df: pd.DataFrame, output_dir: str = "plots") -> None:
-    """
-    Plot coverage probability analysis for uncertainty estimates.
-
-    Args:
-        df: DataFrame with uncertainty columns and predictions
-        output_dir: Directory to save plot
-    """
-    if "pred_total_unc" not in df.columns:
-        print(
-            "Warning: No uncertainty columns found. Skipping coverage probability plot."
-        )
-        return
-
-    df = df.copy()
-    df["abs_residual"] = np.abs(df["target_stec"] - df["pred_stec"])
-
-    # Calculate coverage for different confidence levels
-    confidence_levels = np.linspace(0.1, 0.99, 50)
-    coverage_ratios = []
-
-    for conf_level in confidence_levels:
-        # Z-score for confidence level (assuming normal distribution)
-        z_score = np.abs(
-            np.percentile(
-                np.random.normal(0, 1, 10000),
-                [(1 - conf_level) / 2 * 100, (1 + conf_level) / 2 * 100],
-            )
-        )
-        z_score = z_score[1]  # Take upper bound
-
-        # Count samples within confidence interval
-        within_interval = df["abs_residual"] <= (z_score * df["pred_total_unc"])
-        coverage_ratio = within_interval.mean()
-        coverage_ratios.append(coverage_ratio)
-
-    # Create plot
-    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
-
-    ax.plot(
-        confidence_levels, coverage_ratios, "b-", linewidth=3, label="Observed Coverage"
-    )
-    ax.plot(
-        confidence_levels,
-        confidence_levels,
-        "r--",
-        linewidth=2,
-        label="Perfect Calibration",
-    )
-
-    ax.set_xlabel("Confidence Level", fontweight="bold")
-    ax.set_ylabel("Coverage Probability", fontweight="bold")
-    ax.set_title("Coverage Probability Analysis", fontweight="bold", pad=20)
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    # Add statistics
-    mean_diff = np.mean(np.abs(np.array(coverage_ratios) - confidence_levels))
-    ax.text(
-        0.05,
-        0.95,
-        f"Mean |Difference|: {mean_diff:.4f}",
-        transform=ax.transAxes,
-        fontsize=14,
-        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
-    )
-
-    plt.tight_layout()
-    save_plot(fig, "coverage_probability.png", output_dir)
-
-
 def plot_binned_uncertainty_analysis(
     df: pd.DataFrame, output_dir: str = "plots"
 ) -> None:
@@ -202,110 +131,6 @@ def plot_binned_uncertainty_analysis(
 
     # True value bins
     df["true_bin"] = pd.qcut(df["target_stec"], q=n_bins, duplicates="drop")
-
-    # 1. Uncertainty vs Observed Error (by uncertainty bins)
-    unc_stats = (
-        df.groupby("unc_bin", observed=True)
-        .agg({"pred_total_unc": "mean", "abs_residual": "mean", "target_stec": "count"})
-        .reset_index()
-    )
-
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(
-        unc_stats["pred_total_unc"], unc_stats["abs_residual"], s=100, alpha=0.7
-    )
-
-    # Perfect calibration line
-    max_val = max(unc_stats["pred_total_unc"].max(), unc_stats["abs_residual"].max())
-    ax.plot([0, max_val], [0, max_val], "r--", linewidth=2, label="Perfect Calibration")
-    ax.set_xlabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
-    ax.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
-    ax.set_title("Uncertainty Calibration", fontweight="bold", pad=20)
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    plt.tight_layout()
-    save_plot(fig, "calibration_plot.png", output_dir)
-    plt.close(fig)
-
-    # 2. Uncertainty vs Prediction Value
-    pred_stats = (
-        df.groupby("pred_bin", observed=True)
-        .agg({"pred_stec": "mean", "pred_total_unc": "mean", "abs_residual": "mean"})
-        .reset_index()
-    )
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(
-        pred_stats["pred_stec"],
-        pred_stats["pred_total_unc"],
-        s=100,
-        alpha=0.7,
-        color="green",
-    )
-    ax.set_xlabel("Mean Predicted STEC [TECU]", fontweight="bold")
-    ax.set_ylabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
-    ax.set_title("Uncertainty vs Prediction", fontweight="bold", pad=20)
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    save_plot(fig, "uncertainty_vs_prediction.png", output_dir)
-    plt.close(fig)
-
-    # 3. Error vs Prediction Value
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(
-        pred_stats["pred_stec"],
-        pred_stats["abs_residual"],
-        s=100,
-        alpha=0.7,
-        color="orange",
-    )
-    ax.set_xlabel("Mean Predicted STEC [TECU]", fontweight="bold")
-    ax.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
-    ax.set_title("Error vs Prediction", fontweight="bold", pad=20)
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    save_plot(fig, "error_vs_prediction.png", output_dir)
-    plt.close(fig)
-
-    # 4. Uncertainty vs True Value
-    true_stats = (
-        df.groupby("true_bin", observed=True)
-        .agg({"target_stec": "mean", "pred_total_unc": "mean", "abs_residual": "mean"})
-        .reset_index()
-    )
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(
-        true_stats["target_stec"],
-        true_stats["pred_total_unc"],
-        s=100,
-        alpha=0.7,
-        color="purple",
-    )
-    ax.set_xlabel("Mean True STEC [TECU]", fontweight="bold")
-    ax.set_ylabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
-    ax.set_title("Uncertainty vs True Value", fontweight="bold", pad=20)
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    save_plot(fig, "uncertainty_vs_true_value.png", output_dir)
-    plt.close(fig)
-
-    # 5. Error vs True Value
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(
-        true_stats["target_stec"],
-        true_stats["abs_residual"],
-        s=100,
-        alpha=0.7,
-        color="red",
-    )
-    ax.set_xlabel("Mean True STEC [TECU]", fontweight="bold")
-    ax.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
-    ax.set_title("Error vs True Value", fontweight="bold", pad=20)
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    save_plot(fig, "error_vs_true_value.png", output_dir)
-    plt.close(fig)
 
     # 6. Uncertainty distribution
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -479,6 +304,7 @@ def plot_sigma_coverage_comparison(df: pd.DataFrame, output_dir: str = "plots") 
     # Plot with clear legend and interpretation
     bars1 = ax.bar(x + 0.0*width, expected_values, width, label='Expected (Perfect)', 
                    alpha=0.8, color=colors['expected'], edgecolor='black', linewidth=1.5)
+    
     bars2 = ax.bar(x + 1.0*width, total_coverage, width, label='Total', 
                    alpha=0.8, color=colors['total'], edgecolor='black', linewidth=1.5)
     
@@ -489,16 +315,6 @@ def plot_sigma_coverage_comparison(df: pd.DataFrame, output_dir: str = "plots") 
     if aleatoric_coverage is not None:
         bars4 = ax.bar(x + 3.0*width, aleatoric_coverage, width, label='Aleatoric (Data Noise)', 
                        alpha=0.8, color=colors['aleatoric'], edgecolor='black', linewidth=1.5)
-    
-    # Add horizontal reference lines - aligned with each sigma level
-    for i, exp_val in enumerate(expected_values):
-        # Calculate proper x-position for each sigma level
-        x_center = i + 1.5*width  # Center of the bar group
-        x_left = i - 0.5 + width*0.5  # Left edge of bar group
-        x_right = i + 0.5 + width*3.5  # Right edge of bar group
-        
-        ax.axhline(y=exp_val, xmin=x_left/len(sigma_levels), xmax=x_right/len(sigma_levels), 
-                   color='red', linestyle='--', alpha=0.7, linewidth=3)
     
     ax.set_xlabel('Sigma Levels', fontsize=16, fontweight='bold')
     ax.set_ylabel('Coverage [%]', fontsize=16, fontweight='bold')
