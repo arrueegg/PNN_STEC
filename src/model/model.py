@@ -140,13 +140,31 @@ class MLP_MCDropout_mse(torch.nn.Module):
         
         # Output layer
         self.output_layer = Linear(hidden_dim, n_out)
+        
+        # Flag to control Monte Carlo mode
+        self.mc_mode = False
+
+    def enable_mc_dropout(self):
+        """Enable Monte Carlo dropout for uncertainty estimation."""
+        self.mc_mode = True
+        for dropout in self.dropouts:
+            dropout.train()  # Keep dropout active during inference
+
+    def disable_mc_dropout(self):
+        """Disable Monte Carlo dropout for standard inference."""
+        self.mc_mode = False
+        for dropout in self.dropouts:
+            dropout.eval()  # Standard eval behavior
 
     def forward(self, x):
         for layer, dropout in zip(self.layers, self.dropouts):
             x = F.relu(layer(x))
             x = dropout(x)
-        x = self.output_layer(x)
-        return x
+        prediction = self.output_layer(x)
+        
+        # Return (prediction, zero_variance) to match expected format
+        variance = torch.zeros_like(prediction)
+        return prediction, variance
     
 
 class MLP_MCDropout_NLL(torch.nn.Module):
@@ -170,6 +188,21 @@ class MLP_MCDropout_NLL(torch.nn.Module):
         
         # Output layer (2 outputs for mean and variance)
         self.output_layer = Linear(hidden_dim, 2)
+        
+        # Flag to control Monte Carlo mode
+        self.mc_mode = False
+
+    def enable_mc_dropout(self):
+        """Enable Monte Carlo dropout for uncertainty estimation."""
+        self.mc_mode = True
+        for dropout in self.dropouts:
+            dropout.train()  # Keep dropout active during inference
+
+    def disable_mc_dropout(self):
+        """Disable Monte Carlo dropout for standard inference."""
+        self.mc_mode = False
+        for dropout in self.dropouts:
+            dropout.eval()  # Standard eval behavior
 
     def forward(self, x):
         for layer, dropout in zip(self.layers, self.dropouts):

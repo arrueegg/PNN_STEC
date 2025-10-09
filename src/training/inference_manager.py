@@ -43,6 +43,11 @@ class InferenceManager:
         """
         Compute predictive mean and total uncertainty (epistemic + aleatoric) in ORIGINAL space.
         OPTIMIZED VERSION: Fixes performance degradation issues.
+        
+        Supports multiple model types:
+        - BNN models: Sample from weight posteriors
+        - MC Dropout models: Sample with different dropout masks  
+        - DE_MLP: Use ensemble-based uncertainty decomposition
 
         For log-targets, each forward pass is mapped via log-normal moments:
             mean_y_s = exp(mu + 0.5*sigma2) - eps
@@ -52,6 +57,18 @@ class InferenceManager:
             aleatoric_var = E_s(var_y_alea_s)
         """
         model.eval()
+        
+        # Check if this is a Monte Carlo Dropout model and enable dropout
+        model_type = self.config["model"]["model_type"]
+        is_mc_dropout = model_type in ["MLP_MCDropout_NLL", "MLP_MCDropout_mse"]
+        if is_mc_dropout:
+            if hasattr(model, 'enable_mc_dropout'):
+                model.enable_mc_dropout()
+                self.logger.info(f"🎲 Using Monte Carlo Dropout inference with {num_samples} samples")
+            else:
+                raise ValueError(f"Model type {model_type} should support MC Dropout but enable_mc_dropout method not found")
+        else:
+            self.logger.info(f"🧠 Using Bayesian inference with {num_samples} samples")
 
         # OPTIMIZATION 1: Use lists for batch DataFrames, concat once at end
         batch_dataframes = []
@@ -377,8 +394,13 @@ class InferenceManager:
         total_var = epistemic_var + aleatoric_var
         total_std = torch.sqrt(total_var)
 
+        # Disable MC dropout if it was enabled
+        if is_mc_dropout and hasattr(model, 'disable_mc_dropout'):
+            model.disable_mc_dropout()
+
+        completion_msg = "MC Dropout inference" if is_mc_dropout else "Bayesian inference"
         self.logger.info(
-            f"✅ Bayesian inference completed: {processed_samples:,} samples processed"
+            f"✅ {completion_msg} completed: {processed_samples:,} samples processed"
         )
 
         return {
