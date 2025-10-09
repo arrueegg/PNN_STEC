@@ -131,10 +131,13 @@ class H5RAMDataset(Dataset):
     """
     
     def __init__(self, config, h5_path, split):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         self.config = config
         self.split = split
         
-        print(f"🚀 Loading {split} dataset into RAM from {h5_path}...")
+        logger.info(f"🚀 Loading {split} dataset into RAM from {h5_path}...")
         
         # Get feature registry
         self.feature_registry = config.get('feature_registry')
@@ -161,15 +164,15 @@ class H5RAMDataset(Dataset):
                 config['data']['SWI_data_path'],
                 "omni_hourly_2010-2025.h5"
             )
-            print(f"📡 Loading SWI data into RAM from {swi_path}...")
+            logger.info(f"📡 Loading SWI data into RAM from {swi_path}...")
             self._load_swi_data(swi_path)
         
         # Load main dataset into RAM
         self._load_main_data(h5_path)
         
-        print(f"✅ {split} dataset loaded into RAM: {len(self.data):,} samples")
+        logger.info(f"✅ {split} dataset loaded into RAM: {len(self.data):,} samples")
         if self.use_SWI:
-            print(f"📡 SWI data loaded: {len(self.swi_data):,} time points")
+            logger.info(f"📡 SWI data loaded: {len(self.swi_data):,} time points")
         
         # Estimate memory usage
         main_memory = self.data.nbytes if hasattr(self.data, 'nbytes') else 0
@@ -181,8 +184,8 @@ class H5RAMDataset(Dataset):
                     if hasattr(daily_array, 'nbytes'):
                         swi_memory += daily_array.nbytes
         total_memory = (main_memory + swi_memory) / (1024**3)  # Convert to GB
-        print(f"💾 Estimated RAM usage: {total_memory:.2f} GB")
-        print(f"💾 Estimated RAM usage: {main_memory / (1024**3):.2f} GB (main), {swi_memory / (1024**3):.2f} GB (SWI)")
+        logger.info(f"💾 Estimated RAM usage: {total_memory:.2f} GB")
+        logger.info(f"💾 Estimated RAM usage: {main_memory / (1024**3):.2f} GB (main), {swi_memory / (1024**3):.2f} GB (SWI)")
 
     def _load_swi_data(self, swi_path):
         """Load all SWI data into a nested dictionary structure in RAM."""
@@ -216,11 +219,14 @@ class H5RAMDataset(Dataset):
     
     def _load_main_data(self, h5_path):
         """Load the main H5 dataset into RAM."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         with h5py.File(h5_path, 'r') as file:
             # Load all data into RAM as a numpy array
-            print(f"📊 Loading main data array...")
+            logger.info(f"📊 Loading main data array...")
             self.data = file['data'][:]  # Load entire dataset into memory
-            print(f"📊 Main data loaded: shape {self.data.shape}")
+            logger.info(f"📊 Main data loaded: shape {self.data.shape}")
     
     def __len__(self):
         return len(self.data)

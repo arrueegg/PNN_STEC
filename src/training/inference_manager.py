@@ -341,7 +341,7 @@ class InferenceManager:
                             ]
                             feature_data = torch.cat(feature_tensors)
                             essential_features[feature_name] = (
-                                feature_data.cpu().numpy()
+                                feature_data.cpu().numpy().flatten()
                             )
                             # Clean up intermediate tensors
                             del feature_tensors, feature_data
@@ -353,11 +353,11 @@ class InferenceManager:
 
                 # Create DataFrame with predictions + essential features
                 df_dict = {
-                    "target_stec": targets_tensor.cpu().numpy(),
-                    "pred_stec": mean_tensor.cpu().numpy(),
-                    "pred_epistemic_unc": torch.sqrt(epistemic_tensor).cpu().numpy(),
-                    "pred_aleatoric_unc": torch.sqrt(aleatoric_tensor).cpu().numpy(),
-                    "pred_total_unc": total_std_tensor.cpu().numpy(),
+                    "target_stec": targets_tensor.cpu().numpy().flatten(),
+                    "pred_stec": mean_tensor.cpu().numpy().flatten(),
+                    "pred_epistemic_unc": torch.sqrt(epistemic_tensor).cpu().numpy().flatten(),
+                    "pred_aleatoric_unc": torch.sqrt(aleatoric_tensor).cpu().numpy().flatten(),
+                    "pred_total_unc": total_std_tensor.cpu().numpy().flatten(),
                     **essential_features,
                 }
                 final_df = pd.DataFrame(df_dict)

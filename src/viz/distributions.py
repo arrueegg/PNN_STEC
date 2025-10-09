@@ -380,12 +380,15 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
         df: DataFrame with residuals and time columns
         output_dir: Directory to save plot
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if 'time' not in df.columns:
         if 'sod' in df.columns:
             df = df.copy()
             df['time'] = df['sod'] / 3600.0  # Convert seconds to hours
         else:
-            print("Warning: Neither 'time' nor 'sod' column found. Skipping local time analysis.")
+            logger.warning("Neither 'time' nor 'sod' column found. Skipping local time analysis.")
             return
     else:
         df = df.copy()
@@ -473,6 +476,9 @@ def plot_residuals_vs_solar_indices(df: pd.DataFrame, output_dir: str = "plots")
         df: DataFrame with residuals and solar index columns
         output_dir: Directory to save plot
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     df = df.copy()
     df['residual'] = df['target_stec'] - df['pred_stec']
     df['abs_residual'] = np.abs(df['residual'])
@@ -490,7 +496,7 @@ def plot_residuals_vs_solar_indices(df: pd.DataFrame, output_dir: str = "plots")
         solar_indices.append(('dst', 'Dst Index [nT]'))
     
     if not solar_indices:
-        print("Warning: No solar indices (f107, dst) found. Skipping solar index analysis.")
+        logger.warning("No solar indices (f107, dst) found. Skipping solar index analysis.")
         return
     
     # Create subplots for each available solar index

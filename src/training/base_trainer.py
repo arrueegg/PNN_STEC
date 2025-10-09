@@ -252,7 +252,7 @@ class BaseTrainer:
 
         for epoch in range(epochs):
             gc.collect()
-            print(" ")
+            print('')
             self.logger.info(f"Epoch {epoch+1}/{epochs}")
 
             # Update sampler epoch for different data sampling each epoch
@@ -431,6 +431,7 @@ class BaseTrainer:
 
         # Temporal split analysis
         try:
+            print('')
             self.logger.info("Performing temporal split analysis...")
 
             # Simple split: May 2024 and later = extrapolation, everything before = interpolation
@@ -492,6 +493,7 @@ class BaseTrainer:
         except Exception as e:
             self.logger.warning(f"Temporal split analysis failed: {e}")
 
+        print('')
         self.logger.info(f"Test MAE: {(bayesian_results['baysian_mae']):.2f}")
         self.logger.info(f"Test MSE: {(bayesian_results['baysian_mse']):.2f}")
         self.logger.info(

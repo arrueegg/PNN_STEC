@@ -271,7 +271,9 @@ def plot_solar_magnetic_ipp_error_map(
 
     # Check if solar magnetic coordinates exist
     if "sm_lat_ipp" not in df.columns or "sm_lon_ipp" not in df.columns:
-        print("Warning: Solar magnetic coordinates not found. Skipping this plot.")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("Solar magnetic coordinates not found. Skipping this plot.")
         return
 
     # Create spatial bins for solar magnetic coordinates

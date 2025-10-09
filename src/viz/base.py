@@ -340,8 +340,3 @@ def create_temporal_metrics_summaries(df: pd.DataFrame, output_dir: str = "plots
                     f"{season} analysis with {len(season_data):,} samples"
                 )
     
-    print(f"Temporal metrics summaries saved to {temporal_dir}/")
-    print("Available summary files:")
-    summary_files = [f for f in os.listdir(temporal_dir) if f.endswith('_summary.txt')]
-    for file in sorted(summary_files):
-        print(f"  - {file}")

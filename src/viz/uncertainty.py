@@ -27,9 +27,12 @@ def plot_uncertainty_calibration_binned(
         df: DataFrame with uncertainty columns and predictions
         output_dir: Directory to save plot
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if "pred_total_unc" not in df.columns:
-        print(
-            "Warning: No uncertainty columns found. Skipping uncertainty calibration plot."
+        logger.warning(
+            "No uncertainty columns found. Skipping uncertainty calibration plot."
         )
         return
 
@@ -113,10 +116,14 @@ def plot_binned_uncertainty_analysis(
         df: DataFrame with uncertainty columns and predictions
         output_dir: Directory to save plot
     """
-    if "pred_total_unc" not in df.columns:
-        print("Warning: No uncertainty columns found. Skipping uncertainty analysis.")
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    uncertainty_cols = [col for col in df.columns if "unc" in col.lower()]
+    if not uncertainty_cols:
+        logger.warning("No uncertainty columns found. Skipping uncertainty analysis.")
         return
-
+    
     df = df.copy()
     df["abs_residual"] = np.abs(df["target_stec"] - df["pred_stec"])
 
@@ -162,9 +169,12 @@ def plot_uncertainty_calibration(df: pd.DataFrame, output_dir: str = "plots") ->
         df: DataFrame with uncertainty columns and predictions
         output_dir: Directory to save plot
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if "pred_total_unc" not in df.columns:
-        print(
-            "Warning: No uncertainty columns found. Skipping uncertainty calibration."
+        logger.warning(
+            "No uncertainty columns found. Skipping uncertainty calibration."
         )
         return
 
@@ -408,8 +418,11 @@ def plot_binned_uncertainty_error_analysis(df: pd.DataFrame, output_dir: str = "
         df: DataFrame with uncertainty columns and predictions
         output_dir: Directory to save plot
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if "pred_total_unc" not in df.columns:
-        print("Warning: No uncertainty columns found. Skipping binned uncertainty error analysis.")
+        logger.warning("No uncertainty columns found. Skipping binned uncertainty error analysis.")
         return
         
     df = df.copy()
@@ -460,7 +473,7 @@ def plot_binned_uncertainty_error_analysis(df: pd.DataFrame, output_dir: str = "
             box_data.append(bin_data['abs_error'].values)
     
     if not valid_groups:
-        print("Warning: No bins with sufficient data for uncertainty analysis")
+        logger.warning("No bins with sufficient data for uncertainty analysis")
         return
 
     # Plotting

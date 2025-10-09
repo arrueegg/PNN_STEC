@@ -133,6 +133,9 @@ def plot_test_metrics(
         output_dir: Directory to save plots
         feature_registry: Optional feature registry for binning ranges
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # Create organized subdirectories
     test_metrics_dir = f"{output_dir}/test_metrics"
     prediction_dir = f"{test_metrics_dir}/prediction_analysis"
@@ -155,17 +158,17 @@ def plot_test_metrics(
     # Get binning ranges
     bin_range_dict = get_default_bin_ranges(feature_registry)
 
-    print(f"Generating plots for {len(df):,} test samples...")
+    logger.info(f"Generating plots for {len(df):,} test samples...")
 
     # Core performance plots in prediction_analysis/
-    print("Creating prediction scatter plot...")
+    logger.info("Creating prediction scatter plot...")
     plot_prediction_scatter(df, prediction_dir)
 
-    print("Creating prediction density plot...")
+    logger.info("Creating prediction density plot...")
     plot_prediction_density(df, prediction_dir)
 
     # Spatial analysis in spatial_analysis/
-    print("Creating spatial error maps...")
+    logger.info("Creating spatial error maps...")
     if "lat_ipp" in df.columns and "lon_ipp" in df.columns:
         plot_spatial_error_map(df, spatial_dir)
 
@@ -179,13 +182,13 @@ def plot_test_metrics(
 
     # Angular analysis in spatial_analysis/
     if "satazi" in df.columns and "satele" in df.columns:
-        print("Creating azimuth-elevation heatmaps...")
+        logger.info("Creating azimuth-elevation heatmaps...")
         plot_az_el_heatmap(df, spatial_dir, metric="residual")
         plot_az_el_heatmap(df, spatial_dir, metric="mae")
 
     # Temporal analysis in temporal_analysis/
     if "doy" in df.columns:
-        print("Creating temporal analysis plots...")
+        logger.info("Creating temporal analysis plots...")
         plot_residuals_vs_feature(
             df, "doy", output_dir=temporal_dir, bin_range_dict=bin_range_dict
         )
@@ -195,19 +198,19 @@ def plot_test_metrics(
     
     # Plot summary by date if year and doy are available
     if 'year' in df.columns and 'doy' in df.columns:
-        print("Creating temporal summary plots...")
+        logger.info("Creating temporal summary plots...")
         plot_box_by_date(df, temporal_dir)
 
     # Plot summary by magnetic latitude if available
     if 'sm_lat_ipp' in df.columns:
-        print("Creating latitude band analysis...")
+        logger.info("Creating latitude band analysis...")
         plot_box_by_lat(df, spatial_dir)
 
     # Feature-specific analysis in feature_analysis/
     features_to_analyze = ["time", "satele", "satazi", "kp", "f107", "dst", "target_stec", "pred_stec"]
     for feature in features_to_analyze:
         if feature in df.columns:
-            print(f"Creating residual analysis for {feature}...")
+            logger.info(f"Creating residual analysis for {feature}...")
             
             # Determine number of bins based on feature
             if feature == "time":
@@ -238,14 +241,14 @@ def plot_test_metrics(
                 )
 
     # Additional feature analysis plots - Local time and solar indices
-    print("Creating local time and solar index residual analysis...")
+    logger.info("Creating local time and solar index residual analysis...")
     plot_residuals_vs_local_time(df, feature_dir)
     plot_residuals_vs_solar_indices(df, feature_dir)
 
     # Uncertainty analysis in uncertainty_analysis/ subfolder
     uncertainty_cols = [col for col in df.columns if "unc" in col.lower()]
     if uncertainty_cols:
-        print("Creating uncertainty analysis plots...")
+        logger.info("Creating uncertainty analysis plots...")
         df_unc = prepare_uncertainty_data(df)
 
         plot_coverage_probability(df_unc, uncertainty_dir)
@@ -271,21 +274,13 @@ def plot_test_metrics(
                 f.write(f"{key}: {value:.6f}\n")
 
     # Create temporal metrics summaries
-    print("Creating temporal metrics summaries...")
+    logger.info("Creating temporal metrics summaries...")
     create_temporal_metrics_summaries(df, test_metrics_dir)
-
-    print(f"All plots saved to: {test_metrics_dir}")
-    print(f"├── prediction_analysis/    - Prediction scatter plots, residual histograms")
-    print(f"├── spatial_analysis/       - Spatial error maps, lat/lon analysis")
-    print(f"├── temporal_analysis/      - Time-based analysis, seasonal patterns")
-    print(f"├── feature_analysis/       - Feature-specific residual analysis")
-    print(f"├── uncertainty_analysis/   - Uncertainty calibration and coverage")
-    print(f"└── performance_metrics.txt - Summary statistics")
     
     if uncertainty_cols:
-        print(f"Uncertainty analysis: {len([f for f in os.listdir(uncertainty_dir) if f.endswith('.png')])} plots")
+        logger.info(f"Uncertainty analysis: {len([f for f in os.listdir(uncertainty_dir) if f.endswith('.png')])} plots")
     if "time" in df.columns and "lat_ipp" in df.columns:
-        print(f"Spatial by time analysis: {spatial_time_dir}")
+        logger.info(f"Spatial by time analysis: {spatial_time_dir}")
 
 
 def plot_comprehensive_uncertainty_analysis(
@@ -298,10 +293,13 @@ def plot_comprehensive_uncertainty_analysis(
         df: DataFrame with uncertainty data
         output_dir: Directory to save plots
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     ensure_dir(output_dir)
     df_unc = prepare_uncertainty_data(df)
 
-    print("Creating comprehensive uncertainty analysis...")
+    logger.info("Creating comprehensive uncertainty analysis...")
     plot_binned_uncertainty_analysis(df_unc, output_dir)
     plot_uncertainty_calibration_binned(df_unc, output_dir)
     plot_coverage_probability(df_unc, output_dir)

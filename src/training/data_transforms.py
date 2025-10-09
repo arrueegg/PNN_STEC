@@ -34,16 +34,6 @@ class DataTransforms:
         if self.log_space_point not in ("mean", "median"):
             self.log_space_point = "mean"
 
-        # Debug logging flag
-        self._debug_logged = False
-
-    def _debug_log_once(self, *messages):
-        """Helper method to log debug messages only once."""
-        if not self._debug_logged:
-            for message in messages:
-                self.logger.info(message)
-            self._debug_logged = True
-
     def targets_to_training_space(self, targets):
         """Return targets for the loss computation (standardized + log-space if enabled) AND keep original for metrics."""
         targets = targets.to(self.device, non_blocking=True)
@@ -60,28 +50,14 @@ class DataTransforms:
         # First apply target standardization if enabled
         if self.use_target_standardization:
             targets = self._normalize_targets(targets)
-            self._debug_log_once(
-                f"Target standardization - Original range: [{original_targets.min():.6f}, {original_targets.max():.6f}]",
-                f"Target standardization - Standardized range: [{targets.min():.6f}, {targets.max():.6f}]"
-            )
 
         # Then apply log transformation if enabled (on standardized targets)
         if self.use_log_target:
             # Add epsilon for numerical stability
             targets_shifted = targets + self.eps
             training_targets = torch.log(targets_shifted)
-            self._debug_log_once(
-                f"Target transform - Standardized range: [{targets.min():.6f}, {targets.max():.6f}]",
-                f"Target transform - Log-space range: [{training_targets.min():.6f}, {training_targets.max():.6f}]",
-                f"Target transform - Using eps = {self.eps}"
-            )
         else:
             training_targets = targets
-            if self.use_target_standardization:
-                message = f"Target transform - Using standardized linear space, range: [{targets.min():.6f}, {targets.max():.6f}]"
-            else:
-                message = f"Target transform - Using linear space, range: [{targets.min():.6f}, {targets.max():.6f}]"
-            self._debug_log_once(message)
 
         return training_targets, original_targets
 

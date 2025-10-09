@@ -71,15 +71,15 @@ def main():
     
     if config['mode'] == 'pretrain':
         print('')
-        logging.info('Starting pretraining...')
+        logger.info('Starting pretraining...')
         trainer = Pretrainer(config, logger)
     elif config['mode'] == 'finetune':
         folder = f"{config['pretrain_folder']}/model/"
         model_path = os.listdir(folder)
         if not model_path:
             print('')
-            logging.info(f"Pretrained model not found.")
-            logging.info('Starting pretraining...')
+            logger.info(f"Pretrained model not found.")
+            logger.info('Starting pretraining...')
             # Preserve the feature registry when switching to pretrain mode
             original_feature_registry = config['feature_registry']
             pretrain_config = parse_config(mode='pretrain', device=device, data_path=data_path)
@@ -89,10 +89,10 @@ def main():
             config = parse_config(mode='finetune', device=device, data_path=data_path)
             config['feature_registry'] = original_feature_registry
         print('')
-        logging.info('Starting finetuning...')
+        logger.info('Starting finetuning...')
         trainer = Finetuner(config, logger)
     else:
-        logging.error('Invalid mode selected. Choose either "pretrain" or "finetune".')
+        logger.error('Invalid mode selected. Choose either "pretrain" or "finetune".')
         
 if __name__ == '__main__':
     main()

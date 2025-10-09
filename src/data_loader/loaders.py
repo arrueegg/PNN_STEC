@@ -59,7 +59,8 @@ def get_data_loaders(config, logger=None):
         train_subset = bs  # Use exactly one batch worth of data
         val_subset = bs
         test_subset = bs
-        print(f"DEBUG MODE: Using single batch of size {bs} for all splits")
+        if logger:
+            logger.info(f"DEBUG MODE: Using single batch of size {bs} for all splits")
 
     # build splits if requested
     if use_agg_h5 and build_agg_h5:
@@ -86,6 +87,7 @@ def get_data_loaders(config, logger=None):
             # Use RAM-based dataset if running on cluster
             if config.get('cluster', False):
                 if logger:
+                    print('')
                     logger.info(f"🚀 Using RAM-based dataset for {split} (cluster mode)")
                 ds = H5RAMDataset(config, path, split)
             else:
