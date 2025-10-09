@@ -64,10 +64,11 @@ class InferenceManager:
         dataset_size = len(dataloader.dataset)
         use_minimal_features = dataset_size >= 5_000_000
         batch_essential_features = [] if use_minimal_features else None
-
+        
         # Progress tracking
         total_batches = len(dataloader)
         processed_samples = 0
+        disable_tqdm = self.config.get("cluster", False)
 
         # Memory management
         gc.collect()
@@ -79,6 +80,7 @@ class InferenceManager:
                     dataloader,
                     desc="Bayesian Inference",
                     miniters=total_batches // 1000,
+                    disable=disable_tqdm,
                 )
             ):
                 bs = inputs.size(0)

@@ -161,7 +161,7 @@ def get_data_loaders(config, logger=None):
 
             loaders[split] = DataLoader(
                 ds,
-                batch_size=bs,
+                batch_size=bs*8,
                 num_workers=nw,
                 prefetch_factor=pf,
                 persistent_workers=False,  # FIXED: Disable to prevent H5 file handle leaks  
@@ -191,7 +191,7 @@ def get_test_data_loader(config, logger=None):
     # Configuration
     device = config['device']
     seed = int(config.get('seed', 42))
-    bs = config['pretrain']['batchsize']
+    bs = config['pretrain']['batchsize'] * 8
     nw = config['pretrain']['num_workers']
     pf = _get_prefetch_factor(config)
     use_agg_h5 = config['data'].get('use_agg_h5', False)
