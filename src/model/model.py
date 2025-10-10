@@ -133,7 +133,7 @@ class MLP_NLL(torch.nn.Module):
 
 
 class MLP_MCDropout_mse(torch.nn.Module):
-    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4, dropout_rate=0.1):
         super().__init__()
 
         # Create layers dynamically
@@ -142,14 +142,13 @@ class MLP_MCDropout_mse(torch.nn.Module):
 
         # First layer
         self.layers.append(Linear(n_in, hidden_dim))
-        self.dropouts.append(Dropout(p=0.2))
+        self.dropouts.append(Dropout(p=dropout_rate))
 
         # Hidden layers
         for i in range(num_layers - 1):
             self.layers.append(Linear(hidden_dim, hidden_dim))
-            # Use higher dropout for the last hidden layer
-            dropout_p = 0.5 if i == num_layers - 2 else 0.2
-            self.dropouts.append(Dropout(p=dropout_p))
+            # Use consistent dropout rate for all layers
+            self.dropouts.append(Dropout(p=dropout_rate))
 
         # Output layer
         self.output_layer = Linear(hidden_dim, n_out)
@@ -181,7 +180,7 @@ class MLP_MCDropout_mse(torch.nn.Module):
 
 
 class MLP_MCDropout_NLL(torch.nn.Module):
-    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4, dropout_rate=0.1):
         super().__init__()
 
         # Create layers dynamically
@@ -190,14 +189,13 @@ class MLP_MCDropout_NLL(torch.nn.Module):
 
         # First layer
         self.layers.append(Linear(n_in, hidden_dim))
-        self.dropouts.append(Dropout(p=0.2))
+        self.dropouts.append(Dropout(p=dropout_rate))
 
         # Hidden layers
         for i in range(num_layers - 1):
             self.layers.append(Linear(hidden_dim, hidden_dim))
-            # Use higher dropout for the last hidden layer
-            dropout_p = 0.5 if i == num_layers - 2 else 0.2
-            self.dropouts.append(Dropout(p=dropout_p))
+            # Use consistent dropout rate for all layers
+            self.dropouts.append(Dropout(p=dropout_rate))
 
         # Output layer (2 outputs for mean and variance)
         self.output_layer = Linear(hidden_dim, 2)
@@ -499,6 +497,7 @@ def get_model(config):
         "prior_sigma", 0.1
     )  # Default prior sigma for BNNs
     ensemble_size = config["model"].get("ensemble_size", 5)  # Default ensemble size
+    dropout_rate = config["model"].get("dropout_rate", 0.1)  # Default dropout rate for MC Dropout
 
     # Get input features count from feature registry, accounting for transformations
     feature_registry = config.get("feature_registry")
@@ -571,11 +570,11 @@ def get_model(config):
         return model
     elif model_type == "MLP_MCDropout_mse":
         return MLP_MCDropout_mse(
-            n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers
+            n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers, dropout_rate=dropout_rate
         )
     elif model_type == "MLP_MCDropout_NLL":
         model = MLP_MCDropout_NLL(
-            n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers
+            n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers, dropout_rate=dropout_rate
         )
         return model
     elif model_type == "BNN_mse":

@@ -82,11 +82,6 @@ def integrate_wandb_sweep_config(config: Dict[str, Any]) -> Dict[str, Any]:
             "target_weighting",
             "weight_function",
         ),
-        "training.target_weighting.high_value_weight": (
-            "training",
-            "target_weighting",
-            "high_value_weight",
-        ),
         # Pretrain parameters
         "pretrain.learning_rate": ("pretrain", "learning_rate"),
         "pretrain.batchsize": ("pretrain", "batchsize"),

@@ -50,9 +50,7 @@ training:
   # Target weighting configuration for addressing underprediction of high values
   target_weighting:
     enabled: false                    # Enable weighted loss based on target values
-    weight_function: "linear"      # Options: linear, quadratic, log, quantile
-    high_value_threshold: 0.75       # For quantile weighting: percentile threshold (0.75 = 75th percentile)
-    high_value_weight: 3.0           # For quantile weighting: weight multiplier for high values
+    weight_function: "linear"      # Options: linear, quadratic, log
   
   optimizer: "Adam"             # SGD, Adam, AdamW
   weight_decay: 0.0             # Weight decay for regularization

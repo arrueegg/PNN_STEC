@@ -4,13 +4,9 @@ import torchbnn as bnn
 
 
 class WeightedMSELoss(nn.Module):
-    def __init__(
-        self, weight_function="linear", high_value_threshold=0.75, high_value_weight=3.0
-    ):
+    def __init__(self, weight_function="linear"):
         super().__init__()
         self.weight_function = weight_function
-        self.high_value_threshold = high_value_threshold
-        self.high_value_weight = high_value_weight
 
     def forward(self, predictions, targets):
         # Calculate weights based on target magnitude
@@ -23,10 +19,6 @@ class WeightedMSELoss(nn.Module):
         elif self.weight_function == "log":
             # Logarithmic scaling for moderate emphasis
             weights = torch.log(1 + targets / targets.mean())
-        elif self.weight_function == "quantile":
-            # Binary weighting: high values get fixed higher weight
-            threshold = torch.quantile(targets, self.high_value_threshold)
-            weights = torch.where(targets > threshold, self.high_value_weight, 1.0)
         else:
             weights = torch.ones_like(targets)
 
@@ -36,17 +28,9 @@ class WeightedMSELoss(nn.Module):
 
 
 class WeightedGaussianNLLLoss(nn.Module):
-    def __init__(
-        self,
-        weight_function="linear",
-        high_value_threshold=0.75,
-        high_value_weight=3.0,
-        eps=1e-6,
-    ):
+    def __init__(self, weight_function="linear", eps=1e-6):
         super().__init__()
         self.weight_function = weight_function
-        self.high_value_threshold = high_value_threshold
-        self.high_value_weight = high_value_weight
         self.eps = eps
         self.base_loss = nn.GaussianNLLLoss(
             reduction="none"
@@ -63,9 +47,6 @@ class WeightedGaussianNLLLoss(nn.Module):
             weights = (targets / (targets.mean() + self.eps)) ** 2
         elif self.weight_function == "log":
             weights = torch.log(1 + targets / (targets.mean() + self.eps))
-        elif self.weight_function == "quantile":
-            threshold = torch.quantile(targets, self.high_value_threshold)
-            weights = torch.where(targets > threshold, self.high_value_weight, 1.0)
         else:
             weights = torch.ones_like(targets)
 
@@ -102,17 +83,11 @@ def get_criterion(config, loss_fn=None):
     weighting_config = config["training"].get("target_weighting", {})
     use_weighting = weighting_config.get("enabled", False)
     weight_function = weighting_config.get("weight_function", "linear")
-    high_value_threshold = weighting_config.get("high_value_threshold", 0.75)
-    high_value_weight = weighting_config.get("high_value_weight", 3.0)
 
     # Initialize the base loss function
     if loss_type == "MSELoss":
         if use_weighting:
-            criterion = WeightedMSELoss(
-                weight_function=weight_function,
-                high_value_threshold=high_value_threshold,
-                high_value_weight=high_value_weight,
-            )
+            criterion = WeightedMSELoss(weight_function=weight_function)
         else:
             criterion = nn.MSELoss()
     elif loss_type == "MAELoss":
@@ -123,11 +98,7 @@ def get_criterion(config, loss_fn=None):
         criterion = LaplaceLoss()
     elif loss_type == "GaussianNLLLoss":
         if use_weighting:
-            criterion = WeightedGaussianNLLLoss(
-                weight_function=weight_function,
-                high_value_threshold=high_value_threshold,
-                high_value_weight=high_value_weight,
-            )
+            criterion = WeightedGaussianNLLLoss(weight_function=weight_function)
         else:
             criterion = nn.GaussianNLLLoss()
     elif loss_type == "BKLLoss":

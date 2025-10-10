@@ -1,0 +1,73 @@
+# General configuration
+project_name: "PNN_STEC"
+output_dir: "experiments/"
+year: 2023
+doy: 1
+mode: pretrain # pretrain, finetune
+random_seed: 42
+debug: False  
+debug_single_batch: False  
+cluster: False
+
+target: "stec" # stec or vtec
+
+data:
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
+  use_agg_h5: True
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
+  move_to_scratch: True # Whether to move data to scratch for faster access
+  every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
+  use_SWI: True # Whether to use Space Weather Indices as input data
+  SH_degree: 0
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 500_000  # Number of samples to use per epoch
+  val_size: 1_000_000  # Number of validation samples to use ('full' for entire val set, or integer for specific count)
+  test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
+
+model:
+  model_type: MLP_MCDropout_NLL # MLP_MCDropout_NLL, MLP_MCDropout_mse
+  hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
+  num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
+  
+  # MC Dropout specific parameters
+  dropout_rate: 0.1    # Dropout probability for MC Dropout (default: 0.1)
+  
+training:
+  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
+  loss_weight: 0.5
+  
+  # Target weighting configuration for addressing underprediction of high values
+  target_weighting:
+    enabled: true                   # Enable target-based loss weighting
+    weight_function: "linear"     # "linear", "quadratic", "log"
+    
+  epochs: 2                    # Number of training epochs
+  batch_norm: false               # Use batch normalization
+
+# Pretraining configuration
+pretrain:
+  learning_rate: 0.002
+  batchsize: 512
+  weight_decay: 0.0001
+  optimizer: "Adam"               # Optimizer: Adam, SGD
+  scheduler: "CosineAnnealingLR"  # LR scheduler: CosineAnnealingLR, StepLR, ReduceLROnPlateau
+  scheduler_step_size: 10         # For StepLR scheduler
+  scheduler_gamma: 0.1            # For StepLR scheduler
+  scheduler_patience: 5           # For ReduceLROnPlateau scheduler
+  early_stopping_patience: 10    # Early stopping patience
+
+# Fine-tuning configuration
+finetune:
+  learning_rate: 0.0005
+  batchsize: 256
+  weight_decay: 0.0001
+  optimizer: "Adam"
+  scheduler: "ReduceLROnPlateau"
+  scheduler_patience: 3
+  early_stopping_patience: 5
+  
+# Timing and performance tracking
+enable_timing: false              # Enable detailed timing logs

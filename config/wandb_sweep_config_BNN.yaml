@@ -46,8 +46,8 @@ parameters:
     #max: 0.01
 
   # KL annealing for BNN models
-  training.kl_annealing.warmup_epochs:
-    values: [5, 10, 20]
+  #training.kl_annealing.warmup_epochs:
+    #values: [5, 10, 20]
 
   # Target weighting
   #training.target_weighting.enabled:

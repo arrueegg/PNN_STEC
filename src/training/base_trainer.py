@@ -74,14 +74,7 @@ class BaseTrainer:
         weighting_config = config["training"].get("target_weighting", {})
         if weighting_config.get("enabled", False):
             weight_func = weighting_config.get("weight_function", "linear")
-            if weight_func == "quantile":
-                threshold = weighting_config.get("high_value_threshold", 0.75)
-                weight = weighting_config.get("high_value_weight", 3.0)
-                self.logger.info(
-                    f"🎯 Target weighting enabled: {weight_func} (>{threshold*100}th percentile gets {weight}x weight)"
-                )
-            else:
-                self.logger.info(f"🎯 Target weighting enabled: {weight_func} scaling")
+            self.logger.info(f"🎯 Target weighting enabled: {weight_func} scaling")
         else:
             self.logger.info("📊 Standard loss weighting (no target-based scaling)")
 
@@ -368,7 +361,11 @@ class BaseTrainer:
                 )
 
             if scheduler:
-                scheduler.step()
+                # ReduceLROnPlateau requires validation loss as argument
+                if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    scheduler.step(val_loss)
+                else:
+                    scheduler.step()
 
             self.logger.info(
                 f"Train Loss: {train_loss:.2f}, Validation Loss: {val_loss:.2f}"

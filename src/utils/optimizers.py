@@ -65,6 +65,24 @@ def get_scheduler(config, optimizer):
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=T_max, eta_min=eta_min
         )
+    elif scheduler_type == "ReduceLROnPlateau":
+        # Get scheduler parameters with defaults
+        if config["mode"] == "finetune":
+            patience = config["pretrain"].get("scheduler_patience", 5)
+            factor = config["pretrain"].get("scheduler_gamma", 0.5)
+            min_lr = config["pretrain"]["learning_rate"] * 0.001
+        else:  # pretrain mode
+            patience = config["pretrain"].get("scheduler_patience", 5)
+            factor = config["pretrain"].get("scheduler_gamma", 0.5)
+            min_lr = config["pretrain"]["learning_rate"] * 0.001
+        
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, 
+            mode='min',  # Minimize validation loss
+            factor=factor,  # Factor by which LR is reduced
+            patience=patience,  # Number of epochs with no improvement after which LR is reduced
+            min_lr=min_lr  # Minimum learning rate
+        )
     else:
         raise Exception(f"Unknown scheduler {scheduler_type}")
 

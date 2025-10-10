@@ -6,7 +6,7 @@ metric:
 parameters:
   # Model architecture parameters
   model.model_type:
-    values: ['MLP_NLL', 'BNN_NLL', DE_MLP']
+    values: ['MLP_NLL', 'BNN_NLL', 'DE_MLP', 'MLP_MCDropout_NLL']
   
   model.hidden_dim:
     values: [256, 512, 1024]
@@ -36,7 +36,11 @@ parameters:
   # Training configuration
   training.loss_function:
     values: ['MSELoss', 'GaussianNLLLoss']
-  
+
+  # dropout rate
+  training.dropout_rate:
+    values: [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+
   #training.optimizer:
     #values: ['Adam', 'AdamW']
   
@@ -46,8 +50,8 @@ parameters:
     #max: 0.01
 
   # KL annealing for BNN models
-  training.kl_annealing.warmup_epochs:
-    values: [5, 10, 20]
+  #training.kl_annealing.warmup_epochs:
+    #values: [5, 10, 20]
 
   # Target weighting
   #training.target_weighting.enabled:
@@ -55,18 +59,13 @@ parameters:
   
   #training.target_weighting.weight_function:
     #values: ['linear', 'quadratic']
-  
-  training.target_weighting.high_value_weight:
-    distribution: uniform
-    min: 1.0
-    max: 5.0
 
   # Scheduler configuration
-  pretrain.scheduler:
-    values: ['StepLR', 'CosineAnnealingLR']
+  #pretrain.scheduler:
+    #values: ['StepLR', 'CosineAnnealingLR']
   
-  pretrain.scheduler_step_size:
-    values: [20, 50, 100]
+  #pretrain.scheduler_step_size:
+    #values: [20, 50, 100]
 
   # Data configuration
   #data.train_subset_size:

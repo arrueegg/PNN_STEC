@@ -1,0 +1,69 @@
+program: scripts/wandb_run_wrapper.py
+method: bayes  # bayes, grid, random
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters
+  model.model_type:
+    values: ['MLP_MCDropout_NLL', 'MLP_MCDropout_mse']
+  
+  model.hidden_dim:
+    values: [256, 512, 1024, 2048]
+  
+  model.num_layers:
+    values: [2, 4, 6, 8]
+
+  model.dropout_rate:
+    distribution: uniform
+    min: 0.05
+    max: 0.5
+
+  # Training hyperparameters
+  pretrain.learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.01
+  
+  pretrain.batchsize:
+    values: [256, 512, 1024, 2048]
+  
+  training.loss_weight:
+    distribution: log_uniform_values
+    min: 0.1
+    max: 2.0
+
+  # Training configuration
+  training.loss_function:
+    values: ['GaussianNLLLoss']
+  
+  # Optimizer configuration
+  pretrain.optimizer:
+    values: ['Adam', 'SGD']
+  
+  pretrain.weight_decay:
+    distribution: log_uniform_values
+    min: 0.00001
+    max: 0.01
+
+  # Target weighting parameters
+  training.target_weighting.enabled:
+    values: [true, false]
+    
+  training.target_weighting.weight_function:
+    values: ['linear', 'quadratic', 'log']
+
+  # Data parameters
+  data.train_subset_size:
+    values: [100_000, 500_000, 1_000_000]
+
+  # Training epochs
+  training.epochs:
+    values: [10, 20, 30]
+
+# Early termination for poor performing runs
+early_terminate:
+  type: hyperband
+  min_iter: 3
+  eta: 3
+  s: 2

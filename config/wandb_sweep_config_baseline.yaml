@@ -1,0 +1,66 @@
+program: scripts/wandb_run_wrapper.py
+method: bayes  # bayes, grid, random
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters - Deterministic MLP for baseline
+  model.model_type:
+    values: ['MLP']  # Pure deterministic MLP without uncertainty
+  
+  model.hidden_dim:
+    values: [512, 1024, 2048]  # Larger models for better baseline performance
+  
+  model.num_layers:
+    values: [4, 6, 8, 10]  # Deeper networks for better capacity
+
+  # Training hyperparameters
+  pretrain.learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.01  # More conservative upper bound
+  
+  pretrain.batchsize:
+    values: [512, 1024, 2048]  # Good batch sizes for stability
+  
+  # Loss function - MSE for deterministic baseline
+  training.loss_function:
+    values: ['MSELoss']  # Standard loss for deterministic models
+  
+  # Optimizer configuration
+  pretrain.optimizer:
+    values: ['Adam', 'AdamW']  # Include AdamW for better generalization
+  
+  pretrain.weight_decay:
+    distribution: log_uniform_values
+    min: 0.00001
+    max: 0.01  # Regularization for better baseline
+
+  # Target weighting - Important for STEC high-value prediction
+  training.target_weighting.enabled:
+    values: [true, false]
+  
+  training.target_weighting.weight_function:
+    values: ['linear', 'quadratic', 'log']  # All weighting options
+
+  # Scheduler configuration for optimal training
+  pretrain.scheduler:
+    values: ['CosineAnnealingLR', 'ReduceLROnPlateau']  # Now includes ReduceLROnPlateau
+  
+  # Training epochs for thorough training
+  training.epochs:
+    values: [20, 30, 40]  # Longer training for baseline performance
+
+  # Data configuration
+  #data.train_subset_size:
+    #values: [500_000]
+
+# Early termination configuration - More patient for baseline
+early_terminate:
+  type: hyperband
+  min_iter: 15  # Allow more epochs before termination
+  eta: 3
+  s: 2
+
+# Count limits
+run_cap: 150  # More runs for thorough baseline search
