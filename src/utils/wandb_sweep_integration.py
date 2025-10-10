@@ -141,6 +141,10 @@ def integrate_wandb_sweep_config(config: Dict[str, Any]) -> Dict[str, Any]:
         ] = "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/SWI/"
         applied_params.append("cluster mode enabled with updated data paths")
 
+    # Force debug=False for all sweep runs (production mode)
+    updated_config["debug"] = False
+    applied_params.append("debug = False (forced for sweep runs)")
+
     # Log applied parameters
     if applied_params:
         logger.info("✅ Applied wandb sweep parameters:")
