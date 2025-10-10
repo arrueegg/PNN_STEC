@@ -1,9 +1,6 @@
 import torch
 from torch import nn
-import numpy as np
-import math
 
-from .common import _cal_freq_list
 
 class Direct(nn.Module):
     def __init__(self):

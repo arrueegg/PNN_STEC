@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from .spherical_harmonics_ylm_Arno import SH as SH_analytic
 
+
 class SphericalHarmonics(nn.Module):
     def __init__(self, legendre_polys: int = 10, harmonics_calculation="analytic"):
         """
@@ -26,11 +27,11 @@ class SphericalHarmonics(nn.Module):
         theta = torch.deg2rad(lat + 90)
 
         Y = []
-        for l in range(self.L):
-            for m in range(-l, l + 1):
-                y = self.SH(m, l, phi, theta)
+        for degree in range(self.L):
+            for m in range(-degree, degree + 1):
+                y = self.SH(m, degree, phi, theta)
                 if isinstance(y, float):
                     y = y * torch.ones_like(phi)
                 Y.append(y)
 
-        return torch.stack(Y,dim=-1)
+        return torch.stack(Y, dim=-1)

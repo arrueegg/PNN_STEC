@@ -4,10 +4,11 @@ import time
 from pathlib import Path
 
 import numpy as np
-import h5py          # use h5py for direct HDF5 access
-import duckdb       # DuckDB for Parquet
+import h5py  # use h5py for direct HDF5 access
+import duckdb  # DuckDB for Parquet
 from tqdm import tqdm
 from torch.utils.data import IterableDataset, DataLoader
+
 
 # -----------------------------------------------------------------------------
 # 1) True-Uniform HDF5 Dataset (yields numpy batches via h5py)
@@ -27,7 +28,7 @@ class UniformHDF5Dataset(IterableDataset):
             sta = parts[1]
             node = f"/{sta}/all_data"
             try:
-                with h5py.File(p, 'r') as f:
+                with h5py.File(p, "r") as f:
                     n = f[node].shape[0]
                     self.shards.append((str(p), node, n))
             except Exception:
@@ -47,7 +48,7 @@ class UniformHDF5Dataset(IterableDataset):
             shard_map = {}
             for g in globals_:
                 i = bisect.bisect_right(self.cum_counts, g)
-                prev = int(self.cum_counts[i-1]) if i > 0 else 0
+                prev = int(self.cum_counts[i - 1]) if i > 0 else 0
                 local = g - prev
                 shard_map.setdefault(self.shards[i], []).append(local)
 
@@ -55,7 +56,7 @@ class UniformHDF5Dataset(IterableDataset):
             batch_arrays = []
             for (path, node, _), locals_ in shard_map.items():
                 try:
-                    with h5py.File(path, 'r') as f:
+                    with h5py.File(path, "r") as f:
                         ds = f[node]
                         arr = ds[sorted(locals_)]  # fancy indexing
                         # structured array to 2D numeric array
@@ -66,6 +67,7 @@ class UniformHDF5Dataset(IterableDataset):
                 batch = np.concatenate(batch_arrays, axis=0)
                 emitted += batch.shape[0]
                 yield batch
+
 
 # -----------------------------------------------------------------------------
 # 2) Efficient DuckDB Parquet Dataset (yields numpy batches via SQL LIMIT/OFFSET)
@@ -80,7 +82,9 @@ class UniformDuckDBParquetDataset(IterableDataset):
         self.shards = []  # list of (path, n_rows)
         for p in Path(base_path).rglob("*.parquet"):
             try:
-                n = conn.execute(f"SELECT count(*) FROM read_parquet('{p}')").fetchone()[0]
+                n = conn.execute(
+                    f"SELECT count(*) FROM read_parquet('{p}')"
+                ).fetchone()[0]
                 self.shards.append((str(p), n))
             except Exception:
                 continue
@@ -100,7 +104,7 @@ class UniformDuckDBParquetDataset(IterableDataset):
             shard_map = {}
             for g in globals_:
                 i = bisect.bisect_right(self.cum_counts, g)
-                prev = int(self.cum_counts[i-1]) if i > 0 else 0
+                prev = int(self.cum_counts[i - 1]) if i > 0 else 0
                 local = g - prev
                 shard_map.setdefault(self.shards[i][0], []).append(local)
             # collect batch arrays by fetching contiguous runs
@@ -133,6 +137,7 @@ class UniformDuckDBParquetDataset(IterableDataset):
                 yield batch
         conn.close()
 
+
 # -----------------------------------------------------------------------------
 # Benchmark harness
 # -----------------------------------------------------------------------------
@@ -159,6 +164,7 @@ def main():
         loader = DataLoader(ds, batch_size=None, num_workers=WORKERS)
         print(f"\n🔍 Benchmarking {name}:")
         benchmark_loader(loader, name)
+
 
 if __name__ == "__main__":
     main()

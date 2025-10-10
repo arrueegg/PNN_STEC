@@ -5,14 +5,21 @@ import math
 
 from .common import _cal_freq_list
 
+
 class GridAndSphere(nn.Module):
     """
     Given a list of (deltaX,deltaY), encode them using the position encoding function
     """
 
-    def __init__(self, coord_dim=2, frequency_num=16,
-                 max_radius=0.01, min_radius=0.00001,
-                 freq_init="geometric", name="grid"):
+    def __init__(
+        self,
+        coord_dim=2,
+        frequency_num=16,
+        max_radius=0.01,
+        min_radius=0.00001,
+        freq_init="geometric",
+        name="grid",
+    ):
         """
         Args:
             coord_dim: the dimention of space, 2D, 3D, or other
@@ -49,14 +56,15 @@ class GridAndSphere(nn.Module):
         self.name = name
         self.embedding_dim = self.cal_embedding_dim()
 
-
     def cal_elementwise_angle(self, coord, cur_freq):
-        '''
+        """
         Args:
             coord: the deltaX or deltaY
             cur_freq: the frequency
-        '''
-        return coord / (np.power(self.max_radius, cur_freq * 1.0 / (self.frequency_num - 1)))
+        """
+        return coord / (
+            np.power(self.max_radius, cur_freq * 1.0 / (self.frequency_num - 1))
+        )
 
     def cal_coord_embed(self, coords_tuple):
         embed = []
@@ -67,14 +75,13 @@ class GridAndSphere(nn.Module):
         # embed: shape (input_embed_dim)
         return embed
 
-
     def cal_embedding_dim(self):
         # compute the dimention of the encoded spatial relation embedding
 
         if self.name == "grid":
             return int(4 * self.frequency_num)
         elif self.name == "spherec":
-            return int(6 * self.frequency_num) # xyz instead of lon lat
+            return int(6 * self.frequency_num)  # xyz instead of lon lat
         elif self.name == "spherecplus":
             return int(12 * self.frequency_num)
         elif self.name == "spherem":
@@ -83,7 +90,9 @@ class GridAndSphere(nn.Module):
             return int(16 * self.frequency_num)  # FIX
 
     def cal_freq_list(self):
-        self.freq_list = _cal_freq_list(self.freq_init, self.frequency_num, self.max_radius, self.min_radius)
+        self.freq_list = _cal_freq_list(
+            self.freq_init, self.frequency_num, self.max_radius, self.min_radius
+        )
 
     def cal_freq_mat(self):
         # freq_mat shape: (frequency_num, 1)
@@ -118,22 +127,26 @@ class GridAndSphere(nn.Module):
             # eq 3 in https://arxiv.org/pdf/2201.10489.pdf
             # code from https://github.com/gengchenmai/space2vec/blob/a29793336e6a1ebdb497289c286a0b4d5a83079f/spacegraph/spacegraph_codebase/SpatialRelationEncoder.py#L135
 
-            spr_embeds[:, :, :, :, 0::2] = np.sin(spr_embeds[:, :, :, :, 0::2])  # dim 2i
-            spr_embeds[:, :, :, :, 1::2] = np.cos(spr_embeds[:, :, :, :, 1::2])  # dim 2i+1
+            spr_embeds[:, :, :, :, 0::2] = np.sin(
+                spr_embeds[:, :, :, :, 0::2]
+            )  # dim 2i
+            spr_embeds[:, :, :, :, 1::2] = np.cos(
+                spr_embeds[:, :, :, :, 1::2]
+            )  # dim 2i+1
 
         elif self.name == "spherec":
             # eq 4 in https://arxiv.org/pdf/2201.10489.pdf
             # lambda: longitude, theta=latitude
 
-            #sin_lon, sin_lat = np.sin(spr_embeds[:, 0, :, :, 0]).transpose(1, 0, 2)
-            #cos_lon, cos_lat = np.cos(spr_embeds[:, 0, :, :, 1]).transpose(1, 0, 2)
+            # sin_lon, sin_lat = np.sin(spr_embeds[:, 0, :, :, 0]).transpose(1, 0, 2)
+            # cos_lon, cos_lat = np.cos(spr_embeds[:, 0, :, :, 1]).transpose(1, 0, 2)
 
             # eq 4
             # sin theta, cos_theta * cos_lambda, cos_theta * sin_lambda
             # sin lat, cos_lat cos_lon, cos_lat sin_lon
-            #spr_embeds = np.stack([sin_lat, cos_lat*cos_lon, cos_lat*sin_lon], axis=-1)
+            # spr_embeds = np.stack([sin_lat, cos_lat*cos_lon, cos_lat*sin_lon], axis=-1)
 
-            spr_embeds = spr_embeds# * math.pi / 180
+            spr_embeds = spr_embeds  # * math.pi / 180
 
             # lon, lat: shape (batch_size, num_context_pt, 1, frequency_num, 1)
             lon = np.expand_dims(spr_embeds[:, :, 0, :, :], axis=2)
@@ -149,13 +162,15 @@ class GridAndSphere(nn.Module):
             lat_cos = np.cos(lat)
 
             # spr_embeds_: shape (batch_size, num_context_pt, 1, frequency_num, 3)
-            spr_embeds_ = np.concatenate([lat_sin, lat_cos * lon_cos, lat_cos * lon_sin], axis=-1)
+            spr_embeds_ = np.concatenate(
+                [lat_sin, lat_cos * lon_cos, lat_cos * lon_sin], axis=-1
+            )
 
             # (batch_size, num_context_pt, frequency_num*3)
             spr_embeds = np.reshape(spr_embeds_, (batch_size, num_context_pt, -1))
         elif self.name == "spherecplus":
             # eq 10 in https://arxiv.org/pdf/2201.10489.pdf (basically grid + spherec)
-            spr_embeds = spr_embeds# * math.pi / 180
+            spr_embeds = spr_embeds  # * math.pi / 180
 
             # lon, lat: shape (batch_size, num_context_pt, 1, frequency_num, 1)
             lon = np.expand_dims(spr_embeds[:, :, 0, :, :], axis=2)
@@ -171,8 +186,17 @@ class GridAndSphere(nn.Module):
             lat_cos = np.cos(lat)
 
             # spr_embeds_: shape (batch_size, num_context_pt, 1, frequency_num, 6)
-            spr_embeds_ = np.concatenate([lat_sin, lat_cos, lon_sin, lon_cos, lat_cos * lon_cos, lat_cos * lon_sin],
-                                         axis=-1)
+            spr_embeds_ = np.concatenate(
+                [
+                    lat_sin,
+                    lat_cos,
+                    lon_sin,
+                    lon_cos,
+                    lat_cos * lon_cos,
+                    lat_cos * lon_sin,
+                ],
+                axis=-1,
+            )
 
             # (batch_size, num_context_pt, 2*frequency_num*6)
             spr_embeds = np.reshape(spr_embeds_, (batch_size, num_context_pt, -1))
@@ -190,39 +214,7 @@ class GridAndSphere(nn.Module):
             lon_single_cos = np.cos(lon_single)
 
             # lat_sin, lat_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
-            lat_single_sin = np.sin(lat_single)
-            lat_single_cos = np.cos(lat_single)
-
-            # lon, lat: shape (batch_size, num_context_pt, 1, frequency_num, 1)
-            lon = np.expand_dims(spr_embeds[:, :, 0, :, :], axis=2)
-            lat = np.expand_dims(spr_embeds[:, :, 1, :, :], axis=2)
-
-            # make sinuniod function
-            # lon_sin, lon_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
-            lon_sin = np.sin(lon)
-            lon_cos = np.cos(lon)
-
-            # lat_sin, lat_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
-            lat_sin = np.sin(lat)
-            lat_cos = np.cos(lat)
-
-            # spr_embeds_: shape (batch_size, num_context_pt, 1, frequency_num, 3)
-            spr_embeds = np.concatenate([lat_sin, lat_cos * lon_single_cos, lat_single_cos * lon_cos,
-                                          lat_cos * lon_single_sin, lat_single_cos * lon_sin], axis=-1)
-
-        elif self.name == "spheremplus":
-
-            # lon, lat: shape (batch_size, num_context_pt, 1, frequency_num, 1)
-            lon_single = np.expand_dims(coords_mat[:, :, 0, :, :], axis=2)
-            lat_single = np.expand_dims(coords_mat[:, :, 1, :, :], axis=2)
-
-            # make sinuniod function
-            # lon_sin, lon_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
-            lon_single_sin = np.sin(lon_single)
-            lon_single_cos = np.cos(lon_single)
-
-            # lat_sin, lat_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
-            lat_single_sin = np.sin(lat_single)
+            np.sin(lat_single)
             lat_single_cos = np.cos(lat_single)
 
             # lon, lat: shape (batch_size, num_context_pt, 1, frequency_num, 1)
@@ -240,8 +232,57 @@ class GridAndSphere(nn.Module):
 
             # spr_embeds_: shape (batch_size, num_context_pt, 1, frequency_num, 3)
             spr_embeds = np.concatenate(
-                [lat_sin, lat_cos, lon_sin, lon_cos, lat_cos * lon_single_cos, lat_single_cos * lon_cos,
-                 lat_cos * lon_single_sin, lat_single_cos * lon_sin], axis=-1)
+                [
+                    lat_sin,
+                    lat_cos * lon_single_cos,
+                    lat_single_cos * lon_cos,
+                    lat_cos * lon_single_sin,
+                    lat_single_cos * lon_sin,
+                ],
+                axis=-1,
+            )
 
+        elif self.name == "spheremplus":
+
+            # lon, lat: shape (batch_size, num_context_pt, 1, frequency_num, 1)
+            lon_single = np.expand_dims(coords_mat[:, :, 0, :, :], axis=2)
+            lat_single = np.expand_dims(coords_mat[:, :, 1, :, :], axis=2)
+
+            # make sinuniod function
+            # lon_sin, lon_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
+            lon_single_sin = np.sin(lon_single)
+            lon_single_cos = np.cos(lon_single)
+
+            # lat_sin, lat_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
+            np.sin(lat_single)
+            lat_single_cos = np.cos(lat_single)
+
+            # lon, lat: shape (batch_size, num_context_pt, 1, frequency_num, 1)
+            lon = np.expand_dims(spr_embeds[:, :, 0, :, :], axis=2)
+            lat = np.expand_dims(spr_embeds[:, :, 1, :, :], axis=2)
+
+            # make sinuniod function
+            # lon_sin, lon_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
+            lon_sin = np.sin(lon)
+            lon_cos = np.cos(lon)
+
+            # lat_sin, lat_cos: shape (batch_size, num_context_pt, 1, frequency_num, 1)
+            lat_sin = np.sin(lat)
+            lat_cos = np.cos(lat)
+
+            # spr_embeds_: shape (batch_size, num_context_pt, 1, frequency_num, 3)
+            spr_embeds = np.concatenate(
+                [
+                    lat_sin,
+                    lat_cos,
+                    lon_sin,
+                    lon_cos,
+                    lat_cos * lon_single_cos,
+                    lat_single_cos * lon_cos,
+                    lat_cos * lon_single_sin,
+                    lat_single_cos * lon_sin,
+                ],
+                axis=-1,
+            )
 
         return torch.from_numpy(spr_embeds.reshape(N, -1)).to(dtype).to(device)

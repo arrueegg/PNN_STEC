@@ -1,10 +1,10 @@
 import torch
 from torch import nn
-import math
 
 """
 Wrap encoding, as used by MacAodha et al
 """
+
 
 class Wrap(nn.Module):
     def __init__(self):

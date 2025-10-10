@@ -33,11 +33,11 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
     y_pred = df["pred_stec"].values
 
     # Calculate metrics
-    r2 = r2_score(y_true, y_pred)
+    r2_score(y_true, y_pred)
     corr, p_value = pearsonr(y_true, y_pred)
-    rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
-    mae = np.mean(np.abs(y_true - y_pred))
-    bias = np.mean(y_pred - y_true)
+    np.sqrt(np.mean((y_true - y_pred) ** 2))
+    np.mean(np.abs(y_true - y_pred))
+    np.mean(y_pred - y_true)
 
     # 1. Main scatter plot
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -67,7 +67,6 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
     plt.tight_layout()
     save_plot(fig, "prediction_scatter.png", output_dir)
     plt.close(fig)
-
 
     plt.close(fig)
 
@@ -166,86 +165,129 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     # Create monthly bins for better visualization
     df["month"] = df["datetime"].dt.to_period("M")
-    
+
     # Group by month and calculate statistics
-    monthly_stats = df.groupby("month").agg({
-        "residual": ["mean", "std", "count"],
-        "abs_residual": "mean",
-        "target_stec": "mean",
-        "pred_stec": "mean"
-    }).reset_index()
-    
+    monthly_stats = (
+        df.groupby("month")
+        .agg(
+            {
+                "residual": ["mean", "std", "count"],
+                "abs_residual": "mean",
+                "target_stec": "mean",
+                "pred_stec": "mean",
+            }
+        )
+        .reset_index()
+    )
+
     # Flatten column names
-    monthly_stats.columns = ["month", "mean_residual", "std_residual", "count", "mae", "mean_target", "mean_pred"]
-    
+    monthly_stats.columns = [
+        "month",
+        "mean_residual",
+        "std_residual",
+        "count",
+        "mae",
+        "mean_target",
+        "mean_pred",
+    ]
+
     # Convert month periods to datetime for plotting
     monthly_stats["date"] = monthly_stats["month"].dt.start_time
-    
+
     # Calculate RMSE for each month
     rmse_list = []
     for month in monthly_stats["month"]:
         month_data = df[df["month"] == month]
         if len(month_data) > 0:
-            rmse = np.sqrt(np.mean((month_data["target_stec"] - month_data["pred_stec"]) ** 2))
+            rmse = np.sqrt(
+                np.mean((month_data["target_stec"] - month_data["pred_stec"]) ** 2)
+            )
             rmse_list.append(rmse)
         else:
             rmse_list.append(np.nan)
-    
+
     monthly_stats["rmse"] = rmse_list
 
     # Create plot with 3 subplots
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 12), sharex=True)
 
-    # 1. Boxplot of residuals instead of mean residuals  
+    # 1. Boxplot of residuals instead of mean residuals
     months_for_boxplot = []
     residuals_for_boxplot = []
     month_positions = []
-    
+
     for i, month in enumerate(monthly_stats["month"]):
         month_data = df[df["month"] == month]
         if len(month_data) >= 5:  # Only include months with sufficient data
             months_for_boxplot.append(month)
             residuals_for_boxplot.append(month_data["residual"].values)
             month_positions.append(i)
-    
+
     if residuals_for_boxplot:
-        bp = ax1.boxplot(residuals_for_boxplot, positions=month_positions, 
-                        widths=0.8, showfliers=False, patch_artist=True,
-                        boxprops=dict(facecolor='lightblue', edgecolor='black', alpha=0.7),
-                        whiskerprops=dict(color='black'),
-                        capprops=dict(color='black'),
-                        medianprops=dict(color='red', linewidth=2))
-    
+        ax1.boxplot(
+            residuals_for_boxplot,
+            positions=month_positions,
+            widths=0.8,
+            showfliers=False,
+            patch_artist=True,
+            boxprops=dict(facecolor="lightblue", edgecolor="black", alpha=0.7),
+            whiskerprops=dict(color="black"),
+            capprops=dict(color="black"),
+            medianprops=dict(color="red", linewidth=2),
+        )
+
     ax1.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
     ax1.set_ylabel("Residual [TECU]", fontweight="bold")
     ax1.set_title("Monthly Residual Statistics", fontweight="bold", pad=20)
     ax1.grid(True, alpha=0.3)
 
     # 2. Combined MAE and RMSE as line plots
-    ax2.plot(range(len(monthly_stats)), monthly_stats["mae"], 
-            color="green", marker='o', linewidth=2, markersize=6, label="MAE")
-    ax2.plot(range(len(monthly_stats)), monthly_stats["rmse"], 
-            color="orange", marker='s', linewidth=2, markersize=6, label="RMSE")
+    ax2.plot(
+        range(len(monthly_stats)),
+        monthly_stats["mae"],
+        color="green",
+        marker="o",
+        linewidth=2,
+        markersize=6,
+        label="MAE",
+    )
+    ax2.plot(
+        range(len(monthly_stats)),
+        monthly_stats["rmse"],
+        color="orange",
+        marker="s",
+        linewidth=2,
+        markersize=6,
+        label="RMSE",
+    )
     ax2.set_ylabel("Error [TECU]", fontweight="bold")
     ax2.legend(fontsize=12, framealpha=0.9)
     ax2.grid(True, alpha=0.3)
 
     # 3. Sample count as bars
-    ax3.bar(range(len(monthly_stats)), monthly_stats["count"], 
-            color="purple", alpha=0.7, edgecolor='black', linewidth=0.5)
+    ax3.bar(
+        range(len(monthly_stats)),
+        monthly_stats["count"],
+        color="purple",
+        alpha=0.7,
+        edgecolor="black",
+        linewidth=0.5,
+    )
     ax3.set_ylabel("Sample Count", fontweight="bold")
     ax3.set_xlabel("Month", fontweight="bold")
     ax3.grid(True, alpha=0.3)
 
     # Format x-axis with date labels (every few months to avoid crowding)
     n_ticks = min(12, len(monthly_stats))  # Maximum 12 ticks for months
-    tick_indices = np.linspace(0, len(monthly_stats)-1, n_ticks, dtype=int)
-    tick_labels = [monthly_stats.iloc[i]["date"].strftime("%Y-%m") for i in tick_indices]
-    
+    tick_indices = np.linspace(0, len(monthly_stats) - 1, n_ticks, dtype=int)
+    tick_labels = [
+        monthly_stats.iloc[i]["date"].strftime("%Y-%m") for i in tick_indices
+    ]
+
     for ax in [ax1, ax2, ax3]:
         ax.set_xticks(tick_indices)
         ax.set_xlim(-0.5, len(monthly_stats) - 0.5)
-    
+
     ax3.set_xticklabels(tick_labels, rotation=45)
 
     plt.tight_layout()
@@ -255,7 +297,7 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
 def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None:
     """
     Create standalone prediction density plot using hexagonal binning.
-    
+
     Args:
         df: DataFrame with 'target_stec' and 'pred_stec' columns
         output_dir: Directory to save plot
@@ -263,51 +305,65 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None
     # Extract data
     y_true = df["target_stec"].values
     y_pred = df["pred_stec"].values
-    
+
     # Calculate metrics
     r_value, _ = pearsonr(y_true, y_pred)
     r2_value = r2_score(y_true, y_pred)
-    
+
     # Set proper axis limits: min=0, equal max for both axes
     min_val = 0  # Always start from 0
     max_val = max(y_true.max(), y_pred.max())
-    
+
     # Hexagon density plot with enhanced visuals
     fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
-    
+
     # Create hexbin plot with even finer gridsize and BuGn colormap
     from matplotlib.colors import LogNorm
-    hb = ax.hexbin(y_true, y_pred, gridsize=100, cmap='BuGn', mincnt=1, 
-                   extent=[min_val, max_val, min_val, max_val], norm=LogNorm())
-    
+
+    hb = ax.hexbin(
+        y_true,
+        y_pred,
+        gridsize=100,
+        cmap="BuGn",
+        mincnt=1,
+        extent=[min_val, max_val, min_val, max_val],
+        norm=LogNorm(),
+    )
+
     # Perfect prediction line
-    ax.plot([min_val, max_val], [min_val, max_val], 'r-', linewidth=3, 
-            label='Perfect Prediction', alpha=0.9)
-    
+    ax.plot(
+        [min_val, max_val],
+        [min_val, max_val],
+        "r-",
+        linewidth=3,
+        label="Perfect Prediction",
+        alpha=0.9,
+    )
+
     # Set equal axis limits
     ax.set_xlim(min_val, max_val)
     ax.set_ylim(min_val, max_val)
-    
-    ax.set_xlabel('True STEC [TECU]', fontsize=16, fontweight='bold')
-    ax.set_ylabel('Predicted STEC [TECU]', fontsize=16, fontweight='bold')
-    ax.set_title('Prediction Density Analysis', fontsize=20, fontweight='bold', pad=25)
-    
+
+    ax.set_xlabel("True STEC [TECU]", fontsize=16, fontweight="bold")
+    ax.set_ylabel("Predicted STEC [TECU]", fontsize=16, fontweight="bold")
+    ax.set_title("Prediction Density Analysis", fontsize=20, fontweight="bold", pad=25)
+
     # Add colorbar with log scale
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.1)
     cbar = plt.colorbar(hb, cax=cax)
-    cbar.set_label('Count (log scale)', fontweight='bold', rotation=270, labelpad=35)
+    cbar.set_label("Count (log scale)", fontweight="bold", rotation=270, labelpad=35)
     cbar.ax.tick_params(labelsize=16)
-    
+
     # Add legend with metrics
     legend_elements = [
-        plt.Line2D([0], [0], color='red', linewidth=3, label='Perfect Prediction'),
-        plt.Line2D([0], [0], color='none', label=f'Pearson r = {r_value:.3f}'),
-        plt.Line2D([0], [0], color='none', label=f'R² = {r2_value:.3f}')
+        plt.Line2D([0], [0], color="red", linewidth=3, label="Perfect Prediction"),
+        plt.Line2D([0], [0], color="none", label=f"Pearson r = {r_value:.3f}"),
+        plt.Line2D([0], [0], color="none", label=f"R² = {r2_value:.3f}"),
     ]
-    ax.legend(handles=legend_elements, loc='upper left', fontsize=14, framealpha=0.9)
+    ax.legend(handles=legend_elements, loc="upper left", fontsize=14, framealpha=0.9)
     ax.grid(True, alpha=0.3)
-    ax.set_aspect('equal')
-    
+    ax.set_aspect("equal")
+
     plt.tight_layout()
     save_plot(fig, "prediction_density.png", output_dir)

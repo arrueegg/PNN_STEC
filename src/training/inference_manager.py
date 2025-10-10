@@ -43,10 +43,10 @@ class InferenceManager:
         """
         Compute predictive mean and total uncertainty (epistemic + aleatoric) in ORIGINAL space.
         OPTIMIZED VERSION: Fixes performance degradation issues.
-        
+
         Supports multiple model types:
         - BNN models: Sample from weight posteriors
-        - MC Dropout models: Sample with different dropout masks  
+        - MC Dropout models: Sample with different dropout masks
         - DE_MLP: Use ensemble-based uncertainty decomposition
 
         For log-targets, each forward pass is mapped via log-normal moments:
@@ -57,16 +57,20 @@ class InferenceManager:
             aleatoric_var = E_s(var_y_alea_s)
         """
         model.eval()
-        
+
         # Check if this is a Monte Carlo Dropout model and enable dropout
         model_type = self.config["model"]["model_type"]
         is_mc_dropout = model_type in ["MLP_MCDropout_NLL", "MLP_MCDropout_mse"]
         if is_mc_dropout:
-            if hasattr(model, 'enable_mc_dropout'):
+            if hasattr(model, "enable_mc_dropout"):
                 model.enable_mc_dropout()
-                self.logger.info(f"🎲 Using Monte Carlo Dropout inference with {num_samples} samples")
+                self.logger.info(
+                    f"🎲 Using Monte Carlo Dropout inference with {num_samples} samples"
+                )
             else:
-                raise ValueError(f"Model type {model_type} should support MC Dropout but enable_mc_dropout method not found")
+                raise ValueError(
+                    f"Model type {model_type} should support MC Dropout but enable_mc_dropout method not found"
+                )
         else:
             self.logger.info(f"🧠 Using Bayesian inference with {num_samples} samples")
 
@@ -81,7 +85,7 @@ class InferenceManager:
         dataset_size = len(dataloader.dataset)
         use_minimal_features = dataset_size >= 5_000_000
         batch_essential_features = [] if use_minimal_features else None
-        
+
         # Progress tracking
         total_batches = len(dataloader)
         processed_samples = 0
@@ -372,8 +376,14 @@ class InferenceManager:
                 df_dict = {
                     "target_stec": targets_tensor.cpu().numpy().flatten(),
                     "pred_stec": mean_tensor.cpu().numpy().flatten(),
-                    "pred_epistemic_unc": torch.sqrt(epistemic_tensor).cpu().numpy().flatten(),
-                    "pred_aleatoric_unc": torch.sqrt(aleatoric_tensor).cpu().numpy().flatten(),
+                    "pred_epistemic_unc": torch.sqrt(epistemic_tensor)
+                    .cpu()
+                    .numpy()
+                    .flatten(),
+                    "pred_aleatoric_unc": torch.sqrt(aleatoric_tensor)
+                    .cpu()
+                    .numpy()
+                    .flatten(),
                     "pred_total_unc": total_std_tensor.cpu().numpy().flatten(),
                     **essential_features,
                 }
@@ -395,10 +405,12 @@ class InferenceManager:
         total_std = torch.sqrt(total_var)
 
         # Disable MC dropout if it was enabled
-        if is_mc_dropout and hasattr(model, 'disable_mc_dropout'):
+        if is_mc_dropout and hasattr(model, "disable_mc_dropout"):
             model.disable_mc_dropout()
 
-        completion_msg = "MC Dropout inference" if is_mc_dropout else "Bayesian inference"
+        completion_msg = (
+            "MC Dropout inference" if is_mc_dropout else "Bayesian inference"
+        )
         self.logger.info(
             f"✅ {completion_msg} completed: {processed_samples:,} samples processed"
         )

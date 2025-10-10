@@ -1,10 +1,10 @@
 import torch
 from torch import nn
-import math
 
 """
 3D Cartesian, as used by MacAodha et al
 """
+
 
 class Cartesian3D(nn.Module):
     def __init__(self):

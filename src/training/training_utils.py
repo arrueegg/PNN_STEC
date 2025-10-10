@@ -231,12 +231,21 @@ class TrainingUtils:
         # Calculate metrics for each subset
         if len(interpolation_df) > 0:
             # Create tensors for metrics calculation (expected format)
-            interpolation_predictions = torch.stack([
-                torch.tensor(interpolation_df['pred_stec'].values, dtype=torch.float32),
-                torch.tensor(interpolation_df['pred_total_unc'].values, dtype=torch.float32)
-            ], dim=1)
-            interpolation_targets = torch.tensor(interpolation_df['target_stec'].values, dtype=torch.float32)
-            
+            interpolation_predictions = torch.stack(
+                [
+                    torch.tensor(
+                        interpolation_df["pred_stec"].values, dtype=torch.float32
+                    ),
+                    torch.tensor(
+                        interpolation_df["pred_total_unc"].values, dtype=torch.float32
+                    ),
+                ],
+                dim=1,
+            )
+            interpolation_targets = torch.tensor(
+                interpolation_df["target_stec"].values, dtype=torch.float32
+            )
+
             interp_metrics = calculate_metrics(
                 interpolation_predictions, interpolation_targets, prefix="interpolation"
             )
@@ -247,12 +256,21 @@ class TrainingUtils:
 
         if len(extrapolation_df) > 0:
             # Create tensors for metrics calculation (expected format)
-            extrapolation_predictions = torch.stack([
-                torch.tensor(extrapolation_df['pred_stec'].values, dtype=torch.float32),
-                torch.tensor(extrapolation_df['pred_total_unc'].values, dtype=torch.float32)
-            ], dim=1)
-            extrapolation_targets = torch.tensor(extrapolation_df['target_stec'].values, dtype=torch.float32)
-            
+            extrapolation_predictions = torch.stack(
+                [
+                    torch.tensor(
+                        extrapolation_df["pred_stec"].values, dtype=torch.float32
+                    ),
+                    torch.tensor(
+                        extrapolation_df["pred_total_unc"].values, dtype=torch.float32
+                    ),
+                ],
+                dim=1,
+            )
+            extrapolation_targets = torch.tensor(
+                extrapolation_df["target_stec"].values, dtype=torch.float32
+            )
+
             extrap_metrics = calculate_metrics(
                 extrapolation_predictions, extrapolation_targets, prefix="extrapolation"
             )

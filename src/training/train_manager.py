@@ -120,7 +120,14 @@ class TrainManager:
         )
 
     def train_epoch_ensemble(
-        self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, optimizer, epoch
+        self,
+        model,
+        dataloader,
+        criterion_mse,
+        criterion_nll,
+        criterion_kld,
+        optimizer,
+        epoch,
     ):
         """
         Specialized training for Deep Ensemble models.

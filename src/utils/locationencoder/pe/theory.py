@@ -11,13 +11,20 @@ See https://openreview.net/forum?id=Syx0Mh05YQ
 Learning Grid Cells as Vector Representation of Self-Position Coupled with Matrix Representation of Self-Motion
 """
 
+
 class Theory(nn.Module):
     """
     Given a list of (deltaX,deltaY), encode them using the position encoding function
     """
 
-    def __init__(self, coord_dim=2, frequency_num=16,
-                 max_radius=10000, min_radius=1000, freq_init="geometric"):
+    def __init__(
+        self,
+        coord_dim=2,
+        frequency_num=16,
+        max_radius=10000,
+        min_radius=1000,
+        freq_init="geometric",
+    ):
         """
         Args:
             coord_dim: the dimention of space, 2D, 3D, or other
@@ -43,7 +50,9 @@ class Theory(nn.Module):
         self.embedding_dim = self.cal_embedding_dim()
 
     def cal_freq_list(self):
-        self.freq_list = _cal_freq_list(self.freq_init, self.frequency_num, self.max_radius, self.min_radius)
+        self.freq_list = _cal_freq_list(
+            self.freq_init, self.frequency_num, self.max_radius, self.min_radius
+        )
 
     def cal_freq_mat(self):
         # freq_mat shape: (frequency_num, 1)
@@ -74,7 +83,10 @@ class Theory(nn.Module):
         angle_mat3 = np.expand_dims(np.matmul(coords_mat, self.unit_vec3), axis=-1)
 
         # (batch_size, num_context_pt, 6)
-        angle_mat = np.concatenate([angle_mat1, angle_mat1, angle_mat2, angle_mat2, angle_mat3, angle_mat3], axis=-1)
+        angle_mat = np.concatenate(
+            [angle_mat1, angle_mat1, angle_mat2, angle_mat2, angle_mat3, angle_mat3],
+            axis=-1,
+        )
         # (batch_size, num_context_pt, 1, 6)
         angle_mat = np.expand_dims(angle_mat, axis=-2)
         # (batch_size, num_context_pt, frequency_num, 6)
@@ -90,7 +102,4 @@ class Theory(nn.Module):
         spr_embeds[:, :, 0::2] = np.sin(spr_embeds[:, :, 0::2])  # dim 2i
         spr_embeds[:, :, 1::2] = np.cos(spr_embeds[:, :, 1::2])  # dim 2i+1
 
-        return torch.from_numpy(spr_embeds.reshape(N,-1)).to(dtype).to(device)
-
-
-
+        return torch.from_numpy(spr_embeds.reshape(N, -1)).to(dtype).to(device)

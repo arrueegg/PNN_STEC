@@ -134,8 +134,9 @@ def plot_test_metrics(
         feature_registry: Optional feature registry for binning ranges
     """
     import logging
+
     logger = logging.getLogger(__name__)
-    
+
     # Create organized subdirectories
     test_metrics_dir = f"{output_dir}/test_metrics"
     prediction_dir = f"{test_metrics_dir}/prediction_analysis"
@@ -143,7 +144,7 @@ def plot_test_metrics(
     spatial_dir = f"{test_metrics_dir}/spatial_analysis"
     temporal_dir = f"{test_metrics_dir}/temporal_analysis"
     feature_dir = f"{test_metrics_dir}/feature_analysis"
-    
+
     # Ensure all directories exist
     ensure_dir(test_metrics_dir)
     ensure_dir(prediction_dir)
@@ -195,23 +196,32 @@ def plot_test_metrics(
 
     if any(col in df.columns for col in ["datetime", "year"]):
         plot_residuals_vs_date(df, temporal_dir)
-    
+
     # Plot summary by date if year and doy are available
-    if 'year' in df.columns and 'doy' in df.columns:
+    if "year" in df.columns and "doy" in df.columns:
         logger.info("Creating temporal summary plots...")
         plot_box_by_date(df, temporal_dir)
 
     # Plot summary by magnetic latitude if available
-    if 'sm_lat_ipp' in df.columns:
+    if "sm_lat_ipp" in df.columns:
         logger.info("Creating latitude band analysis...")
         plot_box_by_lat(df, spatial_dir)
 
     # Feature-specific analysis in feature_analysis/
-    features_to_analyze = ["time", "satele", "satazi", "kp", "f107", "dst", "target_stec", "pred_stec"]
+    features_to_analyze = [
+        "time",
+        "satele",
+        "satazi",
+        "kp",
+        "f107",
+        "dst",
+        "target_stec",
+        "pred_stec",
+    ]
     for feature in features_to_analyze:
         if feature in df.columns:
             logger.info(f"Creating residual analysis for {feature}...")
-            
+
             # Determine number of bins based on feature
             if feature == "time":
                 num_bins = 24
@@ -227,17 +237,25 @@ def plot_test_metrics(
                 num_bins = 20 if feature == "dst" else 10
             else:
                 num_bins = 20  # default for target_stec, pred_stec
-                
+
             plot_residuals_vs_feature(
-                df, feature, num_bins=num_bins, output_dir=feature_dir, bin_range_dict=bin_range_dict
+                df,
+                feature,
+                num_bins=num_bins,
+                output_dir=feature_dir,
+                bin_range_dict=bin_range_dict,
             )
-            
+
             # Create clipped version for target_stec
-            if feature == 'target_stec':
+            if feature == "target_stec":
                 plot_residuals_vs_feature_clipped(
-                    df, feature, num_bins=num_bins, 
-                    output_dir=feature_dir, bin_range_dict=bin_range_dict,
-                    x_limits=(0.5, 10.5), y_limits=(-50, 100)
+                    df,
+                    feature,
+                    num_bins=num_bins,
+                    output_dir=feature_dir,
+                    bin_range_dict=bin_range_dict,
+                    x_limits=(0.5, 10.5),
+                    y_limits=(-50, 100),
                 )
 
     # Additional feature analysis plots - Local time and solar indices
@@ -276,9 +294,11 @@ def plot_test_metrics(
     # Create temporal metrics summaries
     logger.info("Creating temporal metrics summaries...")
     create_temporal_metrics_summaries(df, test_metrics_dir)
-    
+
     if uncertainty_cols:
-        logger.info(f"Uncertainty analysis: {len([f for f in os.listdir(uncertainty_dir) if f.endswith('.png')])} plots")
+        logger.info(
+            f"Uncertainty analysis: {len([f for f in os.listdir(uncertainty_dir) if f.endswith('.png')])} plots"
+        )
     if "time" in df.columns and "lat_ipp" in df.columns:
         logger.info(f"Spatial by time analysis: {spatial_time_dir}")
 
@@ -294,8 +314,9 @@ def plot_comprehensive_uncertainty_analysis(
         output_dir: Directory to save plots
     """
     import logging
+
     logger = logging.getLogger(__name__)
-    
+
     ensure_dir(output_dir)
     df_unc = prepare_uncertainty_data(df)
 
