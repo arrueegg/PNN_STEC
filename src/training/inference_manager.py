@@ -71,8 +71,7 @@ class InferenceManager:
                 raise ValueError(
                     f"Model type {model_type} should support MC Dropout but enable_mc_dropout method not found"
                 )
-        else:
-            self.logger.info(f"🧠 Using Bayesian inference with {num_samples} samples")
+        # Bayesian inference mode
 
         # OPTIMIZATION 1: Use lists for batch DataFrames, concat once at end
         batch_dataframes = []
@@ -297,9 +296,7 @@ class InferenceManager:
 
         # OPTIMIZATION 1: Use iterative concatenation to avoid memory spikes
         if batch_dataframes:
-            self.logger.info(
-                "📊 Combining results from all batches using iterative concatenation..."
-            )
+            # Combining results
 
             # Iterative concatenation in chunks to avoid memory spikes
             chunk_size = 50  # Process 50 DataFrames at a time
@@ -408,12 +405,7 @@ class InferenceManager:
         if is_mc_dropout and hasattr(model, "disable_mc_dropout"):
             model.disable_mc_dropout()
 
-        completion_msg = (
-            "MC Dropout inference" if is_mc_dropout else "Bayesian inference"
-        )
-        self.logger.info(
-            f"✅ {completion_msg} completed: {processed_samples:,} samples processed"
-        )
+        # Inference completed
 
         return {
             "baysian_mae": torch.mean(torch.abs(mean - targets)),

@@ -29,8 +29,8 @@ data:
 
 model:
   model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
-  hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
-  num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
+  hidden_dim: 256     # Number of neurons in hidden layers (default: 256)
+  num_layers: 8       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
   
   # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
@@ -38,7 +38,7 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.5
+  loss_weight: 0.1
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
