@@ -415,14 +415,10 @@ def main():
 
         # Create multi-temporal dataset (once for all timestamps)
         print("Initializing multi-temporal inference dataset...")
-        import time
-        init_start = time.time()
         multitemporal_dataset, dataloader = create_multitemporal_inference_dataloader(
             config, lat_grid, lon_grid, args.elevation, args.azimuth, date_obj, args.batch_size
         )
         grid_shape = multitemporal_dataset.get_grid_shape()
-        init_time = time.time() - init_start
-        print(f"Initialization completed in {init_time:.2f}s")
 
         # Storage for results
         image_paths = []  # For GIF creation
@@ -435,11 +431,7 @@ def main():
             print(f"Processing {timestamp.strftime('%H:%M')} UTC ({i+1}/{len(timestamps)})")
 
             # Update dataset for new timestamp (fast operation)
-            update_start = time.time()
             multitemporal_dataset.update_timestamp(timestamp)
-            update_time = time.time() - update_start
-            if i == 1:  # Show timing for second iteration (first may include caching overhead)
-                print(f"  → Timestamp update: {update_time:.3f}s")
 
             # Run inference using existing infrastructure (dataloader reuses updated dataset)
             metrics_dict, results_df = run_inference_with_trainer(trainer, dataloader, model)

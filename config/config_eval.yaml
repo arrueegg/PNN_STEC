@@ -1,0 +1,33 @@
+# Evaluation Configuration for GNSS-based STEC ML Model
+# This file contains default settings for the three evaluation flows:
+# 1. GIM → slant comparison
+# 2. VLBI dTEC comparison  
+# 3. Madrigal comparison
+
+# Input data paths
+input_paths:
+  gnss_path: "./data/gnss_predictions.h5"
+  gim_path: "./data/gim_data.h5"
+  vgosdb_path: "./data/vgosdb_data.h5"
+  madrigal_path: "./data/madrigal_data.h5"
+
+# Output configuration
+output:
+  output_dir: "./eval_results"
+
+# Physical parameters
+physical:
+  h_km: 450.0      # Shell height in km (standard F2 layer peak height)
+  Re_km: 6371.0    # Earth radius in km (WGS84 mean radius)
+
+# Run toggles - which evaluations to execute
+run_flags:
+  run_gim_slant: true     # GIM → slant evaluation
+  run_vlbi_dtec: false    # VLBI dTEC evaluation
+  run_madrigal: false     # Madrigal evaluation
+
+# General options
+options:
+  group_key: "station"    # Grouping strategy: "station" or "station_sat"
+  enable_plots: true      # Generate visualization plots
+  save_csvs: true         # Save results as CSV files for further analysis
