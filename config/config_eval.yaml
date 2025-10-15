@@ -1,7 +1,7 @@
 # Evaluation Configuration for GNSS-based STEC ML Model
 # This file contains default settings for evaluation flows:
 # Legacy: 1. GIM → slant comparison, 2. VLBI dTEC comparison, 3. Madrigal comparison  
-# New: STEC space comparison (model STEC vs GIM→STEC)
+# New: STEC space comparison (model STEC vs GIM2STEC)
 
 # Evaluation mode
 mode: "stec"  # "stec" for STEC space comparison, "legacy" for original flows
@@ -15,7 +15,7 @@ stec_evaluation:
   madrigal_path: "./data/madrigal/"
   vgosdb_path: "./data/vgosdb/"
   gim_path: "./data/gim/igs_2024/"
-  model_path: "./models/best_model.pt"
+  experiment_folder: "experiments/Pretrain_STEC_BNN_NLL_h1024_l6_lr2e-3_bs512_GNLL_Adam_CosineAnnealingLR_sub500K_SH0_lw5e-1_SWI"
   
   # Physical parameters
   shell_height_km: 450.0      # Shell height in km (standard F2 layer peak height)

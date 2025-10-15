@@ -3,22 +3,24 @@
 STEC evaluation core - comparison coordinator for STEC space analysis.
 
 Compares STEC model predictions against GIM VTEC mapped to STEC along LOS.
-Goal: Evaluate which approach (GIM→STEC vs direct STEC model) performs better 
+Goal: Evaluate which approach (GIM2STEC vs direct STEC model) performs better 
 for STEC corrections by avoiding vertical mapping assumptions.
 """
 
 import logging
 from typing import Dict, Any, Union
 from .adapters import get_adapter
+from .gim_mapper import build_gim_stec
+from .model_predictor import build_model_stec
 
 logger = logging.getLogger(__name__)
 
 
-def build_gim_stec_placeholder(cfg: Dict[str, Any], obs: Dict[str, Any]) -> object:
+def build_gim_stec_implementation(cfg: Dict[str, Any], obs: Dict[str, Any]) -> object:
     """
     Map GIM VTEC → STEC along provided line-of-sight using thin-shell mapping.
     
-    TODO: Implement GIM VTEC to STEC conversion:
+    Uses the GIMMapper class to:
     - Load GIM VTEC grids for observation times
     - For each LOS (station→satellite), compute IPP at shell height
     - Apply thin-shell mapping function M(elevation) = 1/cos(zenith')
@@ -30,43 +32,18 @@ def build_gim_stec_placeholder(cfg: Dict[str, Any], obs: Dict[str, Any]) -> obje
         obs: Observations dict with times, stations, satellites, elevations, IPP coords
         
     Returns:
-        Array-like of GIM-derived STEC values along each LOS
+        Array of GIM-derived STEC values along each LOS
     """
-    logger.info("Building GIM→STEC predictions")
-    logger.info(f"  GIM source: {cfg.get('gim_path', 'NOT_SET')}")
-    logger.info(f"  Shell height: {cfg.get('shell_height_km', 450)} km")
-    logger.info(f"  Earth radius: {cfg.get('earth_radius_km', 6371)} km")
-    logger.info(f"  N observations: {len(obs.get('times', []))}")
-    logger.warning("  GIM→STEC mapping implementation not available")
-    
-    # TODO: Actual implementation would return numpy array of STEC values
-    return []
+    return build_gim_stec(cfg, obs)
 
 
 def build_model_stec_placeholder(cfg: Dict[str, Any], obs: Dict[str, Any]) -> object:
     """
-    Produce model STEC predictions on the same LOS/time grid as observations.
+    DEPRECATED: Use build_model_stec() from model_predictor instead.
     
-    TODO: Implement model STEC prediction:
-    - Load trained STEC model (BNN, MLP, etc.)
-    - Prepare input features: time, station coords, satellite coords, SWI, etc.
-    - Run model inference to get STEC predictions (+ uncertainty if BNN)
-    - Ensure output matches observation grid exactly
-    
-    Args:
-        cfg: Configuration with model path and feature settings
-        obs: Observations dict defining the prediction grid
-        
-    Returns:
-        Array-like of model STEC predictions (same shape as observations)
+    This function remains for backwards compatibility but delegates to the real implementation.
     """
-    logger.info("Building model STEC predictions")
-    logger.info(f"  Model source: {cfg.get('model_path', 'NOT_SET')}")
-    logger.info(f"  N predictions needed: {len(obs.get('times', []))}")
-    logger.warning("  Model STEC prediction implementation not available")
-    
-    # TODO: Actual implementation would return numpy array of STEC predictions
-    return []
+    return build_model_stec(cfg, obs)
 
 
 def compare_stec_series_placeholder(
@@ -76,7 +53,7 @@ def compare_stec_series_placeholder(
     cfg: Dict[str, Any]
 ) -> Union[Dict[str, Any], Dict[str, Any]]:
     """
-    Compare model STEC vs GIM→STEC predictions, optionally against ground truth.
+    Compare model STEC vs GIM2STEC predictions, optionally against ground truth.
     
     TODO: Implement STEC comparison analysis:
     - If ground truth available: compute metrics for both model and GIM vs truth
@@ -163,7 +140,7 @@ def run_stec_evaluation(cfg: Dict[str, Any]) -> None:
     
     Orchestrates the complete STEC comparison pipeline:
     1. Load observations using appropriate adapter
-    2. Generate GIM→STEC predictions
+    2. Generate GIM2STEC predictions
     3. Generate model STEC predictions
     4. Compare both against observations/each other
     5. Save reports and plots
@@ -177,8 +154,8 @@ def run_stec_evaluation(cfg: Dict[str, Any]) -> None:
     obs = adapter.prepare_observations(cfg)
     
     # Step 2: Generate predictions
-    gim_stec = build_gim_stec_placeholder(cfg, obs)
-    model_stec = build_model_stec_placeholder(cfg, obs)
+    gim_stec = build_gim_stec_implementation(cfg, obs)
+    model_stec = build_model_stec(cfg, obs)
     
     # Step 3: Compare predictions
     metrics = compare_stec_series_placeholder(model_stec, gim_stec, obs, cfg)

@@ -1,16 +1,23 @@
 """
-Evaluation subpackage for GNSS-based STEC ML model assessment.
+STEC Evaluation Package
 
-This package contains modules for comparing STEC model predictions against
-various observation sources in STEC space to evaluate mapping function errors
-and model performance.
+This package provides tools for evaluating STEC predictions by comparing
+machine learning model outputs against GIM VTEC mapped to STEC space.
 
-Modules:
-- adapters: Observation source adapters (testset, madrigal, grid, vgosdb)
-- stec_eval: Core STEC comparison logic and workflow coordination
+Main Components:
+- adapters: Observation data loading adapters  
+- gim_mapper: GIM VTEC to STEC mapping functionality
+- model_predictor: ML model STEC prediction functionality
+- stec_eval: Core evaluation workflow coordination
 """
 
-from .adapters import get_adapter, DatasetAdapter
-from .stec_eval import run_stec_evaluation
+from .adapters import get_adapter
+from .gim_mapper import GIMMapper
+from .model_predictor import build_model_stec, ModelSTECPredictor
 
-__all__ = ['get_adapter', 'DatasetAdapter', 'run_stec_evaluation']
+__all__ = [
+    'get_adapter',
+    'GIMMapper', 
+    'build_model_stec',
+    'ModelSTECPredictor'
+]

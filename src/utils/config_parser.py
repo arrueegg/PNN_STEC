@@ -158,7 +158,6 @@ def compute_exp_name(config: dict) -> str:
 
 
 def finalize_config(config: dict) -> dict:
-    config["model"]["input_size"] = 9 + config["data"]["SH_degree"] ** 2
     config["year"] = str(config["year"])
     config["doy"] = str(config["doy"]).zfill(3)
     return config
