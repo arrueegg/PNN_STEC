@@ -27,6 +27,7 @@ import torch
 import os
 import sys
 import logging
+import traceback
 from pathlib import Path
 
 # Add src to path for imports
@@ -36,6 +37,9 @@ from utils.config_parser import parse_config, compute_exp_name
 from utils.feature_registry import initialize_feature_registry
 from training.base_trainer import BaseTrainer
 from data_loader import get_data_loaders
+from model.model import get_model
+from viz import plot_test_metrics
+from utils.metrics import calculate_metrics
 
 
 def setup_logging():
@@ -89,8 +93,6 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
     trainer = BaseTrainer(config, logger)
 
     # Load and initialize the model manually
-    from model.model import get_model
-
     model = get_model(config).to(config["device"])
 
     # Load the trained model weights
@@ -121,8 +123,6 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
     logger.info("📊 Generating comprehensive analysis...")
 
     # Import the plot function from existing viz module
-    from viz import plot_test_metrics
-
     # Generate main test plots
     plot_test_metrics(
         test_df, output_dir=experiment_dir, feature_registry=feature_registry
@@ -159,8 +159,6 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
         logger.info("📈 Generated extrapolation analysis plots")
 
     # Calculate and log final metrics
-    from utils.metrics import calculate_metrics
-
     test_predictions = torch.stack(
         [
             torch.tensor(test_df["pred_stec"].values, dtype=torch.float32),
@@ -243,8 +241,6 @@ def main():
 
     except Exception as e:
         logger.error(f"❌ INFERENCE FAILED: {e}")
-        import traceback
-
         logger.error(traceback.format_exc())
         return 1
 

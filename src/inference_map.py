@@ -36,6 +36,7 @@ import numpy as np
 import os
 import sys
 import argparse
+import gc
 from datetime import datetime, timedelta
 from tqdm import tqdm
 import logging
@@ -342,8 +343,6 @@ def create_gif(image_paths, output_path):
 
 def main():
     """Main function to generate global STEC maps using existing infrastructure."""
-    import gc
-    
     try:
         # Parse arguments
         args = parse_args()

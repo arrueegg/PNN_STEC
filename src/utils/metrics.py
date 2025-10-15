@@ -44,8 +44,6 @@ def residual_iqr(predictions, targets):
 
 def calculate_metrics(predictions, targets, prefix):
     """Calculates and returns a dictionary of metrics for each technology type."""
-    import torch
-
     # Convert to tensors if needed
     if isinstance(predictions, np.ndarray):
         predictions = torch.from_numpy(predictions)

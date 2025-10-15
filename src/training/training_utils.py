@@ -11,9 +11,12 @@ Extracted from BaseTrainer to separate utility concerns.
 """
 
 import os
+import json
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+from utils.metrics import calculate_metrics
 
 
 class TrainingUtils:
@@ -180,8 +183,6 @@ class TrainingUtils:
         Returns:
             tuple: (interpolation_df, extrapolation_df, split_info)
         """
-        from datetime import datetime, timedelta
-
         # Define the split date
         split_date = datetime(2024, 5, 1)
 
@@ -223,8 +224,6 @@ class TrainingUtils:
         self, interpolation_df, extrapolation_df, split_info, experiment_dir
     ):
         """Save metrics for temporal interpolation vs extrapolation performance."""
-        from utils.metrics import calculate_metrics
-
         save_dir = os.path.join(experiment_dir, "temporal_analysis")
         os.makedirs(save_dir, exist_ok=True)
 
@@ -287,8 +286,6 @@ class TrainingUtils:
         }
 
         # Save as JSON
-        import json
-
         analysis_file = os.path.join(save_dir, "temporal_split_analysis.json")
         with open(analysis_file, "w") as f:
             json.dump(temporal_analysis, f, indent=2, default=str)

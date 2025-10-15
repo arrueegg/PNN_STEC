@@ -318,8 +318,6 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None
     fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
 
     # Create hexbin plot with even finer gridsize and BuGn colormap
-    from matplotlib.colors import LogNorm
-
     hb = ax.hexbin(
         y_true,
         y_pred,

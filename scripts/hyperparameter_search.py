@@ -9,6 +9,8 @@ import os
 import yaml
 import itertools
 import argparse
+import copy
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -60,8 +62,6 @@ def load_base_config():
 
 def apply_params_to_config(config, params, cluster_mode=False):
     """Apply hyperparameters to config"""
-    import copy
-
     new_config = copy.deepcopy(config)
 
     for param_name, value in params.items():
@@ -91,9 +91,6 @@ def generate_slurm_script(trial_id, config_file, output_path):
     """Generate SLURM script for a single trial"""
     # Import cluster configuration
     try:
-        import sys
-        import os
-
         config_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config"
         )

@@ -6,6 +6,8 @@ This module handles geographic plots, spatial error maps, and coordinate-based v
 
 import pandas as pd
 import numpy as np
+import os
+import logging
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import cartopy.crs as ccrs
@@ -170,8 +172,6 @@ Mean per cell: {spatial_stats['count'].mean():.0f}
 """
 
     # Save metrics to text file
-    import os
-
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "spatial_error_map_metrics.txt"), "w") as f:
         f.write(stats_text)
@@ -278,8 +278,6 @@ def plot_solar_magnetic_ipp_error_map(
 
     # Check if solar magnetic coordinates exist
     if "sm_lat_ipp" not in df.columns or "sm_lon_ipp" not in df.columns:
-        import logging
-
         logger = logging.getLogger(__name__)
         logger.warning("Solar magnetic coordinates not found. Skipping this plot.")
         return
