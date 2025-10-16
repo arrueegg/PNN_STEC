@@ -295,10 +295,7 @@ class GIMMapper:
         """
         gim_path = Path(gim_path)
         start_time, end_time = time_range
-        
-        logger.info(f"Loading GIM data from {gim_path}")
-        logger.info(f"Time range: {start_time} to {end_time}")
-        
+                
         # Find relevant IONEX files
         ionex_files = self._find_ionex_files(gim_path, start_time, end_time)
         

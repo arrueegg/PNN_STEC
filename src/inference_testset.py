@@ -36,7 +36,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils.config_parser import parse_config, compute_exp_name
 from utils.feature_registry import initialize_feature_registry
 from training.base_trainer import BaseTrainer
-from data_loader import get_data_loaders
+from data_loader import get_test_data_loader
 from model.model import get_model
 from viz import plot_test_metrics
 from utils.metrics import calculate_metrics
@@ -87,7 +87,7 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
     config["feature_registry"] = feature_registry
 
     # Get test dataloader using existing function
-    _, _, test_loader = get_data_loaders(config, logger)
+    test_loader = get_test_data_loader(config, logger)
 
     # Create trainer which includes all managers
     trainer = BaseTrainer(config, logger)

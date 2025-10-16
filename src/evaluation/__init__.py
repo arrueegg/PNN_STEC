@@ -1,23 +1,21 @@
 """
 STEC Evaluation Package
 
-This package provides tools for evaluating STEC predictions by comparing
-machine learning model outputs against GIM VTEC mapped to STEC space.
+This package provides memory-efficient evaluation tools for comparing
+machine learning model STEC predictions against GIM VTEC mapped to STEC space.
 
 Main Components:
-- adapters: Observation data loading adapters  
+- evaluator: Memory-efficient evaluation orchestrator  
 - gim_mapper: GIM VTEC to STEC mapping functionality
-- model_predictor: ML model STEC prediction functionality
-- stec_eval: Core evaluation workflow coordination
+
+The package uses DataLoader infrastructure to handle datasets of any size 
+with constant memory usage and groups batches by date for efficient GIM loading.
 """
 
-from .adapters import get_adapter
+from .evaluator import EvaluationOrchestrator
 from .gim_mapper import GIMMapper
-from .model_predictor import build_model_stec, ModelSTECPredictor
 
 __all__ = [
-    'get_adapter',
-    'GIMMapper', 
-    'build_model_stec',
-    'ModelSTECPredictor'
+    'EvaluationOrchestrator',
+    'GIMMapper'
 ]

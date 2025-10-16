@@ -69,14 +69,7 @@ class BaseTrainer:
             logger,
             self.device,
         )
-
-        # Log configuration
-        weighting_config = config["training"].get("target_weighting", {})
-        if weighting_config.get("enabled", False):
-            weight_func = weighting_config.get("weight_function", "linear")
-            self.logger.info(f"🎯 Target weighting enabled: {weight_func} scaling")
-        else:
-            self.logger.info("📊 Standard loss weighting (no target-based scaling)")
+            
 
     # ---------- Public interface delegating to managers ----------
 

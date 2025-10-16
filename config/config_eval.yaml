@@ -1,36 +1,20 @@
 # Evaluation Configuration for GNSS-based STEC ML Model
-# This file contains default settings for evaluation flows:
-# Legacy: 1. GIM → slant comparison, 2. VLBI dTEC comparison, 3. Madrigal comparison  
-# New: STEC space comparison (model STEC vs GIM2STEC)
-
-# Evaluation mode
-mode: "stec"  # "stec" for STEC space comparison, "legacy" for original flows
 
 # STEC evaluation settings
 stec_evaluation:
   dataset: "testset"  # testset, madrigal, grid, vgosdb
   
   # Input data paths
-  gnss_path: "./data/testset.parquet"
+  gnss_path: "./data/test.h5"
   madrigal_path: "./data/madrigal/"
-  vgosdb_path: "./data/vgosdb/"
-  gim_path: "./data/gim/igs_2024/"
-  experiment_folder: "experiments/Pretrain_STEC_BNN_NLL_h1024_l6_lr2e-3_bs512_GNLL_Adam_CosineAnnealingLR_sub500K_SH0_lw5e-1_SWI"
+  vgosdb_path: "/home/space/data/vlbi/ivsdata/vgosdb"
+  gim_path: "/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex"
+  experiment_folder: "experiments/Pretrain_STEC_DE_MLP_h1024_l4_lr3e-4_bs512_GNLL_Adam_CosineAnnealingLR_ens5_sub500K_SH0_lw5e-1_SWI"
   
   # Physical parameters
   shell_height_km: 450.0      # Shell height in km (standard F2 layer peak height)
   earth_radius_km: 6371.0     # Earth radius in km (WGS84 mean radius)
   
-  # Analysis options
-  group_key: "station"        # Grouping strategy: "station" or "station_sat"
-  remove_bias: true           # Remove per-group bias before computing metrics
-
-# Legacy evaluation settings (for --mode legacy)
-legacy_evaluation:
-  run_gim_slant: true     # GIM → slant evaluation
-  run_vlbi_dtec: false    # VLBI dTEC evaluation
-  run_madrigal: false     # Madrigal evaluation
-
 # Output configuration
 output:
   output_dir: "./eval_results"
