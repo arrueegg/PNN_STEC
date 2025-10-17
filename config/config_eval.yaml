@@ -12,6 +12,8 @@ stec_evaluation:
   experiment_folder: "experiments/Pretrain_STEC_DE_MLP_h1024_l4_lr3e-4_bs512_GNLL_Adam_CosineAnnealingLR_ens5_sub500K_SH0_lw5e-1_SWI"
   
   # Physical parameters
+  GIM_type: "IGS"            # Options: IGS, CODE
+  mapping_function: "MSLM"  # Options: SLM, MSLM
   shell_height_km: 450.0      # Shell height in km (standard F2 layer peak height)
   earth_radius_km: 6371.0     # Earth radius in km (WGS84 mean radius)
   
@@ -20,3 +22,26 @@ output:
   output_dir: "./eval_results"
   enable_plots: true      # Generate visualization plots
   save_csvs: true         # Save results as CSV files for further analysis
+
+# Enhanced analysis settings
+enhanced_analysis:
+  enabled: true                    # Enable comprehensive GIM comparison analysis
+  
+  # Analysis components to run
+  components:
+    basic_statistics: true         # Overall performance metrics
+    latitude_analysis: true        # Geographic/geomagnetic latitude effects
+    temporal_analysis: true        # Seasonal, yearly, diurnal patterns
+    solar_activity_analysis: true  # Kp, Dst, F10.7 effects
+    statistical_tests: true        # Significance testing
+    
+  # Plotting options
+  plotting:
+    enabled: true                  # Generate analysis plots
+    dpi: 300                      # Plot resolution
+    format: "png"                 # Plot format
+    
+  # Output organization
+  output:
+    create_summary_report: true    # Generate markdown summary
+    save_statistical_tables: true # Save CSV tables with results

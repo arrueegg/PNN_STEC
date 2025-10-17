@@ -1,21 +1,23 @@
 """
 STEC Evaluation Package
 
-This package provides memory-efficient evaluation tools for comparing
-machine learning model STEC predictions against GIM VTEC mapped to STEC space.
-
-Main Components:
-- evaluator: Memory-efficient evaluation orchestrator  
+This package provides streamlined evaluation tools for STEC model evaluation:
 - gim_mapper: GIM VTEC to STEC mapping functionality
+- plotter: Comprehensive plotting system combining basic and enhanced analysis
+- utils: Lightweight CSV saving and statistics utilities
 
-The package uses DataLoader infrastructure to handle datasets of any size 
-with constant memory usage and groups batches by date for efficient GIM loading.
+The package provides a complete evaluation workflow from model inference 
+to comprehensive visualization and statistical analysis.
 """
 
-from .evaluator import EvaluationOrchestrator
 from .gim_mapper import GIMMapper
+from .plotter import STECPlotter, create_stec_plots
+from .utils import save_results_csv, print_and_save_statistics
 
 __all__ = [
-    'EvaluationOrchestrator',
-    'GIMMapper'
+    'GIMMapper',
+    'STECPlotter', 
+    'create_stec_plots',
+    'save_results_csv',
+    'print_and_save_statistics',
 ]

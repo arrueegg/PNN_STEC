@@ -109,6 +109,13 @@ class IONEXReader:
             
         logger.debug(f"Reading IONEX file: {filepath}")
         
+        # Clear previous data to prevent accumulation
+        self.header = {}
+        self.vtec_maps = []
+        self.lat_grid = None
+        self.lon_grid = None
+        self.epochs = []
+        
         with open(filepath, 'r') as f:
             lines = f.readlines()
             
@@ -270,7 +277,7 @@ class GIMMapper:
     """
     
     def __init__(self, shell_height_km: float = 450.0, earth_radius_km: float = 6371.0, 
-                 mapping_type: str = 'SLM'):
+                 mapping_type: str = 'SLM', gim_type: str = 'IGS'):
         """
         Initialize GIM mapper.
         
@@ -278,14 +285,16 @@ class GIMMapper:
             shell_height_km: Ionospheric shell height (default: 450 km)
             earth_radius_km: Earth radius (default: 6371 km)
             mapping_type: Mapping function type ('SLM' or 'MSLM')
+            gim_type: GIM data source ('IGS' or 'CODE')
         """
         self.shell_height_km = shell_height_km
         self.earth_radius_km = earth_radius_km
+        self.gim_type = gim_type
         self.reader = IONEXReader()
         self.mapping_func = MappingFunction(mapping_type)
         self.gim_data = {}  # Cache for loaded GIM data
         
-    def load_gim_data(self, gim_path: str, time_range: Tuple[datetime, datetime]) -> None:
+    def load_gim_data(self, gim_path: str, date: datetime) -> None:
         """
         Load GIM data for specified time range.
         
@@ -294,16 +303,16 @@ class GIMMapper:
             time_range: (start_time, end_time) for data loading
         """
         gim_path = Path(gim_path)
-        start_time, end_time = time_range
+        
+        # Clear any existing GIM data to prevent accumulation
+        self.gim_data = {}
                 
         # Find relevant IONEX files
-        ionex_files = self._find_ionex_files(gim_path, start_time, end_time)
+        ionex_files = self._find_ionex_files(gim_path, date)
         
         if not ionex_files:
             raise FileNotFoundError(f"No IONEX files found in {gim_path} for time range")
-            
-        logger.info(f"Found {len(ionex_files)} IONEX files")
-        
+                    
         # Load each file
         all_epochs = []
         all_vtec_maps = []
@@ -321,9 +330,8 @@ class GIMMapper:
                 
                 # Filter epochs to time range
                 for i, epoch in enumerate(data['epochs']):
-                    if start_time <= epoch <= end_time:
-                        all_epochs.append(epoch)
-                        all_vtec_maps.append(data['vtec_maps'][i])
+                    all_epochs.append(epoch)
+                    all_vtec_maps.append(data['vtec_maps'][i])
                         
             except Exception as e:
                 logger.warning(f"Failed to read {filepath}: {e}")
@@ -340,39 +348,41 @@ class GIMMapper:
             'lat_grid': lat_grid,
             'lon_grid': lon_grid
         }
-        
-        logger.info(f"Loaded {len(self.gim_data['epochs'])} VTEC maps")
-        
-    def _find_ionex_files(self, gim_path: Path, start_time: datetime, end_time: datetime) -> List[Path]:
-        """Find IGS IONEX files covering the specified time range."""
+                
+    def _find_ionex_files(self, gim_path: Path, date: datetime) -> List[Path]:
+        """Find IONEX files covering the specified date based on GIM type."""
         ionex_files = []
         
-        # Generate list of days to check
-        current_date = start_time.date()
-        end_date = end_time.date()
+        year = date.year
+        doy = date.timetuple().tm_yday
         
-        while current_date <= end_date:
-            year = current_date.year
-            doy = current_date.timetuple().tm_yday
-            
-            # Only IGS IONEX file patterns
-            patterns = [
-                f"igsg{doy:03d}0.{year%100:02d}i",  # IGS final
-            ]
-            
-            # Check year directory
-            year_dir = gim_path / str(year)
-            if year_dir.exists():
-                for pattern in patterns:
-                    files = list(year_dir.glob(pattern))
-                    ionex_files.extend(files)
-            
-            current_date += timedelta(days=1)
-            
+        # Define file patterns based on GIM type
+        if self.gim_type.upper() == 'IGS':
+            # IGS final products: igsgDDD0.YYi
+            pattern = f"igsg{doy:03d}0.{year%100:02d}i"
+        elif self.gim_type.upper() == 'CODE':
+            # CODE final products: codgDDD0.YYi  
+            pattern = f"codg{doy:03d}0.{year%100:02d}i"
+        else:
+            logger.warning(f"Unknown GIM type '{self.gim_type}', defaulting to IGS")
+            pattern = f"igsg{doy:03d}0.{year%100:02d}i"
+        
+        logger.debug(f"Looking for {self.gim_type} IONEX files with pattern: {pattern}")
+        
+        # Check year directory
+        year_dir = gim_path / str(year)
+        if year_dir.exists():
+            files = list(year_dir.glob(pattern))
+            ionex_files.extend(files)
+        
+        # Also check root directory
+        files = list(gim_path.glob(pattern))
+        ionex_files.extend(files)
+
         return ionex_files
         
     def map_vtec_to_stec(self, 
-                        times: np.ndarray,
+                        sods: np.ndarray,
                         ipp_lat: np.ndarray, 
                         ipp_lon: np.ndarray,
                         elevations: np.ndarray) -> np.ndarray:
@@ -380,7 +390,7 @@ class GIMMapper:
         Map VTEC to STEC for given observation geometry.
         
         Args:
-            times: Observation times (datetime objects)
+            sod: Satellite observation times (seconds of day)
             ipp_lat: Ionospheric pierce point latitudes (degrees)
             ipp_lon: Ionospheric pierce point longitudes (degrees) 
             elevations: Satellite elevation angles (degrees)
@@ -391,17 +401,17 @@ class GIMMapper:
         if not self.gim_data:
             raise ValueError("No GIM data loaded. Call load_gim_data() first.")
             
-        n_obs = len(times)
+        n_obs = len(sods)
         stec_values = np.full(n_obs, np.nan)
         
         logger.debug(f"Mapping VTEC to STEC for {n_obs} observations")
         
         # Create temporal interpolator - no longer needed as we do this in interpolate_vtec
-        
-        for i, (obs_time, lat, lon, elev) in enumerate(zip(times, ipp_lat, ipp_lon, elevations)):
+
+        for i, (sod, lat, lon, elev) in enumerate(zip(sods, ipp_lat, ipp_lon, elevations)):
             try:
                 # Get VTEC at this time/location
-                vtec = self._interpolate_vtec(obs_time, lat, lon)
+                vtec = self._interpolate_vtec(sod, lat, lon)
                 
                 if not np.isnan(vtec):
                     # Apply mapping function (convert elevation to radians if needed)
@@ -412,13 +422,10 @@ class GIMMapper:
             except Exception as e:
                 logger.debug(f"Failed to map observation {i}: {e}")
                 continue
-                
-        n_valid = np.sum(~np.isnan(stec_values))
-        logger.debug(f"Successfully mapped {n_valid}/{n_obs} observations")
-        
+                        
         return stec_values
-        
-    def _interpolate_vtec(self, obs_time: datetime, lat: float, lon: float) -> float:
+
+    def _interpolate_vtec(self, sod: int, lat: float, lon: float) -> float:
         """
         Interpolate VTEC at given time and location using robust interpolation.
         
@@ -430,7 +437,7 @@ class GIMMapper:
         lat = np.clip(lat, -90, 90)
         
         # Convert time to hour of day
-        hod = obs_time.hour + obs_time.minute / 60.0
+        hod = sod / 3600.0  # seconds of day to hours
         
         # Build epoch list in hours
         gim_day = self.gim_data['epochs'][0].day
@@ -466,66 +473,8 @@ class GIMMapper:
             return float(result) if not np.isnan(result) else np.nan
             
         except Exception as e:
-            logger.debug(f"Interpolation failed for lat={lat}, lon={lon}, time={obs_time}: {e}")
+            logger.debug(f"Interpolation failed for lat={lat}, lon={lon}, time={hod}: {e}")
             return np.nan
-        
-    def _spatial_interpolate(self, lat: float, lon: float, vtec_map: np.ndarray) -> float:
-        """Bilinear spatial interpolation of VTEC."""
-        lat_grid = self.gim_data['lat_grid']
-        lon_grid = self.gim_data['lon_grid']
-        
-        # Handle longitude wrapping
-        lon = lon % 360.0
-        if lon > 180:
-            lon -= 360
-            
-        # Check bounds
-        if lat < lat_grid[0] or lat > lat_grid[-1]:
-            return np.nan
-        if lon < lon_grid[0] or lon > lon_grid[-1]:
-            return np.nan
-            
-        try:
-            # Use scipy interpolator
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                interpolator = RegularGridInterpolator(
-                    (lat_grid, lon_grid), 
-                    vtec_map,
-                    method='linear',
-                    bounds_error=False,
-                    fill_value=np.nan
-                )
-                return float(interpolator([lat, lon]))
-        except Exception:
-            return np.nan
-            
-    def _thin_shell_mapping(self, elevation_deg: float) -> float:
-        """
-        Compute thin-shell mapping function.
-        
-        M = 1 / cos(zenith_at_shell)
-        where zenith_at_shell accounts for Earth curvature.
-        """
-        if elevation_deg <= 0:
-            return np.nan
-            
-        elev_rad = np.radians(elevation_deg)
-        
-        # Earth's radius ratio
-        radius_ratio = self.earth_radius_km / (self.earth_radius_km + self.shell_height_km)
-        
-        # Zenith angle at shell (accounting for Earth curvature)
-        sin_zenith_shell = radius_ratio * np.sin(np.pi/2 - elev_rad)
-        
-        if sin_zenith_shell >= 1.0:  # Below horizon at shell height
-            return np.nan
-            
-        cos_zenith_shell = np.sqrt(1 - sin_zenith_shell**2)
-        mapping_factor = 1.0 / cos_zenith_shell
-        
-        return mapping_factor
-
 
 def build_gim_stec(cfg: Dict[str, Any], obs: Dict[str, Any]) -> np.ndarray:
     """

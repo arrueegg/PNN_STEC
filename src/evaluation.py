@@ -37,6 +37,8 @@ from data_loader import get_test_data_loader
 from model.model import get_model
 from inference_testset import find_experiment_directory, find_model_checkpoint
 from evaluation.gim_mapper import GIMMapper
+from evaluation.utils import save_results_csv
+from evaluation.plotter import create_stec_plots
 
 
 def setup_logging():
@@ -113,15 +115,19 @@ def group_observations_by_date(test_df, logger):
     # Assuming we have temporal features that can be converted to dates
     logger.info("📅 Grouping observations by date...")
     
-    # Group by date - need to extract date from features or add it to dataframe
-    # For now, create a simple grouping strategy
+    # Group by date using 'year' and 'doy' columns
     grouped_data = defaultdict(list)
+    
+    # Ensure 'year' and 'doy' columns exist in the dataframe
+    if 'year' not in test_df.columns or 'doy' not in test_df.columns:
+        raise ValueError("The test dataframe must contain 'year' and 'doy' columns for date grouping.")
     
     # Add observation indices to track which rows belong to which group
     for idx, row in test_df.iterrows():
-        # This is a placeholder - in reality we need proper date extraction
-        # from the denormalized temporal features
-        date_key = "2023-06-15"  # Placeholder date
+        # Construct the date from 'year' and 'doy' columns
+        year = int(row['year'])
+        doy = int(row['doy'])
+        date_key = (datetime(year, 1, 1) + timedelta(days=doy - 1)).strftime("%Y-%m-%d")
         grouped_data[date_key].append(idx)
     
     logger.info(f"✅ Grouped into {len(grouped_data)} days")
@@ -129,147 +135,111 @@ def group_observations_by_date(test_df, logger):
 
 
 def process_gim_for_date(date_str: str, observation_indices: List[int], test_df: pd.DataFrame, 
-                        gim_mapper: GIMMapper, logger) -> Dict[str, np.ndarray]:
+                        gim_mapper: GIMMapper, gim_path: str, logger) -> Dict[str, np.ndarray]:
     """Load GIM data for a specific date and compute STEC for observations."""
-    
-    logger.info(f"🌍 Processing GIM for {date_str}: {len(observation_indices)} observations")
-    
+        
     # Extract coordinates and times for this date's observations
     obs_data = test_df.iloc[observation_indices]
     
-    # Extract coordinates - need proper coordinate extraction here
-    # This is placeholder - need to implement proper coordinate denormalization
-    times = [datetime(2023, 6, 15, 12, 0, 0)] * len(observation_indices)  # Placeholder
-    ipp_lat = np.random.uniform(-90, 90, len(observation_indices))  # Placeholder  
-    ipp_lon = np.random.uniform(-180, 180, len(observation_indices))  # Placeholder
-    elevations = np.random.uniform(5, 90, len(observation_indices))  # Placeholder
+    # Extract coordinates and times
+    ipp_lat = obs_data['lat_ipp'].values
+    ipp_lon = obs_data['lon_ipp'].values
+    elevations = obs_data['satele'].values
+    sod = obs_data['sod'].values
     
     # Load GIM data for this date (use time range covering the whole day)
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-    start_time = date_obj
-    end_time = date_obj + timedelta(days=1)
     
     try:
-        gim_mapper.load_gim_data(gim_mapper.gim_path, (start_time, end_time))
+        # Load GIM data for this specific date
+        gim_mapper.load_gim_data(gim_path, date_obj)
         
         # Compute STEC from VTEC for all observations 
         gim_stec = gim_mapper.map_vtec_to_stec(
-            np.array(times),
+            np.array(sod),
             np.array(ipp_lat), 
             np.array(ipp_lon),
             np.array(elevations)
         )
         
         # Check for valid results
-        valid_mask = ~np.isnan(gim_stec)
-        n_valid = valid_mask.sum()
-        
-        logger.info(f"✅ Processed {n_valid}/{len(observation_indices)} valid GIM predictions")
-        
+        valid_mask = ~np.isnan(gim_stec)                
         return {
-            'stec': gim_stec,
-            'success': valid_mask
+            'gim_stec': gim_stec,
+            'success': valid_mask,
+            'indices': observation_indices
         }
         
     except Exception as e:
-        logger.warning(f"❌ Failed to process GIM data for {date_str}: {e}")
+        logger.warning(f"  ❌ GIM processing failed for {date_str}: {e}")
         return {
-            'stec': np.full(len(observation_indices), np.nan),
-            'success': np.zeros(len(observation_indices), dtype=bool)
+            'gim_stec': np.full(len(observation_indices), np.nan),
+            'success': np.zeros(len(observation_indices), dtype=bool),
+            'indices': observation_indices
         }
 
 
 def run_evaluation(eval_config):
-    """Main evaluation function following inference_testset.py structure."""
+    """Main evaluation workflow mirroring inference_testset.py structure."""
+    
     logger = setup_logging()
+    logger.info("🚀 STARTING STEC EVALUATION - Model vs GIM Comparison")
     
-    # Extract config sections
+    # Load experiment configuration
     experiment_folder = eval_config['stec_evaluation']['experiment_folder']
-    gim_path = eval_config['stec_evaluation']['gim_path']
+    experiment_dir = Path(experiment_folder)
+    config = load_experiment_config(experiment_dir)
     
-    logger.info(f"📋 Using experiment: {Path(experiment_folder).name}")
-    logger.info(f"🌍 GIM path: {gim_path}")
+    # Update device settings
+    config["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"💻 Using device: {config['device']}")
     
-    # Load experiment config (same as inference_testset.py)
-    config = load_experiment_config(experiment_folder)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    config["device"] = device
-    
-    # Find experiment directory and model (same as inference_testset.py)
-    experiment_name = Path(experiment_folder).name
-    experiment_dir = find_experiment_directory(experiment_name)
-    if experiment_dir is None:
-        raise FileNotFoundError(f"Experiment not found: {experiment_name}")
-    
+    # Find model checkpoint
     model_path = find_model_checkpoint(experiment_dir)
-    logger.info(f"✅ Found model: {model_path}")
+    logger.info(f"📂 Experiment: {experiment_dir}")
+    logger.info(f"🎯 Model: {model_path}")
     
-    # Run model inference (reusing inference_testset.py patterns)
-    logger.info("🚀 Starting STEC evaluation")
+    # Run model inference
     test_df = run_model_inference(config, experiment_dir, model_path, logger)
     
-    # Group by dates for efficient GIM processing
-    date_groups = group_observations_by_date(test_df, logger)
+    # Group observations by date for efficient GIM loading
+    grouped_observations = group_observations_by_date(test_df, logger)
     
     # Initialize GIM mapper
-    gim_mapper = GIMMapper()
-    gim_mapper.gim_path = gim_path
+    gim_path = eval_config['stec_evaluation'].get('gim_path', '/scratch2/arrueegg/WP4/data/GIM')
+    gim_mapper = GIMMapper(gim_path)
+    logger.info(f"🌍 Initialized GIM mapper: {gim_path}")
     
-    # Process each date group
-    all_gim_results = {}
-    logger.info(f"📊 Processing {len(date_groups)} date groups...")
+    # Process GIM data for each date
+    logger.info(f"🔄 Processing GIM data for {len(grouped_observations)} dates...")
     
-    for date_str, obs_indices in tqdm(date_groups.items(), desc="Processing dates"):
-        gim_results = process_gim_for_date(date_str, obs_indices, test_df, gim_mapper, logger)
-        all_gim_results[date_str] = gim_results
-    
-    # Combine results back into test_df
     gim_stec_values = np.full(len(test_df), np.nan)
     gim_success_flags = np.zeros(len(test_df), dtype=bool)
     
-    for date_str, obs_indices in date_groups.items():
-        gim_results = all_gim_results[date_str]
-        for i, obs_idx in enumerate(obs_indices):
-            gim_stec_values[obs_idx] = gim_results['stec'][i]
-            gim_success_flags[obs_idx] = gim_results['success'][i]
+    for date_str, observation_indices in tqdm(grouped_observations.items(), desc="Processing GIM dates"):
+        gim_result = process_gim_for_date(date_str, observation_indices, test_df, gim_mapper, gim_path, logger)
+        
+        # Store results back in test_df indices
+        for i, idx in enumerate(observation_indices):
+            gim_stec_values[idx] = gim_result['gim_stec'][i]
+            gim_success_flags[idx] = gim_result['success'][i]
     
-    # Add GIM results to dataframe
+    # Add GIM results to test dataframe
     test_df['gim_stec'] = gim_stec_values
     test_df['gim_success'] = gim_success_flags
     
-    # Calculate comparison metrics
-    valid_mask = gim_success_flags & ~np.isnan(test_df['pred_stec']) & ~np.isnan(test_df['target_stec'])
-    n_valid = valid_mask.sum()
-    n_total = len(test_df)
+    # Create output directory inside experiment folder
+    eval_results_dir = experiment_dir / "eval_results"
     
-    if n_valid > 0:
-        model_stec = test_df.loc[valid_mask, 'pred_stec'].values
-        gim_stec = test_df.loc[valid_mask, 'gim_stec'].values
-        truth_stec = test_df.loc[valid_mask, 'target_stec'].values
-        
-        # Calculate RMSEs
-        model_vs_truth_rmse = np.sqrt(np.mean((model_stec - truth_stec)**2))
-        gim_vs_truth_rmse = np.sqrt(np.mean((gim_stec - truth_stec)**2))
-        model_vs_gim_rmse = np.sqrt(np.mean((model_stec - gim_stec)**2))
-        
-        results = {
-            'n_total': n_total,
-            'n_valid': n_valid,
-            'validity_rate': n_valid / n_total,
-            'model_vs_truth': {'rmse': model_vs_truth_rmse},
-            'gim_vs_truth': {'rmse': gim_vs_truth_rmse},
-            'model_vs_gim': {'rmse': model_vs_gim_rmse},
-            'test_df': test_df
-        }
-    else:
-        results = {
-            'n_total': n_total,
-            'n_valid': 0,
-            'validity_rate': 0.0,
-            'error': 'No valid comparisons possible'
-        }
+    # Save CSV results and generate plots using lightweight utilities
+    save_results_csv(test_df, eval_results_dir)
     
-    return results
+    # Run comprehensive STEC analysis
+    if eval_config.get('enhanced_analysis', {}).get('enabled', True):
+        logger.info("🔬 Running comprehensive STEC analysis...")
+        create_stec_plots(test_df, eval_results_dir, logger)
+    
+    return test_df
 
 
 def main():
@@ -280,18 +250,22 @@ def main():
 
     try:
         eval_config = load_eval_config()
-        results = run_evaluation(eval_config)
-        
-        logger = logging.getLogger(__name__)
-        logger.info("✅ EVALUATION COMPLETED!")
-        logger.info(f"📊 Samples processed: {results['n_total']:,}")
-        logger.info(f"✓ Valid predictions: {results['n_valid']:,} ({results['validity_rate']*100:.1f}%)")
-        
-        if 'error' not in results:
-            logger.info(f"📈 Model vs Truth RMSE: {results['model_vs_truth']['rmse']:.4f}")
-            logger.info(f"🌍 GIM vs Truth RMSE: {results['gim_vs_truth']['rmse']:.4f}")
-            logger.info(f"🔄 Model vs GIM RMSE: {results['model_vs_gim']['rmse']:.4f}")
+        results_df = run_evaluation(eval_config)
 
+        logger = logging.getLogger(__name__)
+        
+        # Get the experiment directory to print stats in correct location
+        experiment_folder = eval_config['stec_evaluation']['experiment_folder']
+        experiment_dir = Path(experiment_folder)
+        if not str(experiment_folder).startswith("experiments/"):
+            experiment_dir = Path("experiments") / experiment_folder
+        eval_results_dir = experiment_dir / "eval_results"
+        
+        # Print summary statistics using lightweight utilities
+        from evaluation.utils import print_and_save_statistics
+        print_and_save_statistics(results_df, eval_results_dir)
+
+        logger.info("✅ EVALUATION COMPLETED!")
         return 0
 
     except Exception as e:
@@ -302,4 +276,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    main()
