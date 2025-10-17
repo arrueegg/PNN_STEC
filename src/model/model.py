@@ -520,16 +520,16 @@ def get_model(config):
     station_features = feature_registry.get_features_by_type(FeatureType.STATION)
     station_dim = len(station_features)  # No transformation applied
 
-    # Direction features (only for STEC target)
+    # Direction features (only for STEC target) - Cartesian unit vector
     direction_features = feature_registry.get_features_by_type(FeatureType.DIRECTION)
     direction_dim = 0
-    for feature in direction_features:
-        if feature == "satazi":
-            direction_dim += 3  # sin, cos, normalized for azimuth
-        elif feature == "satele":
-            direction_dim += 1  # just normalized for elevation
+    if direction_features:
+        # Check if we have both azimuth and elevation for Cartesian transformation
+        if "satazi" in direction_features and "satele" in direction_features:
+            direction_dim = 3  # e_up, e_east, e_north
         else:
-            direction_dim += 1  # default: just normalized
+            # Fallback to individual processing
+            direction_dim = len(direction_features)
 
     # IPP features
     ipp_features = feature_registry.get_features_by_type(FeatureType.IPP)

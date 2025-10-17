@@ -106,19 +106,22 @@ class CollateWithSH:
             output_indices[f"{feature_name}_norm"] = current_idx
             current_idx += 1
 
-        # Direction features
+        # Direction features - Cartesian unit vector (e_up, e_east, e_north)
         direction_features = self.feature_registry.get_feature_names(
             FeatureType.DIRECTION
         )
-        for feature_name in direction_features:
-            if feature_name == "satazi":
-                output_indices[f"{feature_name}_norm"] = current_idx
-                output_indices[f"{feature_name}_sin"] = current_idx + 1
-                output_indices[f"{feature_name}_cos"] = current_idx + 2
+        if direction_features:
+            # Check if we have both azimuth and elevation
+            if "satazi" in direction_features and "satele" in direction_features:
+                output_indices["e_up"] = current_idx
+                output_indices["e_east"] = current_idx + 1
+                output_indices["e_north"] = current_idx + 2
                 current_idx += 3
-            elif feature_name == "satele":
-                output_indices[f"{feature_name}_norm"] = current_idx
-                current_idx += 1
+            else:
+                # Fallback to individual processing if not both present
+                for feature_name in direction_features:
+                    output_indices[f"{feature_name}_norm"] = current_idx
+                    current_idx += 1
 
         # IPP features
         ipp_features = self.feature_registry.get_feature_names(FeatureType.IPP)
@@ -232,7 +235,7 @@ class CollateWithSH:
         return torch.cat(transformed_features, dim=1)
 
     def transform_direction(self, features):
-        """Transform direction features (azimuth, elevation)"""
+        """Transform direction features (azimuth, elevation) to Cartesian unit vector"""
         direction_features = self.feature_registry.get_feature_names(
             FeatureType.DIRECTION
         )
@@ -241,28 +244,29 @@ class CollateWithSH:
         if not direction_features:
             return None
 
-        transformed_features = []
+        # We expect both satazi and satele to be present
+        if "satazi" not in direction_features or "satele" not in direction_features:
+            raise ValueError("Both 'satazi' and 'satele' must be present for Cartesian transformation")
 
-        for feature_name in direction_features:
-            feature_idx = self.input_indices[feature_name]
-            feature_values = features[:, feature_idx]
+        # Get indices for azimuth and elevation
+        azi_idx = self.input_indices["satazi"]
+        ele_idx = self.input_indices["satele"]
 
-            if feature_name == "satazi":
-                azi_norm = self.feature_registry.normalize_feature(
-                    feature_name, feature_values
-                ).unsqueeze(1)
-                azi_sin = torch.sin(azi_norm * 2 * torch.pi)
-                azi_cos = torch.cos(azi_norm * 2 * torch.pi)
-                transformed_features.extend([azi_norm, azi_sin, azi_cos])
-            elif feature_name == "satele":
-                ele_norm = self.feature_registry.normalize_feature(
-                    feature_name, feature_values
-                ).unsqueeze(1)
-                transformed_features.append(ele_norm)
-            else:
-                raise ValueError(f"Unexpected direction feature: {feature_name}")
+        # Get raw values (in degrees, not yet normalized)
+        azimuth_deg = features[:, azi_idx]  # 0-360 degrees
+        elevation_deg = features[:, ele_idx]  # 0-90 degrees
 
-        return torch.cat(transformed_features, dim=1)
+        # Convert to radians
+        azimuth_rad = azimuth_deg * torch.pi / 180.0
+        elevation_rad = elevation_deg * torch.pi / 180.0
+
+        # Compute Cartesian unit vector components
+        e_up = torch.sin(elevation_rad).unsqueeze(1)  # Vertical component
+        e_east = (torch.cos(elevation_rad) * torch.sin(azimuth_rad)).unsqueeze(1)  # Eastward component
+        e_north = (torch.cos(elevation_rad) * torch.cos(azimuth_rad)).unsqueeze(1)  # Northward component
+
+        # Return the 3D unit vector
+        return torch.cat([e_up, e_east, e_north], dim=1)
 
     def transform_ipp(self, features):
         """Transform IPP features"""
