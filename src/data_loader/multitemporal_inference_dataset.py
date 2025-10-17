@@ -208,6 +208,11 @@ class MultiTemporalInferenceDataset(Dataset):
                 value = self.doy
             elif feature_name == "sod":
                 value = self.sod
+            elif feature_name == "local_time_hours":
+                # Compute local time from UTC seconds of day and IPP longitude
+                longitude = float(self.lon_ipp[idx])
+                from data_loader.datasets import compute_local_time_hours
+                value = compute_local_time_hours(self.sod, longitude)
             elif feature_name == "sm_lat_sta":
                 value = float(self.sm_lat_sta[idx])
             elif feature_name == "sm_lon_sta":

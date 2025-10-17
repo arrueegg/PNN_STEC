@@ -19,6 +19,28 @@ from tqdm import tqdm
 from utils.feature_registry import FeatureType
 
 
+def compute_local_time_hours(sod, longitude):
+    """
+    Compute local time in hours from UTC seconds of day and longitude.
+    
+    Args:
+        sod: Seconds of day in UTC (0-86400)
+        longitude: Longitude in degrees (-180 to 180)
+    
+    Returns:
+        Local time in hours (0-24)
+    """
+    utc_hours = sod / 3600.0  # Convert seconds to hours
+    # Longitude offset: each 15 degrees = 1 hour time zone
+    longitude_offset = longitude / 15.0  
+    local_time_hours = utc_hours + longitude_offset
+    
+    # Wrap to 0-24 hour range
+    local_time_hours = local_time_hours % 24.0
+    
+    return local_time_hours
+
+
 class H5Dataset(Dataset):
     """Standard HDF5 dataset with on-demand loading for STEC data."""
 
@@ -83,6 +105,11 @@ class H5Dataset(Dataset):
                 value = float(row["doy"])
             elif feature_name == "sod":
                 value = float(row["sod"])
+            elif feature_name == "local_time_hours":
+                # Compute local time from UTC seconds of day and IPP longitude
+                sod = float(row["sod"])
+                longitude = float(row["lon_ipp"])  # Use IPP longitude for local time
+                value = compute_local_time_hours(sod, longitude)
             elif feature_name in ["lat_sta", "lon_sta", "sm_lat_sta", "sm_lon_sta"]:
                 value = float(row[feature_name])
             elif feature_name in ["satazi", "satele"]:
@@ -262,6 +289,11 @@ class H5RAMDataset(Dataset):
                 value = float(row["doy"])
             elif feature_name == "sod":
                 value = float(row["sod"])
+            elif feature_name == "local_time_hours":
+                # Compute local time from UTC seconds of day and IPP longitude
+                sod = float(row["sod"])
+                longitude = float(row["lon_ipp"])  # Use IPP longitude for local time
+                value = compute_local_time_hours(sod, longitude)
             elif feature_name in ["lat_sta", "lon_sta", "sm_lat_sta", "sm_lon_sta"]:
                 value = float(row[feature_name])
             elif feature_name in ["satazi", "satele"]:
@@ -368,6 +400,11 @@ class PyTablesDatasetSplit(Dataset):
                 value = float(self.year)
             elif feature_name == "doy":
                 value = float(self.doy)
+            elif feature_name == "local_time_hours":
+                # Compute local time from UTC seconds of day and IPP longitude
+                sod = float(row["sod"]) if "sod" in row.dtype.names else 0.0
+                longitude = float(row["lon_ipp"]) if "lon_ipp" in row.dtype.names else 0.0
+                value = compute_local_time_hours(sod, longitude)
             elif feature_name in row.dtype.names:
                 value = float(row[feature_name])
             else:

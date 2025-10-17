@@ -507,14 +507,14 @@ def get_model(config):
     # Calculate transformed feature dimensions
     # Note: The collate function transforms features, so we need to account for this
 
-    # Temporal features: year (1) + doy (3: sin, cos, norm) + sod (3: sin, cos, norm) = 7
+    # Temporal features: year (1) + doy (3: sin, cos, norm) + sod (3: sin, cos, norm) + local_time_hours (3: sin, cos, norm) = 10
     temporal_features = feature_registry.get_features_by_type(FeatureType.TEMPORAL)
     temporal_dim = 0
     for feature in temporal_features:
         if feature == "year":
             temporal_dim += 1  # Just normalized year
-        elif feature in ["doy", "sod"]:
-            temporal_dim += 3  # sin, cos, normalized for each
+        elif feature in ["doy", "sod", "local_time_hours"]:
+            temporal_dim += 3  # sin, cos, normalized for each cyclical feature
 
     # Station features (only for STEC target)
     station_features = feature_registry.get_features_by_type(FeatureType.STATION)

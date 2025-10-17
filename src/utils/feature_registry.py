@@ -190,6 +190,12 @@ def create_default_registry(config: dict) -> FeatureRegistry:
         normalization=(0, 86400),
         description="Seconds of day",
     )
+    registry.register_feature(
+        "local_time_hours",
+        FeatureType.TEMPORAL,
+        normalization=(0, 24),
+        description="Local time in hours (0-24) based on longitude",
+    )
 
     # 2. Station features (solar magnetic coordinates) - only for STEC
     if config["target"] == "stec":

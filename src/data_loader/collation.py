@@ -94,7 +94,7 @@ class CollateWithSH:
             if feature_name == "year":
                 output_indices[f"{feature_name}_norm"] = current_idx
                 current_idx += 1
-            elif feature_name == "doy" or feature_name == "sod":
+            elif feature_name == "doy" or feature_name == "sod" or feature_name == "local_time_hours":
                 output_indices[f"{feature_name}_sin"] = current_idx
                 output_indices[f"{feature_name}_cos"] = current_idx + 1
                 output_indices[f"{feature_name}_norm"] = current_idx + 2
@@ -198,6 +198,14 @@ class CollateWithSH:
                 sin_sod = torch.sin(norm_sod * 2 * torch.pi)
                 cos_sod = torch.cos(norm_sod * 2 * torch.pi)
                 transformed_features.extend([sin_sod, cos_sod, norm_sod])
+            elif feature_name == "local_time_hours":
+                # Local time transformations (cyclical feature)
+                norm_local_time = self.feature_registry.normalize_feature(
+                    feature_name, feature_values
+                ).unsqueeze(1)
+                sin_local_time = torch.sin(norm_local_time * 2 * torch.pi)
+                cos_local_time = torch.cos(norm_local_time * 2 * torch.pi)
+                transformed_features.extend([sin_local_time, cos_local_time, norm_local_time])
             else:
                 raise ValueError(f"Unexpected temporal feature: {feature_name}")
 
