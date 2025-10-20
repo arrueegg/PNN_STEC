@@ -6,7 +6,7 @@ metric:
 parameters:
   # Model architecture parameters
   model.model_type:
-    values: ['MLP_MCDropout_NLL', 'MLP_MCDropout_mse']
+    values: ['MLP_MCDropout_NLL']
   
   model.hidden_dim:
     values: [256, 512, 1024, 2048]
