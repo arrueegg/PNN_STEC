@@ -216,29 +216,36 @@ class InferenceManager:
                         self.validation_manager.inverse_transform_features(inputs)
                     )
 
-                    # Define essential features needed for key plots
-                    essential_feature_names = [
-                        "lon_ipp",
-                        "lat_ipp",
-                        "sm_lat_ipp",  # Spatial plotting
-                        "year",
-                        "doy",
-                        "time",  # Temporal plotting
-                        "satazi",
-                        "satele",  # Directional plotting
-                        "kp_binned",
-                        "dst",
-                        "f107",  # Space weather (if available)
-                    ]
+                    # Dynamically build essential features list from the feature registry
+                    fr = self.data_transforms.feature_registry
+                    # Spatial essentials
+                    spatial_essentials = [f for f in ["lon_ipp", "lat_ipp", "sm_lat_ipp"] if f in feature_order]
+                    # Temporal essentials: prefer 'sod' or 'local_time_hours' if available, always include 'year' and 'doy' if present
+                    temporal_essentials = [f for f in ["year", "doy"] if f in feature_order]
+                    if "sod" in feature_order:
+                        temporal_essentials.append("sod")
+                    elif "local_time_hours" in feature_order:
+                        temporal_essentials.append("local_time_hours")
+
+                    # Direction essentials
+                    direction_essentials = [f for f in ["satazi", "satele"] if f in feature_order]
+
+                    # SWI essentials: pick a small, useful subset if available
+                    try:
+                        swi_list = fr.get_features_by_type(__import__("utils.feature_registry", fromlist=["FeatureType"]).FeatureType.SWI)
+                    except Exception:
+                        swi_list = []
+                    # Fallback: pick common names if present
+                    swi_candidates = [c for c in ["f107", "dst", "kp_binned"] if c in feature_order]
+
+                    essential_feature_names = spatial_essentials + temporal_essentials + direction_essentials + swi_candidates
 
                     # Extract essential features that exist in the feature order
                     batch_essential = {}
                     for i, feature_name in enumerate(feature_order):
                         if feature_name in essential_feature_names:
                             # Use .clone() to create independent copies and break memory references
-                            batch_essential[feature_name] = inputs_original[
-                                :, i
-                            ].clone()
+                            batch_essential[feature_name] = inputs_original[:, i].clone()
 
                     batch_essential_features.append(batch_essential)
 
