@@ -290,19 +290,56 @@ class ValidationManager:
 
                 elif feature_type == FeatureType.DIRECTION:
                     if feature_name == "satazi":
-                        # For azimuth, reconstruct from sin/cos components
-                        sin_idx = output_indices[f"{feature_name}_sin"]
-                        cos_idx = output_indices[f"{feature_name}_cos"]
-                        azi_rad = torch.atan2(x[:, sin_idx], x[:, cos_idx])
-                        azi_deg = (azi_rad * 180 / torch.pi) % 360
-                        rescaled_features[feature_name] = azi_deg
-                    elif feature_name == "satele":
-                        norm_idx = output_indices[f"{feature_name}_norm"]
-                        rescaled_features[feature_name] = (
-                            feature_registry.denormalize_feature(
-                                feature_name, x[:, norm_idx]
+                        # For azimuth, try multiple possible stored representations
+                        # 1) sin/cos pair: satazi_sin / satazi_cos
+                        # 2) Cartesian unit vector: e_east / e_north
+                        # 3) normalized scalar (fallback)
+                        if f"{feature_name}_sin" in output_indices and f"{feature_name}_cos" in output_indices:
+                            sin_idx = output_indices[f"{feature_name}_sin"]
+                            cos_idx = output_indices[f"{feature_name}_cos"]
+                            azi_rad = torch.atan2(x[:, sin_idx], x[:, cos_idx])
+                            azi_deg = (azi_rad * 180 / torch.pi) % 360
+                            rescaled_features[feature_name] = azi_deg
+                        elif "e_east" in output_indices and "e_north" in output_indices:
+                            # Reconstruct azimuth from east/north components
+                            east_idx = output_indices["e_east"]
+                            north_idx = output_indices["e_north"]
+                            azi_rad = torch.atan2(x[:, east_idx], x[:, north_idx])
+                            azi_deg = (azi_rad * 180 / torch.pi) % 360
+                            rescaled_features[feature_name] = azi_deg
+                        elif f"{feature_name}_norm" in output_indices:
+                            # Fallback: denormalize scalar azimuth
+                            norm_idx = output_indices[f"{feature_name}_norm"]
+                            rescaled_features[feature_name] = (
+                                feature_registry.denormalize_feature(
+                                    feature_name, x[:, norm_idx]
+                                )
                             )
-                        )
+                        else:
+                            # No known representation found - warn and fill with NaNs
+                            self.logger.warning(f"No stored representation found for direction feature '{feature_name}' in output_indices")
+                            rescaled_features[feature_name] = torch.full((x.size(0),), float('nan'))
+
+                    elif feature_name == "satele":
+                        # For elevation, prefer normalized scalar; otherwise reconstruct from e_up
+                        if f"{feature_name}_norm" in output_indices:
+                            norm_idx = output_indices[f"{feature_name}_norm"]
+                            rescaled_features[feature_name] = (
+                                feature_registry.denormalize_feature(
+                                    feature_name, x[:, norm_idx]
+                                )
+                            )
+                        elif "e_up" in output_indices:
+                            up_idx = output_indices["e_up"]
+                            # Clamp to valid domain for asin
+                            eps = 1e-6
+                            e_up = torch.clamp(x[:, up_idx], -1.0 + eps, 1.0 - eps)
+                            ele_rad = torch.asin(e_up)
+                            ele_deg = ele_rad * 180 / torch.pi
+                            rescaled_features[feature_name] = ele_deg
+                        else:
+                            self.logger.warning(f"No stored representation found for direction feature '{feature_name}' in output_indices")
+                            rescaled_features[feature_name] = torch.full((x.size(0),), float('nan'))
 
                 elif feature_type == FeatureType.IPP:
                     norm_idx = output_indices[f"{feature_name}_norm"]

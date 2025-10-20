@@ -303,9 +303,6 @@ class GIMMapper:
             time_range: (start_time, end_time) for data loading
         """
         gim_path = Path(gim_path)
-        
-        # Clear any existing GIM data to prevent accumulation
-        self.gim_data = {}
                 
         # Find relevant IONEX files
         ionex_files = self._find_ionex_files(gim_path, date)
