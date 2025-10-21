@@ -39,6 +39,7 @@ from inference_testset import find_experiment_directory, find_model_checkpoint
 from evaluation.gim_mapper import GIMMapper
 from evaluation.utils import save_results_csv
 from evaluation.plotter import create_stec_plots
+from evaluation.madrigal_loader import build_madrigal_stec_for_testset, find_madrigal_file, extract_stec_for_date
 
 
 def setup_logging():
@@ -199,34 +200,86 @@ def run_evaluation(eval_config):
     logger.info(f"📂 Experiment: {experiment_dir}")
     logger.info(f"🎯 Model: {model_path}")
     
-    # Run model inference
+    # Decide which dataset to evaluate: 'testset' (original) or 'madrigal'
+    dataset_choice = eval_config['stec_evaluation'].get('dataset', 'testset')
+    logger.info(f"🗂️  Evaluation dataset: {dataset_choice}")
+
+    # Run model inference (we need model preds in both modes)
     test_df = run_model_inference(config, experiment_dir, model_path, logger)
-    
-    # Group observations by date for efficient GIM loading
-    grouped_observations = group_observations_by_date(test_df, logger)
-    
-    # Initialize GIM mapper
-    gim_path = eval_config['stec_evaluation'].get('gim_path', '/scratch2/arrueegg/WP4/data/GIM')
-    gim_mapper = GIMMapper(gim_path)
-    logger.info(f"🌍 Initialized GIM mapper: {gim_path}")
-    
-    # Process GIM data for each date
-    logger.info(f"🔄 Processing GIM data for {len(grouped_observations)} dates...")
-    
-    gim_stec_values = np.full(len(test_df), np.nan)
-    gim_success_flags = np.zeros(len(test_df), dtype=bool)
-    
-    for date_str, observation_indices in tqdm(grouped_observations.items(), desc="Processing GIM dates"):
-        gim_result = process_gim_for_date(date_str, observation_indices, test_df, gim_mapper, gim_path, logger)
+
+    if dataset_choice == 'testset':
+        # Group observations by date for efficient GIM loading
+        grouped_observations = group_observations_by_date(test_df, logger)
         
-        # Store results back in test_df indices
-        for i, idx in enumerate(observation_indices):
-            gim_stec_values[idx] = gim_result['gim_stec'][i]
-            gim_success_flags[idx] = gim_result['success'][i]
-    
-    # Add GIM results to test dataframe
-    test_df['gim_stec'] = gim_stec_values
-    test_df['gim_success'] = gim_success_flags
+        # Initialize GIM mapper
+        gim_path = eval_config['stec_evaluation'].get('gim_path', '/scratch2/arrueegg/WP4/data/GIM')
+        gim_mapper = GIMMapper(gim_path)
+        logger.info(f"🌍 Initialized GIM mapper: {gim_path}")
+        
+        # Process GIM data for each date
+        logger.info(f"🔄 Processing GIM data for {len(grouped_observations)} dates...")
+        
+        gim_stec_values = np.full(len(test_df), np.nan)
+        gim_success_flags = np.zeros(len(test_df), dtype=bool)
+
+        # Prepare madrigal columns if requested
+        use_madrigal = bool(eval_config['stec_evaluation'].get('use_madrigal', False))
+        if use_madrigal:
+            madrigal_path = eval_config['stec_evaluation'].get('madrigal_path')
+            test_df['madrigal_stec'] = np.nan
+            test_df['madrigal_success'] = False
+            if not madrigal_path:
+                logger.warning("Madrigal path not configured; will skip per-day Madrigal lookup")
+        
+        for date_str, observation_indices in tqdm(grouped_observations.items(), desc="Processing GIM dates"):
+            gim_result = process_gim_for_date(date_str, observation_indices, test_df, gim_mapper, gim_path, logger)
+            
+            # Store results back in test_df indices
+            for i, idx in enumerate(observation_indices):
+                gim_stec_values[idx] = gim_result['gim_stec'][i]
+                gim_success_flags[idx] = gim_result['success'][i]
+
+            # Also attach Madrigal STEC per-day when requested
+            if use_madrigal and madrigal_path:
+                try:
+                    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                    h5file = find_madrigal_file(madrigal_path, date_obj)
+                    if h5file is not None:
+                        obs_df = test_df.iloc[observation_indices]
+                        stec_vals, success = extract_stec_for_date(h5file, obs_df)
+                        for i, idx in enumerate(observation_indices):
+                            test_df.at[idx, 'madrigal_stec'] = stec_vals[i]
+                            test_df.at[idx, 'madrigal_success'] = bool(success[i])
+                    else:
+                        logger.debug("No Madrigal file for %s", date_str)
+                except Exception as e:
+                    logger.warning(f"Failed Madrigal lookup for {date_str}: {e}")
+
+        # Add GIM results to test dataframe
+        test_df['gim_stec'] = gim_stec_values
+        test_df['gim_success'] = gim_success_flags
+
+        # Optionally also annotate with Madrigal STEC if configured
+        use_madrigal = bool(eval_config['stec_evaluation'].get('use_madrigal', False))
+        if use_madrigal:
+            madrigal_path = eval_config['stec_evaluation'].get('madrigal_path')
+            if madrigal_path:
+                logger.info(f"📥 Also attaching Madrigal STEC from: {madrigal_path}")
+                test_df = build_madrigal_stec_for_testset(madrigal_path, test_df, logger)
+            else:
+                logger.warning("Madrigal path not configured; skipping Madrigal annotation")
+
+    elif dataset_choice == 'madrigal':
+        # Use Madrigal HDF5 data to build STEC references for the testset rows
+        madrigal_path = eval_config['stec_evaluation'].get('madrigal_path')
+        if madrigal_path:
+            logger.info(f"📥 Building Madrigal STEC from: {madrigal_path}")
+            test_df = build_madrigal_stec_for_testset(madrigal_path, test_df, logger)
+        else:
+            logger.warning("Madrigal path not configured; skipping Madrigal evaluation")
+
+    else:
+        logger.warning(f"Unknown dataset choice '{dataset_choice}'; proceeding with default testset flow")
     
     # Create output directory inside experiment folder
     eval_results_dir = experiment_dir / "eval_results"
