@@ -10,9 +10,25 @@ The package provides a complete evaluation workflow from model inference
 to comprehensive visualization and statistical analysis.
 """
 
-from .gim_mapper import GIMMapper
-from .plotter import STECPlotter, create_stec_plots
-from .utils import save_results_csv, print_and_save_statistics
+# Use lazy imports to avoid loading heavy dependencies when not needed
+def __getattr__(name):
+    """Lazy import for optional heavy dependencies."""
+    if name == 'GIMMapper':
+        from .gim_mapper import GIMMapper
+        return GIMMapper
+    elif name == 'STECPlotter':
+        from .plotter import STECPlotter
+        return STECPlotter
+    elif name == 'create_stec_plots':
+        from .plotter import create_stec_plots
+        return create_stec_plots
+    elif name == 'save_results_csv':
+        from .utils import save_results_csv
+        return save_results_csv
+    elif name == 'print_and_save_statistics':
+        from .utils import print_and_save_statistics
+        return print_and_save_statistics
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     'GIMMapper',
