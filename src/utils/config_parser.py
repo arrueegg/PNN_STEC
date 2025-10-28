@@ -148,7 +148,9 @@ def compute_exp_name(config: dict) -> str:
     tw_str = f"_TW{target_weighting_function}" if target_weighting_enabled else ""
 
     if mode == "finetune":
-        exp_name = f"Finetune_{target}_{config['year']}_{config['doy']}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+        doy_str = str(config["doy"]).zfill(3)
+        year_str = str(config["year"])
+        exp_name = f"Finetune_{target}_{year_str}_{doy_str}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
     elif mode == "pretrain":
         exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
     else:
@@ -168,11 +170,16 @@ def create_experiment_dirs(config: dict):
     output_dir = f"experiments/{exp_name}"
     os.makedirs(output_dir, exist_ok=True)
     config["output_dir"] = output_dir
-    config["pretrain_folder"] = (
-        output_dir
-        if config["mode"] == "pretrain"
-        else config.get("pretrain_folder", "")
-    )
+    if config["mode"] == "pretrain":
+        config["pretrain_folder"] = output_dir
+    elif config["mode"] == "finetune":
+        # Create a copy of config and set mode to 'pretrain' for exp name generation
+        pretrain_config = config.copy()
+        pretrain_config["mode"] = "pretrain"
+        pretrain_exp_name = compute_exp_name(pretrain_config)
+        config["pretrain_folder"] = f"experiments/{pretrain_exp_name}"
+    else:
+        raise ValueError(f"Unknown mode: {config['mode']}")
 
     with open(os.path.join(output_dir, "config.yaml"), "w") as f:
         yaml.safe_dump({k: v for k, v in config.items() if k != "device"}, f)

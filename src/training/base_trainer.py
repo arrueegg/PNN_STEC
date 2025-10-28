@@ -366,7 +366,7 @@ class BaseTrainer:
 
             if (
                 val_loss < best_val_loss
-                or self.config[training_key]["save_model_every_epoch"]
+                or self.config['pretrain']["save_model_every_epoch"]
             ):
                 best_val_loss = self.save_checkpoint(
                     model, optimizer, epoch, val_loss, best_val_loss, model_dir, seed
@@ -374,7 +374,7 @@ class BaseTrainer:
                 patience_counter = 0
             else:
                 patience_counter += 1
-                if patience_counter >= self.config[training_key].get(
+                if patience_counter >= self.config['pretrain'].get(
                     "patience", float("inf")
                 ):
                     self.logger.info(
@@ -437,38 +437,39 @@ class BaseTrainer:
                 self.config["output_dir"],
             )
 
-            # Generate separate plots for each subset if they have sufficient data
-            if len(interpolation_df) > 1000:  # Minimum threshold for meaningful plots
-                try:
-                    interpolation_base_dir = os.path.join(
-                        self.config["output_dir"], "interpolation"
-                    )
-                    plot_test_metrics(
-                        interpolation_df,
-                        output_dir=interpolation_base_dir,
-                        feature_registry=self.feature_registry,
-                    )
-                    self.logger.info("Generated plots for interpolation data")
-                except Exception as e:
-                    self.logger.warning(
-                        f"Could not generate plots for interpolation: {e}"
-                    )
+            if self.config["mode"] == "pretrain":
+                # Generate separate plots for each subset if they have sufficient data
+                if len(interpolation_df) > 1000:  # Minimum threshold for meaningful plots
+                    try:
+                        interpolation_base_dir = os.path.join(
+                            self.config["output_dir"], "interpolation"
+                        )
+                        plot_test_metrics(
+                            interpolation_df,
+                            output_dir=interpolation_base_dir,
+                            feature_registry=self.feature_registry,
+                        )
+                        self.logger.info("Generated plots for interpolation data")
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Could not generate plots for interpolation: {e}"
+                        )
 
-            if len(extrapolation_df) > 1000:  # Minimum threshold for meaningful plots
-                try:
-                    extrapolation_base_dir = os.path.join(
-                        self.config["output_dir"], "extrapolation"
-                    )
-                    plot_test_metrics(
-                        extrapolation_df,
-                        output_dir=extrapolation_base_dir,
-                        feature_registry=self.feature_registry,
-                    )
-                    self.logger.info("Generated plots for extrapolation data")
-                except Exception as e:
-                    self.logger.warning(
-                        f"Could not generate plots for extrapolation: {e}"
-                    )
+                if len(extrapolation_df) > 1000:  # Minimum threshold for meaningful plots
+                    try:
+                        extrapolation_base_dir = os.path.join(
+                            self.config["output_dir"], "extrapolation"
+                        )
+                        plot_test_metrics(
+                            extrapolation_df,
+                            output_dir=extrapolation_base_dir,
+                            feature_registry=self.feature_registry,
+                        )
+                        self.logger.info("Generated plots for extrapolation data")
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Could not generate plots for extrapolation: {e}"
+                        )
 
             # Log summary of temporal split
             self.logger.info("Temporal split analysis completed:")

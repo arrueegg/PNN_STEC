@@ -5,7 +5,6 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-
 def integrate_wandb_sweep_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Integrate wandb sweep parameters into the existing config.

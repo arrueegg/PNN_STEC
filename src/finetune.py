@@ -1,9 +1,13 @@
+
 # finetuner.py
 
+import os
+import logging
 from model.model import get_model, init_kaiming
 from data_loader import get_data_loaders
 from training import BaseTrainer
 
+logger = logging.getLogger(__name__)
 
 class Finetuner(BaseTrainer):
     def __init__(self, config, logger):
@@ -16,10 +20,19 @@ class Finetuner(BaseTrainer):
     def initialize_model(self, model_seed):
         """
         Finetuner-specific model initialization.
+        If in finetune mode, loads pretrained weights from pretrain_folder.
         """
         device = self.device
         model = get_model(self.config).to(device)
-        init_kaiming(model, self.config["model"]["activation"], model_seed)
+        pretrain_model_dir = os.path.join(self.config["pretrain_folder"], "model")
+        pretrain_filename = f"pretrain_{self.config['model']['model_type']}_seed{model_seed:02}.pth"
+        pretrain_checkpoint_path = os.path.join(pretrain_model_dir, pretrain_filename)
+        if not os.path.exists(pretrain_checkpoint_path):
+            raise FileNotFoundError(f"Pretrained checkpoint not found: {pretrain_checkpoint_path}")
+        import torch
+        checkpoint = torch.load(pretrain_checkpoint_path, weights_only=True)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        logger.info(f"Loaded pretrained weights from {pretrain_checkpoint_path}")
         return model
 
     def finetune(self, logger):

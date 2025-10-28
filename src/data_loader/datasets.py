@@ -13,6 +13,7 @@ import os
 import h5py
 import torch
 import tables
+import numpy as np
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -81,12 +82,18 @@ class H5Dataset(Dataset):
             yrs = list(self.swi_file.keys())
             days = list(self.swi_file[yrs[0]].keys())
             cols = [c.decode() for c in self.swi_file[yrs[0]][days[0]].attrs["columns"]]
+            # store full column names and compute mask (keep YEAR/DOY/HR positions)
+            self.swi_col_names = cols
             self.swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
 
-            # Get SWI feature names from registry for validation
-            self.swi_features = self.feature_registry.get_features_by_type(
-                FeatureType.SWI
-            )
+            # Get SWI feature names from registry and compute mapping to masked file columns
+            self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
+            masked_names = [n for n, m in zip(cols, self.swi_mask) if m]
+            self.swi_name_to_idx = {name: i for i, name in enumerate(masked_names)}
+            # For each registry feature, record index in masked array (or None)
+            self.swi_indices_in_file_order = [
+                self.swi_name_to_idx.get(f, None) for f in self.swi_features
+            ]
 
     def __len__(self):
         return len(self.data)
@@ -132,11 +139,21 @@ class H5Dataset(Dataset):
             hour = int(row["sod"] // 3600)
             # FIXED: Load only the specific hour, not the entire day
             swi_row = self.swi_file[year][doy3][hour]  # Load only one hour
-            swi_values = swi_row[self.swi_mask]
+            swi_values_masked = swi_row[self.swi_mask]
 
-            # Append raw SWI features without normalization
-            swi_feat = torch.tensor(swi_values, dtype=torch.float32)
-            feat = torch.cat((feat, swi_feat), dim=0)
+            # Reorder masked SWI values to match registry SWI feature order
+            if hasattr(self, "swi_indices_in_file_order") and self.swi_indices_in_file_order:
+                reordered = []
+                for in_idx in self.swi_indices_in_file_order:
+                    if in_idx is None:
+                        reordered.append(0.0)
+                    else:
+                        reordered.append(float(swi_values_masked[in_idx]))
+                swi_ordered = torch.tensor(reordered, dtype=torch.float32)
+            else:
+                swi_ordered = torch.tensor(swi_values_masked, dtype=torch.float32)
+
+            feat = torch.cat((feat, swi_ordered), dim=0)
 
         # Get target (label)
         label = torch.tensor(row[self.target_feature], dtype=torch.float32)
@@ -235,10 +252,19 @@ class H5RAMDataset(Dataset):
             if years:
                 days = list(swi_file[years[0]].keys())
                 if days:
-                    cols = [
-                        c.decode() for c in swi_file[years[0]][days[0]].attrs["columns"]
-                    ]
+                    cols = [c.decode() for c in swi_file[years[0]][days[0]].attrs["columns"]]
+                    # store full column names and compute mask
+                    self.swi_col_names = cols
                     self.swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
+                    masked_names = [n for n, m in zip(cols, self.swi_mask) if m]
+                    # Map masked column names to indices
+                    self.swi_name_to_idx = {name: i for i, name in enumerate(masked_names)}
+
+                    # Map registry SWI features to indices (or None if missing)
+                    self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
+                    self.swi_indices_in_file_order = [
+                        self.swi_name_to_idx.get(f, None) for f in self.swi_features
+                    ]
 
             # Get SWI feature names from registry
             self.swi_features = self.feature_registry.get_features_by_type(
@@ -252,10 +278,26 @@ class H5RAMDataset(Dataset):
             for year in years:
                 self.swi_data[year] = {}
                 for doy in swi_file[year].keys():
-                    # Load the entire day's data into RAM
-                    daily_data = swi_file[year][doy][:]
-                    self.swi_data[year][doy] = daily_data
-                    pbar.update(1)
+                        # Load the entire day's data into RAM
+                        daily_data = swi_file[year][doy][:]
+                        # For each hour, store masked values in registry order
+                        hours = []
+                        for hour_idx in range(len(daily_data)):
+                            raw = daily_data[hour_idx]
+                            masked = raw[[i for i, m in enumerate(self.swi_mask) if m]]
+                            # Reorder masked array according to registry SWI feature order
+                            if hasattr(self, "swi_indices_in_file_order") and self.swi_indices_in_file_order:
+                                reordered = np.zeros(len(self.swi_indices_in_file_order), dtype=masked.dtype)
+                                for out_i, in_i in enumerate(self.swi_indices_in_file_order):
+                                    if in_i is None:
+                                        reordered[out_i] = 0.0
+                                    else:
+                                        reordered[out_i] = masked[in_i]
+                            else:
+                                reordered = masked
+                            hours.append(reordered)
+                        self.swi_data[year][doy] = np.stack(hours, axis=0)
+                        pbar.update(1)
 
             pbar.close()
 
@@ -342,6 +384,128 @@ class H5RAMDataset(Dataset):
             raise ValueError(f"NaN in H5RAMDataset at idx {idx}")
 
         return feat, label
+
+
+class DayRAMDataset(Dataset):
+    """RAM-loaded dataset for a single day's PyTables split.
+
+    Loads the entire day's 'all_data' and the split indices into memory so that
+    finetuning on a single day can be done without further disk I/O.
+    """
+
+    def __init__(self, h5_file_path, year, doy, split, config):
+        self.h5_file_path = h5_file_path
+        self.year = year
+        self.doy = doy
+        self.split = split
+        self.config = config
+
+        # Load file into RAM immediately
+        with tables.open_file(self.h5_file_path, mode="r") as f:
+            self.data = f.get_node(f"/{self.year}/{self.doy}/all_data")[:]
+            self.indices = f.get_node(f"/{self.year}/{self.doy}/{self.split}_idx")[:]
+
+        # Get feature registry from config
+        self.feature_registry = config.get("feature_registry")
+        if not self.feature_registry:
+            raise ValueError("Feature registry not found in config")
+
+        # Get enabled features (excluding target)
+        all_features = self.feature_registry.get_all_enabled_features()
+        target_features = self.feature_registry.get_features_by_type(FeatureType.TARGET)
+        self.target_feature = target_features[0]
+        self.input_features = [f for f in all_features if f not in target_features]
+
+        if self.target_feature not in ["stec", "vtec"]:
+            raise ValueError(
+                f"Target feature {self.target_feature} is not valid. Expected 'stec' or 'vtec'."
+            )
+        # SWI setup: optionally load the specific day's SWI data into RAM
+        self.use_SWI = config["data"].get("use_SWI", False)
+        self.swi_day = None
+        self.swi_mask = None
+        self.swi_features = None
+        if self.use_SWI:
+            try:
+                swi_path = os.path.join(config["data"]["SWI_data_path"], "omni_hourly_2010-2025.h5")
+                if os.path.exists(swi_path):
+                    with h5py.File(swi_path, "r") as swi_file:
+                        y = str(self.year)
+                        d = f"{int(self.doy):03d}"
+                        if y in swi_file and d in swi_file[y]:
+                            # get column names from attributes and compute mask
+                            cols = [c.decode() for c in swi_file[y][d].attrs.get("columns", [])]
+                            self.swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
+                            self.swi_col_names = [c for c in cols if c not in ("YEAR", "DOY", "HR")]
+                            self.swi_day = swi_file[y][d][:]
+                        else:
+                            # missing SWI day - leave as None and handle later
+                            self.swi_day = None
+                else:
+                    self.swi_day = None
+            except Exception:
+                self.swi_day = None
+            # Get SWI feature names from registry if available
+            try:
+                self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
+            except Exception:
+                self.swi_features = []
+            if not hasattr(self, "swi_col_names"):
+                self.swi_col_names = []
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        row = self.data[self.indices[idx]]
+
+        feature_vector = []
+        for feature_name in self.input_features:
+            if feature_name == "year":
+                value = float(self.year)
+            elif feature_name == "doy":
+                value = float(self.doy)
+            elif feature_name == "local_time_hours":
+                sod = float(row["sod"]) if "sod" in row.dtype.names else 0.0
+                longitude = float(row["lon_ipp"]) if "lon_ipp" in row.dtype.names else 0.0
+                value = compute_local_time_hours(sod, longitude)
+            elif feature_name in row.dtype.names:
+                value = float(row[feature_name])
+            elif self.use_SWI and self.swi_features and feature_name in self.swi_features:
+                # SWI feature: fetch from loaded SWI day if available
+                if self.swi_day is not None and self.swi_mask is not None:
+                    hour = int(row["sod"] // 3600) if "sod" in row.dtype.names else 0
+                    if hour < len(self.swi_day):
+                        swi_row = self.swi_day[hour]
+                        swi_values = swi_row[self.swi_mask]
+                        # Find the index of this SWI feature within swi_values using precomputed names
+                        if hasattr(self, "swi_col_names") and self.swi_col_names:
+                            if feature_name in self.swi_col_names:
+                                idx_in_swi = self.swi_col_names.index(feature_name)
+                                value = float(swi_values[idx_in_swi])
+                            else:
+                                value = 0.0
+                        else:
+                            value = 0.0
+                    else:
+                        value = 0.0
+                else:
+                    # SWI data not available, fallback to zeros
+                    value = 0.0
+            else:
+                raise ValueError(f"Feature {feature_name} not found in data")
+
+            feature_vector.append(value)
+
+        target_name = self.target_feature
+        if target_name in row.dtype.names:
+            target = float(row[target_name])
+        else:
+            raise ValueError(f"Target {target_name} not found in data")
+
+        return torch.tensor(feature_vector, dtype=torch.float32), torch.tensor(
+            target, dtype=torch.float32
+        )
 
 
 class PyTablesDatasetSplit(Dataset):

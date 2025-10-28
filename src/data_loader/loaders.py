@@ -6,9 +6,10 @@ import os
 import shutil
 from tqdm import tqdm
 import torch
+from datetime import datetime, timedelta
 from torch.utils.data import DataLoader, Subset, SequentialSampler
 
-from .datasets import H5Dataset, H5RAMDataset, PyTablesDatasetSplit
+from .datasets import H5Dataset, H5RAMDataset, PyTablesDatasetSplit, DayRAMDataset
 from .samplers import EpochRandomSampler, get_fixed_subset_indices
 from .collation import CollateWithSH
 from utils.preprocessing import DataPreprocessor
@@ -75,7 +76,7 @@ def get_data_loaders(config, logger=None):
             raise RuntimeError("Failed to build split H5 files")
 
     for split in ["train", "val", "test"]:
-        if config["data"].get("use_agg_h5", False):
+        if config["data"].get("use_agg_h5", False) and config.get("mode") == "pretrain":
             # move SWI data to scratch if needed
             swi_scratch_path = os.path.join(
                 config["data"]["scratch_dir"], "omni_hourly_2010-2025.h5"
@@ -106,20 +107,55 @@ def get_data_loaders(config, logger=None):
                 ds = H5Dataset(config, path, split)
         else:
             preprocessor = DataPreprocessor(config, logger)
-            file_splits = preprocessor.get_split_file_lists()
-            datasets = []
 
-            for file_path in tqdm(file_splits[split], desc=f"Loading {split}"):
-                # Extract year and doy from file path
-                # Path format: .../{year}/{doy}/ccl_{year}{doy}_30_5.h5
-                year = file_path.split("/")[-3]
-                doy = file_path.split("/")[-2]
+            # Finetune mode: load only the single-day file specified by config year/doy
+            if config.get("mode") == "finetune":
+                # Finetune time window (number of days to include: current day + past N-1 days)
+                window = int(config.get("data", {}).get("finetune_window", 1))
+                if window < 1:
+                    raise ValueError("data.finetune_window must be >= 1")
 
-                # Only use regular PyTablesDatasetSplit (no RAM version for this path)
-                datasets.append(
-                    PyTablesDatasetSplit(file_path, year, doy, split, config)
-                )
-            ds = torch.utils.data.ConcatDataset(datasets)
+                year = int(config.get("year"))
+                doy = int(config.get("doy"))
+                center_date = datetime(year, 1, 1) + timedelta(days=(doy - 1))
+
+                # Build list of past days including center_date
+                dates = [center_date - timedelta(days=i) for i in range(window)]
+
+                datasets = []
+                for d in dates:
+                    y = str(d.year)
+                    dd = f"{d.timetuple().tm_yday:03d}"
+                    filename = f"ccl_{d.year}{dd}_30_5.h5"
+                    file_path = os.path.join(preprocessor.gnss_data_path, y, dd, filename)
+                    if not os.path.exists(file_path):
+                        logger.warning(f"Finetune file not found, skipping: {file_path}")
+                        continue
+                    datasets.append(DayRAMDataset(file_path, y, dd, split, config))
+
+                if len(datasets) == 0:
+                    raise RuntimeError(
+                        f"No finetune files found for date {center_date.date()} with window={window}"
+                    )
+                elif len(datasets) == 1:
+                    ds = datasets[0]
+                else:
+                    ds = torch.utils.data.ConcatDataset(datasets)
+            else:
+                file_splits = preprocessor.get_split_file_lists()
+                datasets = []
+
+                for file_path in tqdm(file_splits[split], desc=f"Loading {split}"):
+                    # Extract year and doy from file path
+                    # Path format: .../{year}/{doy}/ccl_{year}{doy}_30_5.h5
+                    year = file_path.split("/")[-3]
+                    doy = file_path.split("/")[-2]
+
+                    # Only use regular PyTablesDatasetSplit (no RAM version for this path)
+                    datasets.append(
+                        PyTablesDatasetSplit(file_path, year, doy, split, config)
+                    )
+                ds = torch.utils.data.ConcatDataset(datasets)
 
         # -----------------------------
         # Sampler / subset per split

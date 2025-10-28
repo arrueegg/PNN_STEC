@@ -13,9 +13,8 @@ from utils.feature_registry import initialize_feature_registry, FeatureType
 from utils.wandb_sweep_integration import integrate_wandb_sweep_config
 
 # Logging setup
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
-logger = logging.getLogger()
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger(__name__)
 
 def setup_seed(seed):
     torch.manual_seed(seed)

@@ -42,7 +42,7 @@ def get_optimizer(config, model_parameters):
 
 def get_scheduler(config, optimizer):
     if config["mode"] == "finetune":
-        scheduler_type = config["training"]["scheduler"]
+        scheduler_type = config["finetune"]["scheduler"]
     elif config["mode"] == "pretrain":
         scheduler_type = config["pretrain"]["scheduler"]
 
