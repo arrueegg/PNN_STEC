@@ -11,7 +11,7 @@ stec_evaluation:
   vgosdb_path: "/home/space/data/vlbi/ivsdata/vgosdb"
   gim_path: "/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex"
   madrigal_path: "/home/space/data/iono/Madrigal_STEC/"
-  experiment_folder: "experiments/Pretrain_STEC_DE_MLP_h1024_l4_lr3e-4_bs512_GNLL_Adam_CosineAnnealingLR_ens5_sub500K_SH0_lw5e-1_SWI"
+  experiment_folder: "experiments/Finetune_STEC_2024_001_DE_MLP_h512_l6_lr1e-3_bs512_GNLL_Adam_CosineAnnealingLR_ens5_sub500K_SH0_lw5e-1_SWI"
   
   # Physical parameters
   GIM_type: "IGS"            # Options: IGS, CODE

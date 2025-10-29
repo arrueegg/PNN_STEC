@@ -77,26 +77,38 @@ class MultiTemporalInferenceDataset(Dataset):
         self.lat_ipp = np.zeros(self.n_points)
         self.lon_ipp = np.zeros(self.n_points)
         
-        # Process in chunks to show progress for large grids
-        chunk_size = 5000
-        for start_idx in range(0, self.n_points, chunk_size):
-            end_idx = min(start_idx + chunk_size, self.n_points)
-            if self.n_points > 5000:  # Only show progress for large grids
-                print(f"  IPP coordinates: {end_idx}/{self.n_points}")
-                
-            for i in range(start_idx, end_idx):
-                lat_ipp, lon_ipp = calculate_ipp_coordinates(
-                    self.lat_flat[i], self.lon_flat[i], self.azimuth, self.elevation
-                )
-                self.lat_ipp[i] = lat_ipp
-                self.lon_ipp[i] = lon_ipp
+        # For vertical inference (elevation=90°), IPP coords = station coords
+        if self.elevation == 90.0:
+            self.lat_ipp = self.lat_flat.copy()
+            self.lon_ipp = self.lon_flat.copy()
+        else:
+            # Process in chunks to show progress for large grids
+            chunk_size = 5000
+            for start_idx in range(0, self.n_points, chunk_size):
+                end_idx = min(start_idx + chunk_size, self.n_points)
+                if self.n_points > 5000:  # Only show progress for large grids
+                    print(f"  IPP coordinates: {end_idx}/{self.n_points}")
+                    
+                for i in range(start_idx, end_idx):
+                    lat_ipp, lon_ipp = calculate_ipp_coordinates(
+                        self.lat_flat[i], self.lon_flat[i], self.azimuth, self.elevation
+                    )
+                    self.lat_ipp[i] = lat_ipp
+                    self.lon_ipp[i] = lon_ipp
         
         # Cache for solar magnetic coordinates (computed on demand)
         self.sm_cache = {}  # timestamp -> (sm_lat_sta, sm_lon_sta, sm_lat_ipp, sm_lon_ipp)
         
+        # Store IPP grids for plotting
+        self.lat_ipp_grid = self.lat_ipp.reshape(self.grid_shape)
+        self.lon_ipp_grid = self.lon_ipp.reshape(self.grid_shape)
+        
     def _preload_swi_data(self):
         """Pre-load all SWI data for the day to avoid repeated file I/O."""
         swi_file_path = self.config["data"].get("scratch_dir", "data/") + "omni_hourly_2010-2025.h5"
+        
+        # Get enabled SWI features and their indices
+        swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
         
         self.swi_hourly_data = {}
         
@@ -109,29 +121,34 @@ class MultiTemporalInferenceDataset(Dataset):
                     # Load entire day at once (24 hours)
                     daily_data = swi_file[year][doy3][:]
                     
-                    # Build mask (same as H5Dataset approach)
+                    # Build mask for all SWI columns
                     cols = [c.decode() for c in swi_file[year][doy3].attrs["columns"]]
-                    swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
+                    all_swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
+                    swi_cols = [c for c, m in zip(cols, all_swi_mask) if m]
                     
-                    # Store all hourly data
+                    # Find indices of enabled SWI features
+                    enabled_indices = [swi_cols.index(feature) for feature in swi_features if feature in swi_cols]
+                    
+                    # Store only enabled SWI features
                     for hour in range(24):
                         if hour < len(daily_data):
-                            hourly_swi = daily_data[hour][swi_mask]
-                            self.swi_hourly_data[hour] = hourly_swi
+                            hourly_swi_all = daily_data[hour][all_swi_mask]
+                            hourly_swi_enabled = hourly_swi_all[enabled_indices]
+                            self.swi_hourly_data[hour] = hourly_swi_enabled
                         else:
                             # Fill missing hours with zeros
-                            self.swi_hourly_data[hour] = np.zeros(sum(swi_mask))
+                            self.swi_hourly_data[hour] = np.zeros(len(enabled_indices))
                 else:
                     # No data available - fill with zeros
                     print(f"Warning: No SWI data for {year}/{doy3}")
                     for hour in range(24):
-                        self.swi_hourly_data[hour] = np.zeros(22)  # Default SWI size
+                        self.swi_hourly_data[hour] = np.zeros(len(swi_features))
                         
         except Exception as e:
             print(f"Error pre-loading SWI data: {e}")
             # Fallback - fill with zeros
             for hour in range(24):
-                self.swi_hourly_data[hour] = np.zeros(22)
+                self.swi_hourly_data[hour] = np.zeros(len(swi_features))
     
     def update_timestamp(self, timestamp: datetime):
         """
@@ -191,7 +208,8 @@ class MultiTemporalInferenceDataset(Dataset):
         # Update SWI data for this hour
         if self.use_SWI:
             hour = timestamp.hour
-            self.current_swi_values = self.swi_hourly_data.get(hour, np.zeros(22))
+            swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
+            self.current_swi_values = self.swi_hourly_data.get(hour, np.zeros(len(swi_features)))
     
     def __len__(self):
         return self.n_points
@@ -253,6 +271,10 @@ class MultiTemporalInferenceDataset(Dataset):
     def get_grid_shape(self):
         """Get the shape of the original grid for reshaping results."""
         return self.grid_shape
+    
+    def get_ipp_grids(self):
+        """Get the IPP latitude and longitude grids for plotting."""
+        return self.lat_ipp_grid, self.lon_ipp_grid
 
 
 def create_multitemporal_inference_dataloader(

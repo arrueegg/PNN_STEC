@@ -76,13 +76,13 @@ def parse_args():
         "--elevation",
         type=float,
         default=90.0,
-        help="Fixed elevation angle in degrees (default: 90.0)",
+        help="Fixed elevation angle in degrees (default: 90.0 - vertical inference)",
     )
     parser.add_argument(
         "--azimuth",
         type=float,
         default=180.0,
-        help="Fixed azimuth angle in degrees (default: 180.0)",
+        help="Fixed azimuth angle in degrees (default: 180.0 - matches training data)",
     )
     parser.add_argument(
         "--lat_res",
@@ -397,8 +397,9 @@ def main():
         )
         model.load_state_dict(checkpoint["model_state_dict"])
 
-        # Create output directory with date subfolder
-        output_dir = os.path.join(experiment_dir, "global_maps", args.date)
+        # Create output directory with date and geometry subfolder
+        geometry_suffix = f"elev{int(args.elevation)}_azi{int(args.azimuth)}"
+        output_dir = os.path.join(experiment_dir, "global_maps", args.date, geometry_suffix)
         os.makedirs(output_dir, exist_ok=True)
 
         # Create global grid
@@ -418,6 +419,14 @@ def main():
             config, lat_grid, lon_grid, args.elevation, args.azimuth, date_obj, args.batch_size
         )
         grid_shape = multitemporal_dataset.get_grid_shape()
+        
+        # Get plotting coordinates - use station coords for vertical inference (elevation=90°)
+        if args.elevation == 90.0:
+            # For vertical inference, plot at station locations
+            lat_plot_grid, lon_plot_grid = lat_grid, lon_grid
+        else:
+            # For oblique inference, plot at IPP locations
+            lat_plot_grid, lon_plot_grid = multitemporal_dataset.get_ipp_grids()
 
         # Storage for results
         image_paths = []  # For GIF creation
@@ -456,8 +465,8 @@ def main():
                 base_filename = f"stec_map_{args.date}_{time_str}"
                 base_path = os.path.join(output_dir, base_filename)
                 save_hourly_plot(
-                    lat_grid,
-                    lon_grid,
+                    lat_plot_grid,
+                    lon_plot_grid,
                     stec_map,
                     uncertainty_map,
                     base_path,
@@ -499,8 +508,8 @@ def main():
             ionex_writer.write_ionex_file(
                 output_path=ionex_path,
                 epochs=all_epochs,
-                lat_grid=lat_grid,
-                lon_grid=lon_grid,
+                lat_grid=lat_plot_grid,
+                lon_grid=lon_plot_grid,
                 tec_maps=all_tec_maps,
                 rms_maps=rms_maps,
                 interval_hours=args.time_res,
