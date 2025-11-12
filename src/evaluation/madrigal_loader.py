@@ -149,8 +149,6 @@ def extract_stec_for_date(h5path: Path, obs_df) -> Tuple[np.ndarray, np.ndarray]
     success = ~np.isnan(stec_out)
 
     print(f"Extracted STEC for {np.sum(success)}/{len(obs_df)} observations from {h5path.name}")
-    success_rows = joined.filter(pl.col("los_tec").is_not_null())
-    print(success_rows.select("gnss_type"))
 
     return stec_out, success
 

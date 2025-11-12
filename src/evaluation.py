@@ -39,7 +39,7 @@ from inference_testset import find_experiment_directory, find_model_checkpoint
 from evaluation.gim_mapper import GIMMapper
 from evaluation.utils import save_results_csv
 from evaluation.plotter import create_stec_plots
-from evaluation.madrigal_loader import build_madrigal_stec_for_testset, find_madrigal_file, extract_stec_for_date
+from evaluation.madrigal_loader import find_madrigal_file, extract_stec_for_date
 
 
 def setup_logging():
@@ -259,27 +259,11 @@ def run_evaluation(eval_config):
         test_df['gim_stec'] = gim_stec_values
         test_df['gim_success'] = gim_success_flags
 
-        # Optionally also annotate with Madrigal STEC if configured
-        use_madrigal = bool(eval_config['stec_evaluation'].get('use_madrigal', False))
-        if use_madrigal:
-            madrigal_path = eval_config['stec_evaluation'].get('madrigal_path')
-            if madrigal_path:
-                logger.info(f"📥 Also attaching Madrigal STEC from: {madrigal_path}")
-                test_df = build_madrigal_stec_for_testset(madrigal_path, test_df, logger)
-            else:
-                logger.warning("Madrigal path not configured; skipping Madrigal annotation")
-
-    elif dataset_choice == 'madrigal':
-        # Use Madrigal HDF5 data to build STEC references for the testset rows
-        madrigal_path = eval_config['stec_evaluation'].get('madrigal_path')
-        if madrigal_path:
-            logger.info(f"📥 Building Madrigal STEC from: {madrigal_path}")
-            test_df = build_madrigal_stec_for_testset(madrigal_path, test_df, logger)
-        else:
-            logger.warning("Madrigal path not configured; skipping Madrigal evaluation")
-
     else:
-        logger.warning(f"Unknown dataset choice '{dataset_choice}'; proceeding with default testset flow")
+        logger.warning(f"Unknown dataset choice '{dataset_choice}'; creating placeholder columns")
+        # Create placeholder columns for consistency
+        test_df['gim_stec'] = np.nan
+        test_df['gim_success'] = False
     
     # Create output directory inside experiment folder
     eval_results_dir = experiment_dir / "eval_results"

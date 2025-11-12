@@ -550,19 +550,30 @@ def plot_residuals_vs_solar_indices(
 
     # Check which solar indices are available
     solar_indices = []
+    
+    # F10.7 Solar Flux
     if "f107_index" in df.columns:
         solar_indices.append(("f107_index", "F10.7 Solar Flux [sfu]"))
-    elif "f107" in df.columns:
-        solar_indices.append(("f107", "F10.7 Solar Flux [sfu]"))
-
+    
+    # Dst Index
     if "Dst-index,_nT" in df.columns:
         solar_indices.append(("Dst-index,_nT", "Dst Index [nT]"))
-    elif "dst" in df.columns:
-        solar_indices.append(("dst", "Dst Index [nT]"))
+    
+    # Kp Index
+    if "Kp_index" in df.columns:
+        solar_indices.append(("Kp_index", "Kp Index"))
+    
+    # Sunspot Number
+    if "R_Sunspot_No" in df.columns:
+        solar_indices.append(("R_Sunspot_No", "Sunspot Number"))
+    
+    # AE Index
+    if "AE-index,_nT" in df.columns:
+        solar_indices.append(("AE-index,_nT", "AE Index [nT]"))
 
     if not solar_indices:
         logger.warning(
-            "No solar indices (f107, dst) found. Skipping solar index analysis."
+            "No solar indices (f107_index, Dst-index, Kp_index, R_Sunspot_No, AE-index) found. Skipping solar index analysis."
         )
         return
 
