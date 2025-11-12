@@ -77,6 +77,14 @@ class DataPreprocessor:
         self.chunk_size = self.data_config.get("processing_chunk_size", 50)
         self.every_x_doy = self.data_config.get("every_x_doy", 1)
 
+        # Date range filtering - use None to process all available data
+        self.date_range_start = self._parse_date(
+            self.data_config.get("date_range_start", "2014-01-01")
+        )
+        self.date_range_end = self._parse_date(
+            self.data_config.get("date_range_end", None)
+        )
+
         # ML-optimized settings
         self.ml_optimize = self.data_config.get(
             "ml_optimize", True
@@ -97,6 +105,40 @@ class DataPreprocessor:
         self._train_dates = None
         self._val_dates = None
         self._test_dates = None
+
+    @staticmethod
+    def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
+        """
+        Parse date string in YYYY-MM-DD format to datetime object.
+
+        Args:
+            date_str: Date string in YYYY-MM-DD format, or None
+
+        Returns:
+            datetime object or None if input is None or invalid
+        """
+        if date_str is None:
+            return None
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return None
+
+    def _is_date_in_range(self, date: datetime) -> bool:
+        """
+        Check if a date falls within the configured date range.
+
+        Args:
+            date: datetime object to check
+
+        Returns:
+            True if date is within range (or range is not set), False otherwise
+        """
+        if self.date_range_start and date < self.date_range_start:
+            return False
+        if self.date_range_end and date > self.date_range_end:
+            return False
+        return True
 
     @property
     def train_stations(self) -> Set[bytes]:
@@ -239,7 +281,7 @@ class DataPreprocessor:
         self, year: Optional[str] = None, doy: Optional[str] = None
     ) -> Dict[str, List[str]]:
         """
-        Get file lists for train/val/test splits.
+        Get file lists for train/val/test splits with optional date range filtering.
 
         Args:
             year: Specific year to process (optional, for compatibility)
@@ -252,6 +294,10 @@ class DataPreprocessor:
         def get_file_paths(dates: List[datetime]) -> List[str]:
             file_paths = []
             for date in dates:
+                # Apply date range filtering
+                if not self._is_date_in_range(date):
+                    continue
+
                 file_path = os.path.join(
                     self.gnss_data_path,
                     str(date.year),
@@ -267,6 +313,13 @@ class DataPreprocessor:
             "val": get_file_paths(self.val_dates),
             "test": get_file_paths(self.test_dates),
         }
+
+        # Log date range info if set
+        if self.date_range_start or self.date_range_end:
+            date_range_str = f"{self.date_range_start.strftime('%Y-%m-%d') if self.date_range_start else 'start'} to {self.date_range_end.strftime('%Y-%m-%d') if self.date_range_end else 'end'}"
+            self.logger.info(f"Date range filtering: {date_range_str}")
+            total_files = sum(len(files) for files in file_paths.values())
+            self.logger.info(f"Total files after date range filtering: {total_files}")
 
         # Move to scratch if requested
         move_to_scratch = self.config.get("move_to_scratch", True)
@@ -322,6 +375,12 @@ class DataPreprocessor:
                     day_data = day_data[
                         (np.abs(day_data["dcbs"]) >= 1e-3)
                         & (np.abs(day_data["dcbr"]) >= 1e-3)
+                    ]
+
+                    # Filter invalid data
+                    day_data = day_data[
+                        (day_data["satele"] != 90.0)
+                        & (day_data["satazi"] != 0.0)
                     ]
 
                     if len(day_data) == 0:
@@ -531,9 +590,18 @@ class DataPreprocessor:
 
                 dt = datetime.strptime(f"{year}{doy}", "%Y%j")
                 if dt in date_to_split:
+                    # Apply date range filtering
+                    if not self._is_date_in_range(dt):
+                        continue
+
                     file_key = f"{year}_{doy}"
                     if file_key not in processed_files:
                         all_files_to_process.append((dayfile, dt, year, doy, file_key))
+
+        # Log date range info if set
+        if self.date_range_start or self.date_range_end:
+            date_range_str = f"{self.date_range_start.strftime('%Y-%m-%d') if self.date_range_start else 'start'} to {self.date_range_end.strftime('%Y-%m-%d') if self.date_range_end else 'end'}"
+            self.logger.info(f"Date range filtering: {date_range_str}")
 
         self.logger.info(f"Found {len(all_files_to_process)} files to process")
 
