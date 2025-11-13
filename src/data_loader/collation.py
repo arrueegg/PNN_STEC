@@ -349,8 +349,18 @@ class CollateWithSH:
         return sh_sta_geo, sh_ipp_geo, sh_sta_sm, sh_ipp_sm
 
     def __call__(self, batch):
-        """Process and collate a batch of (features, labels)"""
-        feats, labels = zip(*batch)
+        """Process and collate a batch of (features, labels) or (features, labels, metadata)"""
+        # Check if batch contains metadata (3-tuple) or just features and labels (2-tuple)
+        if len(batch[0]) == 3:
+            # Batch contains metadata
+            feats, labels, metadata_list = zip(*batch)
+            has_metadata = True
+        else:
+            # Standard batch without metadata
+            feats, labels = zip(*batch)
+            has_metadata = False
+            metadata_list = None
+        
         features = torch.stack(feats, dim=0)
         labels = torch.stack(labels, dim=0)
 
@@ -394,4 +404,8 @@ class CollateWithSH:
         # Concatenate all features
         final_features = torch.cat(output_features, dim=1)
 
-        return final_features, labels
+        # Return with or without metadata
+        if has_metadata:
+            return final_features, labels, metadata_list
+        else:
+            return final_features, labels

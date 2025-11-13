@@ -93,9 +93,13 @@ class InferenceManager:
         # Memory management
         gc.collect()
         torch.cuda.empty_cache()
+        
+        # Check if dataset returns metadata
+        return_metadata = self.config.get("return_metadata", False)
+        batch_metadata = [] if return_metadata else None
 
         with torch.no_grad():
-            for batch_idx, (inputs, targets) in enumerate(
+            for batch_idx, batch_data in enumerate(
                 tqdm(
                     dataloader,
                     desc="Bayesian Inference",
@@ -103,6 +107,13 @@ class InferenceManager:
                     disable=disable_tqdm,
                 )
             ):
+                # Unpack batch data (handles both 2-tuple and 3-tuple)
+                if return_metadata:
+                    inputs, targets, metadata = batch_data
+                    batch_metadata.append(metadata)
+                else:
+                    inputs, targets = batch_data
+                
                 bs = inputs.size(0)
                 inputs = inputs.to(self.device, non_blocking=True)
 
@@ -209,6 +220,14 @@ class InferenceManager:
                             "pred_total_unc",
                         ],
                     )
+                    
+                    # Add metadata if available
+                    if return_metadata and batch_metadata:
+                        # Get metadata for this batch (last added entry)
+                        batch_meta = batch_metadata[batch_idx]
+                        for field in batch_meta[0].keys():
+                            batch_df[field] = [sample_meta[field] for sample_meta in batch_meta]
+                    
                     batch_dataframes.append(batch_df)
                 else:
                     # Large dataset: Extract only essential features for plotting
@@ -218,8 +237,8 @@ class InferenceManager:
 
                     # Dynamically build essential features list from the feature registry
                     fr = self.data_transforms.feature_registry
-                    # Spatial essentials
-                    spatial_essentials = [f for f in ["lon_ipp", "lat_ipp", "sm_lat_ipp"] if f in feature_order]
+                    # Spatial essentials (IPP and station coordinates)
+                    spatial_essentials = [f for f in ["lon_ipp", "lat_ipp", "sm_lat_ipp", "lat_sta", "lon_sta"] if f in feature_order]
                     # Temporal essentials: prefer 'sod' or 'local_time_hours' if available, always include 'year' and 'doy' if present
                     temporal_essentials = [f for f in ["year", "doy"] if f in feature_order]
                     if "sod" in feature_order:
@@ -391,6 +410,19 @@ class InferenceManager:
                     "pred_total_unc": total_std_tensor.cpu().numpy().flatten(),
                     **essential_features,
                 }
+                
+                # Add metadata if available
+                if batch_metadata:
+                    # Flatten list of batch metadata dicts into single dict with lists
+                    metadata_fields = batch_metadata[0][0].keys()  # Get field names from first sample
+                    for field in metadata_fields:
+                        # Collect all values for this field across all batches
+                        field_values = []
+                        for batch_meta in batch_metadata:
+                            for sample_meta in batch_meta:
+                                field_values.append(sample_meta[field])
+                        df_dict[field] = field_values
+                
                 final_df = pd.DataFrame(df_dict)
             else:
                 final_df = pd.DataFrame()  # Empty DataFrame fallback

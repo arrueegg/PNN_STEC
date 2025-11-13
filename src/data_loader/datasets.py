@@ -69,6 +69,10 @@ class H5Dataset(Dataset):
             raise ValueError(
                 f"Target feature {self.target_feature} is not valid. Expected 'stec' or 'vtec'."
             )
+        
+        # Check if we should return metadata (for dSTEC evaluation)
+        self.return_metadata = config.get("return_metadata", False)
+        self.metadata_fields = config.get("metadata_fields", ["station", "sat", "slipc", "gfphase"])
 
         # SWI setup
         self.use_SWI = config["data"].get("use_SWI", False)
@@ -160,6 +164,17 @@ class H5Dataset(Dataset):
         if torch.isnan(feat).any() or torch.isnan(label):
             raise ValueError(f"NaN in H5Dataset at idx {idx}")
 
+        # Return metadata if requested (for dSTEC evaluation)
+        if self.return_metadata:
+            metadata = {}
+            for field in self.metadata_fields:
+                value = row[field]
+                # Decode bytes to string for text fields
+                if isinstance(value, bytes):
+                    value = value.decode('utf-8')
+                metadata[field] = value
+            return feat, label, metadata
+        
         return feat, label
 
     def __del__(self):
@@ -204,6 +219,10 @@ class H5RAMDataset(Dataset):
             raise ValueError(
                 f"Target feature {self.target_feature} is not valid. Expected 'stec' or 'vtec'."
             )
+        
+        # Check if we should return metadata (for dSTEC evaluation)
+        self.return_metadata = config.get("return_metadata", False)
+        self.metadata_fields = config.get("metadata_fields", ["station", "sat", "slipc", "gfphase"])
 
         # SWI setup
         self.use_SWI = config["data"].get("use_SWI", False)
@@ -373,6 +392,17 @@ class H5RAMDataset(Dataset):
         # Guard NaNs
         if torch.isnan(feat).any() or torch.isnan(label):
             raise ValueError(f"NaN in H5RAMDataset at idx {idx}")
+
+        # Return metadata if requested (for dSTEC evaluation)
+        if self.return_metadata:
+            metadata = {}
+            for field in self.metadata_fields:
+                value = row[field]
+                # Decode bytes to string for text fields
+                if isinstance(value, bytes):
+                    value = value.decode('utf-8')
+                metadata[field] = value
+            return feat, label, metadata
 
         return feat, label
 

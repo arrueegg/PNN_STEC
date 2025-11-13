@@ -149,6 +149,10 @@ def run_model_inference(
     feature_registry = initialize_feature_registry(config)
     config["feature_registry"] = feature_registry
     
+    # Enable metadata loading for dSTEC evaluation
+    config["return_metadata"] = True
+    config["metadata_fields"] = ["station", "sat", "slipc", "gfphase"]
+    
     # Override test_size if specified
     if eval_config["inference"]["test_size_limit"] is not None:
         config["data"]["test_size"] = eval_config["inference"]["test_size_limit"]
@@ -156,6 +160,7 @@ def run_model_inference(
     # Get test dataloader
     test_loader = get_test_data_loader(config, logger)
     logger.info(f"  Test samples: {len(test_loader.dataset):,}")
+    logger.info(f"  Metadata fields enabled: {config['metadata_fields']}")
     
     # Create trainer
     trainer = BaseTrainer(config, logger)
@@ -181,6 +186,18 @@ def run_model_inference(
     )
     
     logger.info(f"  ✓ Inference complete: {len(test_df):,} predictions")
+    
+    # Verify metadata fields are present
+    required_metadata = ["station", "sat", "slipc", "gfphase"]
+    missing_fields = [f for f in required_metadata if f not in test_df.columns]
+    
+    if missing_fields:
+        raise ValueError(
+            f"Missing required metadata fields: {missing_fields}\n"
+            f"Available columns: {test_df.columns.tolist()}"
+        )
+    
+    logger.info(f"  ✓ Metadata fields present: {', '.join(required_metadata)}")
     
     return test_df
 
@@ -640,6 +657,14 @@ def main():
         test_df["pass_id"] = create_satellite_pass_id(test_df)
         n_passes = test_df["pass_id"].nunique()
         logger.info(f"  Identified {n_passes} unique satellite passes")
+        
+        # Check pass size distribution for debugging
+        pass_sizes = test_df.groupby("pass_id").size()
+        logger.info(f"  Pass size statistics:")
+        logger.info(f"    Mean: {pass_sizes.mean():.2f} samples/pass")
+        logger.info(f"    Median: {pass_sizes.median():.0f} samples/pass")
+        logger.info(f"    Min: {pass_sizes.min()} | Max: {pass_sizes.max()}")
+        logger.info(f"    Passes with ≥10 samples: {(pass_sizes >= 10).sum()}")
         
         # Compute dSTEC for each pass
         dstec_results = []
