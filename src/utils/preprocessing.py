@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore")
 DTYPE = np.dtype(
     [
         ("station", "S8"),  # up to 8‐char ASCII
+        ("sat", "S4"),      # up to 4‐char ASCII
         ("year", "i4"),
         ("doy", "i4"),
         ("stec", "f4"),
@@ -31,6 +32,8 @@ DTYPE = np.dtype(
         ("lon_sta", "f4"),
         ("sm_lat_sta", "f4"),
         ("sm_lon_sta", "f4"),
+        ("gfphase", "f4"),
+        ("slipc", "i4"),
     ]
 )
 
@@ -401,6 +404,7 @@ class DataPreprocessor:
                     n = len(filtered_data)
                     block = np.zeros(n, dtype=DTYPE)
                     block["station"] = filtered_data["station"]
+                    block["sat"] = filtered_data["sat"]
                     block["year"] = dt.year
                     block["doy"] = dt.timetuple().tm_yday
                     block["stec"] = filtered_data["stec"]
@@ -416,6 +420,8 @@ class DataPreprocessor:
                     block["lon_sta"] = filtered_data["lon_sta"]
                     block["sm_lat_sta"] = filtered_data["sm_lat_sta"]
                     block["sm_lon_sta"] = filtered_data["sm_lon_sta"]
+                    block["gfphase"] = filtered_data["gfphase"]
+                    block["slipc"] = filtered_data["slipc"]
 
                     chunk_data[split_name].append(block)
 

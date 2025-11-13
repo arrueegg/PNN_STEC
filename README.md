@@ -108,6 +108,30 @@ The framework supports:
 - **Space Weather Indices** (solar and geomagnetic activity)
 - **Spatio-temporal data splitting** for robust evaluation
 
+## Evaluation
+
+### Standard Evaluation
+Run standard model evaluation on the test set:
+```bash
+python src/inference_testset.py
+```
+
+### dSTEC Evaluation (Differential STEC)
+Evaluate model performance using the differential STEC metric, which removes common-mode errors:
+
+```bash
+python src/dstec_evaluation.py "experiment_folder_name"
+```
+
+The dSTEC metric compares measurements at different elevations during satellite passes, providing a more robust validation against IGS GIMs. See [docs/dstec_evaluation_guide.md](docs/dstec_evaluation_guide.md) for detailed documentation.
+
+**Key features**:
+- ✅ Removes common-mode biases (DCB, receiver clock)
+- ✅ Compares against geometry-free phase observations
+- ✅ Per-pass statistics and detailed CSV outputs
+- ✅ Automated visualization of results
+- ✅ Configurable elevation thresholds and mapping functions
+
 ## License
 
 This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
