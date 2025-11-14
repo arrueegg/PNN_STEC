@@ -300,7 +300,7 @@ class GIMMapper:
         
         Args:
             gim_path: Path to directory containing IONEX files
-            time_range: (start_time, end_time) for data loading
+            date: Target date for data loading
         """
         gim_path = Path(gim_path)
                 

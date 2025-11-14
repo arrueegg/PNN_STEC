@@ -43,12 +43,12 @@ training:
     enabled: true                   # Enable target-based loss weighting
     weight_function: "quadratic"    # Use quadratic weighting for baseline
     
-  epochs: 30                       # Longer training for baseline performance
+  epochs: 100                       # Longer training for baseline performance
   batch_norm: false                # Use batch normalization
 
 # Pretraining configuration
 pretrain:
-  learning_rate: 0.001              # Conservative learning rate
+  learning_rate: 0.0005              # Conservative learning rate
   batchsize: 1024                   # Good batch size for stability
   weight_decay: 0.0001              # Regularization
   optimizer: "AdamW"                # AdamW for better generalization

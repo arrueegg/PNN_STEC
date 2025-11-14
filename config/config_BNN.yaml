@@ -1,7 +1,7 @@
 # General configuration
 project_name: "PNN_STEC"
 output_dir: "experiments/"
-year: 2023
+year: 2024
 doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
@@ -30,7 +30,7 @@ data:
 model:
   model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
   hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
-  num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
+  num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
   
   # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
@@ -38,7 +38,7 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.5
+  loss_weight: 1.0                  # Weight for the loss function
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
@@ -59,22 +59,22 @@ training:
   log_space_point: "mean"        # For compatibility
 
 pretrain:
-  epochs: 200
-  batchsize: 512
+  epochs: 150
+  batchsize: 1024
   num_workers: 12 
   prefetch_factor: 4
-  learning_rate: 0.002
+  learning_rate: 0.005
   scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
-  scheduler_step_size: 200       # Step size for scheduler (reduces lr every X epochs)
+  scheduler_step_size: 150       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
-  patience: 30                   # Patience for early stopping
+  patience: 20                   # Patience for early stopping
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:
   epochs: 5
   num_workers: 4
   learning_rate: 0.001
-  scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
+  scheduler: CosineAnnealingLR             # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
 
 
