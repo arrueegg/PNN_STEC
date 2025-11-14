@@ -36,8 +36,8 @@ parameters:
     #max: 0.01
 
   # Target weighting
-  #training.target_weighting.enabled:
-    #values: [true, false]
+  training.target_weighting.enabled:
+    values: [true, false]
   
   #training.target_weighting.weight_function:
     #values: ['linear', 'quadratic']

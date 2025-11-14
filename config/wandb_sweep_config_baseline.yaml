@@ -28,28 +28,24 @@ parameters:
     values: ['MSELoss']  # Standard loss for deterministic models
   
   # Optimizer configuration
-  pretrain.optimizer:
-    values: ['Adam', 'AdamW']  # Include AdamW for better generalization
+  #pretrain.optimizer:
+    #values: ['Adam', 'AdamW']  # Include AdamW for better generalization
   
-  pretrain.weight_decay:
-    distribution: log_uniform_values
-    min: 0.00001
-    max: 0.01  # Regularization for better baseline
+  #pretrain.weight_decay:
+    #distribution: log_uniform_values
+    #min: 0.00001
+    #max: 0.01  # Regularization for better baseline
 
   # Target weighting - Important for STEC high-value prediction
   training.target_weighting.enabled:
     values: [true, false]
   
-  training.target_weighting.weight_function:
-    values: ['linear', 'quadratic', 'log']  # All weighting options
+  #training.target_weighting.weight_function:
+    #values: ['linear', 'quadratic', 'log']  # All weighting options
 
   # Scheduler configuration for optimal training
   pretrain.scheduler:
     values: ['CosineAnnealingLR', 'ReduceLROnPlateau']  # Now includes ReduceLROnPlateau
-  
-  # Training epochs for thorough training
-  training.epochs:
-    values: [20, 30, 40]  # Longer training for baseline performance
 
   # Data configuration
   #data.train_subset_size:

@@ -67,3 +67,5 @@ early_terminate:
   min_iter: 3
   eta: 3
   s: 2
+
+run_cap: 100
