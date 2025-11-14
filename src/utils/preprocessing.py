@@ -325,7 +325,7 @@ class DataPreprocessor:
             self.logger.info(f"Total files after date range filtering: {total_files}")
 
         # Move to scratch if requested
-        move_to_scratch = self.config.get("move_to_scratch", True)
+        move_to_scratch = self.data_config.get("move_to_scratch", True)
         if move_to_scratch:
             file_paths = self.move_files_to_scratch(file_paths)
 
