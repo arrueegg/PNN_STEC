@@ -18,7 +18,7 @@ data:
   GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
   use_agg_h5: True
   scratch_dir: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
-  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/SWI/
+  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
   move_to_scratch: True # Whether to move data to scratch for faster access
   every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data

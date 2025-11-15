@@ -2,7 +2,7 @@
 
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --time=8:00:00
+#SBATCH --time=4:00:00
 #SBATCH --mem-per-cpu=10G
 #SBATCH --gpus=1
 #SBATCH --output=hp_search/logs/custom-trial-%j.out
@@ -19,5 +19,5 @@ source ${main_dir}/env/bin/activate
 
 # Run trial
 echo "🚀 Starting custom run"
-python src/main.py --config_path config/config_cluster.yaml
+python src/main.py --config_path config/config_cluster_BNN.yaml
 echo "✅ Completed custom run"

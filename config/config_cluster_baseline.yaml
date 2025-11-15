@@ -18,7 +18,7 @@ data:
   GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
   use_agg_h5: True
   scratch_dir: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
-  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/SWI/
+  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
   move_to_scratch: True # Whether to move data to scratch for faster access
   every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data
@@ -41,11 +41,11 @@ training:
   
   # Target weighting configuration for addressing underprediction of high values
   target_weighting:
-    enabled: true                   # Enable target-based loss weighting
-    weight_function: "quadratic"    # Use quadratic weighting for baseline
+    enabled: false                   # Enable target-based loss weighting
+    weight_function: "linear"    # Use linear weighting for baseline
   
-  optimizer: "AdamW"                # AdamW for better generalization
-  weight_decay: 0.0001              # Regularization
+  optimizer: "Adam"                # Adam for baseline
+  weight_decay: 0.0             # Regularization
   standardize_targets: False        # Disable target standardization to avoid negative loss
   log_target: False              # Disable log-space training
   log_space_point: "mean"        # For compatibility
