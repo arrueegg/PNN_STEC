@@ -254,8 +254,8 @@ class InferenceManager:
                         swi_list = fr.get_features_by_type(__import__("utils.feature_registry", fromlist=["FeatureType"]).FeatureType.SWI)
                     except Exception:
                         swi_list = []
-                    # Fallback: pick common names if present
-                    swi_candidates = [c for c in ["f107", "dst", "kp_binned"] if c in feature_order]
+                    # Pick common SWI features if present (using actual feature names from feature_registry)
+                    swi_candidates = [c for c in ["f107_index", "Dst-index,_nT", "Kp_index", "R_Sunspot_No", "AE-index,_nT", "ap_index,_nT"] if c in feature_order]
 
                     essential_feature_names = spatial_essentials + temporal_essentials + direction_essentials + swi_candidates
 

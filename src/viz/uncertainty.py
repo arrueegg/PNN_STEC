@@ -554,6 +554,14 @@ def plot_binned_uncertainty_error_analysis(
     max_unc = df["pred_total_unc"].quantile(
         0.95
     )  # Use 95th percentile to avoid outliers
+    
+    # Skip if uncertainty is essentially zero (e.g., MLP models without uncertainty)
+    if max_unc < 1e-6:
+        logger.warning(
+            f"Maximum uncertainty is {max_unc:.2e}, too small for binned analysis. "
+            "Skipping binned uncertainty error analysis (likely a deterministic model)."
+        )
+        return
     n_bins = min(30, max(10, len(df) // 300))  # Adaptive number of bins
 
     # Create equal-width bins from 0 to max_unc
