@@ -2,8 +2,8 @@
 project_name: "PNN_STEC"
 output_dir: "experiments/"
 year: 2024
-doy: 1
-mode: pretrain # pretrain, finetune
+doy: 182
+mode: finetune # pretrain, finetune
 random_seed: 42
 debug: True  
 debug_single_batch: False  
@@ -71,10 +71,10 @@ pretrain:
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:
-  epochs: 5
-  num_workers: 4
+  epochs: 15
+  num_workers: 12
   learning_rate: 0.001
   scheduler: CosineAnnealingLR             # none, StepLR, CosineAnnealingLR
-  scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
+  scheduler_step_size: 15       # Step size for scheduler (reduces lr every X epochs)
 
 

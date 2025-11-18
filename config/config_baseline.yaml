@@ -37,37 +37,37 @@ model:
   
 training:
   loss_function: "MSELoss"  # Standard MSE loss for deterministic models
+  loss_weight: 1.0          # Weight for the loss function
   
   # Target weighting configuration for addressing underprediction of high values
   target_weighting:
-    enabled: true                   # Enable target-based loss weighting
-    weight_function: "quadratic"    # Use quadratic weighting for baseline
-    
-  epochs: 100                       # Longer training for baseline performance
-  batch_norm: false                # Use batch normalization
-
-# Pretraining configuration
-pretrain:
-  learning_rate: 0.0005              # Conservative learning rate
-  batchsize: 1024                   # Good batch size for stability
-  weight_decay: 0.0001              # Regularization
-  optimizer: "AdamW"                # AdamW for better generalization
-  scheduler: "ReduceLROnPlateau"    # ReduceLROnPlateau for adaptive learning rate
-  scheduler_step_size: 10           # For StepLR scheduler
-  scheduler_gamma: 0.5              # Factor for ReduceLROnPlateau
-  scheduler_patience: 5             # Patience for ReduceLROnPlateau scheduler
-  early_stopping_patience: 15      # More patience for baseline training
-
-# Fine-tuning configuration
-finetune:
-  learning_rate: 0.0005
-  batchsize: 512
-  weight_decay: 0.0001
-  optimizer: "AdamW"
-  scheduler: "CosineAnnealingLR"  # Use implemented scheduler
-  scheduler_step_size: 10           # For StepLR scheduler
-  scheduler_gamma: 0.1              # For StepLR scheduler
-  early_stopping_patience: 10
+    enabled: false                   # Enable target-based loss weighting
+    weight_function: "linear"    # Use linear weighting for baseline
   
+  optimizer: "Adam"                # Adam for baseline
+  weight_decay: 0.0             # Regularization
+  standardize_targets: False        # Disable target standardization to avoid negative loss
+  log_target: False              # Disable log-space training
+  log_space_point: "mean"        # For compatibility
+
+pretrain:
+  epochs: 100                       # Longer training for baseline performance
+  batchsize: 1024                   # Good batch size for stability
+  num_workers: 12 
+  prefetch_factor: 4
+  learning_rate: 0.0005              # Conservative learning rate
+  scheduler: CosineAnnealingLR       # CosineAnnealingLR for smooth learning rate decay
+  scheduler_step_size: 100           # Step size for scheduler (reduces lr every X epochs)
+  early_stopping: true               # Whether to use early stopping
+  patience: 15                       # More patience for baseline training
+  save_model_every_epoch: False      # Whether to save the model every epoch
+
+finetune:
+  epochs: 5
+  num_workers: 12
+  learning_rate: 0.0005
+  scheduler: CosineAnnealingLR       # CosineAnnealingLR for fine-tuning
+  scheduler_step_size: 10            # Step size for scheduler (reduces lr every X epochs)
+
 # Timing and performance tracking
 enable_timing: false              # Enable detailed timing logs

@@ -1,7 +1,7 @@
 # General configuration
 project_name: "PNN_STEC"
 output_dir: "experiments/"
-year: 2024
+year: 2023
 doy: 1
 mode: pretrain # pretrain, finetune
 random_seed: 42
@@ -72,9 +72,8 @@ pretrain:
 
 finetune:
   epochs: 5
-  num_workers: 4
+  num_workers: 12
   learning_rate: 0.001
   scheduler: CosineAnnealingLR             # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
-
 

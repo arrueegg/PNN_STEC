@@ -89,7 +89,7 @@ EVALUATION_CONFIG = {
     
     # Debug settings
     "debug": {
-        "single_station": "ALGO",  # Restrict to single station for faster debugging
+        "single_station": None,  # Restrict to single station for faster debugging
                                   # Examples: "ALGO", "BRUS", "NYA1", etc.
                                   # Set to None to process all stations
     },
