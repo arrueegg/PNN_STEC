@@ -7,7 +7,7 @@ import concurrent.futures
 import matplotlib.pyplot as plt
 
 # ← EDIT THESE
-DATA_DIR = "/home/space/data/IONO/STEC_DB_CASDCB/"
+DATA_DIR = "/home/space/data/iono/STEC_DB_CASDCB/"
 COLUMNS = ["satele", "satazi", "stec", "sod"]
 SPLITS = ["train", "val", "test"]
 IDX_CHUNK_SIZE = 5_000_000

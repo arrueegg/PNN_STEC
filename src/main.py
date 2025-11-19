@@ -75,7 +75,7 @@ def main():
         Pretrainer(config, logger)
     elif config["mode"] == "finetune":
         folder = f"{config['pretrain_folder']}/model/"
-        model_path = os.listdir(folder)
+        model_path = os.listdir(folder) if os.path.exists(folder) else None
         if not model_path:
             print("")
             logger.info("Pretrained model not found.")

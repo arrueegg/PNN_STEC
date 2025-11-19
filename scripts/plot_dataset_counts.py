@@ -361,7 +361,7 @@ def plot_observations(dates, counts):
 
 
 def main():
-    DATA_ROOT = "/home/space/data/IONO/STEC_DB_CASDCB/"
+    DATA_ROOT = "/home/space/data/iono/STEC_DB_CASDCB/"
     dates, counts = scan_database(DATA_ROOT)
     plot_observations(dates, counts)
 

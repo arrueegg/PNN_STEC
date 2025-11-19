@@ -134,7 +134,8 @@ mkdir -p "$WANDB_DIR" "$TMPDIR"
 unset WANDB_DISABLE_SERVICE
 unset WANDB_DISABLED
 
-export WANDB_START_METHOD=thread
+# Note: WANDB_START_METHOD is deprecated but may be needed for multiprocessing compatibility with num_workers > 0
+# export WANDB_START_METHOD=thread
 export WANDB_CONSOLE=off
 export WANDB_SILENT=true
 export WANDB_PROJECT="{project_name}"
