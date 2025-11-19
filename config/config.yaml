@@ -3,7 +3,7 @@ project_name: "PNN_STEC"
 output_dir: "experiments/"
 year: 2024
 doy: 182
-mode: finetune # pretrain, finetune
+mode: pretrain # pretrain, finetune
 random_seed: 42
 debug: True  
 debug_single_batch: False  
@@ -23,15 +23,16 @@ data:
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True
-  train_subset_size: 1_000_000  # Number of samples to use per epoch
+  train_subset_size: 500_000  # Number of samples to use per epoch
   val_size: 1_000_000  # Number of validation samples to use ('full' for entire val set, or integer for specific count)
   test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
 
 model:
-  model_type: MLP # Available: BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP, ResNet_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
+  model_type: ResNet_MSE # Available: BNN_NLL, ResNet_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
   hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
   num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
+  dropout_rate: 0.0   # Dropout rate for models
   
   # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
   ensemble_size: 5    # Number of ensemble members (default: 5)

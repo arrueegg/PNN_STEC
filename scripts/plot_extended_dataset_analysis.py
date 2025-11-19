@@ -29,19 +29,20 @@ OMNI_FEATURE_INDICES = {
     "ae": 11,          # AE index
 }
 
-# Histogram bins
+# Histogram bins - fixed equal-width bins for all features across all splits
+# Using 50 bins to reduce noise while maintaining detail
 BINS = {
-    "stec": np.linspace(0, 250, 251),
-    "satele": np.linspace(0, 90, 91),
-    "satazi": np.linspace(0, 360, 361),
-    "sod": np.linspace(0, 86400, 100),
-    "lat_ipp": np.linspace(-90, 90, 181),
-    "lon_ipp": np.linspace(-180, 180, 361),
-    "kp": np.linspace(0, 9, 100),
-    "ap": np.linspace(0, 400, 100),
-    "f107": np.linspace(50, 350, 100),
-    "dst": np.linspace(-500, 200, 100),
-    "ae": np.linspace(0, 2500, 100),
+    "stec": np.linspace(0, 250, 51),
+    "satele": np.linspace(0, 90, 51),
+    "satazi": np.linspace(0, 360, 51),
+    "sod": np.linspace(0, 86400, 51),
+    "lat_ipp": np.linspace(-90, 90, 51),
+    "lon_ipp": np.linspace(-180, 180, 51),
+    "kp": np.linspace(0, 9, 50),              # Kp ranges 0-9
+    "ap": np.linspace(0, 400, 50),            # Ap ranges 0-400
+    "f107": np.linspace(60, 280, 50),         # F10.7 ranges ~60-280
+    "dst": np.linspace(-500, 100, 50),        # Dst ranges ~-500 to +100
+    "ae": np.linspace(0, 2500, 50),           # AE ranges 0-2500
 }
 
 # Chunk size for reading
@@ -94,6 +95,56 @@ class RunningStats:
         }
 
 
+def compute_quantile_bins(all_samples, all_columns, n_bins=50, quantile=0.95):
+    """Compute bin ranges based on 95% quantiles of data from all splits."""
+    global BINS
+    
+    print(f"\n🔢 Computing {quantile*100:.0f}% quantile ranges for bins...")
+    
+    for col in all_columns:
+        # Collect all data for this feature across all splits
+        all_data = []
+        for split in SPLITS:
+            if split in all_samples and col in all_samples[split]:
+                data = np.array(all_samples[split][col])
+                # Filter invalid values - preserve negative values for coordinates
+                if col in ["lat_ipp", "lon_ipp"]:
+                    data = data[data != 0]  # Keep negative values for coordinates
+                else:
+                    data = data[data > 0]  # Remove zero/negative for other features
+                all_data.extend(data)
+        
+        if len(all_data) == 0:
+            print(f"  ⚠ No data for {col}, keeping default bins")
+            continue
+        
+        all_data = np.array(all_data)
+        
+        # Compute quantile range
+        q_low = np.percentile(all_data, (1 - quantile) / 2 * 100)  # 2.5th percentile
+        q_high = np.percentile(all_data, (1 + quantile) / 2 * 100)  # 97.5th percentile
+        
+        # Special handling for circular features
+        if col == "satazi":
+            q_low, q_high = 0, 360
+        elif col == "sod":
+            q_low, q_high = 0, 86400
+        elif col == "kp":
+            q_low, q_high = 0, 9
+        elif col == "satele":
+            q_low, q_high = 0, 90
+        elif col == "lon_ipp":
+            q_low, q_high = -180, 180
+        elif col == "lat_ipp":
+            q_low, q_high = -90, 90
+        
+        # Create bins
+        BINS[col] = np.linspace(q_low, q_high, n_bins + 1)
+        print(f"  {col:12s}: [{q_low:10.2f}, {q_high:10.2f}]")
+    
+    return BINS
+
+
 def get_omni_value(omni_h5, year, doy, hour, feature_col):
     """Get OMNI/SWI value for a specific time."""
     try:
@@ -129,9 +180,14 @@ def analyze_split_with_omni(split_name, omni_h5, random_state=None):
         print(f"  Total records: {n_total:,}")
         print(f"  Randomly sampling {HISTOGRAM_SAMPLE_SIZE:,} records...")
         
-        # Generate random indices
+        # Generate random indices using stride-based sampling for efficiency with large datasets
         rng = np.random.RandomState(random_state)
-        sample_indices = np.sort(rng.choice(n_total, size=min(HISTOGRAM_SAMPLE_SIZE, n_total), replace=False))
+        stride = max(1, n_total // HISTOGRAM_SAMPLE_SIZE)
+        base_indices = np.arange(0, n_total, stride)[:HISTOGRAM_SAMPLE_SIZE]
+        # Add small random offsets to avoid systematic bias
+        offsets = rng.randint(0, stride, size=len(base_indices))
+        sample_indices = np.clip(base_indices + offsets, 0, n_total - 1)
+        sample_indices = np.sort(sample_indices)
         
         # Initialize accumulators (STEC + OMNI features)
         all_columns = STEC_COLUMNS + list(OMNI_FEATURE_INDICES.keys())
@@ -143,34 +199,6 @@ def analyze_split_with_omni(split_name, omni_h5, random_state=None):
         # Process samples
         for sample_ptr, sample_idx in enumerate(tqdm(sample_indices, desc=f"  Sampling {split_name}")):
             row = data_ds[sample_idx]
-            
-            # Extract STEC features
-            for col in STEC_COLUMNS:
-                if col not in data_ds.dtype.names:
-                    continue
-                
-                val = float(row[col])
-                if col == "sod":
-                    val = val / 3600.0
-                
-                samples[col][sample_ptr] = val
-                stats[col].update_batch(np.array([val]))
-            
-            # Extract OMNI/SWI features
-            year = int(row["year"])
-            doy = int(row["doy"])
-            sod = int(row["sod"])
-            hour = sod // 3600
-            
-            # Track temporal period
-            date_key = f"{year}-{doy:03d}"
-            temporal_periods[date_key] = temporal_periods.get(date_key, 0) + 1
-            
-            for feat_name, feat_col in OMNI_FEATURE_INDICES.items():
-                omni_val = get_omni_value(omni_h5, year, doy, hour, feat_col)
-                if not np.isnan(omni_val):
-                    samples[feat_name][sample_ptr] = omni_val
-                    stats[feat_name].update_batch(np.array([omni_val]))
             
             # Extract STEC features
             for col in STEC_COLUMNS:
@@ -234,6 +262,9 @@ def main():
             all_stats[split] = stats
             all_samples[split] = samples
             all_temporal[split] = temporal
+        
+        # Compute 95% quantile bins for all features
+        compute_quantile_bins(all_samples, all_columns, n_bins=50, quantile=0.95)
         
         # Print summary statistics
         summary_file = os.path.join(OUTPUT_DIR, "extended_dataset_statistics.txt")
@@ -318,17 +349,19 @@ def main():
             fig, axes = plt.subplots(1, 3, figsize=(15, 4))
             fig.suptitle(f"Distribution of {col} (by split)", fontsize=14, fontweight="bold")
             
+            # Get fixed bins for this feature from BINS dictionary
+            bins = BINS.get(col, 50)
+            
             for idx, split in enumerate(SPLITS):
                 if split not in all_samples or col not in all_samples[split]:
                     continue
                 
                 samples_data = np.array(all_samples[split][col])
-                samples_data = samples_data[samples_data > 0]  # Filter invalid values
                 if len(samples_data) == 0:
                     continue
                 
                 ax = axes[idx]
-                ax.hist(samples_data, bins=50, alpha=0.7, edgecolor='black')
+                ax.hist(samples_data, bins=bins, alpha=0.7, edgecolor='black')
                 ax.set_title(f"{split.upper()} (n={len(samples_data):,})")
                 ax.set_xlabel(col)
                 ax.set_ylabel("Count")
@@ -347,16 +380,23 @@ def main():
             
             colors = {'train': 'blue', 'val': 'orange', 'test': 'green'}
             
+            # Get fixed bins for this feature from BINS dictionary
+            bins = BINS.get(col, 50)
+            
             for split in SPLITS:
                 if split not in all_samples or col not in all_samples[split]:
                     continue
                 
                 samples_data = np.array(all_samples[split][col])
-                samples_data = samples_data[samples_data > 0]  # Filter invalid values
+                # Filter invalid values - preserve negative values for coordinates
+                if col in ["lat_ipp", "lon_ipp"]:
+                    samples_data = samples_data[samples_data != 0]  # Keep negatives for coords
+                else:
+                    samples_data = samples_data[samples_data > 0]  # Remove zero/negative for others
                 if len(samples_data) == 0:
                     continue
                 
-                ax.hist(samples_data, bins=50, alpha=0.5, label=f"{split} (n={len(samples_data):,})", 
+                ax.hist(samples_data, bins=bins, alpha=0.5, label=f"{split} (n={len(samples_data):,})", 
                        color=colors[split], density=True, edgecolor='black', linewidth=0.5)
             
             ax.set_xlabel(col, fontsize=12)
