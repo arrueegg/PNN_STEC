@@ -1,0 +1,67 @@
+==========================================================================================
+EXTENDED DATASET STATISTICS (STEC + OMNI/SWI)
+==========================================================================================
+
+
+==========================================================================================
+Split: TRAIN
+==========================================================================================
+
+[STEC FEATURES]
+stec          count=      1000  mean=   25.9127  std=   26.2247  min=    0.0730  max=  188.0680
+satele        count=      1000  mean=   34.8833  std=   19.5510  min=    5.0060  max=   87.7550
+satazi        count=      1000  mean=  183.6357  std=   98.0191  min=    0.9470  max=  358.9120
+sod           count=      1000  mean=   12.1203  std=    6.7540  min=    0.0000  max=   23.9167
+lat_ipp       count=      1000  mean=   17.7991  std=   36.9410  min=  -83.5273  max=   84.6613
+lon_ipp       count=      1000  mean=    5.9680  std=   90.8340  min= -178.2191  max=  179.9091
+
+[OMNI/SWI FEATURES]
+kp            count=      1000  mean=    0.0073  std=    0.0011  min=    0.0059  max=    0.0098
+ap            count=      1000  mean=   -0.0272  std=    2.6869  min=  -22.6000  max=   22.8000
+f107          count=      1000  mean=    4.9676  std=    2.7496  min=    0.1000  max=   23.5000
+dst           count=      1000  mean=    5.5776  std=    2.7921  min=    1.3000  max=   24.1000
+ae            count=      1000  mean=    1.8359  std=    1.3716  min=    0.0800  max=   19.7300
+
+Temporal coverage: 945 unique days
+
+==========================================================================================
+Split: VAL
+==========================================================================================
+
+[STEC FEATURES]
+stec          count=      1000  mean=   25.5330  std=   22.9492  min=    0.2030  max=  164.4340
+satele        count=      1000  mean=   35.2702  std=   20.5314  min=    5.0480  max=   87.4730
+satazi        count=      1000  mean=  184.6033  std=   99.5858  min=    1.2970  max=  356.8360
+sod           count=      1000  mean=   12.1280  std=    7.1585  min=    0.0000  max=   23.9167
+lat_ipp       count=      1000  mean=   28.3203  std=   37.1297  min=  -88.3911  max=   83.5474
+lon_ipp       count=      1000  mean=    7.1504  std=   80.9364  min= -178.0115  max=  179.4386
+
+[OMNI/SWI FEATURES]
+kp            count=      1000  mean=    0.0075  std=    0.0012  min=    0.0060  max=    0.0100
+ap            count=      1000  mean=    0.0603  std=    2.6300  min=  -11.7000  max=   10.8000
+f107          count=      1000  mean=    5.0032  std=    2.2962  min=    0.4000  max=   15.8000
+dst           count=      1000  mean=    5.5950  std=    2.3548  min=    1.0000  max=   18.8000
+ae            count=      1000  mean=    1.7546  std=    1.1644  min=    0.0800  max=   10.0200
+
+Temporal coverage: 290 unique days
+
+==========================================================================================
+Split: TEST
+==========================================================================================
+
+[STEC FEATURES]
+stec          count=      1000  mean=   40.4551  std=   35.2947  min=    0.4730  max=  235.5250
+satele        count=      1000  mean=   34.7947  std=   20.1195  min=    5.0660  max=   87.6600
+satazi        count=      1000  mean=  173.7408  std=  103.2360  min=    1.3300  max=  359.5050
+sod           count=      1000  mean=   11.5342  std=    6.9946  min=    0.0000  max=   23.9167
+lat_ipp       count=      1000  mean=   18.5440  std=   38.4608  min=  -81.5821  max=   78.2370
+lon_ipp       count=      1000  mean=   10.5541  std=   82.8910  min= -179.7604  max=  178.7167
+
+[OMNI/SWI FEATURES]
+kp            count=      1000  mean=    0.0085  std=    0.0014  min=    0.0059  max=    0.0110
+ap            count=      1000  mean=   -0.1130  std=    3.5988  min=  -23.6000  max=   17.0000
+f107          count=      1000  mean=    5.9747  std=    3.4144  min=    0.6000  max=   26.7000
+dst           count=      1000  mean=    6.6280  std=    3.5585  min=    1.5000  max=   30.7000
+ae            count=      1000  mean=    2.2229  std=    2.3181  min=    0.0900  max=   31.0500
+
+Temporal coverage: 491 unique days

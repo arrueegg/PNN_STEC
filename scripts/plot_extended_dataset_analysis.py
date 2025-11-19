@@ -31,7 +31,7 @@ OMNI_FEATURE_INDICES = {
 
 # Histogram bins
 BINS = {
-    "stec": np.linspace(0, 150, 151),
+    "stec": np.linspace(0, 250, 251),
     "satele": np.linspace(0, 90, 91),
     "satazi": np.linspace(0, 360, 361),
     "sod": np.linspace(0, 86400, 100),

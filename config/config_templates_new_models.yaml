@@ -1,0 +1,281 @@
+# Configuration Templates for New Models
+
+Copy-paste ready configurations for ResNet and Attention models.
+
+## ResNet_NLL (Recommended Starting Point)
+
+```yaml
+# config/config_resnet_nll.yaml
+project_name: "PNN_STEC"
+output_dir: "experiments/"
+year: 2024
+doy: 182
+mode: finetune
+random_seed: 42
+debug: False
+
+data:
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
+  use_agg_h5: True
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
+  move_to_scratch: True
+  every_x_doy: 1
+  use_SWI: True
+  SH_degree: 0
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 1_000_000
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+model:
+  model_type: ResNet_NLL
+  hidden_dim: 1024
+  num_layers: 6
+  dropout_rate: 0.1
+
+training:
+  loss_function: "GaussianNLLLoss"
+  loss_weight: 1.0
+  
+  kl_annealing:
+    enabled: false
+  
+  target_weighting:
+    enabled: true
+    weight_function: "linear"
+  
+  optimizer: "Adam"
+  weight_decay: 0.0
+  standardize_targets: False
+  log_target: False
+
+pretrain:
+  epochs: 150
+  batchsize: 512
+  num_workers: 12
+  prefetch_factor: 4
+  learning_rate: 0.0005
+  scheduler: CosineAnnealingLR
+  scheduler_step_size: 150
+  early_stopping: true
+  patience: 20
+
+finetune:
+  epochs: 100
+  num_workers: 12
+  learning_rate: 0.001
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 100
+```
+
+## ResNet_MSE (Deterministic Baseline)
+
+```yaml
+model:
+  model_type: ResNet_MSE
+  hidden_dim: 1024
+  num_layers: 6
+  dropout_rate: 0.1
+
+training:
+  loss_function: "MSELoss"
+  loss_weight: 1.0
+  target_weighting:
+    enabled: true
+    weight_function: "quadratic"  # More aggressive for deterministic
+```
+
+## AttentionMLP_NLL (Advanced - Feature Interactions)
+
+```yaml
+model:
+  model_type: AttentionMLP_NLL
+  hidden_dim: 1024
+  num_layers: 4
+  num_heads: 8
+  dropout_rate: 0.1
+
+training:
+  loss_function: "GaussianNLLLoss"
+  loss_weight: 1.0
+  optimizer: "Adam"
+  weight_decay: 0.0001  # Slightly higher for attention
+  
+  target_weighting:
+    enabled: true
+    weight_function: "linear"
+
+pretrain:
+  epochs: 150
+  batchsize: 512
+  learning_rate: 0.0005
+  scheduler: CosineAnnealingLR
+  scheduler_step_size: 150
+```
+
+## AttentionMLP_MSE (Advanced - Deterministic)
+
+```yaml
+model:
+  model_type: AttentionMLP_MSE
+  hidden_dim: 1024
+  num_layers: 4
+  num_heads: 8
+  dropout_rate: 0.1
+
+training:
+  loss_function: "MSELoss"
+  loss_weight: 1.0
+  target_weighting:
+    enabled: true
+    weight_function: "quadratic"
+```
+
+## Comparison: Small vs Large Models
+
+### Small ResNet (for quick experiments)
+```yaml
+model:
+  model_type: ResNet_NLL
+  hidden_dim: 256
+  num_layers: 3
+  dropout_rate: 0.05
+
+pretrain:
+  epochs: 100
+  batchsize: 256
+  learning_rate: 0.001
+```
+
+### Large ResNet (for best performance)
+```yaml
+model:
+  model_type: ResNet_NLL
+  hidden_dim: 2048
+  num_layers: 8
+  dropout_rate: 0.15
+
+pretrain:
+  epochs: 200
+  batchsize: 1024
+  learning_rate: 0.0003
+```
+
+### Small Attention (for quick experiments)
+```yaml
+model:
+  model_type: AttentionMLP_NLL
+  hidden_dim: 512
+  num_layers: 2
+  num_heads: 4
+  dropout_rate: 0.05
+
+pretrain:
+  epochs: 100
+  batchsize: 256
+  learning_rate: 0.001
+```
+
+### Large Attention (for best performance)
+```yaml
+model:
+  model_type: AttentionMLP_NLL
+  hidden_dim: 1024
+  num_layers: 6
+  num_heads: 8
+  dropout_rate: 0.15
+
+pretrain:
+  epochs: 200
+  batchsize: 1024
+  learning_rate: 0.0003
+```
+
+## Hyperparameter Search Configuration
+
+```yaml
+# For WandB sweep with new models
+search_space:
+  model.model_type:
+    values: [ResNet_NLL, AttentionMLP_NLL, BNN_NLL]
+  
+  model.hidden_dim:
+    values: [512, 1024, 2048]
+  
+  model.num_layers:
+    values: [4, 6, 8]
+  
+  model.num_heads:
+    # Only used for AttentionMLP_* models
+    values: [4, 8, 16]
+  
+  model.dropout_rate:
+    values: [0.05, 0.1, 0.15]
+  
+  pretrain.learning_rate:
+    log_uniform_values: [0.0001, 0.01]
+  
+  pretrain.batchsize:
+    values: [256, 512, 1024]
+```
+
+## Running Experiments
+
+### Using ResNet_NLL
+```bash
+# Copy config
+cp config/config_baseline.yaml config/config_resnet.yaml
+
+# Edit to use ResNet_NLL
+sed -i 's/model_type: .*/model_type: ResNet_NLL/' config/config_resnet.yaml
+
+# Run
+python src/main.py --config config/config_resnet.yaml
+```
+
+### Using AttentionMLP_NLL
+```bash
+cp config/config_baseline.yaml config/config_attention.yaml
+sed -i 's/model_type: .*/model_type: AttentionMLP_NLL/' config/config_attention.yaml
+python src/main.py --config config/config_attention.yaml
+```
+
+## Expected Performance
+
+Based on architecture properties:
+
+| Model | Training Time | Inference Time | Accuracy | Uncertainty Calibration |
+|-------|---|---|---|---|
+| ResNet_NLL | 1x | 1x | ++ | Good |
+| AttentionMLP_NLL | 2-3x | 2-3x | +++ | Excellent |
+| BNN_NLL | 4-5x | 4-5x | +++ | Excellent |
+
+*Relative to MLP_NLL baseline*
+
+## Troubleshooting
+
+### "num_heads must divide hidden_dim"
+The code automatically adjusts, but for best performance:
+- hidden_dim=1024, num_heads=4 ✓
+- hidden_dim=1024, num_heads=8 ✓
+- hidden_dim=512, num_heads=4 ✓
+- hidden_dim=256, num_heads=4 ✓
+
+### "Out of memory" with Attention models
+- Reduce `hidden_dim` from 1024 to 512
+- Reduce `num_layers` from 6 to 4
+- Reduce `batchsize` from 1024 to 512
+
+### "Training unstable" with ResNet
+- Reduce `dropout_rate` to 0.05
+- Try smaller `learning_rate`: 0.0001 instead of 0.0005
+- Increase `num_layers` gradually (4 → 6 → 8)
+
+### "Variance predictions too high/low"
+Normal behavior - variance is a learned parameter. If concerned:
+- Check loss is decreasing
+- Verify variance >= 1e-3 (should see this automatically)
+- Compare with MLP_NLL baseline

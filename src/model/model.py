@@ -34,6 +34,263 @@ def init_kaiming(model, activation, model_seed):
     # nn.init.constant_(model.out_layer.bias, 100.0)
 
 
+# ============================================================================
+# ResNet-Based Architectures with Skip Connections
+# ============================================================================
+
+
+class ResNetBlock(nn.Module):
+    """Residual block for ResNet architecture"""
+    def __init__(self, hidden_dim, dropout_rate=0.0):
+        super().__init__()
+        self.fc1 = Linear(hidden_dim, hidden_dim)
+        self.fc2 = Linear(hidden_dim, hidden_dim)
+        self.dropout = Dropout(dropout_rate) if dropout_rate > 0 else None
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+
+    def forward(self, x):
+        # Residual connection: x + f(x)
+        residual = x
+        x = self.norm1(x)
+        x = F.relu(self.fc1(x))
+        if self.dropout:
+            x = self.dropout(x)
+        x = self.norm2(x)
+        x = self.fc2(x)
+        if self.dropout:
+            x = self.dropout(x)
+        return x + residual
+
+
+class ResNet_MSE(torch.nn.Module):
+    """ResNet-based MLP with skip connections - MSE loss (deterministic prediction)"""
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4, dropout_rate=0.0):
+        super().__init__()
+        
+        # Input projection
+        self.input_layer = nn.Sequential(
+            Linear(n_in, hidden_dim),
+            nn.ReLU(),
+        )
+        
+        # Residual blocks
+        self.res_blocks = nn.ModuleList([
+            ResNetBlock(hidden_dim, dropout_rate=dropout_rate)
+            for _ in range(num_layers)
+        ])
+        
+        # Output layer
+        self.output_layer = Linear(hidden_dim, n_out)
+        
+        # Initialize output bias to STEC mean
+        with torch.no_grad():
+            self.output_layer.bias.fill_(15.5)
+            self.output_layer.weight.normal_(0, 0.01)
+
+    def forward(self, x):
+        x = self.input_layer(x)
+        for res_block in self.res_blocks:
+            x = res_block(x)
+        x = self.output_layer(x)
+        return x, torch.zeros_like(x)  # Return zero variance for MSE
+
+
+class ResNet_NLL(torch.nn.Module):
+    """ResNet-based MLP with skip connections - NLL loss (outputs mean + variance)"""
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4, dropout_rate=0.0):
+        super().__init__()
+        
+        # Input projection
+        self.input_layer = nn.Sequential(
+            Linear(n_in, hidden_dim),
+            nn.ReLU(),
+        )
+        
+        # Residual blocks
+        self.res_blocks = nn.ModuleList([
+            ResNetBlock(hidden_dim, dropout_rate=dropout_rate)
+            for _ in range(num_layers)
+        ])
+        
+        # Output layer (2 outputs for mean and variance)
+        self.output_layer = Linear(hidden_dim, 2)
+        
+        # Initialize output bias
+        with torch.no_grad():
+            self.output_layer.bias[0].fill_(15.5)  # Mean bias
+            self.output_layer.weight.normal_(0, 0.01)
+
+    def forward(self, x):
+        x = self.input_layer(x)
+        for res_block in self.res_blocks:
+            x = res_block(x)
+        x = self.output_layer(x)
+        mean, variance = torch.split(x, 1, dim=1)
+        variance = F.softplus(variance) + 1e-3  # Ensure positive variance
+        return mean, variance
+
+
+# ============================================================================
+# Attention-Based Architectures
+# ============================================================================
+
+
+class MultiHeadAttentionBlock(nn.Module):
+    """Multi-head self-attention with residual connection and layer normalization"""
+    def __init__(self, hidden_dim, num_heads=4, dropout_rate=0.0):
+        super().__init__()
+        self.attention = nn.MultiheadAttention(
+            hidden_dim, 
+            num_heads=num_heads, 
+            dropout=dropout_rate,
+            batch_first=True
+        )
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.dropout = Dropout(dropout_rate) if dropout_rate > 0 else None
+
+    def forward(self, x):
+        # x shape: (batch_size, 1, hidden_dim) - treat as sequence of length 1
+        residual = x
+        x_norm = self.norm(x)
+        attn_out, _ = self.attention(x_norm, x_norm, x_norm)
+        if self.dropout:
+            attn_out = self.dropout(attn_out)
+        return attn_out + residual
+
+
+class AttentionMLP_MSE(torch.nn.Module):
+    """Attention-based MLP - MSE loss (deterministic prediction)"""
+    def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4, num_heads=4, dropout_rate=0.0):
+        super().__init__()
+        
+        # Ensure num_heads divides hidden_dim
+        if hidden_dim % num_heads != 0:
+            num_heads = max(1, hidden_dim // 4)  # Fallback to ~4x reduction
+        
+        # Input projection
+        self.input_layer = nn.Sequential(
+            Linear(n_in, hidden_dim),
+            nn.ReLU(),
+        )
+        
+        # Alternating attention and MLP blocks
+        self.attn_blocks = nn.ModuleList([
+            MultiHeadAttentionBlock(hidden_dim, num_heads=num_heads, dropout_rate=dropout_rate)
+            for _ in range(num_layers)
+        ])
+        
+        self.mlp_blocks = nn.ModuleList([
+            nn.Sequential(
+                Linear(hidden_dim, hidden_dim * 2),
+                nn.ReLU(),
+                Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity(),
+                Linear(hidden_dim * 2, hidden_dim),
+            )
+            for _ in range(num_layers)
+        ])
+        
+        self.norms = nn.ModuleList([
+            nn.LayerNorm(hidden_dim) for _ in range(num_layers)
+        ])
+        
+        # Output layer
+        self.output_layer = Linear(hidden_dim, n_out)
+        
+        # Initialize output bias to STEC mean
+        with torch.no_grad():
+            self.output_layer.bias.fill_(15.5)
+            self.output_layer.weight.normal_(0, 0.01)
+
+    def forward(self, x):
+        # Input: (batch_size, n_in)
+        x = self.input_layer(x)  # (batch_size, hidden_dim)
+        x = x.unsqueeze(1)  # (batch_size, 1, hidden_dim) - sequence of length 1
+        
+        for attn_block, mlp_block, norm in zip(self.attn_blocks, self.mlp_blocks, self.norms):
+            # Attention
+            x = attn_block(x)
+            
+            # MLP with residual
+            residual = x
+            x = norm(x)
+            x = mlp_block(x)
+            x = x + residual
+        
+        # Remove sequence dimension and project to output
+        x = x.squeeze(1)  # (batch_size, hidden_dim)
+        x = self.output_layer(x)
+        
+        return x, torch.zeros_like(x)  # Return zero variance for MSE
+
+
+class AttentionMLP_NLL(torch.nn.Module):
+    """Attention-based MLP - NLL loss (outputs mean + variance)"""
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4, num_heads=4, dropout_rate=0.0):
+        super().__init__()
+        
+        # Ensure num_heads divides hidden_dim
+        if hidden_dim % num_heads != 0:
+            num_heads = max(1, hidden_dim // 4)  # Fallback to ~4x reduction
+        
+        # Input projection
+        self.input_layer = nn.Sequential(
+            Linear(n_in, hidden_dim),
+            nn.ReLU(),
+        )
+        
+        # Alternating attention and MLP blocks
+        self.attn_blocks = nn.ModuleList([
+            MultiHeadAttentionBlock(hidden_dim, num_heads=num_heads, dropout_rate=dropout_rate)
+            for _ in range(num_layers)
+        ])
+        
+        self.mlp_blocks = nn.ModuleList([
+            nn.Sequential(
+                Linear(hidden_dim, hidden_dim * 2),
+                nn.ReLU(),
+                Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity(),
+                Linear(hidden_dim * 2, hidden_dim),
+            )
+            for _ in range(num_layers)
+        ])
+        
+        self.norms = nn.ModuleList([
+            nn.LayerNorm(hidden_dim) for _ in range(num_layers)
+        ])
+        
+        # Output layer (2 outputs for mean and variance)
+        self.output_layer = Linear(hidden_dim, 2)
+        
+        # Initialize output bias
+        with torch.no_grad():
+            self.output_layer.bias[0].fill_(15.5)  # Mean bias
+            self.output_layer.weight.normal_(0, 0.01)
+
+    def forward(self, x):
+        # Input: (batch_size, n_in)
+        x = self.input_layer(x)  # (batch_size, hidden_dim)
+        x = x.unsqueeze(1)  # (batch_size, 1, hidden_dim) - sequence of length 1
+        
+        for attn_block, mlp_block, norm in zip(self.attn_blocks, self.mlp_blocks, self.norms):
+            # Attention
+            x = attn_block(x)
+            
+            # MLP with residual
+            residual = x
+            x = norm(x)
+            x = mlp_block(x)
+            x = x + residual
+        
+        # Remove sequence dimension and project to output
+        x = x.squeeze(1)  # (batch_size, hidden_dim)
+        x = self.output_layer(x)
+        
+        mean, variance = torch.split(x, 1, dim=1)
+        variance = F.softplus(variance) + 1e-3  # Ensure positive variance
+        return mean, variance
+
+
 class MLP(torch.nn.Module):
     def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4):
         super().__init__()
@@ -595,5 +852,35 @@ def get_model(config):
             num_layers=num_layers,
         )
         return model
+    elif model_type == "ResNet_MSE":
+        return ResNet_MSE(
+            n_in=in_features, 
+            hidden_dim=hidden_dim, 
+            num_layers=num_layers,
+            dropout_rate=dropout_rate
+        )
+    elif model_type == "ResNet_NLL":
+        return ResNet_NLL(
+            n_in=in_features, 
+            hidden_dim=hidden_dim, 
+            num_layers=num_layers,
+            dropout_rate=dropout_rate
+        )
+    elif model_type == "AttentionMLP_MSE":
+        return AttentionMLP_MSE(
+            n_in=in_features, 
+            hidden_dim=hidden_dim, 
+            num_layers=num_layers,
+            num_heads=config["model"].get("num_heads", 4),
+            dropout_rate=dropout_rate
+        )
+    elif model_type == "AttentionMLP_NLL":
+        return AttentionMLP_NLL(
+            n_in=in_features, 
+            hidden_dim=hidden_dim, 
+            num_layers=num_layers,
+            num_heads=config["model"].get("num_heads", 4),
+            dropout_rate=dropout_rate
+        )
     else:
         raise ValueError(f"Model type {model_type} is not recognized.")
