@@ -1,0 +1,25 @@
+project: pnn_stec
+method: grid
+name: MLP_MSE Sweep
+
+parameters:
+  model.model_type:
+    value: MLP
+  model.hidden_dim:
+    values: [512, 1024]
+  model.num_layers:
+    values: [2, 3]
+  model.learning_rate:
+    values: [0.0003, 0.0005]
+  model.loss_fn:
+    value: MSELoss
+  optimizer.type:
+    value: Adam
+  scheduler.type:
+    value: CosineAnnealingLR
+  training.num_epochs:
+    value: 100
+  training.batch_size:
+    value: 512
+
+run_cap: 8

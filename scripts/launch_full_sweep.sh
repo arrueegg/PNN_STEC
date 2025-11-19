@@ -14,30 +14,40 @@ echo "================================================================"
 echo ""
 echo "Configuration:"
 echo "  • Number of agents per model: $NUM_AGENTS"
-echo "  • Number of models: 12"
-echo "  • Total agents: $((12 * NUM_AGENTS))"
+echo "  • Number of models: 13"
+echo "  • Total agents: $((13 * NUM_AGENTS))"
 echo ""
 echo "Models:"
 echo "  BASELINES:"
-echo "    1. MLP_NLL"
+echo "    1. MLP_MSE"
+echo "    2. MLP_NLL"
 echo "  BRANCH MODELS:"
-echo "    2. Branch_MLP_MSE"
-echo "    3. Branch_MLP_NLL"
-echo "    4. Branch_BNN_NLL"
-echo "    5. Branch3Way_MLP_MSE (optimized)"
-echo "    6. Branch3Way_MLP_NLL (optimized)"
-echo "    7. Branch3Way_BNN_NLL (optimized)"
+echo "    3. Branch_MLP_MSE"
+echo "    4. Branch_MLP_NLL"
+echo "    5. Branch_BNN_NLL"
+echo "    6. Branch3Way_MLP_MSE (optimized)"
+echo "    7. Branch3Way_MLP_NLL (optimized)"
+echo "    8. Branch3Way_BNN_NLL (optimized)"
 echo "  NEW ARCHITECTURES:"
-echo "    8. ResNet_MSE"
-echo "    9. ResNet_NLL"
-echo "    10. AttentionMLP_MSE"
-echo "    11. AttentionMLP_NLL"
+echo "    9. ResNet_MSE"
+echo "    10. ResNet_NLL"
+echo "    11. AttentionMLP_MSE"
+echo "    12. AttentionMLP_NLL"
 echo ""
 
 # Array to track sweep IDs
 declare -a SWEEP_IDS
 
 echo "Launching sweeps..."
+echo ""
+
+# MLP_MSE
+echo "📤 MLP_MSE..."
+RESULT=$(./scripts/launch_wandb_sweep.sh $NUM_AGENTS config/wandb_sweep_config_MLP_MSE.yaml 2>&1 | grep -oP 'Sweep ID: \K[^ ]+' || true)
+if [ ! -z "$RESULT" ]; then
+  SWEEP_IDS+=("MLP_MSE: $RESULT")
+  echo "   ✓ Sweep ID: $RESULT"
+fi
 echo ""
 
 # MLP_NLL
