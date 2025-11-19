@@ -1,0 +1,32 @@
+program: scripts/wandb_run_wrapper.py
+method: grid
+metric:
+  goal: minimize
+  name: val_MAE
+
+parameters:
+  model.model_type:
+    values: ['Branch_MLP_MSE']
+  
+  model.hidden_dim:
+    values: [512, 1024]
+  
+  model.num_layers:
+    values: [2, 3]
+  
+  pretrain.learning_rate:
+    values: [0.0003, 0.0005]
+  
+  training.loss_function:
+    values: ['MSELoss']
+  
+  pretrain.epochs:
+    values: [100]
+  
+  pretrain.batchsize:
+    values: [512]
+  
+  data.train_subset_size:
+    values: [1000000]
+
+run_cap: 8

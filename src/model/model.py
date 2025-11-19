@@ -136,8 +136,8 @@ class ResNet_NLL(torch.nn.Module):
 # ============================================================================
 
 
-class MultiHeadAttentionBlock(nn.Module):
-    """Multi-head self-attention with residual connection and layer normalization"""
+class FeatureAttentionBlock(nn.Module):
+    """Multi-head self-attention over feature dimensions (each feature is a token)"""
     def __init__(self, hidden_dim, num_heads=4, dropout_rate=0.0):
         super().__init__()
         self.attention = nn.MultiheadAttention(
@@ -150,7 +150,7 @@ class MultiHeadAttentionBlock(nn.Module):
         self.dropout = Dropout(dropout_rate) if dropout_rate > 0 else None
 
     def forward(self, x):
-        # x shape: (batch_size, 1, hidden_dim) - treat as sequence of length 1
+        # x shape: (batch_size, seq_len, hidden_dim) where seq_len > 1 (multiple feature tokens)
         residual = x
         x_norm = self.norm(x)
         attn_out, _ = self.attention(x_norm, x_norm, x_norm)
@@ -160,26 +160,32 @@ class MultiHeadAttentionBlock(nn.Module):
 
 
 class AttentionMLP_MSE(torch.nn.Module):
-    """Attention-based MLP - MSE loss (deterministic prediction)"""
+    """Attention-based MLP with feature-level attention - MSE loss (deterministic prediction)
+    
+    Groups input features into tokens and learns their interactions via multi-head attention.
+    """
     def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4, num_heads=4, dropout_rate=0.0):
         super().__init__()
+        
+        # Feature grouping: create tokens from feature groups
+        # Divide input into ~8-16 feature tokens for meaningful attention
+        self.num_feature_tokens = max(2, min(16, n_in // 2))  # Adaptive: 2-16 tokens based on n_in
+        self.feature_embed_dim = hidden_dim  # Each feature token has dimension hidden_dim
+        
+        # Project raw features to feature tokens
+        self.feature_projection = Linear(n_in, self.num_feature_tokens * hidden_dim)
         
         # Ensure num_heads divides hidden_dim
         if hidden_dim % num_heads != 0:
             num_heads = max(1, hidden_dim // 4)  # Fallback to ~4x reduction
         
-        # Input projection
-        self.input_layer = nn.Sequential(
-            Linear(n_in, hidden_dim),
-            nn.ReLU(),
-        )
-        
-        # Alternating attention and MLP blocks
+        # Attention blocks: attend over feature tokens
         self.attn_blocks = nn.ModuleList([
-            MultiHeadAttentionBlock(hidden_dim, num_heads=num_heads, dropout_rate=dropout_rate)
+            FeatureAttentionBlock(hidden_dim, num_heads=num_heads, dropout_rate=dropout_rate)
             for _ in range(num_layers)
         ])
         
+        # FFN blocks after attention
         self.mlp_blocks = nn.ModuleList([
             nn.Sequential(
                 Linear(hidden_dim, hidden_dim * 2),
@@ -193,6 +199,9 @@ class AttentionMLP_MSE(torch.nn.Module):
         self.norms = nn.ModuleList([
             nn.LayerNorm(hidden_dim) for _ in range(num_layers)
         ])
+        
+        # Pool feature tokens to single representation
+        self.pool_layer = nn.AdaptiveAvgPool1d(1)  # Pool over sequence dimension
         
         # Output layer
         self.output_layer = Linear(hidden_dim, n_out)
@@ -204,47 +213,60 @@ class AttentionMLP_MSE(torch.nn.Module):
 
     def forward(self, x):
         # Input: (batch_size, n_in)
-        x = self.input_layer(x)  # (batch_size, hidden_dim)
-        x = x.unsqueeze(1)  # (batch_size, 1, hidden_dim) - sequence of length 1
+        batch_size = x.shape[0]
         
+        # Project to feature tokens: (batch_size, n_in) -> (batch_size, num_tokens, hidden_dim)
+        x = self.feature_projection(x)  # (batch_size, num_tokens * hidden_dim)
+        x = x.view(batch_size, self.num_feature_tokens, -1)  # (batch_size, num_tokens, hidden_dim)
+        
+        # Apply attention and FFN layers
         for attn_block, mlp_block, norm in zip(self.attn_blocks, self.mlp_blocks, self.norms):
-            # Attention
-            x = attn_block(x)
+            # Attention over feature tokens
+            x = attn_block(x)  # (batch_size, num_tokens, hidden_dim)
             
-            # MLP with residual
+            # FFN with residual
             residual = x
             x = norm(x)
-            x = mlp_block(x)
+            x = mlp_block(x)  # (batch_size, num_tokens, hidden_dim)
             x = x + residual
         
-        # Remove sequence dimension and project to output
-        x = x.squeeze(1)  # (batch_size, hidden_dim)
+        # Pool tokens to single representation: (batch_size, num_tokens, hidden_dim) -> (batch_size, hidden_dim)
+        x = x.transpose(1, 2)  # (batch_size, hidden_dim, num_tokens)
+        x = self.pool_layer(x).squeeze(-1)  # (batch_size, hidden_dim)
+        
+        # Project to output
         x = self.output_layer(x)
         
         return x, torch.zeros_like(x)  # Return zero variance for MSE
 
 
 class AttentionMLP_NLL(torch.nn.Module):
-    """Attention-based MLP - NLL loss (outputs mean + variance)"""
+    """Attention-based MLP with feature-level attention - NLL loss (outputs mean + variance)
+    
+    Groups input features into tokens and learns their interactions via multi-head attention.
+    """
     def __init__(self, n_in=3, hidden_dim=256, num_layers=4, num_heads=4, dropout_rate=0.0):
         super().__init__()
+        
+        # Feature grouping: create tokens from feature groups
+        # Divide input into ~8-16 feature tokens for meaningful attention
+        self.num_feature_tokens = max(2, min(16, n_in // 2))  # Adaptive: 2-16 tokens based on n_in
+        self.feature_embed_dim = hidden_dim  # Each feature token has dimension hidden_dim
+        
+        # Project raw features to feature tokens
+        self.feature_projection = Linear(n_in, self.num_feature_tokens * hidden_dim)
         
         # Ensure num_heads divides hidden_dim
         if hidden_dim % num_heads != 0:
             num_heads = max(1, hidden_dim // 4)  # Fallback to ~4x reduction
         
-        # Input projection
-        self.input_layer = nn.Sequential(
-            Linear(n_in, hidden_dim),
-            nn.ReLU(),
-        )
-        
-        # Alternating attention and MLP blocks
+        # Attention blocks: attend over feature tokens
         self.attn_blocks = nn.ModuleList([
-            MultiHeadAttentionBlock(hidden_dim, num_heads=num_heads, dropout_rate=dropout_rate)
+            FeatureAttentionBlock(hidden_dim, num_heads=num_heads, dropout_rate=dropout_rate)
             for _ in range(num_layers)
         ])
         
+        # FFN blocks after attention
         self.mlp_blocks = nn.ModuleList([
             nn.Sequential(
                 Linear(hidden_dim, hidden_dim * 2),
@@ -259,6 +281,9 @@ class AttentionMLP_NLL(torch.nn.Module):
             nn.LayerNorm(hidden_dim) for _ in range(num_layers)
         ])
         
+        # Pool feature tokens to single representation
+        self.pool_layer = nn.AdaptiveAvgPool1d(1)  # Pool over sequence dimension
+        
         # Output layer (2 outputs for mean and variance)
         self.output_layer = Linear(hidden_dim, 2)
         
@@ -269,21 +294,28 @@ class AttentionMLP_NLL(torch.nn.Module):
 
     def forward(self, x):
         # Input: (batch_size, n_in)
-        x = self.input_layer(x)  # (batch_size, hidden_dim)
-        x = x.unsqueeze(1)  # (batch_size, 1, hidden_dim) - sequence of length 1
+        batch_size = x.shape[0]
         
+        # Project to feature tokens: (batch_size, n_in) -> (batch_size, num_tokens, hidden_dim)
+        x = self.feature_projection(x)  # (batch_size, num_tokens * hidden_dim)
+        x = x.view(batch_size, self.num_feature_tokens, -1)  # (batch_size, num_tokens, hidden_dim)
+        
+        # Apply attention and FFN layers
         for attn_block, mlp_block, norm in zip(self.attn_blocks, self.mlp_blocks, self.norms):
-            # Attention
-            x = attn_block(x)
+            # Attention over feature tokens
+            x = attn_block(x)  # (batch_size, num_tokens, hidden_dim)
             
-            # MLP with residual
+            # FFN with residual
             residual = x
             x = norm(x)
-            x = mlp_block(x)
+            x = mlp_block(x)  # (batch_size, num_tokens, hidden_dim)
             x = x + residual
         
-        # Remove sequence dimension and project to output
-        x = x.squeeze(1)  # (batch_size, hidden_dim)
+        # Pool tokens to single representation: (batch_size, num_tokens, hidden_dim) -> (batch_size, hidden_dim)
+        x = x.transpose(1, 2)  # (batch_size, hidden_dim, num_tokens)
+        x = self.pool_layer(x).squeeze(-1)  # (batch_size, hidden_dim)
+        
+        # Project to output
         x = self.output_layer(x)
         
         mean, variance = torch.split(x, 1, dim=1)
@@ -567,87 +599,310 @@ class BNN_NLL(torch.nn.Module):
         return mean, variance
 
 
-class Branch_BNN_NLL(nn.Module):
+class Branch_MLP_MSE(nn.Module):
+    """2-branch MLP (Temporal vs Spatial) with MSE loss"""
     def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
         super().__init__()
+        self.split = 6 + num_SWI_params  # Temporal features
 
-        self.split = (
-            6 + num_SWI_params
-        )  # time features (sod normalized, cos(doy), sin(doy)) + SWI features
+        # Spatial branch
+        spatial_layers = [Linear(n_in - self.split, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            spatial_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.spatial_net = nn.Sequential(*spatial_layers)
 
-        # Spatial branch (lat, lon, etc.)
+        # Temporal branch
+        temporal_layers = [Linear(self.split, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            temporal_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.temporal_net = nn.Sequential(*temporal_layers)
+
+        # Fusion
+        self.fusion = nn.Sequential(
+            Linear(2 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            Linear(hidden_dim, 1),
+        )
+        with torch.no_grad():
+            self.fusion[-1].bias.fill_(15.5)
+
+    def forward(self, x):
+        s_out = self.spatial_net(x[:, self.split:])
+        t_out = self.temporal_net(x[:, :self.split])
+        x = torch.cat([s_out, t_out], dim=-1)
+        x = self.fusion(x)
+        return x, torch.zeros_like(x)
+
+
+class Branch_MLP_NLL(nn.Module):
+    """2-branch MLP (Temporal vs Spatial) with NLL loss"""
+    def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
+        super().__init__()
+        self.split = 6 + num_SWI_params  # Temporal features
+
+        # Spatial branch
+        spatial_layers = [Linear(n_in - self.split, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            spatial_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.spatial_net = nn.Sequential(*spatial_layers)
+
+        # Temporal branch
+        temporal_layers = [Linear(self.split, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            temporal_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.temporal_net = nn.Sequential(*temporal_layers)
+
+        # Fusion
+        self.fusion = nn.Sequential(
+            Linear(2 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            Linear(hidden_dim, 2),
+        )
+        with torch.no_grad():
+            self.fusion[-1].bias[0].fill_(15.5)
+
+    def forward(self, x):
+        s_out = self.spatial_net(x[:, self.split:])
+        t_out = self.temporal_net(x[:, :self.split])
+        x = torch.cat([s_out, t_out], dim=-1)
+        x = self.fusion(x)
+        mean, variance = torch.split(x, 1, dim=1)
+        variance = F.softplus(variance) + 1e-3
+        return mean, variance
+
+
+class Branch_BNN_NLL(nn.Module):
+    """2-branch BNN (Temporal vs Spatial) with NLL loss"""
+    def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
+        super().__init__()
+        self.split = 6 + num_SWI_params
+
+        # Spatial branch
         spatial_layers = []
         spatial_layers.append(
             bnn.BayesLinear(
-                prior_mu=0,
-                prior_sigma=0.1,
-                in_features=n_in - self.split,
-                out_features=hidden_dim,
+                prior_mu=0, prior_sigma=0.1,
+                in_features=n_in - self.split, out_features=hidden_dim,
             )
         )
         spatial_layers.append(nn.ReLU())
         for _ in range(num_layers - 1):
             spatial_layers.append(
                 bnn.BayesLinear(
-                    prior_mu=0,
-                    prior_sigma=0.1,
-                    in_features=hidden_dim,
-                    out_features=hidden_dim,
+                    prior_mu=0, prior_sigma=0.1,
+                    in_features=hidden_dim, out_features=hidden_dim,
                 )
             )
             spatial_layers.append(nn.ReLU())
         self.spatial_net = nn.Sequential(*spatial_layers)
 
-        # Temporal branch (sod, cos(doy), solar params, etc.)
+        # Temporal branch
         temporal_layers = []
         temporal_layers.append(
             bnn.BayesLinear(
-                prior_mu=0,
-                prior_sigma=0.1,
-                in_features=self.split,
-                out_features=hidden_dim,
+                prior_mu=0, prior_sigma=0.1,
+                in_features=self.split, out_features=hidden_dim,
             )
         )
         temporal_layers.append(nn.ReLU())
         for _ in range(num_layers - 1):
             temporal_layers.append(
                 bnn.BayesLinear(
-                    prior_mu=0,
-                    prior_sigma=0.1,
-                    in_features=hidden_dim,
-                    out_features=hidden_dim,
+                    prior_mu=0, prior_sigma=0.1,
+                    in_features=hidden_dim, out_features=hidden_dim,
                 )
             )
             temporal_layers.append(nn.ReLU())
         self.temporal_net = nn.Sequential(*temporal_layers)
 
-        # Fusion and output
+        # Fusion
         self.fusion = nn.Sequential(
             bnn.BayesLinear(
-                prior_mu=0,
-                prior_sigma=0.1,
-                in_features=2 * hidden_dim,
-                out_features=hidden_dim,
+                prior_mu=0, prior_sigma=0.1,
+                in_features=2 * hidden_dim, out_features=hidden_dim,
             ),
             nn.ReLU(),
             bnn.BayesLinear(
-                prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=2
-            ),  # Predict STEC
+                prior_mu=0, prior_sigma=0.1,
+                in_features=hidden_dim, out_features=2,
+            ),
         )
 
     def forward(self, x):
-        spatial_features = x[:, self.split :]  # Spatial features
-        temporal_features = x[:, : self.split]  # Temporal features
-        s_out = self.spatial_net(spatial_features)
-        t_out = self.temporal_net(temporal_features)
+        s_out = self.spatial_net(x[:, self.split:])
+        t_out = self.temporal_net(x[:, :self.split])
         x = torch.cat([s_out, t_out], dim=-1)
         x = self.fusion(x)
-
         mean, variance = torch.split(x, 1, dim=1)
-        variance = (
-            F.softplus(variance) + 1e-3
-        )  # Increased minimum variance to prevent negative GaussianNLLLoss
+        variance = F.softplus(variance) + 1e-3
+        return mean, variance
 
+
+class Branch3Way_MLP_MSE(nn.Module):
+    """3-branch MLP (Spatial, Temporal, Weather) with MSE loss - OPTIMIZED"""
+    def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
+        super().__init__()
+        
+        # Feature indices based on feature registry order:
+        # Temporal: year(1) + doy(3) + sod(3) + local_time(3) = 10 features
+        # Station: sm_lat(1) + sm_lon(1) + lat(1) + lon(1) = 4 features
+        # IPP: lat(1) + lon(1) + sm_lat(1) + sm_lon(1) = 4 features
+        # Direction: satazi(1) + satele(1) -> cartesian(3) = 3 features
+        # SWI: num_SWI_params
+        
+        self.temporal_split = 10  # Temporal features
+        self.spatial_split = self.temporal_split + 4 + 4 + 3  # Temporal + Station + IPP + Direction
+        self.swi_start = self.spatial_split
+        self.swi_dim = num_SWI_params
+
+        # Branch 1: Spatial (receiver location + signal geometry)
+        spatial_features = self.spatial_split - self.temporal_split
+        spatial_layers = [Linear(spatial_features, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            spatial_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.spatial_net = nn.Sequential(*spatial_layers)
+
+        # Branch 2: Temporal (local time effects)
+        temporal_layers = [Linear(self.temporal_split, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            temporal_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.temporal_net = nn.Sequential(*temporal_layers)
+
+        # Branch 3: Weather (space weather indices)
+        weather_layers = [Linear(self.swi_dim, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            weather_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.weather_net = nn.Sequential(*weather_layers)
+
+        # Fusion
+        self.fusion = nn.Sequential(
+            Linear(3 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            Linear(hidden_dim, 1),
+        )
+        with torch.no_grad():
+            self.fusion[-1].bias.fill_(15.5)
+
+    def forward(self, x):
+        spatial_out = self.spatial_net(x[:, self.temporal_split:self.spatial_split])
+        temporal_out = self.temporal_net(x[:, :self.temporal_split])
+        weather_out = self.weather_net(x[:, self.swi_start:])
+        x = torch.cat([spatial_out, temporal_out, weather_out], dim=-1)
+        x = self.fusion(x)
+        return x, torch.zeros_like(x)
+
+
+class Branch3Way_MLP_NLL(nn.Module):
+    """3-branch MLP (Spatial, Temporal, Weather) with NLL loss - OPTIMIZED"""
+    def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
+        super().__init__()
+        
+        self.temporal_split = 10
+        self.spatial_split = self.temporal_split + 4 + 4 + 3
+        self.swi_start = self.spatial_split
+        self.swi_dim = num_SWI_params
+
+        # Branch 1: Spatial
+        spatial_features = self.spatial_split - self.temporal_split
+        spatial_layers = [Linear(spatial_features, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            spatial_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.spatial_net = nn.Sequential(*spatial_layers)
+
+        # Branch 2: Temporal
+        temporal_layers = [Linear(self.temporal_split, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            temporal_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.temporal_net = nn.Sequential(*temporal_layers)
+
+        # Branch 3: Weather
+        weather_layers = [Linear(self.swi_dim, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            weather_layers.extend([Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        self.weather_net = nn.Sequential(*weather_layers)
+
+        # Fusion
+        self.fusion = nn.Sequential(
+            Linear(3 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            Linear(hidden_dim, 2),
+        )
+        with torch.no_grad():
+            self.fusion[-1].bias[0].fill_(15.5)
+
+    def forward(self, x):
+        spatial_out = self.spatial_net(x[:, self.temporal_split:self.spatial_split])
+        temporal_out = self.temporal_net(x[:, :self.temporal_split])
+        weather_out = self.weather_net(x[:, self.swi_start:])
+        x = torch.cat([spatial_out, temporal_out, weather_out], dim=-1)
+        x = self.fusion(x)
+        mean, variance = torch.split(x, 1, dim=1)
+        variance = F.softplus(variance) + 1e-3
+        return mean, variance
+
+
+class Branch3Way_BNN_NLL(nn.Module):
+    """3-branch BNN (Spatial, Temporal, Weather) with NLL loss - OPTIMIZED"""
+    def __init__(self, n_in, num_SWI_params, hidden_dim=256, num_layers=2):
+        super().__init__()
+        
+        self.temporal_split = 10
+        self.spatial_split = self.temporal_split + 4 + 4 + 3
+        self.swi_start = self.spatial_split
+        self.swi_dim = num_SWI_params
+
+        # Branch 1: Spatial
+        spatial_features = self.spatial_split - self.temporal_split
+        spatial_layers = [
+            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=spatial_features, out_features=hidden_dim),
+            nn.ReLU(),
+        ]
+        for _ in range(num_layers - 1):
+            spatial_layers.extend([
+                bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim),
+                nn.ReLU(),
+            ])
+        self.spatial_net = nn.Sequential(*spatial_layers)
+
+        # Branch 2: Temporal
+        temporal_layers = [
+            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=self.temporal_split, out_features=hidden_dim),
+            nn.ReLU(),
+        ]
+        for _ in range(num_layers - 1):
+            temporal_layers.extend([
+                bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim),
+                nn.ReLU(),
+            ])
+        self.temporal_net = nn.Sequential(*temporal_layers)
+
+        # Branch 3: Weather
+        weather_layers = [
+            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=self.swi_dim, out_features=hidden_dim),
+            nn.ReLU(),
+        ]
+        for _ in range(num_layers - 1):
+            weather_layers.extend([
+                bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=hidden_dim),
+                nn.ReLU(),
+            ])
+        self.weather_net = nn.Sequential(*weather_layers)
+
+        # Fusion
+        self.fusion = nn.Sequential(
+            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=3 * hidden_dim, out_features=hidden_dim),
+            nn.ReLU(),
+            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=hidden_dim, out_features=2),
+        )
+
+    def forward(self, x):
+        spatial_out = self.spatial_net(x[:, self.temporal_split:self.spatial_split])
+        temporal_out = self.temporal_net(x[:, :self.temporal_split])
+        weather_out = self.weather_net(x[:, self.swi_start:])
+        x = torch.cat([spatial_out, temporal_out, weather_out], dim=-1)
+        x = self.fusion(x)
+        mean, variance = torch.split(x, 1, dim=1)
+        variance = F.softplus(variance) + 1e-3
         return mean, variance
 
 
@@ -844,8 +1099,46 @@ def get_model(config):
             prior_sigma=prior_sigma,
         )
         return model
+    elif model_type == "Branch_MLP_MSE":
+        return Branch_MLP_MSE(
+            n_in=in_features,
+            num_SWI_params=num_SWI_params,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+        )
+    elif model_type == "Branch_MLP_NLL":
+        model = Branch_MLP_NLL(
+            n_in=in_features,
+            num_SWI_params=num_SWI_params,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+        )
+        return model
     elif model_type == "Branch_BNN_NLL":
         model = Branch_BNN_NLL(
+            n_in=in_features,
+            num_SWI_params=num_SWI_params,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+        )
+        return model
+    elif model_type == "Branch3Way_MLP_MSE":
+        return Branch3Way_MLP_MSE(
+            n_in=in_features,
+            num_SWI_params=num_SWI_params,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+        )
+    elif model_type == "Branch3Way_MLP_NLL":
+        model = Branch3Way_MLP_NLL(
+            n_in=in_features,
+            num_SWI_params=num_SWI_params,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+        )
+        return model
+    elif model_type == "Branch3Way_BNN_NLL":
+        model = Branch3Way_BNN_NLL(
             n_in=in_features,
             num_SWI_params=num_SWI_params,
             hidden_dim=hidden_dim,
