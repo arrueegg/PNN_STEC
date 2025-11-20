@@ -9,13 +9,13 @@ parameters:
     values: ['MLP_NLL']
   
   model.hidden_dim:
-    values: [512, 1024]
+    values: [256, 512, 1024]
   
   model.num_layers:
-    values: [4, 6]
+    values: [4]
   
   pretrain.learning_rate:
-    values: [0.0003, 0.0005]
+    values: [0.0001, 0.0005, 0.001, 0.005]
   
   training.loss_function:
     values: ['GaussianNLLLoss']
@@ -24,9 +24,6 @@ parameters:
     values: [100]
   
   pretrain.batchsize:
-    values: [512]
-  
-  data.train_subset_size:
-    values: [1000000]
+    values: [512, 1024]
 
-run_cap: 8
+run_cap: 20

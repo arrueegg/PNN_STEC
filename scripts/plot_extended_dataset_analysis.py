@@ -22,11 +22,11 @@ STEC_COLUMNS = ["stec", "satele", "satazi", "sod", "lat_ipp", "lon_ipp"]
 # OMNI/SWI feature indices (columns 0-24 in OMNI data)
 # Common indices: Kp, Ap, F10.7, Dst, AE, etc.
 OMNI_FEATURE_INDICES = {
-    "kp": 24,          # Kp index (last column)
-    "ap": 8,           # Ap index
-    "f107": 5,         # F10.7 flux
-    "dst": 4,          # Dst index
-    "ae": 11,          # AE index
+    "kp": 14,          # Kp index (last column)
+    "ap": 18,           # Ap index
+    "f107": 19,         # F10.7 flux
+    "dst": 16,          # Dst index
+    "ae": 17,          # AE index
 }
 
 # Histogram bins - fixed equal-width bins for all features across all splits
@@ -129,8 +129,6 @@ def compute_quantile_bins(all_samples, all_columns, n_bins=50, quantile=0.95):
             q_low, q_high = 0, 360
         elif col == "sod":
             q_low, q_high = 0, 86400
-        elif col == "kp":
-            q_low, q_high = 0, 9
         elif col == "satele":
             q_low, q_high = 0, 90
         elif col == "lon_ipp":
@@ -206,8 +204,6 @@ def analyze_split_with_omni(split_name, omni_h5, random_state=None):
                     continue
                 
                 val = float(row[col])
-                if col == "sod":
-                    val = val / 3600.0
                 
                 samples[col][sample_ptr] = val
                 stats[col].update_batch(np.array([val]))
