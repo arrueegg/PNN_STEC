@@ -28,6 +28,14 @@ def setup_seed(seed):
 def main():
     config = parse_config()
 
+    # Set wandb mode based on config and sweep status
+    wandb_mode = "offline" if config.get("wandb", {}).get("offline", False) else "online"
+    if "WANDB_SWEEP_ID" in os.environ:
+        num_agents = int(os.environ.get("WANDB_AGENT_COUNT", 1))
+        if num_agents > 1:
+            wandb_mode = "online"
+    os.environ["WANDB_MODE"] = wandb_mode
+
     # Integrate wandb sweep parameters if active
     config = integrate_wandb_sweep_config(config)
 
