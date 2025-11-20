@@ -9,19 +9,20 @@ parameters:
     values: ['MLP']  # Pure deterministic MLP without uncertainty
   
   model.hidden_dim:
-    values: [512, 1024, 2048]  # Larger models for better baseline performance
+    values: [256, 512, 1024, 2048, 4096, 8192]  # Larger models for better baseline performance
   
   model.num_layers:
-    values: [4, 6, 8, 10]  # Deeper networks for better capacity
+    values: [4, 8]  # Deeper networks for better capacity
+  
+  data.SH_degree:
+    values: [0, 1, 2, 3]  # Varying spherical harmonic degrees for input features
 
   # Training hyperparameters
   pretrain.learning_rate:
-    distribution: log_uniform_values
-    min: 0.0001
-    max: 0.01  # More conservative upper bound
+    values: [0.0001, 0.0005, 0.001, 0.005, 0.01]  # Wider range for baseline tuning
   
   pretrain.batchsize:
-    values: [512, 1024, 2048]  # Good batch sizes for stability
+    values: [1024]  # Good batch sizes for stability
   
   # Loss function - MSE for deterministic baseline
   training.loss_function:
@@ -38,7 +39,7 @@ parameters:
 
   # Target weighting - Important for STEC high-value prediction
   training.target_weighting.enabled:
-    values: [true, false]
+    values: [false]
   
   #training.target_weighting.weight_function:
     #values: ['linear', 'quadratic', 'log']  # All weighting options
@@ -54,7 +55,7 @@ parameters:
 # Early termination configuration - More patient for baseline
 early_terminate:
   type: hyperband
-  min_iter: 15  # Allow more epochs before termination
+  min_iter: 20  # Allow more epochs before termination
   eta: 3
   s: 2
 

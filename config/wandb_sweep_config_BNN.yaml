@@ -9,29 +9,23 @@ parameters:
     values: ['BNN_NLL']
   
   model.hidden_dim:
-    values: [256, 512, 1024]
+    values: [256, 512, 1024, 2048, 4096, 8192]
   
   model.num_layers:
-    values: [2, 4, 6, 8]
+    values: [4, 8]
 
   model.prior_sigma:
-    distribution: log_uniform_values
-    min: 0.01
-    max: 0.2
+    values: [0.01, 0.05, 0.1, 0.2]
 
   # Training hyperparameters
   pretrain.learning_rate:
-    distribution: log_uniform_values
-    min: 0.0001
-    max: 0.1
+    values: [0.0001, 0.0005, 0.001, 0.005, 0.01]
   
   pretrain.batchsize:
-    values: [512, 1024, 2048, 4096]
+    values: [1024]
   
   training.loss_weight:
-    distribution: log_uniform_values
-    min: 0.01
-    max: 10.0
+    values: [0.01, 0.1, 1.0, 10.0]
 
   # Training configuration
   training.loss_function:
@@ -51,7 +45,7 @@ parameters:
 
   # Target weighting
   training.target_weighting.enabled:
-    values: [true, false]
+    values: [false]
   
   #training.target_weighting.weight_function:
     #values: ['linear', 'quadratic']
@@ -70,7 +64,7 @@ parameters:
 # Early termination configuration
 early_terminate:
   type: hyperband
-  min_iter: 10
+  min_iter: 20
   eta: 3
 
 # Count limits
