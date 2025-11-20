@@ -35,6 +35,7 @@ def main():
         if num_agents > 1:
             wandb_mode = "online"
     os.environ["WANDB_MODE"] = wandb_mode
+    logger.info(f"Set WANDB_MODE to {wandb_mode} (config offline: {config.get('wandb', {}).get('offline', False)}, sweep: {'WANDB_SWEEP_ID' in os.environ}, agents: {os.environ.get('WANDB_AGENT_COUNT', 1)})")
 
     # Integrate wandb sweep parameters if active
     config = integrate_wandb_sweep_config(config)
