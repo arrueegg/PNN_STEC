@@ -1,5 +1,9 @@
 # Configuration Templates for New Models
 
+# Wandb configuration
+wandb:
+  offline: false  # Set to true to run wandb in offline mode (saves locally, sync manually later)
+
 Copy-paste ready configurations for ResNet and Attention models.
 
 ## ResNet_NLL (Recommended Starting Point)

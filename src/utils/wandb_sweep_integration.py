@@ -180,10 +180,21 @@ def setup_wandb_for_sweep(config: Dict[str, Any], experiment_name: str = None) -
             experiment_name = os.path.basename(config.get("output_dir", "experiment"))
 
         logger.info(f"🚀 Initializing wandb run: {experiment_name}")
+        
+        # Determine wandb mode based on config and sweep agents
+        wandb_mode = "offline" if config.get("wandb", {}).get("offline", False) else "online"
+        
+        # For sweeps, force online if multiple agents (agents > 1), but allow offline for single agent
+        if "WANDB_SWEEP_ID" in os.environ:  # Check if running in a sweep
+            num_agents = int(os.environ.get("WANDB_AGENT_COUNT", 1))
+            if num_agents > 1:
+                wandb_mode = "online"  # Force online for multi-agent sweeps
+        
         wandb.init(
             project=config.get("project_name", "PNN_STEC"),
             name=experiment_name,
             config=config,
+            mode=wandb_mode,
         )
 
 

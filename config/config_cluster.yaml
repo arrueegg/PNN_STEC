@@ -9,6 +9,10 @@ debug: False
 debug_single_batch: False  
 cluster: True
 
+# Wandb configuration
+wandb:
+  offline: false  # Set to true to run wandb in offline mode (saves locally, sync manually later)
+
 target: "stec" # stec or vtec
 
 data:

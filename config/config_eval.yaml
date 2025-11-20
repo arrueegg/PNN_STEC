@@ -1,5 +1,9 @@
 # Evaluation Configuration for GNSS-based STEC ML Model
 
+# Wandb configuration
+wandb:
+  offline: false  # Set to true to run wandb in offline mode (saves locally, sync manually later)
+
 # STEC evaluation settings
 stec_evaluation:
   dataset: "testset"  # testset, madrigal, grid, vgosdb
