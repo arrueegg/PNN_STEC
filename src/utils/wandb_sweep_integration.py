@@ -46,7 +46,6 @@ def integrate_wandb_sweep_config(config: Dict[str, Any]) -> Dict[str, Any]:
             ] = "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/SWI/"
             # By default, disable debug mode on cluster runs unless explicitly overridden
             config["debug"] = False
-            config["wandb"]["offline"] = True
             logger.info("🔒 Debug mode disabled for cluster run")
             logger.info("✅ Applied cluster mode configuration")
 

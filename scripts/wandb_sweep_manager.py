@@ -93,7 +93,7 @@ def generate_slurm_script(sweep_id, project_name, agent_id):
         "ntasks": 1,
         "cpus_per_task": 12,
         "time": "12:00:00",
-        "mem_per_cpu": "10G",
+        "mem_per_cpu": "12G",
         "gpus": 1,
     }
 

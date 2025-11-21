@@ -30,6 +30,6 @@ parameters:
     values: [512]
   
   data.train_subset_size:
-    values: [1000000]
+    values: [500000]
 
 run_cap: 16
