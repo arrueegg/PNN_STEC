@@ -168,6 +168,9 @@ def plot_test_metrics(
     logger.info("Creating prediction density plot...")
     plot_prediction_density(df, prediction_dir)
 
+    logger.info("Creating prediction density plot (limited to 300 TECU)...")
+    plot_prediction_density(df, prediction_dir, max_limit=300)
+
     # Spatial analysis in spatial_analysis/
     logger.info("Creating spatial error maps...")
     if "lat_ipp" in df.columns and "lon_ipp" in df.columns:

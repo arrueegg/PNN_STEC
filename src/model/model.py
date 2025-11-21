@@ -131,6 +131,71 @@ class ResNet_NLL(torch.nn.Module):
         return mean, variance
 
 
+class BayesResNetBlock(nn.Module):
+    """Bayesian Residual block for ResNet architecture"""
+    def __init__(self, hidden_dim, dropout_rate=0.0, prior_sigma=0.1):
+        super().__init__()
+        self.fc1 = bnn.BayesLinear(
+            prior_mu=0, prior_sigma=prior_sigma, 
+            in_features=hidden_dim, out_features=hidden_dim
+        )
+        self.fc2 = bnn.BayesLinear(
+            prior_mu=0, prior_sigma=prior_sigma, 
+            in_features=hidden_dim, out_features=hidden_dim
+        )
+        self.dropout = Dropout(dropout_rate) if dropout_rate > 0 else None
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+
+    def forward(self, x):
+        # Residual connection: x + f(x)
+        residual = x
+        x = self.norm1(x)
+        x = F.relu(self.fc1(x))
+        if self.dropout:
+            x = self.dropout(x)
+        x = self.norm2(x)
+        x = self.fc2(x)
+        if self.dropout:
+            x = self.dropout(x)
+        return x + residual
+
+
+class ResNet_BNN_NLL(torch.nn.Module):
+    """Bayesian ResNet-based MLP with skip connections - NLL loss (outputs mean + variance)"""
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4, dropout_rate=0.0, prior_sigma=0.1):
+        super().__init__()
+        
+        # Input projection (keep standard Linear for input, or make Bayesian if desired)
+        self.input_layer = nn.Sequential(
+            Linear(n_in, hidden_dim),
+            nn.ReLU(),
+        )
+        
+        # Bayesian Residual blocks
+        self.res_blocks = nn.ModuleList([
+            BayesResNetBlock(hidden_dim, dropout_rate=dropout_rate, prior_sigma=prior_sigma)
+            for _ in range(num_layers)
+        ])
+        
+        # Output layer (2 outputs for mean and variance)
+        self.output_layer = bnn.BayesLinear(
+            prior_mu=0, prior_sigma=prior_sigma, 
+            in_features=hidden_dim, out_features=2
+        )
+        
+        # Note: BayesLinear layers handle their own initialization
+
+    def forward(self, x):
+        x = self.input_layer(x)
+        for res_block in self.res_blocks:
+            x = res_block(x)
+        x = self.output_layer(x)
+        mean, log_var = x.chunk(2, dim=-1)
+        variance = F.softplus(log_var) + 1e-3
+        return mean, variance
+
+
 # ============================================================================
 # Attention-Based Architectures
 # ============================================================================
@@ -1159,6 +1224,15 @@ def get_model(config):
             num_layers=num_layers,
             dropout_rate=dropout_rate
         )
+    elif model_type == "ResNet_BNN_NLL":
+        model = ResNet_BNN_NLL(
+            n_in=in_features,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            dropout_rate=dropout_rate,
+            prior_sigma=prior_sigma,
+        )
+        return model
     elif model_type == "AttentionMLP_MSE":
         return AttentionMLP_MSE(
             n_in=in_features, 

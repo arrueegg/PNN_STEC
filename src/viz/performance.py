@@ -294,13 +294,14 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     save_plot(fig, "residuals_vs_date.png", output_dir)
 
 
-def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None:
+def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots", max_limit: float = None) -> None:
     """
     Create standalone prediction density plot using hexagonal binning.
 
     Args:
         df: DataFrame with 'target_stec' and 'pred_stec' columns
         output_dir: Directory to save plot
+        max_limit: Optional maximum value for axes (TECU). If None, uses data max.
     """
     # Extract data
     y_true = df["target_stec"].values
@@ -312,7 +313,10 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None
 
     # Set proper axis limits: min=0, equal max for both axes
     min_val = 0  # Always start from 0
-    max_val = max(y_true.max(), y_pred.max())
+    if max_limit is not None:
+        max_val = max_limit
+    else:
+        max_val = max(y_true.max(), y_pred.max())
 
     # Hexagon density plot with enhanced visuals
     fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
@@ -364,4 +368,5 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots") -> None
     ax.set_aspect("equal")
 
     plt.tight_layout()
-    save_plot(fig, "prediction_density.png", output_dir)
+    filename = "prediction_density_limited.png" if max_limit is not None else "prediction_density.png"
+    save_plot(fig, filename, output_dir)
