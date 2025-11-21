@@ -221,6 +221,10 @@ def analyze_split_with_omni(split_name, omni_h5, random_state=None):
             for feat_name, feat_col in OMNI_FEATURE_INDICES.items():
                 omni_val = get_omni_value(omni_h5, year, doy, hour, feat_col)
                 if not np.isnan(omni_val):
+                    # Apply OMNI2 scaling corrections for proper units
+                    if feat_name == "kp":
+                        omni_val = omni_val / 10.0  # Kp stored as Kp*10 in OMNI2
+                    
                     samples[feat_name][sample_ptr] = omni_val
                     stats[feat_name].update_batch(np.array([omni_val]))
         

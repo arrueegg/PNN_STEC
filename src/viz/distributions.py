@@ -462,20 +462,43 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
     # Create plot
     fig, ax = plt.subplots(figsize=(14, 8))
 
-    # Prepare boxplot data
+    # Set x-axis limits and ticks first to ensure full range is shown
+    ax.set_xlim(-0.5, 23.5)
+    
+    # Use ticker to ensure only the desired ticks are shown
+    import matplotlib.ticker as ticker
+    ax.xaxis.set_major_locator(ticker.FixedLocator(range(0, 24, 3)))
+    ax.xaxis.set_major_formatter(ticker.FixedFormatter([str(i) for i in range(0, 24, 3)]))
+
+    # Prepare boxplot data - ensure all 24 hours are represented
     box_data = []
     box_positions = []
+    mae_values = []
+    rmse_values = []
+    valid_hours = []
+    
     for hour in range(24):
         hour_residuals = df[df["hour_bin"] == hour]["residual"].values
-        if len(hour_residuals) >= 5:  # Only include hours with sufficient data
+        hour_stats = hourly_stats[hourly_stats["hour"] == hour]
+        
+        if len(hour_residuals) >= 5:  # Only include hours with sufficient data for boxplot
             box_data.append(hour_residuals)
             box_positions.append(hour)
+            valid_hours.append(hour)
+        
+        # Always include MAE/RMSE data if available
+        if not hour_stats.empty:
+            mae_values.append(hour_stats["mae"].iloc[0])
+            rmse_values.append(hour_stats["rmse"].iloc[0])
+        else:
+            mae_values.append(np.nan)
+            rmse_values.append(np.nan)
 
     # Create boxplot
     if box_data:
         ax.boxplot(
             box_data,
-            positions=box_positions,
+            positions=valid_hours,  # Use actual hour numbers, not sequential positions
             widths=0.6,
             showfliers=False,
             patch_artist=True,
@@ -485,33 +508,33 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
             medianprops=dict(color="red", linewidth=2),
         )
 
-    # Plot MAE and RMSE lines on same axis as boxplots
-    if hourly_stats is not None and not hourly_stats.empty:
-        ax.plot(
-            hourly_stats["hour_numeric"],
-            hourly_stats["mae"],
-            color="green",
-            marker="o",
-            linewidth=3,
-            markersize=8,
-            label="MAE",
-            alpha=0.9,
-            zorder=10,
-        )
-        ax.plot(
-            hourly_stats["hour_numeric"],
-            hourly_stats["rmse"],
-            color="orange",
-            marker="s",
-            linewidth=3,
-            markersize=8,
-            label="RMSE",
-            alpha=0.9,
-            zorder=10,
-        )
+    # Plot MAE and RMSE lines for all 24 hours
+    hours_range = list(range(24))
+    ax.plot(
+        hours_range,
+        mae_values,
+        color="green",
+        marker="o",
+        linewidth=3,
+        markersize=8,
+        label="MAE",
+        alpha=0.9,
+        zorder=10,
+    )
+    ax.plot(
+        hours_range,
+        rmse_values,
+        color="orange",
+        marker="s",
+        linewidth=3,
+        markersize=8,
+        label="RMSE",
+        alpha=0.9,
+        zorder=10,
+    )
 
-        # Add legend
-        ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
+    # Add legend
+    ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
 
     # Styling
     ax.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
@@ -521,9 +544,13 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
         "Residuals vs Local Solar Time", fontweight="bold", pad=20, fontsize=16
     )
 
-    # Set x-axis
+    # Ensure x-axis shows full range (already set above, but reinforce)
     ax.set_xlim(-0.5, 23.5)
+    
+    # Set ticks after all plotting to ensure they take precedence
     ax.set_xticks(range(0, 24, 3))
+    ax.set_xticklabels([str(i) for i in range(0, 24, 3)])
+    
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -547,6 +574,10 @@ def plot_residuals_vs_solar_indices(
     df = df.copy()
     df["residual"] = df["target_stec"] - df["pred_stec"]
     df["abs_residual"] = np.abs(df["residual"])
+
+    # Apply OMNI2 scaling corrections for proper units in plotting
+    if "Kp_index" in df.columns:
+        df["Kp_index"] = df["Kp_index"] / 10.0  # Kp stored as Kp*10 in OMNI2
 
     # Check which solar indices are available
     solar_indices = []
@@ -579,53 +610,122 @@ def plot_residuals_vs_solar_indices(
 
     # Create subplots for each available solar index
     n_indices = len(solar_indices)
-    fig, axes = plt.subplots(n_indices, 1, figsize=(14, 6 * n_indices))
+    fig, axes = plt.subplots(n_indices, 1, figsize=(16, 6 * n_indices))
     if n_indices == 1:
         axes = [axes]
 
     for i, (col, label) in enumerate(solar_indices):
         ax = axes[i]
 
-        # Create bins for the solar index
-        n_bins = 15
-        df[f"{col}_bin"] = pd.qcut(df[col], q=n_bins, duplicates="drop")
+        # Create appropriate bins for each solar index
+        if col == "Kp_index":
+            # Kp is reported as integers 0-9, round fractional values to nearest integer
+            df[col] = np.round(df[col]).astype(int)
+            # Create bins for all possible Kp values (0-9), even if some are empty
+            bins = np.arange(0, 11, 1)  # [0,1), [1,2), ..., [9,10)
+            df[f"{col}_bin"] = pd.cut(df[col], bins=bins, right=False, include_lowest=True)
+            
+            # Ensure all Kp bins (0-9) are represented, even if empty
+            all_kp_bins = [pd.Interval(left=i, right=i+1, closed='left') for i in range(10)]
+            existing_bins = df[f"{col}_bin"].cat.categories
+            missing_bins = [b for b in all_kp_bins if b not in existing_bins]
+            
+            if missing_bins:
+                # Add missing bins to categorical
+                df[f"{col}_bin"] = df[f"{col}_bin"].cat.add_categories(missing_bins)
+        elif col == "Dst-index,_nT":
+            # Dst ranges ~ -500 to 100, use 50 nT bins
+            bins = np.arange(-500, 101, 50)
+            df[f"{col}_bin"] = pd.cut(df[col], bins=bins, right=False, include_lowest=True)
+        elif col == "AE-index,_nT":
+            # AE ranges 0-2500, use 200 nT bins
+            bins = np.arange(0, 2501, 200)
+            df[f"{col}_bin"] = pd.cut(df[col], bins=bins, right=False, include_lowest=True)
+        elif col == "ap_index,_nT":
+            # ap ranges 0-400, use 25 nT bins
+            bins = np.arange(0, 401, 25)
+            df[f"{col}_bin"] = pd.cut(df[col], bins=bins, right=False, include_lowest=True)
+        elif col == "f107_index":
+            # F10.7 ranges ~60-420, use 30 sfu bins
+            bins = np.arange(60, 421, 30)
+            df[f"{col}_bin"] = pd.cut(df[col], bins=bins, right=False, include_lowest=True)
+        elif col == "R_Sunspot_No":
+            # Sunspot number ranges 0-300, use 25 unit bins
+            bins = np.arange(0, 301, 25)
+            df[f"{col}_bin"] = pd.cut(df[col], bins=bins, right=False, include_lowest=True)
+        else:
+            # Fallback to quantile bins for unknown indices
+            n_bins = 15
+            df[f"{col}_bin"] = pd.qcut(df[col], q=n_bins, duplicates="drop")
 
         # Calculate statistics per bin
-        bin_stats = (
-            df.groupby(f"{col}_bin", observed=True)
-            .agg(
-                {
-                    col: "mean",
-                    "residual": ["mean", "std", "count"],
-                    "abs_residual": "mean",
-                }
-            )
-            .reset_index()
-        )
-
-        # Flatten column names
-        bin_stats.columns = [
-            "bin",
-            "bin_center",
-            "mean_residual",
-            "std_residual",
-            "count",
-            "mae",
-        ]
-
-        # Calculate RMSE for each bin
-        rmse_list = []
-        for bin_val in bin_stats["bin"]:
-            bin_data = df[df[f"{col}_bin"] == bin_val]
-            if len(bin_data) > 0:
-                rmse = np.sqrt(
-                    np.mean((bin_data["target_stec"] - bin_data["pred_stec"]) ** 2)
+        if col == "Kp_index":
+            # For Kp, create stats for all possible values (0-9), even if empty
+            all_kp_intervals = [pd.Interval(left=i, right=i+1, closed='left') for i in range(10)]
+            bin_stats = []
+            
+            for interval in all_kp_intervals:
+                bin_data = df[df[f"{col}_bin"] == interval]
+                if len(bin_data) > 0:
+                    rmse = np.sqrt(np.mean((bin_data["target_stec"] - bin_data["pred_stec"]) ** 2))
+                    stats = {
+                        "bin": interval,
+                        "bin_center": bin_data[col].mean(),
+                        "mean_residual": bin_data["residual"].mean(),
+                        "std_residual": bin_data["residual"].std() if len(bin_data) > 1 else 0,
+                        "count": len(bin_data),
+                        "mae": bin_data["abs_residual"].mean(),
+                        "rmse": rmse
+                    }
+                else:
+                    stats = {
+                        "bin": interval,
+                        "bin_center": interval.left + 0.5,  # Center of interval
+                        "mean_residual": 0,
+                        "std_residual": 0,
+                        "count": 0,
+                        "mae": 0,
+                        "rmse": 0
+                    }
+                bin_stats.append(stats)
+            
+            bin_stats = pd.DataFrame(bin_stats)
+        else:
+            bin_stats = (
+                df.groupby(f"{col}_bin", observed=True)
+                .agg(
+                    {
+                        col: "mean",
+                        "residual": ["mean", "std", "count"],
+                        "abs_residual": "mean",
+                    }
                 )
-                rmse_list.append(rmse)
-            else:
-                rmse_list.append(np.nan)
+                .reset_index()
+            )
 
-        bin_stats["rmse"] = rmse_list
+            # Flatten column names
+            bin_stats.columns = [
+                "bin",
+                "bin_center",
+                "mean_residual",
+                "std_residual",
+                "count",
+                "mae",
+            ]
+
+            # Calculate RMSE for each bin
+            rmse_list = []
+            for bin_val in bin_stats["bin"]:
+                bin_data = df[df[f"{col}_bin"] == bin_val]
+                if len(bin_data) > 0:
+                    rmse = np.sqrt(
+                        np.mean((bin_data["target_stec"] - bin_data["pred_stec"]) ** 2)
+                    )
+                    rmse_list.append(rmse)
+                else:
+                    rmse_list.append(np.nan)
+
+            bin_stats["rmse"] = rmse_list
 
         # Prepare boxplot data
         box_data = []
@@ -683,17 +783,52 @@ def plot_residuals_vs_solar_indices(
         # Add legend
         ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
 
-        # Format x-axis with bin centers
-        n_ticks = min(8, len(bin_stats))
-        tick_indices = np.linspace(0, len(bin_stats) - 1, n_ticks, dtype=int)
-        tick_labels = [
-            f'{bin_stats.iloc[idx]["bin_center"]:.1f}' for idx in tick_indices
-        ]
+        # Format x-axis with appropriate labeling for each solar index
+        if col == "Kp_index":
+            # For Kp, show all integer values (0-9) 
+            tick_positions = list(range(10))  # All Kp values 0-9
+            tick_labels = [f'{i}' for i in range(10)]
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(tick_labels)
+        elif col in ["Dst-index,_nT", "AE-index,_nT", "ap_index,_nT", "f107_index", "R_Sunspot_No"]:
+            # For other indices, use smart tick spacing to avoid overlap
+            n_bins = len(bin_stats)
+            if n_bins <= 8:
+                # Show all bins
+                tick_indices = list(range(n_bins))
+                tick_labels = [
+                    f'[{int(bin_stats.iloc[idx]["bin"].left)}, {int(bin_stats.iloc[idx]["bin"].right)})' 
+                    for idx in tick_indices
+                ]
+            else:
+                # Show every other bin or use smart spacing
+                step = max(1, n_bins // 8)
+                tick_indices = list(range(0, n_bins, step))
+                tick_labels = [
+                    f'[{int(bin_stats.iloc[idx]["bin"].left)}, {int(bin_stats.iloc[idx]["bin"].right)})' 
+                    for idx in tick_indices
+                ]
+            ax.set_xticks(tick_indices)
+            ax.set_xticklabels(tick_labels)
+            # Rotate labels for better readability
+            ax.tick_params(axis='x', rotation=45)
+            # Set horizontal alignment for rotated labels
+            for label in ax.get_xticklabels():
+                label.set_ha('right')
+        else:
+            # Fallback for quantile bins
+            n_ticks = min(8, len(bin_stats))
+            tick_indices = np.linspace(0, len(bin_stats) - 1, n_ticks, dtype=int)
+            tick_labels = [
+                f'{bin_stats.iloc[idx]["bin_center"]:.1f}' for idx in tick_indices
+            ]
+            ax.set_xticks(tick_indices)
+            ax.set_xticklabels(tick_labels)
 
-        ax.set_xticks(tick_indices)
-        ax.set_xticklabels(tick_labels)
         ax.set_xlim(-0.5, len(bin_stats) - 0.5)
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
+    # Add extra space at the bottom for rotated x-axis labels
+    plt.subplots_adjust(bottom=0.15)
     save_plot(fig, "residuals_vs_solar_indices.png", output_dir)

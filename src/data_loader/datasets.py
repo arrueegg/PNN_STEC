@@ -459,6 +459,13 @@ class DayRAMDataset(Dataset):
                             cols = [c.decode() for c in swi_file[y][d].attrs.get("columns", [])]
                             self.swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
                             self.swi_col_names = [c for c in cols if c not in ("YEAR", "DOY", "HR")]
+                            masked_names = [n for n, m in zip(cols, self.swi_mask) if m]
+                            # Map registry SWI features to indices
+                            self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
+                            self.swi_name_to_idx = {name: i for i, name in enumerate(masked_names)}
+                            self.swi_indices_in_file_order = [
+                                self.swi_name_to_idx.get(f, None) for f in self.swi_features
+                            ]
                             self.swi_day = swi_file[y][d][:]
                         else:
                             # missing SWI day - leave as None and handle later
@@ -510,13 +517,14 @@ class DayRAMDataset(Dataset):
                     if hour < len(self.swi_day):
                         swi_row = self.swi_day[hour]
                         swi_values = swi_row[self.swi_mask]
-                        # Find the index of this SWI feature within swi_values using precomputed names
-                        if hasattr(self, "swi_col_names") and self.swi_col_names:
-                            if feature_name in self.swi_col_names:
-                                idx_in_swi = self.swi_col_names.index(feature_name)
-                                value = float(swi_values[idx_in_swi])
-                            else:
+                        # Find the index of this SWI feature
+                        if hasattr(self, "swi_indices_in_file_order") and self.swi_indices_in_file_order:
+                            swi_pos = self.swi_features.index(feature_name)
+                            in_idx = self.swi_indices_in_file_order[swi_pos]
+                            if in_idx is None:
                                 value = 0.0
+                            else:
+                                value = float(swi_values[in_idx])
                         else:
                             value = 0.0
                     else:
