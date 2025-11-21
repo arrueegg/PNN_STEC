@@ -52,12 +52,5 @@ parameters:
   #data.train_subset_size:
     #values: [500_000]
 
-# Early termination configuration - More patient for baseline
-early_terminate:
-  type: hyperband
-  min_iter: 20  # Allow more epochs before termination
-  eta: 3
-  s: 2
-
 # Count limits
 run_cap: 150  # More runs for thorough baseline search
