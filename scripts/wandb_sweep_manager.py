@@ -11,6 +11,7 @@ import subprocess
 import yaml
 from pathlib import Path
 import wandb
+wandb.require("core")  
 
 
 def create_sweep(sweep_config_path, project_name="PNN_STEC"):

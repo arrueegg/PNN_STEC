@@ -131,6 +131,15 @@ if [ ! -z "$RESULT" ]; then
 fi
 echo ""
 
+# ResNet_BNN_NLL
+echo "📤 ResNet_BNN_NLL..."
+RESULT=$(./scripts/launch_wandb_sweep.sh $NUM_AGENTS config/wandb_sweep_config_ResNet_BNN_NLL.yaml 2>&1 | grep -oP 'Sweep ID: \K[^ ]+' || true)
+if [ ! -z "$RESULT" ]; then
+  SWEEP_IDS+=("ResNet_BNN_NLL: $RESULT")
+  echo "   ✓ Sweep ID: $RESULT"
+fi
+echo ""
+
 # AttentionMLP_MSE
 echo "📤 AttentionMLP_MSE..."
 RESULT=$(./scripts/launch_wandb_sweep.sh $NUM_AGENTS config/wandb_sweep_config_AttentionMLP_MSE.yaml 2>&1 | grep -oP 'Sweep ID: \K[^ ]+' || true)

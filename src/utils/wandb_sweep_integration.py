@@ -1,5 +1,6 @@
 import os
 import wandb
+wandb.require("core") 
 import logging
 from typing import Dict, Any
 

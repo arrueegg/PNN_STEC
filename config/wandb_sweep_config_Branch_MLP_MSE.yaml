@@ -15,7 +15,7 @@ parameters:
     values: [2, 3]
   
   pretrain.learning_rate:
-    values: [0.0003, 0.0005]
+    values: [0.0001, 0.0005, 0.001, 0.005]
   
   training.loss_function:
     values: ['MSELoss']
@@ -25,8 +25,5 @@ parameters:
   
   pretrain.batchsize:
     values: [512]
-  
-  data.train_subset_size:
-    values: [1000000]
 
-run_cap: 8
+run_cap: 24

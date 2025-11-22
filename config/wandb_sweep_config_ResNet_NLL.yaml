@@ -26,4 +26,4 @@ parameters:
   pretrain.batchsize:
     values: [512, 1024]
   
-run_cap: 20
+run_cap: 50
