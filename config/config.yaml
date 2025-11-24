@@ -11,7 +11,7 @@ cluster: False
 
 # Wandb configuration
 wandb:
-  offline: True  # Set to true to run wandb in offline mode (saves locally, sync manually later)
+  offline: False  # Set to true to run wandb in offline mode (saves locally, sync manually later)
 
 target: "stec" # stec or vtec
 

@@ -1,6 +1,8 @@
-project: pnn_stec
+program: scripts/wandb_run_wrapper.py
 method: grid
-name: MLP_MSE Sweep
+metric:
+  goal: minimize
+  name: val_MAE
 
 parameters:
   model.model_type:
