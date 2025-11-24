@@ -1,0 +1,35 @@
+program: scripts/wandb_run_wrapper.py
+method: bayes  # bayes, grid, random
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters
+  model.model_type:
+    values: ['BayesianResNetSTEC']
+
+  model.hidden_dim:
+    values: [256, 512, 1024]
+
+  model.num_layers:
+    values: [2, 4]
+
+  model.prior_sigma:
+    values: [0.01, 0.05, 0.1, 0.2]
+
+  # Training hyperparameters
+  pretrain.learning_rate:
+    values: [0.0001, 0.0005, 0.001, 0.005, 0.01]
+
+  pretrain.batchsize:
+    values: [512, 1024]
+
+  training.loss_weight:
+    values: [0.01, 0.1, 1.0, 10.0]
+
+  # Training configuration
+  training.loss_function:
+    values: ['GaussianNLLLoss']
+
+# Count limits
+run_cap: 100  # Maximum number of runs in this sweep

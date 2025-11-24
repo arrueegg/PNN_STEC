@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn import Linear, Dropout
 from torch import nn
+import numpy as np
 
 import torchbnn as bnn
 from utils.feature_registry import FeatureType
@@ -193,6 +194,70 @@ class ResNet_BNN_NLL(torch.nn.Module):
         x = self.output_layer(x)
         mean, log_var = x.chunk(2, dim=-1)
         variance = F.softplus(log_var) + 1e-3
+        return mean, variance
+
+
+class BayesianResNetSTEC(torch.nn.Module):
+    """Hybrid Bayesian-ResNet for STEC regression with uncertainty quantification.
+    
+    Architecture:
+    - Deterministic ResNet backbone (residual blocks with standard linear layers)
+    - Bayesian output head using torchbnn.BayesLinear
+    
+    This design combines the expressiveness of ResNet with principled Bayesian
+    uncertainty estimation. The deterministic backbone ensures computational efficiency
+    while the Bayesian head captures predictive uncertainty.
+    
+    Output: (mean, variance) tuple following repo convention
+    """
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4, dropout_rate=0.0, prior_sigma=0.1):
+        super().__init__()
+        
+        # Input projection (deterministic)
+        self.input_layer = nn.Sequential(
+            Linear(n_in, hidden_dim),
+            nn.ReLU(),
+        )
+        
+        # Deterministic residual blocks (same as ResNet_NLL)
+        self.res_blocks = nn.ModuleList([
+            ResNetBlock(hidden_dim, dropout_rate=dropout_rate)
+            for _ in range(num_layers)
+        ])
+        
+        # Bayesian output head: outputs (mean, variance) for STEC prediction
+        self.output_layer = bnn.BayesLinear(
+            prior_mu=0, prior_sigma=prior_sigma, 
+            in_features=hidden_dim, out_features=2
+        )
+        
+        # Initialize output bias to STEC mean
+        with torch.no_grad():
+            self.output_layer.bias_mu[0].fill_(15.5)  # Mean bias
+            self.output_layer.weight_mu.normal_(0, 0.01)
+
+    def forward(self, x):
+        """Forward pass through ResNet backbone + Bayesian head.
+        
+        Args:
+            x: Input features of shape (batch_size, n_in)
+        
+        Returns:
+            mean: Predicted STEC of shape (batch_size, 1)
+            variance: Predicted uncertainty of shape (batch_size, 1)
+        """
+        # Deterministic backbone
+        x = self.input_layer(x)
+        for res_block in self.res_blocks:
+            x = res_block(x)
+        
+        # Bayesian head
+        x = self.output_layer(x)  # Shape: (batch_size, 2)
+        mean, log_var = torch.split(x, 1, dim=1)
+        
+        # Ensure positive variance
+        variance = F.softplus(log_var) + 1e-3
+        
         return mean, variance
 
 
@@ -1226,6 +1291,15 @@ def get_model(config):
         )
     elif model_type == "ResNet_BNN_NLL":
         model = ResNet_BNN_NLL(
+            n_in=in_features,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            dropout_rate=dropout_rate,
+            prior_sigma=prior_sigma,
+        )
+        return model
+    elif model_type == "BayesianResNetSTEC":
+        model = BayesianResNetSTEC(
             n_in=in_features,
             hidden_dim=hidden_dim,
             num_layers=num_layers,
