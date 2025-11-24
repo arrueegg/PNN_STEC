@@ -118,7 +118,8 @@ def integrate_wandb_sweep_config(config: Dict[str, Any]) -> Dict[str, Any]:
         model_type = wandb.config.model_model_type
 
         # Set appropriate loss function for BNN models
-        if "BNN" in model_type and not hasattr(wandb.config, "training_loss_function"):
+        if "BNN" in model_type and not hasattr(wandb.config, "training_loss_function") \
+            or "Bayesian" in config["model"]["model_type"] and not hasattr(wandb.config, "training_loss_function"):
             updated_config["training"]["loss_function"] = "GaussianNLLLoss"
             applied_params.append(
                 "training.loss_function = GaussianNLLLoss (auto for BNN)"

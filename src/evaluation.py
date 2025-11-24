@@ -102,7 +102,7 @@ def run_model_inference(config, experiment_dir, model_path, logger):
     bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
         model,
         test_loader,
-        num_samples=100 if "BNN" in config["model"]["model_type"] else 1,
+        num_samples=100 if "BNN" in config["model"]["model_type"] or "Bayesian" in config["model"]["model_type"] else 1,
     )
     
     logger.info(f"✅ Model inference completed: {len(test_df):,} predictions")

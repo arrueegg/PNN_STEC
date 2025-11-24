@@ -408,7 +408,7 @@ class BaseTrainer:
         gc.collect()
 
         # Bayesian inference
-        num_samples = 100 if "BNN" in self.config["model"]["model_type"] else 1
+        num_samples = 100 if "BNN" in self.config["model"]["model_type"] or "Bayesian" in self.config["model"]["model_type"] else 1
         bayesian_results, test_res_df = self.bayesian_inference_total_uncertainty(
             model, test_loader, num_samples=num_samples
         )
