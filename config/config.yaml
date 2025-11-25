@@ -32,9 +32,9 @@ data:
   test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
 
 model:
-  model_type: ResNet_BNN_NLL # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
-  hidden_dim: 512    # Number of neurons in hidden layers (default: 256)
-  num_layers: 2       # Number of hidden layers (not including output layer) (default: 4)
+  model_type: BayesianResNetSTEC # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
+  hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
+  num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
   dropout_rate: 0.0   # Dropout rate for models
   
@@ -46,7 +46,7 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 1.0                  # Weight for the loss function
+  loss_weight: 10.0                  # Weight for the loss function
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
@@ -71,7 +71,7 @@ pretrain:
   batchsize: 1024
   num_workers: 12 
   prefetch_factor: 4
-  learning_rate: 0.01
+  learning_rate: 0.005
   scheduler: ReduceLROnPlateau            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 150       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping

@@ -140,12 +140,14 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
     )
 
     # Generate plots for interpolation and extrapolation if sufficient data
+    # Disable scenario evaluation for these temporal splits
     if len(interpolation_df) > 1000:
         interpolation_dir = os.path.join(experiment_dir, "interpolation")
         plot_test_metrics(
             interpolation_df,
             output_dir=interpolation_dir,
             feature_registry=feature_registry,
+            enable_scenarios=False,
         )
         logger.info("📈 Generated interpolation analysis plots")
 
@@ -155,6 +157,7 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
             extrapolation_df,
             output_dir=extrapolation_dir,
             feature_registry=feature_registry,
+            enable_scenarios=False,
         )
         logger.info("📈 Generated extrapolation analysis plots")
 

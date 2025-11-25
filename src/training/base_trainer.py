@@ -18,7 +18,6 @@ import os
 import gc
 import torch
 import wandb
-wandb.require("core")
 
 from utils.loss_function import get_criterion
 from utils.optimizers import get_optimizer, get_scheduler
