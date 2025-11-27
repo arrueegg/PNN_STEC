@@ -272,7 +272,6 @@ def plot_test_metrics_for_subset(
         
         try:
             from analysis.scenario_evaluation import (
-                compute_daily_aggregations,
                 identify_scenarios,
                 validate_scenario,
                 write_scenario_summary,
@@ -283,13 +282,9 @@ def plot_test_metrics_for_subset(
             test_cases_dir = os.path.join(output_dir, "test_cases")
             ensure_dir(test_cases_dir)
             
-            # Compute daily aggregations
-            logger.info("Computing daily aggregations...")
-            df_with_daily = compute_daily_aggregations(df, logger)
-            
-            # Identify scenarios
-            logger.info("Identifying scenario conditions...")
-            df_scenarios = identify_scenarios(df_with_daily, logger)
+            # Identify scenarios using hourly SWI data directly
+            logger.info("Identifying scenario conditions from hourly SWI data...")
+            df_scenarios = identify_scenarios(df, logger)
             
             # Get scenario filters
             scenario_filters = get_scenario_filters()
@@ -531,7 +526,6 @@ def plot_test_metrics(
         
         try:
             from analysis.scenario_evaluation import (
-                compute_daily_aggregations,
                 identify_scenarios,
                 validate_scenario,
                 write_scenario_summary,
@@ -542,13 +536,9 @@ def plot_test_metrics(
             test_cases_dir = f"{test_metrics_dir}/test_cases"
             ensure_dir(test_cases_dir)
             
-            # Compute daily aggregations
-            logger.info("Computing daily aggregations...")
-            df_with_daily = compute_daily_aggregations(df, logger)
-            
-            # Identify scenarios
-            logger.info("Identifying scenario conditions...")
-            df_scenarios = identify_scenarios(df_with_daily, logger)
+            # Identify scenarios using hourly SWI data directly
+            logger.info("Identifying scenario conditions from hourly SWI data...")
+            df_scenarios = identify_scenarios(df, logger)
             
             # Get scenario filters
             scenario_filters = get_scenario_filters()
