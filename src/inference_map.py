@@ -69,7 +69,7 @@ def parse_args():
     parser.add_argument(
         "--date",
         type=str,
-        default="2024-01-01",
+        default="2024-07-01",
         help="Date for map generation (YYYY-MM-DD format)",
     )
     parser.add_argument(
@@ -87,13 +87,13 @@ def parse_args():
     parser.add_argument(
         "--lat_res",
         type=float,
-        default=5.0, 
+        default=2.5, 
         help="Latitude resolution in degrees (default: 5.0)",
     )
     parser.add_argument(
         "--lon_res",
         type=float,
-        default=5.0,
+        default=2.5,
         help="Longitude resolution in degrees (default: 5.0)",
     )
     parser.add_argument(
@@ -307,6 +307,79 @@ def save_hourly_plot(
     plt.close()
 
 
+def save_uncertainty_plot(
+    lat_grid,
+    lon_grid,
+    uncertainty_map,
+    output_path,
+    date_str,
+    hour,
+    elevation,
+    azimuth,
+):
+    """
+    Save individual hourly uncertainty map as PNG file.
+
+    Args:
+        lat_grid: 2D latitude grid
+        lon_grid: 2D longitude grid
+        uncertainty_map: 2D uncertainty array
+        output_path: Base path to save files (without extension)
+        date_str: Date string
+        hour: Hour of day
+        elevation: Elevation angle
+        azimuth: Azimuth angle
+    """
+    # Create figure with cartographic projection
+    fig, ax = plt.subplots(
+        1, 1, figsize=(12, 6), subplot_kw={"projection": ccrs.PlateCarree()}
+    )
+
+    # Create the uncertainty map plot with colorscale
+    im = ax.pcolormesh(
+        lon_grid,
+        lat_grid,
+        uncertainty_map,
+        cmap="Blues",
+        shading="auto",
+        transform=ccrs.PlateCarree(),
+        vmin=0,
+        vmax=20,
+    )
+
+    # Add coastlines
+    ax.coastlines(color="white")
+
+    # Set title
+    ax.set_title(
+        f"PNN STEC Uncertainty for {date_str} {int(hour):02d}:{int((hour % 1) * 60):02d} UTC\nElevation: {elevation}°, Azimuth: {azimuth}°",
+        fontweight="bold",
+        fontsize=16,
+    )
+
+    # Set labels and formatting
+    ax.set_xlabel("Longitude", fontsize=14)
+    ax.set_ylabel("Latitude", fontsize=14)
+    ax.set_aspect("equal")
+    ax.set_xticks(np.arange(-180, 181, 60))
+    ax.set_yticks(np.arange(-90, 91, 30))
+    ax.tick_params(labelsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Set global extent
+    ax.set_global()
+
+    # Add colorbar
+    cbar = fig.colorbar(im, ax=ax, label="Uncertainty (TECU)", shrink=0.8)
+    cbar.ax.tick_params(labelsize=12)
+    cbar.set_label("Uncertainty (TECU)", fontsize=14)
+
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(f"{output_path}_uncertainty.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+
 def create_gif(image_paths, output_path):
     """
     Create a GIF from a list of image paths.
@@ -429,7 +502,8 @@ def main():
             lat_plot_grid, lon_plot_grid = multitemporal_dataset.get_ipp_grids()
 
         # Storage for results
-        image_paths = []  # For GIF creation
+        image_paths = []  # For GIF creation (STEC maps)
+        uncertainty_image_paths = []  # For GIF creation (uncertainty maps)
         all_tec_maps = []  # For IONEX export
         all_uncertainty_maps = []  # For IONEX RMS export
         all_epochs = []  # For IONEX timestamps
@@ -481,10 +555,31 @@ def main():
                 # Store image path for GIF creation
                 image_paths.append(f"{base_path}.png")
 
-        # Create GIF if requested and images were generated
+                # Save uncertainty plot if available
+                if uncertainty_map is not None:
+                    save_uncertainty_plot(
+                        lat_plot_grid,
+                        lon_plot_grid,
+                        uncertainty_map,
+                        base_path,
+                        args.date,
+                        timestamp.hour + timestamp.minute / 60.0,
+                        args.elevation,
+                        args.azimuth,
+                    )
+                    # Store uncertainty image path for GIF creation
+                    uncertainty_image_paths.append(f"{base_path}_uncertainty.png")
+
+        # Create GIFs if requested and images were generated
         if args.create_gif and image_paths:
+            # STEC map GIF
             gif_path = os.path.join(output_dir, f"stec_daily_{args.date}.gif")
-            create_gif(image_paths, gif_path)  # Adjust duration for time resolution
+            create_gif(image_paths, gif_path)
+            
+            # Uncertainty map GIF
+            if uncertainty_image_paths:
+                uncertainty_gif_path = os.path.join(output_dir, f"uncertainty_daily_{args.date}.gif")
+                create_gif(uncertainty_image_paths, uncertainty_gif_path)
 
         # Generate IONEX file if requested
         if args.output_format in ["ionex", "both"]:
@@ -520,7 +615,9 @@ def main():
 
         print(f"✅ Complete! Generated {len(timestamps)} maps -> {output_dir}")
         if args.create_gif and image_paths:
-            print(f"📹 GIF: {gif_path}")
+            print(f"📹 STEC GIF: {gif_path}")
+            if uncertainty_image_paths:
+                print(f"📹 Uncertainty GIF: {uncertainty_gif_path}")
         if args.output_format in ["ionex", "both"]:
             print(f"📊 IONEX: {ionex_path}")
             

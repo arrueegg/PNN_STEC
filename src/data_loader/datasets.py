@@ -63,6 +63,9 @@ class H5Dataset(Dataset):
             FeatureType.TARGET
         )[0]
         self.input_features = [f for f in all_features if f != self.target_feature]
+        
+        # Get SWI features for later filtering during iteration
+        self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI) if self.feature_registry else []
 
         # Get target feature name
         if self.target_feature not in ["stec", "vtec"]:
@@ -91,7 +94,6 @@ class H5Dataset(Dataset):
             self.swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
 
             # Get SWI feature names from registry and compute mapping to masked file columns
-            self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
             masked_names = [n for n, m in zip(cols, self.swi_mask) if m]
             self.swi_name_to_idx = {name: i for i, name in enumerate(masked_names)}
             # For each registry feature, record index in masked array (or None)
@@ -213,6 +215,9 @@ class H5RAMDataset(Dataset):
             FeatureType.TARGET
         )[0]
         self.input_features = [f for f in all_features if f != self.target_feature]
+        
+        # Get SWI features for later filtering during iteration
+        self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI) if self.feature_registry else []
 
         # Get target feature name
         if self.target_feature not in ["stec", "vtec"]:
@@ -228,7 +233,6 @@ class H5RAMDataset(Dataset):
         self.use_SWI = config["data"].get("use_SWI", False)
         self.swi_data = None
         self.swi_mask = None
-        self.swi_features = None
 
         if self.use_SWI:
             swi_path = os.path.join(
@@ -278,15 +282,9 @@ class H5RAMDataset(Dataset):
                     self.swi_name_to_idx = {name: i for i, name in enumerate(masked_names)}
 
                     # Map registry SWI features to indices (or None if missing)
-                    self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
                     self.swi_indices_in_file_order = [
                         self.swi_name_to_idx.get(f, None) for f in self.swi_features
                     ]
-
-            # Get SWI feature names from registry
-            self.swi_features = self.feature_registry.get_features_by_type(
-                FeatureType.SWI
-            )
 
             # Load all SWI data with progress bar
             total_days = sum(len(list(swi_file[year].keys())) for year in years)
@@ -434,19 +432,25 @@ class DayRAMDataset(Dataset):
         # Get enabled features (excluding target)
         all_features = self.feature_registry.get_all_enabled_features()
         target_features = self.feature_registry.get_features_by_type(FeatureType.TARGET)
-        swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
         self.target_feature = target_features[0]
-        self.input_features = [f for f in all_features if f not in target_features and f not in swi_features]  # Exclude SWI like H5RAMDataset
+        self.input_features = [f for f in all_features if f not in target_features]
+        
+        # Get SWI features for later filtering during iteration
+        self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI) if self.feature_registry else []
 
         if self.target_feature not in ["stec", "vtec"]:
             raise ValueError(
                 f"Target feature {self.target_feature} is not valid. Expected 'stec' or 'vtec'."
             )
+        
+        # Check if we should return metadata (for dSTEC evaluation)
+        self.return_metadata = config.get("return_metadata", False)
+        self.metadata_fields = config.get("metadata_fields", ["station", "sat", "slipc", "gfphase"])
+        
         # SWI setup: optionally load the specific day's SWI data into RAM
         self.use_SWI = config["data"].get("use_SWI", False)
         self.swi_day = None
         self.swi_mask = None
-        self.swi_features = None
         if self.use_SWI:
             try:
                 swi_path = os.path.join(config["data"]["SWI_data_path"], "omni_hourly_2010-2025.h5")
@@ -461,7 +465,6 @@ class DayRAMDataset(Dataset):
                             self.swi_col_names = [c for c in cols if c not in ("YEAR", "DOY", "HR")]
                             masked_names = [n for n, m in zip(cols, self.swi_mask) if m]
                             # Map registry SWI features to indices
-                            self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
                             self.swi_name_to_idx = {name: i for i, name in enumerate(masked_names)}
                             self.swi_indices_in_file_order = [
                                 self.swi_name_to_idx.get(f, None) for f in self.swi_features
@@ -474,13 +477,6 @@ class DayRAMDataset(Dataset):
                     self.swi_day = None
             except Exception:
                 self.swi_day = None
-            # Get SWI feature names from registry if available
-            try:
-                self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
-            except Exception:
-                self.swi_features = []
-            if not hasattr(self, "swi_col_names"):
-                self.swi_col_names = []
 
     def __len__(self):
         return len(self.indices)
@@ -493,20 +489,27 @@ class DayRAMDataset(Dataset):
 
         # First, add all non-SWI features in registry order
         for feature_name in self.input_features:
-            if feature_name == "year":
-                value = float(self.year)
-            elif feature_name == "doy":
-                value = float(self.doy)
-            elif feature_name == "local_time_hours":
-                sod = float(row["sod"]) if "sod" in row.dtype.names else 0.0
-                longitude = float(row["lon_ipp"]) if "lon_ipp" in row.dtype.names else 0.0
-                value = compute_local_time_hours(sod, longitude)
-            elif feature_name in row.dtype.names:
-                value = float(row[feature_name])
-            else:
-                raise ValueError(f"Feature {feature_name} not found in data")
-
-            feature_vector.append(value)
+            if feature_name not in self.swi_features:
+                # Get raw value
+                if feature_name == "year":
+                    value = float(self.year)
+                elif feature_name == "doy":
+                    value = float(self.doy)
+                elif feature_name == "sod":
+                    value = float(row["sod"]) if "sod" in row.dtype.names else 0.0
+                elif feature_name == "local_time_hours":
+                    sod = float(row["sod"]) if "sod" in row.dtype.names else 0.0
+                    longitude = float(row["lon_ipp"]) if "lon_ipp" in row.dtype.names else 0.0
+                    value = compute_local_time_hours(sod, longitude)
+                elif feature_name in ["lat_sta", "lon_sta", "sm_lat_sta", "sm_lon_sta"]:
+                    value = float(row[feature_name]) if feature_name in row.dtype.names else 0.0
+                elif feature_name in ["satazi", "satele"]:
+                    value = float(row[feature_name]) if feature_name in row.dtype.names else 0.0
+                elif feature_name in ["lat_ipp", "lon_ipp", "sm_lat_ipp", "sm_lon_ipp"]:
+                    value = float(row[feature_name]) if feature_name in row.dtype.names else 0.0
+                else:
+                    raise ValueError(f"Feature {feature_name} not found in data structure")
+                feature_vector.append(value)
 
         # Then append SWI features
         if self.use_SWI and self.swi_features:
@@ -534,15 +537,32 @@ class DayRAMDataset(Dataset):
                     value = 0.0
                 feature_vector.append(value)
 
+        feat = torch.tensor(feature_vector, dtype=torch.float32)
+        
+        # Get target (label)
         target_name = self.target_feature
         if target_name in row.dtype.names:
-            target = float(row[target_name])
+            label = torch.tensor(float(row[target_name]), dtype=torch.float32)
         else:
             raise ValueError(f"Target {target_name} not found in data")
-
-        return torch.tensor(feature_vector, dtype=torch.float32), torch.tensor(
-            target, dtype=torch.float32
-        )
+        
+        # Guard NaNs
+        if torch.isnan(feat).any() or torch.isnan(label):
+            raise ValueError(f"NaN in DayRAMDataset at idx {idx}")
+        
+        # Return metadata if requested (for dSTEC evaluation)
+        if self.return_metadata:
+            metadata = {}
+            for field in self.metadata_fields:
+                if field in row.dtype.names:
+                    value = row[field]
+                    # Decode bytes to string for text fields
+                    if isinstance(value, bytes):
+                        value = value.decode('utf-8')
+                    metadata[field] = value
+            return feat, label, metadata
+        
+        return feat, label
 
 
 class PyTablesDatasetSplit(Dataset):
@@ -566,21 +586,26 @@ class PyTablesDatasetSplit(Dataset):
         # Get enabled features (excluding target)
         all_features = self.feature_registry.get_all_enabled_features()
         target_features = self.feature_registry.get_features_by_type(FeatureType.TARGET)
-        swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
         self.target_feature = target_features[0]  # Get the single target feature name
-        self.input_features = [f for f in all_features if f not in target_features and f not in swi_features]  # Exclude SWI like H5RAMDataset
+        self.input_features = [f for f in all_features if f not in target_features]
+        
+        # Get SWI features for later filtering during iteration
+        self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI) if self.feature_registry else []
 
         # Validate target feature name
         if self.target_feature not in ["stec", "vtec"]:
             raise ValueError(
                 f"Target feature {self.target_feature} is not valid. Expected 'stec' or 'vtec'."
             )
+        
+        # Check if we should return metadata (for dSTEC evaluation)
+        self.return_metadata = config.get("return_metadata", False)
+        self.metadata_fields = config.get("metadata_fields", ["station", "sat", "slipc", "gfphase"])
 
         # SWI setup
         self.use_SWI = config["data"].get("use_SWI", False)
         self.swi_file = None
         self.swi_mask = None
-        self.swi_features = None
         if self.use_SWI:
             swi_path = os.path.join(config["data"]["SWI_data_path"], "omni_hourly_2010-2025.h5")
             if os.path.exists(swi_path):
@@ -594,7 +619,6 @@ class PyTablesDatasetSplit(Dataset):
                         self.swi_mask = [c not in ("YEAR", "DOY", "HR") for c in cols]
                         masked_names = [n for n, m in zip(cols, self.swi_mask) if m]
                         # Map registry SWI features to indices
-                        self.swi_features = self.feature_registry.get_features_by_type(FeatureType.SWI)
                         self.swi_name_to_idx = {name: i for i, name in enumerate(masked_names)}
                         self.swi_indices_in_file_order = [
                             self.swi_name_to_idx.get(f, None) for f in self.swi_features
@@ -623,21 +647,28 @@ class PyTablesDatasetSplit(Dataset):
 
         # First, add all non-SWI features in registry order
         for feature_name in self.input_features:
-            if feature_name == "year":
-                value = float(self.year)
-            elif feature_name == "doy":
-                value = float(self.doy)
-            elif feature_name == "local_time_hours":
-                # Compute local time from UTC seconds of day and IPP longitude
-                sod = float(row["sod"]) if "sod" in row.dtype.names else 0.0
-                longitude = float(row["lon_ipp"]) if "lon_ipp" in row.dtype.names else 0.0
-                value = compute_local_time_hours(sod, longitude)
-            elif feature_name in row.dtype.names:
-                value = float(row[feature_name])
-            else:
-                raise ValueError(f"Feature {feature_name} not found in data")
-
-            feature_vector.append(value)
+            if feature_name not in self.swi_features:
+                # Get raw value
+                if feature_name == "year":
+                    value = float(self.year)
+                elif feature_name == "doy":
+                    value = float(self.doy)
+                elif feature_name == "sod":
+                    value = float(row["sod"]) if "sod" in row.dtype.names else 0.0
+                elif feature_name == "local_time_hours":
+                    # Compute local time from UTC seconds of day and IPP longitude
+                    sod = float(row["sod"]) if "sod" in row.dtype.names else 0.0
+                    longitude = float(row["lon_ipp"]) if "lon_ipp" in row.dtype.names else 0.0
+                    value = compute_local_time_hours(sod, longitude)
+                elif feature_name in ["lat_sta", "lon_sta", "sm_lat_sta", "sm_lon_sta"]:
+                    value = float(row[feature_name]) if feature_name in row.dtype.names else 0.0
+                elif feature_name in ["satazi", "satele"]:
+                    value = float(row[feature_name]) if feature_name in row.dtype.names else 0.0
+                elif feature_name in ["lat_ipp", "lon_ipp", "sm_lat_ipp", "sm_lon_ipp"]:
+                    value = float(row[feature_name]) if feature_name in row.dtype.names else 0.0
+                else:
+                    raise ValueError(f"Feature {feature_name} not found in data structure")
+                feature_vector.append(value)
 
         # Then append SWI features
         if self.use_SWI and self.swi_features:
@@ -666,15 +697,32 @@ class PyTablesDatasetSplit(Dataset):
                     value = 0.0
                 feature_vector.append(value)
 
-        target_name = self.target_feature  # Now it's a string, not a list
+        feat = torch.tensor(feature_vector, dtype=torch.float32)
+        
+        # Get target (label)
+        target_name = self.target_feature
         if target_name in row.dtype.names:
-            target = float(row[target_name])
+            label = torch.tensor(float(row[target_name]), dtype=torch.float32)
         else:
             raise ValueError(f"Target {target_name} not found in data")
-
-        return torch.tensor(feature_vector, dtype=torch.float32), torch.tensor(
-            target, dtype=torch.float32
-        )
+        
+        # Guard NaNs
+        if torch.isnan(feat).any() or torch.isnan(label):
+            raise ValueError(f"NaN in PyTablesDatasetSplit at idx {idx}")
+        
+        # Return metadata if requested (for dSTEC evaluation)
+        if self.return_metadata:
+            metadata = {}
+            for field in self.metadata_fields:
+                if field in row.dtype.names:
+                    value = row[field]
+                    # Decode bytes to string for text fields
+                    if isinstance(value, bytes):
+                        value = value.decode('utf-8')
+                    metadata[field] = value
+            return feat, label, metadata
+        
+        return feat, label
 
     def __del__(self):
         if self.file is not None:
