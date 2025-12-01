@@ -17,15 +17,18 @@ parameters:
   model.prior_sigma:
     values: [0.01, 0.05, 0.1, 0.2]
 
+  data.SH_degree:
+    values: [0, 5, 16]
+
   # Training hyperparameters
   pretrain.learning_rate:
-    values: [0.0001, 0.0005, 0.001, 0.005, 0.01]
+    values: [0.0005, 0.001, 0.005]
 
   pretrain.batchsize:
-    values: [512, 1024]
+    values: [1024]
 
   training.loss_weight:
-    values: [0.01, 0.1, 1.0, 10.0]
+    values: [0.1, 1.0, 10.0]
 
   # Training configuration
   training.loss_function:

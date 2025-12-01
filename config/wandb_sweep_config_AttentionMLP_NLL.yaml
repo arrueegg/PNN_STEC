@@ -6,19 +6,25 @@ metric:
 
 parameters:
   model.model_type:
-    values: ['AttentionMLP_NLL']
+    values: ['AttentionMLP_BNN_NLL']
   
   model.hidden_dim:
     values: [512, 1024]
   
   model.num_layers:
-    values: [3, 4]
+    values: [4]
   
   model.num_heads:
     values: [4]
   
+  model.prior_sigma:
+    values: [0.05, 0.1]
+
+  data.SH_degree:
+    values: [0, 5, 16]
+  
   pretrain.learning_rate:
-    values: [0.0001, 0.0005, 0.001, 0.005]
+    values: [0.0001, 0.0005, 0.001, 0.005, 0.01]
   
   training.loss_function:
     values: ['GaussianNLLLoss']
@@ -27,6 +33,6 @@ parameters:
     values: [100]
   
   pretrain.batchsize:
-    values: [512]
+    values: [512, 1024, 2048]
 
 run_cap: 50

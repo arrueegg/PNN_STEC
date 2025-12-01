@@ -7,7 +7,7 @@ Usage:
 
 Arguments:
     num_agents    : Number of agents (default: 8)
-    model_type    : BNN, DE, MC, MLP, baseline, or all (default: BNN)
+    model_type    : BNN, DE, MC, MLP, baseline, attention, or all (default: BNN)
     sweep_config  : Custom config file path (if not using model_type)
 
 Examples:
@@ -16,6 +16,7 @@ Examples:
     ./launch_wandb_sweep.sh 4 MC                          # Use 4 agents with MCDropout config
     ./launch_wandb_sweep.sh 12 MLP                        # Use 12 agents with MLP config
     ./launch_wandb_sweep.sh 8 baseline                    # Use 8 agents with baseline config
+    ./launch_wandb_sweep.sh 8 attention                   # Use 8 agents with AttentionMLP_BNN config
     ./launch_wandb_sweep.sh 8 all                         # Use 8 agents with all models config
     ./launch_wandb_sweep.sh 16 config/custom_sweep.yaml   # Use 16 agents with custom config
 '
@@ -40,6 +41,9 @@ case "$MODEL_OR_CONFIG" in
         ;;
     "baseline"|"BASELINE")
         SWEEP_CONFIG="config/wandb_sweep_config_baseline.yaml"
+        ;;
+    "attention"|"ATTENTION"|"attn")
+        SWEEP_CONFIG="config/wandb_sweep_config_AttentionMLP_NLL.yaml"
         ;;
     "all"|"ALL")
         SWEEP_CONFIG="config/wandb_sweep_config_all.yaml"

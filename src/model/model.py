@@ -422,7 +422,80 @@ class AttentionMLP_NLL(torch.nn.Module):
             self.output_layer.bias[0].fill_(15.5)  # Mean bias
             self.output_layer.weight.normal_(0, 0.01)
 
+
+class AttentionMLP_BNN_NLL(torch.nn.Module):
+    """Attention-based MLP with Bayesian output layer - NLL loss with uncertainty quantification
+    
+    Architecture:
+    - Deterministic attention backbone (feature-level multi-head attention)
+    - Bayesian output head using torchbnn.BayesLinear for principled uncertainty estimation
+    
+    This combines the expressiveness of attention mechanisms with Bayesian uncertainty.
+    The deterministic backbone ensures computational efficiency while the Bayesian head
+    captures predictive uncertainty through weight posteriors.
+    
+    Output: (mean, variance) tuple for NLL loss
+    """
+    def __init__(self, n_in=3, hidden_dim=256, num_layers=4, num_heads=4, dropout_rate=0.0, prior_sigma=0.1):
+        super().__init__()
+        
+        # Feature grouping: create tokens from feature groups
+        # Divide input into ~8-16 feature tokens for meaningful attention
+        self.num_feature_tokens = max(2, min(16, n_in // 2))  # Adaptive: 2-16 tokens based on n_in
+        self.feature_embed_dim = hidden_dim  # Each feature token has dimension hidden_dim
+        
+        # Project raw features to feature tokens (deterministic)
+        self.feature_projection = Linear(n_in, self.num_feature_tokens * hidden_dim)
+        
+        # Ensure num_heads divides hidden_dim
+        if hidden_dim % num_heads != 0:
+            num_heads = max(1, hidden_dim // 4)  # Fallback to ~4x reduction
+        
+        # Attention blocks: attend over feature tokens (deterministic)
+        self.attn_blocks = nn.ModuleList([
+            FeatureAttentionBlock(hidden_dim, num_heads=num_heads, dropout_rate=dropout_rate)
+            for _ in range(num_layers)
+        ])
+        
+        # FFN blocks after attention (deterministic)
+        self.mlp_blocks = nn.ModuleList([
+            nn.Sequential(
+                Linear(hidden_dim, hidden_dim * 2),
+                nn.ReLU(),
+                Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity(),
+                Linear(hidden_dim * 2, hidden_dim),
+            )
+            for _ in range(num_layers)
+        ])
+        
+        self.norms = nn.ModuleList([
+            nn.LayerNorm(hidden_dim) for _ in range(num_layers)
+        ])
+        
+        # Pool feature tokens to single representation
+        self.pool_layer = nn.AdaptiveAvgPool1d(1)  # Pool over sequence dimension
+        
+        # Bayesian output layer: outputs (mean, variance) for STEC prediction with uncertainty
+        self.output_layer = bnn.BayesLinear(
+            prior_mu=0, prior_sigma=prior_sigma,
+            in_features=hidden_dim, out_features=2
+        )
+        
+        # Initialize output bias to STEC mean
+        with torch.no_grad():
+            self.output_layer.bias_mu[0].fill_(15.5)  # Mean bias
+            self.output_layer.weight_mu.normal_(0, 0.01)
+
     def forward(self, x):
+        """Forward pass through attention backbone + Bayesian head.
+        
+        Args:
+            x: Input features of shape (batch_size, n_in)
+        
+        Returns:
+            mean: Predicted STEC of shape (batch_size, 1)
+            variance: Predicted uncertainty of shape (batch_size, 1)
+        """
         # Input: (batch_size, n_in)
         batch_size = x.shape[0]
         
@@ -430,7 +503,7 @@ class AttentionMLP_NLL(torch.nn.Module):
         x = self.feature_projection(x)  # (batch_size, num_tokens * hidden_dim)
         x = x.view(batch_size, self.num_feature_tokens, -1)  # (batch_size, num_tokens, hidden_dim)
         
-        # Apply attention and FFN layers
+        # Apply deterministic attention and FFN layers
         for attn_block, mlp_block, norm in zip(self.attn_blocks, self.mlp_blocks, self.norms):
             # Attention over feature tokens
             x = attn_block(x)  # (batch_size, num_tokens, hidden_dim)
@@ -445,11 +518,13 @@ class AttentionMLP_NLL(torch.nn.Module):
         x = x.transpose(1, 2)  # (batch_size, hidden_dim, num_tokens)
         x = self.pool_layer(x).squeeze(-1)  # (batch_size, hidden_dim)
         
-        # Project to output
-        x = self.output_layer(x)
+        # Bayesian output head - samples from weight posterior
+        x = self.output_layer(x)  # Shape: (batch_size, 2)
+        mean, log_var = torch.split(x, 1, dim=1)
         
-        mean, variance = torch.split(x, 1, dim=1)
-        variance = F.softplus(variance) + 1e-3  # Ensure positive variance
+        # Ensure positive variance
+        variance = F.softplus(log_var) + 1e-3
+        
         return mean, variance
 
 
@@ -1322,6 +1397,15 @@ def get_model(config):
             num_layers=num_layers,
             num_heads=config["model"].get("num_heads", 4),
             dropout_rate=dropout_rate
+        )
+    elif model_type == "AttentionMLP_BNN_NLL":
+        return AttentionMLP_BNN_NLL(
+            n_in=in_features, 
+            hidden_dim=hidden_dim, 
+            num_layers=num_layers,
+            num_heads=config["model"].get("num_heads", 4),
+            dropout_rate=dropout_rate,
+            prior_sigma=prior_sigma
         )
     else:
         raise ValueError(f"Model type {model_type} is not recognized.")
