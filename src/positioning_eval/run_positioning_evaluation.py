@@ -461,7 +461,7 @@ def main():
         logger.info(f"✓ GIM positioning: {gim_success}/{len(stations)} stations")
         
         # Aggregate metrics
-        results_base_dir = experiment_dir / "positioning_results" / f"{year}{doy:03d}"
+        results_base_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}"
         
         metrics_model = None
         metrics_gim = None
@@ -482,7 +482,7 @@ def main():
         
         # Step 7: Save summary
         if metrics_model is not None or metrics_gim is not None:
-            summary_file = experiment_dir / "positioning_results" / f"{year}{doy:03d}" / "daily_summary.csv"
+            summary_file = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
             
             # Combine metrics
             metrics_list = []
@@ -503,7 +503,7 @@ def main():
             logger.info("\n📊 Step 7b: Generating plots...")
             try:
                 from .plot_results import plot_positioning_results
-                plot_results_output = eval_output_dir / f"{year}{doy:03d}" / "plots"
+                plot_results_output = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "plots"
                 plot_positioning_results(summary_file, plot_results_output)
                 logger.info(f"✓ Plots saved to: {plot_results_output}")
             except Exception as e:
