@@ -2,12 +2,46 @@
 project_name: "PNN_STEC"
 output_dir: "experiments/"
 year: 2024
-doy: 182
-mode: pretrain # pretrain, finetune
+doy: 183
+mode: finetune # pretrain, finetune
 random_seed: 42
 debug: False  
 debug_single_batch: False  
 cluster: False
+
+# Feature Control - Enable/disable individual features for experiments
+# Set to true to use a feature, false to exclude it from the model
+# Note: This controls which features are used as inputs, not which are in the data
+feature_control:
+  # Temporal features
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+  
+  # Station features (only used when target=stec)
+  sm_lat_sta: true
+  sm_lon_sta: true
+  lat_sta: true
+  lon_sta: true
+  
+  # IPP (Ionospheric Pierce Point) features
+  lat_ipp: true
+  lon_ipp: true
+  sm_lat_ipp: true
+  sm_lon_ipp: true
+  
+  # Direction features (only used when target=stec)
+  satazi: true
+  satele: true
+  
+  # Space Weather Indices (only used when data.use_SWI=true)
+  Kp_index: true
+  R_Sunspot_No: true
+  Dst-index,_nT: true
+  AE-index,_nT: true
+  ap_index,_nT: true
+  f107_index: true
 
 # Wandb configuration
 wandb:
@@ -23,7 +57,7 @@ data:
   move_to_scratch: True # Whether to move data to scratch for faster access
   every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data
-  SH_degree: 0
+  SH_degree: 5
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True
@@ -46,7 +80,7 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 10.0                  # Weight for the loss function
+  loss_weight: 0.1                  # Weight for the loss function
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
@@ -71,7 +105,7 @@ pretrain:
   batchsize: 1024
   num_workers: 12 
   prefetch_factor: 4
-  learning_rate: 0.005
+  learning_rate: 0.001
   scheduler: ReduceLROnPlateau            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 150       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping
@@ -79,9 +113,10 @@ pretrain:
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:
-  epochs: 50
+  epochs: 30
+  batchsize: 512                 # Batch size for finetuning (can be different from pretrain)
   num_workers: 12
-  learning_rate: 0.001
+  learning_rate: 0.0001
   scheduler: ReduceLROnPlateau  # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100       # Step size for scheduler (reduces lr every X epochs)
 

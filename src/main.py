@@ -9,7 +9,7 @@ from utils.config_parser import parse_config
 from data_processing.add_split_indices import add_split_indices
 from pretrain import Pretrainer
 from finetune import Finetuner
-from utils.feature_registry import initialize_feature_registry, FeatureType
+from utils.feature_registry import initialize_feature_registry, FeatureType, print_feature_summary
 from utils.wandb_sweep_integration import integrate_wandb_sweep_config
 
 # Logging setup
@@ -58,15 +58,8 @@ def main():
     # Add to config so other components can access them
     config["feature_registry"] = feature_registry
 
-    # Log feature configuration
-    print("")
-    logger.info("=== Feature Configuration ===")
-    logger.info(f"Total features: {feature_registry.get_total_features()}")
-    for feature_type in FeatureType:
-        features = feature_registry.get_features_by_type(feature_type)
-        logger.info(f"{feature_type.value}: {len(features)} features")
-        if features:
-            logger.debug(f"  {feature_type.value} features: {features}")
+    # Print feature summary
+    print_feature_summary(feature_registry, config)
 
     # Clear CUDA cache
     torch.cuda.empty_cache()

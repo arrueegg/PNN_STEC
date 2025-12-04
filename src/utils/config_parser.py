@@ -86,7 +86,8 @@ def compute_exp_name(config: dict) -> str:
 
     # Extract key hyperparameters for naming
     lr = training_config.get("learning_rate", 0.001)
-    batch_size = training_config.get("batchsize", 512)
+    # Get batchsize from mode-specific config, fallback to pretrain if not found
+    batch_size = training_config.get("batchsize", config.get("pretrain", {}).get("batchsize", 512))
     loss_fn = config["training"].get("loss_function", "MSELoss")
     optimizer = config["training"].get("optimizer", "Adam")
     scheduler = training_config.get("scheduler", "none")

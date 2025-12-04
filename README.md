@@ -19,6 +19,7 @@ The models incorporate GNSS observations and Space Weather Indices (SWI) to pred
 - 📊 **Uncertainty quantification**: Bayesian approaches and MC Dropout
 - ⚡ **Efficient training**: Support for different sampling strategies
 - 🔧 **Flexible configuration**: YAML-based experiment setup
+- 🎛️ **Feature control**: Easy enable/disable of individual input features
 - 📈 **Comprehensive logging**: Weights & Biases integration
 - 🚀 **GPU acceleration**: CUDA support
 
@@ -92,6 +93,37 @@ Key configuration parameters in `config/config.yaml`:
 - **Model Types**: `BNN_NLL`, `BNN_mse`, `MLP`, `Branch_BNN_NLL`, `MLP_MCDropout_NLL`
 - **Training Modes**: `pretrain`, `finetune`
 - **Loss Functions**: `MSELoss`, `GaussianNLLLoss`
+- **Feature Control**: Enable/disable individual input features (see [Feature Control Guide](docs/feature_control_guide.md))
+
+### Feature Control (NEW!)
+
+You can now easily control which features are used as inputs for experiments. Edit the `feature_control` section in `config/config.yaml`:
+
+```yaml
+feature_control:
+  # Temporal features
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+  
+  # Station features
+  lat_sta: true
+  lon_sta: true
+  # ... etc
+  
+  # Space Weather Indices
+  Kp_index: true
+  f107_index: true
+  # ... etc
+```
+
+This is ideal for:
+- 🧪 **Ablation studies** - Test impact of removing features
+- 📊 **Feature importance analysis** - Find most critical features
+- 🎯 **Model simplification** - Reduce complexity while maintaining performance
+
+See the [Feature Control Guide](docs/feature_control_guide.md) for detailed documentation and examples.
 
 ### Model Architectures
 

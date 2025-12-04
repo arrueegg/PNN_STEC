@@ -1,6 +1,47 @@
 from enum import Enum
 from typing import Dict, List, Tuple, Optional
 
+# =============================================================================
+# FEATURE CONTROL - Toggle features on/off for experiments
+# =============================================================================
+# Set to True to enable a feature, False to disable it
+# This serves as the master list of all available features
+DEFAULT_FEATURE_CONTROL = {
+    # Temporal features
+    "year": True,
+    "doy": True,
+    "sod": True,
+    "local_time_hours": True,
+    
+    # Station features (only for STEC)
+    "sm_lat_sta": True,
+    "sm_lon_sta": True,
+    "lat_sta": True,
+    "lon_sta": True,
+    
+    # IPP features
+    "lat_ipp": True,
+    "lon_ipp": True,
+    "sm_lat_ipp": True,
+    "sm_lon_ipp": True,
+    
+    # Direction features (only for STEC)
+    "satazi": True,
+    "satele": True,
+    
+    # Space Weather Indices (when use_SWI=True)
+    "Kp_index": True,
+    "R_Sunspot_No": True,
+    "Dst-index,_nT": True,
+    "AE-index,_nT": True,
+    "ap_index,_nT": True,
+    "f107_index": True,
+    
+    # Target (always enabled - cannot be disabled)
+    "stec": True,
+    "vtec": True,
+}
+
 
 class FeatureType(Enum):
     SWI = "swi"
@@ -171,101 +212,118 @@ class FeatureRegistry:
 def create_default_registry(config: dict) -> FeatureRegistry:
     """Create default feature registry based on config."""
     registry = FeatureRegistry()
+    
+    # Get feature control settings from config (or use defaults)
+    feature_control = config.get('feature_control', DEFAULT_FEATURE_CONTROL.copy())
 
     # Register features in the exact order they appear in your data pipeline
 
     # 1. Temporal features (first in your data construction)
-    registry.register_feature(
-        "year",
-        FeatureType.TEMPORAL,
-        normalization=(2010, 2030),
-        description="Year of observation",
-    )
-    registry.register_feature(
-        "doy", FeatureType.TEMPORAL, normalization=(1, 366), description="Day of year"
-    )
-    registry.register_feature(
-        "sod",
-        FeatureType.TEMPORAL,
-        normalization=(0, 86400),
-        description="Seconds of day",
-    )
-    registry.register_feature(
-        "local_time_hours",
-        FeatureType.TEMPORAL,
-        normalization=(0, 24),
-        description="Local time in hours (0-24) based on longitude",
-    )
+    if feature_control.get("year", True):
+        registry.register_feature(
+            "year",
+            FeatureType.TEMPORAL,
+            normalization=(2010, 2030),
+            description="Year of observation",
+        )
+    if feature_control.get("doy", True):
+        registry.register_feature(
+            "doy", FeatureType.TEMPORAL, normalization=(1, 366), description="Day of year"
+        )
+    if feature_control.get("sod", True):
+        registry.register_feature(
+            "sod",
+            FeatureType.TEMPORAL,
+            normalization=(0, 86400),
+            description="Seconds of day",
+        )
+    if feature_control.get("local_time_hours", True):
+        registry.register_feature(
+            "local_time_hours",
+            FeatureType.TEMPORAL,
+            normalization=(0, 24),
+            description="Local time in hours (0-24) based on longitude",
+        )
 
     # 2. Station features (solar magnetic coordinates) - only for STEC
     if config["target"] == "stec":
-        registry.register_feature(
-            "sm_lat_sta",
-            FeatureType.STATION,
-            normalization=(-90, 90),
-            description="Station solar magnetic latitude",
-        )
-        registry.register_feature(
-            "sm_lon_sta",
-            FeatureType.STATION,
-            normalization=(-180, 180),
-            description="Station solar magnetic longitude",
-        )
+        if feature_control.get("sm_lat_sta", True):
+            registry.register_feature(
+                "sm_lat_sta",
+                FeatureType.STATION,
+                normalization=(-90, 90),
+                description="Station solar magnetic latitude",
+            )
+        if feature_control.get("sm_lon_sta", True):
+            registry.register_feature(
+                "sm_lon_sta",
+                FeatureType.STATION,
+                normalization=(-180, 180),
+                description="Station solar magnetic longitude",
+            )
 
-        registry.register_feature(
-            "lat_sta",
-            FeatureType.STATION,
-            normalization=(-90, 90),
-            description="Station geographic latitude",
-        )
-        registry.register_feature(
-            "lon_sta",
-            FeatureType.STATION,
-            normalization=(-180, 180),
-            description="Station geographic longitude",
-        )
+        if feature_control.get("lat_sta", True):
+            registry.register_feature(
+                "lat_sta",
+                FeatureType.STATION,
+                normalization=(-90, 90),
+                description="Station geographic latitude",
+            )
+        if feature_control.get("lon_sta", True):
+            registry.register_feature(
+                "lon_sta",
+                FeatureType.STATION,
+                normalization=(-180, 180),
+                description="Station geographic longitude",
+            )
 
     # 3. IPP features (Ionospheric Pierce Point)
-    registry.register_feature(
-        "lat_ipp",
-        FeatureType.IPP,
-        normalization=(-90, 90),
-        description="IPP geographic latitude",
-    )
-    registry.register_feature(
-        "lon_ipp",
-        FeatureType.IPP,
-        normalization=(-180, 180),
-        description="IPP geographic longitude",
-    )
+    if feature_control.get("lat_ipp", True):
+        registry.register_feature(
+            "lat_ipp",
+            FeatureType.IPP,
+            normalization=(-90, 90),
+            description="IPP geographic latitude",
+        )
+    if feature_control.get("lon_ipp", True):
+        registry.register_feature(
+            "lon_ipp",
+            FeatureType.IPP,
+            normalization=(-180, 180),
+            description="IPP geographic longitude",
+        )
 
-    registry.register_feature(
-        "sm_lat_ipp",
-        FeatureType.IPP,
-        normalization=(-90, 90),
-        description="IPP solar magnetic latitude",
-    )
-    registry.register_feature(
-        "sm_lon_ipp",
-        FeatureType.IPP,
-        normalization=(-180, 180),
-        description="IPP solar magnetic longitude",
-    )
+    if feature_control.get("sm_lat_ipp", True):
+        registry.register_feature(
+            "sm_lat_ipp",
+            FeatureType.IPP,
+            normalization=(-90, 90),
+            description="IPP solar magnetic latitude",
+        )
+    if feature_control.get("sm_lon_ipp", True):
+        registry.register_feature(
+            "sm_lon_ipp",
+            FeatureType.IPP,
+            normalization=(-180, 180),
+            description="IPP solar magnetic longitude",
+        )
 
     # 4. Direction features (satellite direction - azimuth, elevation) - only for STEC
     if config["target"] == "stec":
-        registry.register_feature(
-            "satazi",
-            FeatureType.DIRECTION,
-            normalization=(0, 360),
-            description="Satellite azimuth angle",
-        )
-        registry.register_feature(
-            "satele",
-            FeatureType.DIRECTION,
-            normalization=(0, 90),
-            description="Satellite elevation angle",
-        )
+        if feature_control.get("satazi", True):
+            registry.register_feature(
+                "satazi",
+                FeatureType.DIRECTION,
+                normalization=(0, 360),
+                description="Satellite azimuth angle",
+            )
+        if feature_control.get("satele", True):
+            registry.register_feature(
+                "satele",
+                FeatureType.DIRECTION,
+                normalization=(0, 90),
+                description="Satellite elevation angle",
+            )
 
     # 5. SWI features (if enabled) - these come last in your data construction
     if config["data"].get("use_SWI", False):
@@ -317,9 +375,10 @@ def create_default_registry(config: dict) -> FeatureRegistry:
         ]
 
         for feature, normalization in swi_features_with_normalization:
-            registry.register_feature(
-                feature, FeatureType.SWI, normalization=normalization
-            )
+            if feature_control.get(feature, True):
+                registry.register_feature(
+                    feature, FeatureType.SWI, normalization=normalization
+                )
 
     # 6. Target feature (STEC or VTEC)
     if config["target"] == "stec":
@@ -353,3 +412,30 @@ def initialize_feature_registry(config: dict) -> FeatureRegistry:
     config["feature_registry"] = registry
 
     return registry
+
+
+def print_feature_summary(registry: FeatureRegistry, config: dict):
+    """Print a summary of enabled/disabled features."""
+    print("\n" + "="*80)
+    print("FEATURE REGISTRY SUMMARY")
+    print("="*80)
+    
+    for feature_type in FeatureType:
+        features = registry.get_features_by_type(feature_type)
+        if features:
+            print(f"\n{feature_type.value.upper()} Features ({len(features)} enabled):")
+            for feat in features:
+                print(f"  ✓ {feat}")
+    
+    # Show disabled features if any
+    feature_control = config.get('feature_control', {})
+    disabled = [name for name, enabled in feature_control.items() if not enabled]
+    
+    if disabled:
+        print(f"\n❌ DISABLED Features ({len(disabled)}):")
+        for feat in disabled:
+            print(f"  ✗ {feat}")
+    
+    print(f"\n{'='*80}")
+    print(f"Total enabled features: {registry.get_total_features()}")
+    print(f"{'='*80}\n")

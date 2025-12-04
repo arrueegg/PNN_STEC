@@ -1,0 +1,116 @@
+# Example Config: Minimal Feature Set
+# This configuration uses only the most essential features for STEC prediction
+# Useful for testing if spatial + basic temporal information is sufficient
+
+# General configuration
+project_name: "PNN_STEC_Minimal"
+output_dir: "experiments/"
+year: 2024
+doy: 183
+mode: pretrain
+random_seed: 42
+debug: False  
+debug_single_batch: False  
+cluster: False
+
+# Wandb configuration
+wandb:
+  offline: False
+
+target: "stec"
+
+# Feature Control - MINIMAL SET
+# Only using: IPP location, local time, day of year, and one SWI (F10.7)
+feature_control:
+  # Temporal features - only keep day pattern and local time
+  year: false        # ❌ Remove long-term trends
+  doy: true          # ✓ Keep seasonal variation
+  sod: false         # ❌ Remove seconds (use local_time instead)
+  local_time_hours: true  # ✓ Keep diurnal variation
+  
+  # Station features - remove all (rely on IPP only)
+  sm_lat_sta: false
+  sm_lon_sta: false
+  lat_sta: false
+  lon_sta: false
+  
+  # IPP features - keep only geographic coordinates
+  lat_ipp: true      # ✓ Keep primary location
+  lon_ipp: true      # ✓ Keep primary location
+  sm_lat_ipp: false  # ❌ Remove magnetic coordinates
+  sm_lon_ipp: false  # ❌ Remove magnetic coordinates
+  
+  # Direction features - remove (geometry is secondary)
+  satazi: false
+  satele: false
+  
+  # Space Weather Indices - keep only solar flux
+  Kp_index: false
+  R_Sunspot_No: false
+  Dst-index,_nT: false
+  AE-index,_nT: false
+  ap_index,_nT: false
+  f107_index: true   # ✓ Keep solar activity indicator
+
+data:
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
+  use_agg_h5: True
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
+  move_to_scratch: True
+  every_x_doy: 1
+  use_SWI: True  # Must be True to use f107_index
+  SH_degree: 5
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 500_000
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+model:
+  model_type: BNN_NLL
+  hidden_dim: 512    # Smaller network for fewer features
+  num_layers: 3      # Shallower network
+  prior_sigma: 0.05
+  dropout_rate: 0.0
+  
+training:
+  loss_function: "GaussianNLLLoss"
+  loss_weight: 0.1
+  
+  kl_annealing:
+    enabled: true
+    warmup_epochs: 5
+    start_weight: 0.0
+    end_weight: 0.1
+  
+  target_weighting:
+    enabled: false
+    weight_function: "linear"
+  
+  optimizer: "Adam"
+  weight_decay: 0.0
+  standardize_targets: False
+  log_target: False
+  log_space_point: "mean"
+
+pretrain:
+  epochs: 150
+  batchsize: 1024
+  num_workers: 12 
+  prefetch_factor: 4
+  learning_rate: 0.001
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 150
+  early_stopping: true
+  patience: 20
+  save_model_every_epoch: False
+
+finetune:
+  epochs: 30
+  batchsize: 512
+  num_workers: 12
+  learning_rate: 0.0001
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 100

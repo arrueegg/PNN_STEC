@@ -52,8 +52,16 @@ def get_data_loaders(config, logger=None):
 
     device = config["device"]
     seed = int(config.get("seed", 42))
-    bs = config["pretrain"]["batchsize"]
-    nw = config["pretrain"]["num_workers"]
+    
+    # Use mode-specific batchsize and num_workers
+    mode = config.get("mode", "pretrain")
+    if mode == "finetune":
+        bs = config["finetune"].get("batchsize", config["pretrain"]["batchsize"])
+        nw = config["finetune"].get("num_workers", config["pretrain"]["num_workers"])
+    else:
+        bs = config["pretrain"]["batchsize"]
+        nw = config["pretrain"]["num_workers"]
+    
     pf = _get_prefetch_factor(config)
     use_agg_h5 = config["data"].get("use_agg_h5", False)
     build_agg_h5 = config["data"].get("build_agg_h5", True)
@@ -257,8 +265,16 @@ def get_test_data_loader(config, logger=None):
     # Configuration
     device = config["device"]
     seed = int(config.get("seed", 42))
-    bs = config["pretrain"]["batchsize"] * 8
-    nw = config["pretrain"]["num_workers"]
+    
+    # Use mode-specific batchsize and num_workers
+    mode = config.get("mode", "pretrain")
+    if mode == "finetune":
+        bs = config["finetune"].get("batchsize", config["pretrain"]["batchsize"]) * 8
+        nw = config["finetune"].get("num_workers", config["pretrain"]["num_workers"])
+    else:
+        bs = config["pretrain"]["batchsize"] * 8
+        nw = config["pretrain"]["num_workers"]
+    
     pf = _get_prefetch_factor(config)
     use_agg_h5 = config["data"].get("use_agg_h5", False)
     build_agg_h5 = config["data"].get("build_agg_h5", True)
