@@ -140,10 +140,34 @@ DownloadProduct() { # purpose: download and uncompress a product
 WgetDownload() { # purpose: download a file with wget
                  # usage  : WgetDownload url
     local url="$1"
+    local filename=$(basename "${url}")
+    
+    # Initialize cookie file if it doesn't exist
+    [ ! -f cookies.txt ] && touch cookies.txt
+    
     local args="--netrc --auth-no-challenge=on --keep-session-cookies --save-cookies=cookies.txt --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60"
 
+    # Remove existing file if it's not a valid gzip/compress file (e.g., HTML error page)
+    if [ -f "$filename" ] && ! file "$filename" | grep -qE "(gzip compressed|compress'd|ASCII text)"; then
+        echo "Removing invalid file: $filename"
+        rm -f "$filename"
+    fi
+
     wget ${args} ${url}
-    [ -e $(basename "${url}") ] && return 0 || return 1
+    
+    # Validate downloaded file
+    if [ -e "$filename" ]; then
+        # Check if it's actually the correct file type (not an HTML error page)
+        if file "$filename" | grep -qE "(gzip compressed|compress'd|ASCII text)"; then
+            return 0
+        else
+            echo "Downloaded file is invalid (possibly HTML error page)"
+            rm -f "$filename"
+            return 1
+        fi
+    else
+        return 1
+    fi
 }
 
 ymd2mjd() {

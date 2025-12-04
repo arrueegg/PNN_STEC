@@ -215,7 +215,7 @@ def process_single_station(
     gim_output_dir = experiment_dir / "positioning_results" / f"{year}{doy:03d}" / "gim" / station
     
     # Find STEC CSV file
-    stec_csv = experiment_dir / "positioning_corrections" / f"{year}{doy:03d}" / f"{station}.csv"
+    stec_csv = experiment_dir / "positioning" / "stec_corrections" / f"{year}{doy:03d}" / f"{station}.csv"
     
     # 1. Run with model STEC corrections
     if stec_csv.exists():
@@ -374,8 +374,8 @@ def main():
             return 1
         
         # Setup directories
-        products_dir = experiment_dir / "positioning_eval" / f"{year}{doy:03d}" / "products"
-        rinex_dir = experiment_dir / "positioning_eval" / f"{year}{doy:03d}" / "rinex"
+        products_dir = experiment_dir / "positioning" / "evaluation" / f"{year}{doy:03d}" / "products"
+        rinex_dir = experiment_dir / "positioning" / "evaluation" / f"{year}{doy:03d}" / "rinex"
         
         # Step 1: Download products
         if not args.skip_downloads:
@@ -498,6 +498,16 @@ def main():
                 combined = pd.concat(metrics_list, ignore_index=True)
                 combined.to_csv(summary_file, index=False, float_format='%.4f')
                 logger.info(f"\n✓ Summary saved to: {summary_file}")
+            
+            # Generate plots from summary
+            logger.info("\n📊 Step 7b: Generating plots...")
+            try:
+                from .plot_results import plot_positioning_results
+                plot_results_output = eval_output_dir / f"{year}{doy:03d}" / "plots"
+                plot_positioning_results(summary_file, plot_results_output)
+                logger.info(f"✓ Plots saved to: {plot_results_output}")
+            except Exception as e:
+                logger.warning(f"Could not generate plots: {e}")
         
         # Step 8: Cleanup (optional)
         if args.cleanup:

@@ -28,9 +28,10 @@ def doy_to_date(year, doy):
     return datetime.strptime(f"{year} {doy}", "%Y %j")
 
 
-def download_rinex_file(station, year, doy, output_dir, logger):
+def download_rinex_file(station, year, doy, output_dir, logger=None):
     """
-    Download RINEX file for a station/date from CDDIS using bash script.
+    Download a single RINEX observation file from CDDIS.
+    Bash script caches directory listing to find correct country codes efficiently.
     
     Args:
         station: 4-char station name (uppercase)
@@ -59,7 +60,7 @@ def download_rinex_file(station, year, doy, output_dir, logger):
     logger.info(f"Downloading RINEX for {station_upper}...")
     
     try:
-        # Run bash download script
+        # Run bash download script (it caches directory listing internally)
         result = subprocess.run(
             ["bash", str(download_script), station_upper, str(year), str(doy), str(output_path)],
             capture_output=True,
@@ -68,13 +69,23 @@ def download_rinex_file(station, year, doy, output_dir, logger):
         )
         
         if result.returncode == 0:
-            # Find the downloaded file
+            # Find the downloaded file - use glob to match any country code
             yy = str(year)[-2:]
             
-            # Possible filenames after conversion
+            # Search for RINEX 3 long format with any country code (e.g., JPN, CHE, ZAF, etc.)
+            rinex3_pattern = f"{station_upper}00???_R_{year}{doy:03d}0000_01D_30S_MO.rnx"
+            crx_pattern = f"{station_upper}00???_R_{year}{doy:03d}0000_01D_30S_MO.crx"
+            
+            # Try glob patterns first
+            import glob
+            for pattern in [rinex3_pattern, crx_pattern]:
+                matches = list(output_path.glob(pattern))
+                if matches:
+                    logger.info(f"✓ Downloaded: {matches[0].name}")
+                    return matches[0]
+            
+            # Fallback to specific filenames (RINEX 2 format)
             possible_files = [
-                output_path / f"{station_upper}00CHE_R_{year}{doy:03d}0000_01D_30S_MO.rnx",
-                output_path / f"{station_upper}00CHE_R_{year}{doy:03d}0000_01D_30S_MO.crx",  # Hatanaka compressed
                 output_path / f"{station.lower()}{doy:03d}0.{yy}d",
                 output_path / f"{station.lower()}{doy:03d}0.{yy}o",
             ]
@@ -87,7 +98,9 @@ def download_rinex_file(station, year, doy, output_dir, logger):
             logger.warning(f"Download script succeeded but no RINEX file found for {station_upper}")
             return None
         else:
-            logger.warning(f"Download failed for {station_upper}: {result.stderr[:200]}")
+            # wget outputs errors to stdout, not stderr
+            error_msg = result.stderr if result.stderr else result.stdout
+            logger.warning(f"Download failed for {station_upper}: {error_msg[:500]}")
             return None
     
     except subprocess.TimeoutExpired:
@@ -119,6 +132,7 @@ def download_rinex_batch(stations, year, doy, output_dir, logger=None):
     
     results = {}
     for station in stations:
+        # Bash script now caches directory listing internally
         rinex_path = download_rinex_file(station, year, doy, output_dir, logger)
         if rinex_path:
             results[station] = rinex_path

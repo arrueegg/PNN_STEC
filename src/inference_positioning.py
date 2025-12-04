@@ -20,7 +20,7 @@ Usage:
     python src/inference_positioning.py --experiment <exp_folder> --start_date 2024-07-01 --end_date 2024-07-05
 
 Output:
-    - CSV files saved to: experiments/<experiment_name>/positioning_corrections/YYYYDDD/<station>.csv
+    - CSV files saved to: experiments/<experiment_name>/positioning/stec_corrections/YYYYDDD/<station>.csv
 """
 
 import torch
@@ -366,7 +366,7 @@ def process_date(args, config, model, feature_registry, test_stations, logger):
     # Create output directory
     experiment_dir = Path(args.experiment_dir)
     date_str = f"{year}{doy:03d}"
-    output_dir = experiment_dir / "positioning_corrections" / date_str
+    output_dir = experiment_dir / "positioning" / "stec_corrections" / date_str
     
     logger.info("=" * 80)
     logger.info(f"Processing date: {year}-{doy:03d}")

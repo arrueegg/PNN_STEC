@@ -5,12 +5,34 @@
 ##  Downloads observation files for specified stations and date             ##
 ###############################################################################
 
+# Cache directory listing to avoid repeated requests
+CACHE_DIR="/tmp/rinex_cache_$$"
+mkdir -p "$CACHE_DIR"
+
+get_directory_listing() {
+    local year="$1"
+    local doy="$2"
+    local yy="${year:2:2}"
+    local base_url="https://cddis.nasa.gov/archive/gnss/data/daily/${year}/${doy}/${yy}d"
+    local cache_file="$CACHE_DIR/listing_${year}_${doy}.txt"
+    
+    # Return cached listing if it exists
+    if [ -f "$cache_file" ]; then
+        cat "$cache_file"
+        return 0
+    fi
+    
+    # Fetch and cache directory listing
+    wget --netrc --auth-no-challenge -q -O - "${base_url}/" 2>/dev/null | tee "$cache_file"
+}
+
 download_rinex() {
-    # Usage: download_rinex STATION YEAR DOY OUTPUT_DIR
+    # Usage: download_rinex STATION YEAR DOY OUTPUT_DIR [KNOWN_FILENAME]
     local station="$1"
     local year="$2"
     local doy="$3"
     local output_dir="$4"
+    local known_filename="$5"  # Optional: if provided, use this exact filename
     
     local station_upper="${station^^}"
     local station_lower="${station,,}"
@@ -18,9 +40,11 @@ download_rinex() {
     
     mkdir -p "$output_dir"
     
-    # Try RINEX 3 long filename format first
-    local long_filename="${station_upper}00CHE_R_${year}${doy}0000_01D_30S_MO.crx.gz"
-    local long_url="https://cddis.nasa.gov/archive/gnss/data/daily/${year}/${doy}/${yy}d/${long_filename}"
+    # Try RINEX 3 long filename format - use wildcard to match any country code
+    # Format: SSSS00CCC_R_YYYYDDDHHMM_01D_30S_MO.crx.gz
+    # where SSSS=station, CCC=3-letter country code
+    local long_pattern="${station_upper}00???_R_${year}${doy}0000_01D_30S_MO.crx.gz"
+    local base_url="https://cddis.nasa.gov/archive/gnss/data/daily/${year}/${doy}/${yy}d"
     
     # Try RINEX 2 short filename format
     local short_filename="${station_lower}${doy}0.${yy}d.Z"
@@ -31,16 +55,22 @@ download_rinex() {
     # Create empty cookies file if it doesn't exist
     touch cookies.txt
     
-    # Clean up any previous failed downloads (HTML error pages)
-    [ -f "$long_filename" ] && ! file "$long_filename" | grep -q "gzip compressed" && rm -f "$long_filename"
-    [ -f "$short_filename" ] && ! file "$short_filename" | grep -q "compress'd data" && rm -f "$short_filename"
+    # Get directory listing (cached) and find the matching file for this station
+    local dir_listing=$(get_directory_listing "$year" "$doy")
     
-    # Try long format (use ~/.netrc for authentication with NASA Earthdata)
-    # Need to handle cookies and redirects for CDDIS authentication
-    if wget --netrc --auth-no-challenge=on --keep-session-cookies --save-cookies=cookies.txt --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60 "$long_url" 2>&1; then
-        if [ -f "$long_filename" ]; then
-            # Check if it's actually gzipped (not HTML error page)
-            if file "$long_filename" | grep -q "gzip compressed"; then
+    # Extract the RINEX 3 filename for this station (any country code)
+    local long_filename=$(echo "$dir_listing" | grep -oE "${station_upper}00[A-Z]{3}_R_${year}${doy}0000_01D_30S_MO\.crx\.gz" | head -1)
+    
+    if [ -n "$long_filename" ]; then
+        # Found the file - download it
+        local long_url="${base_url}/${long_filename}"
+        
+        # Clean up any previous failed downloads (HTML error pages)
+        [ -f "$long_filename" ] && ! file "$long_filename" | grep -q "gzip compressed" && rm -f "$long_filename"
+        
+        # Download with authentication
+        if wget --netrc --auth-no-challenge=on --keep-session-cookies --save-cookies=cookies.txt --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60 "$long_url" 2>&1; then
+            if [ -f "$long_filename" ] && file "$long_filename" | grep -q "gzip compressed"; then
                 gunzip -f "$long_filename" 2>/dev/null
                 local crx_file="${long_filename%.gz}"
                 if [ -f "$crx_file" ]; then
@@ -60,16 +90,18 @@ download_rinex() {
                         echo "Downloaded and converted: ${station_upper}"
                         return 0
                     else
-                        # CRX2RNX not available - keep .crx file (PPPx can handle it)
                         echo "Downloaded: ${station_upper} (Hatanaka .crx format)"
                         return 0
                     fi
                 fi
             else
-                rm -f "$long_filename"
+                [ -f "$long_filename" ] && rm -f "$long_filename"
             fi
         fi
     fi
+    
+    # Clean up any previous failed short format downloads
+    [ -f "$short_filename" ] && ! file "$short_filename" | grep -q "compress'd data" && rm -f "$short_filename"
     
     # Try short format (use ~/.netrc for authentication with NASA Earthdata)
     if wget --netrc --auth-no-challenge=on --keep-session-cookies --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60 "$short_url" 2>&1; then
