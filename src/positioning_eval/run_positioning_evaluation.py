@@ -192,19 +192,24 @@ def process_single_station(
     
     station_upper = station.upper()
     
-    # Find RINEX file
-    rinex_candidates = [
-        rinex_dir / f"{station_upper}00CHE_R_{year}{doy:03d}0000_01D_30S_MO.rnx",
-        rinex_dir / f"{station_upper}00CHE_R_{year}{doy:03d}0000_01D_30S_MO.crx",  # Hatanaka compressed
-        rinex_dir / f"{station.lower()}{doy:03d}0.{str(year)[-2:]}d",
-        rinex_dir / f"{station.lower()}{doy:03d}0.{str(year)[-2:]}o",
-    ]
-    
+    # Find RINEX file - search for any country code match
     rinex_file = None
-    for candidate in rinex_candidates:
-        if candidate.exists():
-            rinex_file = candidate
-            break
+    
+    # Try RINEX3 format with wildcard for country code (e.g., ZIMM00CHE, AIRA00JPN)
+    rinex3_pattern = f"{station_upper}00*_R_{year}{doy:03d}0000_01D_30S_MO.rnx"
+    matches = list(rinex_dir.glob(rinex3_pattern))
+    if matches:
+        rinex_file = matches[0]
+    else:
+        # Fallback to old RINEX format
+        rinex_candidates = [
+            rinex_dir / f"{station.lower()}{doy:03d}0.{str(year)[-2:]}d",
+            rinex_dir / f"{station.lower()}{doy:03d}0.{str(year)[-2:]}o",
+        ]
+        for candidate in rinex_candidates:
+            if candidate.exists():
+                rinex_file = candidate
+                break
     
     if not rinex_file:
         logger.warning(f"RINEX file not found for {station}")
@@ -502,7 +507,7 @@ def main():
             # Generate plots from summary
             logger.info("\n📊 Step 7b: Generating plots...")
             try:
-                from .plot_results import plot_positioning_results
+                from src.positioning_eval.plot_results import plot_positioning_results
                 plot_results_output = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "plots"
                 plot_positioning_results(summary_file, plot_results_output)
                 logger.info(f"✓ Plots saved to: {plot_results_output}")
