@@ -266,7 +266,7 @@ def run_inference_for_day(config, model, feature_registry, year, doy, test_stati
     Run inference for all test station observations on a specific day.
     
     Returns:
-        DataFrame with predictions and metadata
+        DataFrame with predictions, uncertainties, and metadata
     """
     # Create dataset for this day
     gnss_data_path = config["data"]["GNSS_data_path"]
@@ -292,6 +292,7 @@ def run_inference_for_day(config, model, feature_registry, year, doy, test_stati
     device = config["device"]
     
     predictions = []
+    uncertainties = []
     metadata_list = []
     
     logger.info(f"Running inference on {len(dataset):,} observations...")
@@ -304,23 +305,31 @@ def run_inference_for_day(config, model, feature_registry, year, doy, test_stati
             # Model forward pass
             outputs = model(inputs)
             
-            # Extract prediction (handle different model output formats)
+            # Extract prediction and uncertainty (handle different model output formats)
             if isinstance(outputs, tuple):
-                pred_stec = outputs[0]  # BNN models return (mean, variance)
+                # BNN models return (mean, variance)
+                pred_stec = outputs[0]
+                pred_variance = outputs[1]
+                pred_uncertainty = torch.sqrt(pred_variance)  # Convert variance to std deviation
             else:
+                # Deterministic models (MLP) - zero uncertainty
                 pred_stec = outputs
+                pred_uncertainty = torch.zeros_like(pred_stec)
             
             predictions.append(pred_stec.cpu())
+            uncertainties.append(pred_uncertainty.cpu())
             metadata_list.extend(batch_metadata)
     
     # Combine results
     all_predictions = torch.cat(predictions).numpy().flatten()
+    all_uncertainties = torch.cat(uncertainties).numpy().flatten()
     
     # Create results DataFrame
     results_df = pd.DataFrame(metadata_list)
     results_df['pred_stec'] = all_predictions
+    results_df['uncertainty'] = all_uncertainties
     
-    logger.info(f"Completed inference: {len(results_df):,} predictions")
+    logger.info(f"Completed inference: {len(results_df):,} predictions with uncertainties")
     
     return results_df
 
@@ -329,7 +338,7 @@ def export_station_csv(station_df, output_path, year, doy, station_name):
     """
     Export predictions for one station to CSV.
     
-    CSV columns: second_of_day, PRN, ipp_latitude, ipp_longitude, stec
+    CSV columns: second_of_day, PRN, ipp_latitude, ipp_longitude, stec, uncertainty
     """
     # Prepare export dataframe
     export_df = pd.DataFrame({
@@ -337,7 +346,8 @@ def export_station_csv(station_df, output_path, year, doy, station_name):
         'PRN': station_df['sat'].values,
         'ipp_latitude': station_df['lat_ipp'].values,
         'ipp_longitude': station_df['lon_ipp'].values,
-        'stec': station_df['pred_stec'].values
+        'stec': station_df['pred_stec'].values,
+        'uncertainty': station_df['uncertainty'].values
     })
     
     # Sort by second_of_day and PRN for consistency

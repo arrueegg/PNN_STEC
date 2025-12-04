@@ -18,6 +18,9 @@ venv.bak/
 wandb/
 *data/
 ./data/
+products/
+table/
+
 
 # Ignore logs and temp files
 *.log
