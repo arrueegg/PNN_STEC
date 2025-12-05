@@ -5,7 +5,7 @@ year: 2024
 doy: 183
 mode: finetune # pretrain, finetune
 random_seed: 42
-debug: False  
+debug: True  
 debug_single_batch: False  
 cluster: False
 
@@ -113,6 +113,7 @@ pretrain:
   save_model_every_epoch: False # Whether to save the model every epoch
 
 finetune:
+  freeze_body: False            # Whether to freeze the body of the network during finetuning
   epochs: 30
   batchsize: 512                 # Batch size for finetuning (can be different from pretrain)
   num_workers: 12

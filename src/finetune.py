@@ -6,6 +6,7 @@ import logging
 from model.model import get_model, init_kaiming
 from data_loader import get_data_loaders
 from training import BaseTrainer
+from utils.model_utils import freeze_model_body
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ class Finetuner(BaseTrainer):
         checkpoint = torch.load(pretrain_checkpoint_path, weights_only=True)
         model.load_state_dict(checkpoint["model_state_dict"])
         logger.info(f"Loaded pretrained weights from {pretrain_checkpoint_path}")
+        
+        # Freeze body parameters if configured (only train output head)
+        freeze_model_body(model, self.config, logger)
+        
         return model
 
     def finetune(self, logger):

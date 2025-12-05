@@ -226,7 +226,10 @@ class BaseTrainer:
         criterion_mse = get_criterion(self.config, "MSELoss")
         criterion_nll = get_criterion(self.config, "GaussianNLLLoss")
         criterion_kld = get_criterion(self.config, "BKLLoss")
-        optimizer = get_optimizer(self.config, model.parameters())
+        
+        # Only pass trainable parameters to optimizer (important for freeze_body)
+        trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+        optimizer = get_optimizer(self.config, trainable_params)
 
         scheduler = None
         if self.config[training_key]["scheduler"]:

@@ -1,6 +1,11 @@
 #!/bin/bash
 # Quick wrapper script for running the complete positioning evaluation pipeline
 
+# Activate virtual environment if it exists and not already activated
+if [ -d "env/bin" ] && [ -z "$VIRTUAL_ENV" ]; then
+    source env/bin/activate
+fi
+
 EXPERIMENT="$1"
 DATE="$2"
 
