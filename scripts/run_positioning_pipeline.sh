@@ -4,6 +4,12 @@
 EXPERIMENT="$1"
 DATE="$2"
 
+# Strip leading "experiments/" or "experiment/" if present
+EXPERIMENT="${EXPERIMENT#experiments/}"
+
+# Remove trailing slash if present
+EXPERIMENT="${EXPERIMENT%/}"
+
 if [ -z "$EXPERIMENT" ] || [ -z "$DATE" ]; then
     echo "Usage: bash run_positioning_pipeline.sh <experiment_name> <date>"
     echo ""
@@ -68,5 +74,5 @@ echo "  ✅ Pipeline completed successfully!"
 echo "========================================================================"
 echo ""
 echo "Results are saved in:"
-echo "  experiments/$EXPERIMENT/positioning_results/"
+echo "  experiments/$EXPERIMENT/positioning/results/"
 echo ""

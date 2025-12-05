@@ -65,6 +65,11 @@ def load_test_stations(station_list_path="./src/data_processing/test_station.lis
 
 def find_experiment_directory(experiment_name, base_dir="experiments"):
     """Find experiment directory by name or partial match."""
+    # Strip leading "experiments/" or "experiment/" if present
+    experiment_name = experiment_name.removeprefix("experiments/").removeprefix("experiment/")
+    # Remove trailing slash if present
+    experiment_name = experiment_name.rstrip("/")
+    
     experiments_path = Path(base_dir)
     
     exact_path = experiments_path / experiment_name
@@ -216,8 +221,8 @@ def process_single_station(
         return results
     
     # Setup output directories
-    model_output_dir = experiment_dir / "positioning_results" / f"{year}{doy:03d}" / "model" / station
-    gim_output_dir = experiment_dir / "positioning_results" / f"{year}{doy:03d}" / "gim" / station
+    model_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "model" / station
+    gim_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "gim" / station
     
     # Find STEC CSV file
     stec_csv = experiment_dir / "positioning" / "stec_corrections" / f"{year}{doy:03d}" / f"{station}.csv"
@@ -507,7 +512,7 @@ def main():
             # Generate plots from summary
             logger.info("\n📊 Step 7b: Generating plots...")
             try:
-                from src.positioning_eval.plot_results import plot_positioning_results
+                from plot_results import plot_positioning_results
                 plot_results_output = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "plots"
                 plot_positioning_results(summary_file, plot_results_output)
                 logger.info(f"✓ Plots saved to: {plot_results_output}")

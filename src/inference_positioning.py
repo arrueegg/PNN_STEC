@@ -65,6 +65,11 @@ def load_test_stations(station_list_path="./src/data_processing/test_station.lis
 
 def find_experiment_directory(experiment_name, base_dir="experiments"):
     """Find experiment directory by name or partial match."""
+    # Strip leading "experiments/" or "experiment/" if present
+    experiment_name = experiment_name.removeprefix("experiments/").removeprefix("experiment/")
+    # Remove trailing slash if present
+    experiment_name = experiment_name.rstrip("/")
+    
     experiments_path = Path(base_dir)
     
     # First try exact match

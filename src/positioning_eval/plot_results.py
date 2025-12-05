@@ -27,26 +27,40 @@ def plot_positioning_results(summary_csv, output_dir=None):
         output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Pivot data from long to wide format
+    # Keep only stations that have both model and GIM results
+    pivot_2d = df.pivot(index='station', columns='method', values='error_2d_rms')
+    pivot_3d = df.pivot(index='station', columns='method', values='error_3d_rms')
+    pivot_u = df.pivot(index='station', columns='method', values='u_rms')
+    pivot_95_2d = df.pivot(index='station', columns='method', values='error_2d_95th')
+    pivot_95_3d = df.pivot(index='station', columns='method', values='error_3d_95th')
+    
+    # Filter to only stations with both methods
+    common_stations = pivot_2d.dropna().index
+    pivot_2d = pivot_2d.loc[common_stations]
+    pivot_3d = pivot_3d.loc[common_stations]
+    pivot_u = pivot_u.loc[common_stations]
+    
     # Set style
     sns.set_style("whitegrid")
     plt.rcParams['figure.figsize'] = (12, 8)
     
-    # 1. Horizontal RMS comparison
+    # 1. Horizontal (2D) RMS comparison
     fig, ax = plt.subplots(figsize=(14, 10))
     
-    x = np.arange(len(df))
+    x = np.arange(len(common_stations))
     width = 0.35
     
-    bars1 = ax.barh(x - width/2, df['model_horizontal_rms'], width, 
+    bars1 = ax.barh(x - width/2, pivot_2d['model'], width, 
                      label='Model STEC', color='#2E86AB', alpha=0.8)
-    bars2 = ax.barh(x + width/2, df['gim_horizontal_rms'], width,
+    bars2 = ax.barh(x + width/2, pivot_2d['gim'], width,
                      label='IGS GIM', color='#A23B72', alpha=0.8)
     
     ax.set_xlabel('Horizontal RMS (m)', fontsize=12)
     ax.set_ylabel('Station', fontsize=12)
     ax.set_title('Horizontal Positioning Error: Model STEC vs IGS GIM', fontsize=14, fontweight='bold')
     ax.set_yticks(x)
-    ax.set_yticklabels(df['station'], fontsize=9)
+    ax.set_yticklabels(common_stations, fontsize=9)
     ax.legend(fontsize=11)
     ax.grid(axis='x', alpha=0.3)
     
@@ -57,16 +71,16 @@ def plot_positioning_results(summary_csv, output_dir=None):
     # 2. Vertical RMS comparison
     fig, ax = plt.subplots(figsize=(14, 10))
     
-    bars1 = ax.barh(x - width/2, df['model_vertical_rms'], width,
+    bars1 = ax.barh(x - width/2, pivot_u['model'], width,
                      label='Model STEC', color='#2E86AB', alpha=0.8)
-    bars2 = ax.barh(x + width/2, df['gim_vertical_rms'], width,
+    bars2 = ax.barh(x + width/2, pivot_u['gim'], width,
                      label='IGS GIM', color='#A23B72', alpha=0.8)
     
     ax.set_xlabel('Vertical RMS (m)', fontsize=12)
     ax.set_ylabel('Station', fontsize=12)
     ax.set_title('Vertical Positioning Error: Model STEC vs IGS GIM', fontsize=14, fontweight='bold')
     ax.set_yticks(x)
-    ax.set_yticklabels(df['station'], fontsize=9)
+    ax.set_yticklabels(common_stations, fontsize=9)
     ax.legend(fontsize=11)
     ax.grid(axis='x', alpha=0.3)
     
@@ -77,16 +91,16 @@ def plot_positioning_results(summary_csv, output_dir=None):
     # 3. 3D RMS comparison
     fig, ax = plt.subplots(figsize=(14, 10))
     
-    bars1 = ax.barh(x - width/2, df['model_3d_rms'], width,
+    bars1 = ax.barh(x - width/2, pivot_3d['model'], width,
                      label='Model STEC', color='#2E86AB', alpha=0.8)
-    bars2 = ax.barh(x + width/2, df['gim_3d_rms'], width,
+    bars2 = ax.barh(x + width/2, pivot_3d['gim'], width,
                      label='IGS GIM', color='#A23B72', alpha=0.8)
     
     ax.set_xlabel('3D RMS (m)', fontsize=12)
     ax.set_ylabel('Station', fontsize=12)
     ax.set_title('3D Positioning Error: Model STEC vs IGS GIM', fontsize=14, fontweight='bold')
     ax.set_yticks(x)
-    ax.set_yticklabels(df['station'], fontsize=9)
+    ax.set_yticklabels(common_stations, fontsize=9)
     ax.legend(fontsize=11)
     ax.grid(axis='x', alpha=0.3)
     
@@ -97,19 +111,19 @@ def plot_positioning_results(summary_csv, output_dir=None):
     # 4. Scatter plot: Model vs GIM (Horizontal)
     fig, ax = plt.subplots(figsize=(10, 10))
     
-    ax.scatter(df['gim_horizontal_rms'], df['model_horizontal_rms'], 
+    ax.scatter(pivot_2d['gim'], pivot_2d['model'], 
                s=100, alpha=0.6, c='#2E86AB', edgecolors='black', linewidth=0.5)
     
     # Add diagonal line (equal performance)
-    max_val = max(df['gim_horizontal_rms'].max(), df['model_horizontal_rms'].max())
+    max_val = max(pivot_2d['gim'].max(), pivot_2d['model'].max())
     ax.plot([0, max_val], [0, max_val], 'k--', alpha=0.5, label='Equal performance')
     
     # Add labels for stations with significant differences
-    for idx, row in df.iterrows():
-        diff = abs(row['model_horizontal_rms'] - row['gim_horizontal_rms'])
+    for station in common_stations:
+        diff = abs(pivot_2d.loc[station, 'model'] - pivot_2d.loc[station, 'gim'])
         if diff > 0.5:  # Label if difference > 0.5m
-            ax.annotate(row['station'], 
-                       (row['gim_horizontal_rms'], row['model_horizontal_rms']),
+            ax.annotate(station, 
+                       (pivot_2d.loc[station, 'gim'], pivot_2d.loc[station, 'model']),
                        fontsize=8, alpha=0.7)
     
     ax.set_xlabel('IGS GIM Horizontal RMS (m)', fontsize=12)
@@ -125,18 +139,18 @@ def plot_positioning_results(summary_csv, output_dir=None):
     # 5. Scatter plot: Model vs GIM (3D)
     fig, ax = plt.subplots(figsize=(10, 10))
     
-    ax.scatter(df['gim_3d_rms'], df['model_3d_rms'],
+    ax.scatter(pivot_3d['gim'], pivot_3d['model'],
                s=100, alpha=0.6, c='#A23B72', edgecolors='black', linewidth=0.5)
     
-    max_val = max(df['gim_3d_rms'].max(), df['model_3d_rms'].max())
+    max_val = max(pivot_3d['gim'].max(), pivot_3d['model'].max())
     ax.plot([0, max_val], [0, max_val], 'k--', alpha=0.5, label='Equal performance')
     
     # Add labels for stations with significant differences
-    for idx, row in df.iterrows():
-        diff = abs(row['model_3d_rms'] - row['gim_3d_rms'])
+    for station in common_stations:
+        diff = abs(pivot_3d.loc[station, 'model'] - pivot_3d.loc[station, 'gim'])
         if diff > 1.0:  # Label if difference > 1.0m
-            ax.annotate(row['station'],
-                       (row['gim_3d_rms'], row['model_3d_rms']),
+            ax.annotate(station,
+                       (pivot_3d.loc[station, 'gim'], pivot_3d.loc[station, 'model']),
                        fontsize=8, alpha=0.7)
     
     ax.set_xlabel('IGS GIM 3D RMS (m)', fontsize=12)
@@ -154,8 +168,8 @@ def plot_positioning_results(summary_csv, output_dir=None):
     
     # Horizontal
     data_h = pd.DataFrame({
-        'Model STEC': df['model_horizontal_rms'],
-        'IGS GIM': df['gim_horizontal_rms']
+        'Model STEC': pivot_2d['model'],
+        'IGS GIM': pivot_2d['gim']
     })
     data_h.boxplot(ax=axes[0])
     axes[0].set_ylabel('Horizontal RMS (m)', fontsize=11)
@@ -164,8 +178,8 @@ def plot_positioning_results(summary_csv, output_dir=None):
     
     # Vertical
     data_v = pd.DataFrame({
-        'Model STEC': df['model_vertical_rms'],
-        'IGS GIM': df['gim_vertical_rms']
+        'Model STEC': pivot_u['model'],
+        'IGS GIM': pivot_u['gim']
     })
     data_v.boxplot(ax=axes[1])
     axes[1].set_ylabel('Vertical RMS (m)', fontsize=11)
@@ -174,8 +188,8 @@ def plot_positioning_results(summary_csv, output_dir=None):
     
     # 3D
     data_3d = pd.DataFrame({
-        'Model STEC': df['model_3d_rms'],
-        'IGS GIM': df['gim_3d_rms']
+        'Model STEC': pivot_3d['model'],
+        'IGS GIM': pivot_3d['gim']
     })
     data_3d.boxplot(ax=axes[2])
     axes[2].set_ylabel('3D RMS (m)', fontsize=11)
@@ -187,38 +201,38 @@ def plot_positioning_results(summary_csv, output_dir=None):
     plt.close()
     
     # 7. Improvement analysis
-    df['horizontal_improvement'] = df['gim_horizontal_rms'] - df['model_horizontal_rms']
-    df['vertical_improvement'] = df['gim_vertical_rms'] - df['model_vertical_rms']
-    df['3d_improvement'] = df['gim_3d_rms'] - df['model_3d_rms']
+    improvement_2d = pivot_2d['gim'] - pivot_2d['model']
+    improvement_u = pivot_u['gim'] - pivot_u['model']
+    improvement_3d = pivot_3d['gim'] - pivot_3d['model']
     
     fig, axes = plt.subplots(3, 1, figsize=(14, 12))
     
     # Sort by improvement
-    df_sorted = df.sort_values('horizontal_improvement')
-    colors_h = ['green' if x > 0 else 'red' for x in df_sorted['horizontal_improvement']]
-    axes[0].barh(range(len(df_sorted)), df_sorted['horizontal_improvement'], color=colors_h, alpha=0.7)
-    axes[0].set_yticks(range(len(df_sorted)))
-    axes[0].set_yticklabels(df_sorted['station'], fontsize=9)
+    imp_sorted_2d = improvement_2d.sort_values()
+    colors_h = ['green' if x > 0 else 'red' for x in imp_sorted_2d]
+    axes[0].barh(range(len(imp_sorted_2d)), imp_sorted_2d, color=colors_h, alpha=0.7)
+    axes[0].set_yticks(range(len(imp_sorted_2d)))
+    axes[0].set_yticklabels(imp_sorted_2d.index, fontsize=9)
     axes[0].axvline(x=0, color='black', linestyle='--', linewidth=1)
     axes[0].set_xlabel('Improvement (m)', fontsize=11)
     axes[0].set_title('Horizontal RMS Improvement (Positive = Model Better)', fontsize=12, fontweight='bold')
     axes[0].grid(axis='x', alpha=0.3)
     
-    df_sorted = df.sort_values('vertical_improvement')
-    colors_v = ['green' if x > 0 else 'red' for x in df_sorted['vertical_improvement']]
-    axes[1].barh(range(len(df_sorted)), df_sorted['vertical_improvement'], color=colors_v, alpha=0.7)
-    axes[1].set_yticks(range(len(df_sorted)))
-    axes[1].set_yticklabels(df_sorted['station'], fontsize=9)
+    imp_sorted_u = improvement_u.sort_values()
+    colors_v = ['green' if x > 0 else 'red' for x in imp_sorted_u]
+    axes[1].barh(range(len(imp_sorted_u)), imp_sorted_u, color=colors_v, alpha=0.7)
+    axes[1].set_yticks(range(len(imp_sorted_u)))
+    axes[1].set_yticklabels(imp_sorted_u.index, fontsize=9)
     axes[1].axvline(x=0, color='black', linestyle='--', linewidth=1)
     axes[1].set_xlabel('Improvement (m)', fontsize=11)
     axes[1].set_title('Vertical RMS Improvement (Positive = Model Better)', fontsize=12, fontweight='bold')
     axes[1].grid(axis='x', alpha=0.3)
     
-    df_sorted = df.sort_values('3d_improvement')
-    colors_3d = ['green' if x > 0 else 'red' for x in df_sorted['3d_improvement']]
-    axes[2].barh(range(len(df_sorted)), df_sorted['3d_improvement'], color=colors_3d, alpha=0.7)
-    axes[2].set_yticks(range(len(df_sorted)))
-    axes[2].set_yticklabels(df_sorted['station'], fontsize=9)
+    imp_sorted_3d = improvement_3d.sort_values()
+    colors_3d = ['green' if x > 0 else 'red' for x in imp_sorted_3d]
+    axes[2].barh(range(len(imp_sorted_3d)), imp_sorted_3d, color=colors_3d, alpha=0.7)
+    axes[2].set_yticks(range(len(imp_sorted_3d)))
+    axes[2].set_yticklabels(imp_sorted_3d.index, fontsize=9)
     axes[2].axvline(x=0, color='black', linestyle='--', linewidth=1)
     axes[2].set_xlabel('Improvement (m)', fontsize=11)
     axes[2].set_title('3D RMS Improvement (Positive = Model Better)', fontsize=12, fontweight='bold')
@@ -235,15 +249,15 @@ def plot_positioning_results(summary_csv, output_dir=None):
     
     stats_data = []
     metrics = ['Horizontal RMS', 'Vertical RMS', '3D RMS']
-    for metric_name, model_col, gim_col in [
-        ('Horizontal RMS', 'model_horizontal_rms', 'gim_horizontal_rms'),
-        ('Vertical RMS', 'model_vertical_rms', 'gim_vertical_rms'),
-        ('3D RMS', 'model_3d_rms', 'gim_3d_rms')
+    for metric_name, pivot_df in [
+        ('Horizontal RMS', pivot_2d),
+        ('Vertical RMS', pivot_u),
+        ('3D RMS', pivot_3d)
     ]:
-        model_mean = df[model_col].mean()
-        model_std = df[model_col].std()
-        gim_mean = df[gim_col].mean()
-        gim_std = df[gim_col].std()
+        model_mean = pivot_df['model'].mean()
+        model_std = pivot_df['model'].std()
+        gim_mean = pivot_df['gim'].mean()
+        gim_std = pivot_df['gim'].std()
         improvement = gim_mean - model_mean
         improvement_pct = (improvement / gim_mean) * 100
         
