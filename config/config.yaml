@@ -3,7 +3,7 @@ project_name: "PNN_STEC"
 output_dir: "experiments/"
 year: 2024
 doy: 122
-mode: finetune # pretrain, finetune
+mode: pretrain # pretrain, finetune
 random_seed: 42
 debug: True  
 debug_single_batch: False  
@@ -66,7 +66,7 @@ data:
   test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
 
 model:
-  model_type: FactorizedSTEC # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
+  model_type: BayesianResNetSTEC # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
   hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
@@ -80,14 +80,14 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.1                  # Weight for the loss function
+  loss_weight: 0.01                 # Weight for the loss function (reduced for FactorizedSTEC)
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
     enabled: true                    # Enable KL annealing
-    warmup_epochs: 5               # Number of epochs to warm up KL weight from 0 to full
+    warmup_epochs: 10              # Number of epochs to warm up KL weight from 0 to full (increased)
     start_weight: 0.0               # Starting KL weight (0 = no KL initially)
-    end_weight: 0.1                 # Final KL weight (should match loss_weight above)
+    end_weight: 0.01                # Final KL weight (reduced - only output heads are Bayesian)
   
   # Target weighting configuration for addressing underprediction of high values
   target_weighting:
@@ -105,7 +105,7 @@ pretrain:
   batchsize: 1024
   num_workers: 12 
   prefetch_factor: 4
-  learning_rate: 0.001
+  learning_rate: 0.0001
   scheduler: ReduceLROnPlateau            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 150       # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true          # Whether to use early stopping

@@ -1,6 +1,6 @@
 # Hyperparameter Tuning for Three Key Models
 
-This guide explains how to run hyperparameter sweeps on the Euler cluster for the three key models:
+This guide explains how to run hyperparameter sweeps for the three key models:
 1. **BayesianResNetSTEC**: Hybrid architecture with deterministic ResNet backbone + Bayesian output head
 2. **AttentionMLP_BNN_NLL**: Lightweight attention-based model with Bayesian head
 3. **FactorizedSTEC**: Physics-based STEC = MF × VTEC factorization model
@@ -30,29 +30,13 @@ This guide explains how to run hyperparameter sweeps on the Euler cluster for th
 
 ## Quick Start
 
-### Option 1: Run All Three Models Simultaneously
+### Launch All Three Model Sweeps
 ```bash
-cd /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC
-sbatch hp_search/run_3models_sweep_cluster.sh
-```
-This launches 3 separate SLURM array jobs (one per model) with multiple agents each.
-
-### Option 2: Run Individual Model Sweeps
-
-#### BayesianResNetSTEC
-```bash
-sbatch hp_search/sweep_bayesresnet_cluster.sh 5  # Launch with 5 parallel agents
+cd /scratch2/arrueegg/WP4/PNN_STEC
+bash scripts/launch_full_sweep.sh 4  # Launch with 4 parallel agents per model
 ```
 
-#### AttentionMLP_BNN_NLL
-```bash
-sbatch hp_search/sweep_attention_cluster.sh 4   # Launch with 4 parallel agents
-```
-
-#### FactorizedSTEC
-```bash
-sbatch hp_search/sweep_factorized_cluster.sh 4  # Launch with 4 parallel agents
-```
+This uses the existing W&B sweep infrastructure with `scripts/launch_wandb_sweep.sh`.
 
 ## Configuration Files
 
@@ -77,6 +61,7 @@ These define:
 - Optimization method (Bayesian optimization)
 - Metric to optimize (val_MAE)
 - Run caps (60-80 runs per model)
+- **Program**: `src/main.py` (uses --override for parameters)
 
 ## Hyperparameter Search Spaces
 

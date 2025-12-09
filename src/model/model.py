@@ -1214,7 +1214,7 @@ class VTECFieldNet(nn.Module):
     Neural network for predicting VTEC (Vertical TEC) with aleatoric and epistemic uncertainty.
     
     This network takes VTEC-field-related features (IPP location, time, SWI) and
-    outputs both the mean VTEC value and its uncertainty (log-sigma).
+    outputs both the mean VTEC value and its uncertainty (variance).
     
     Architecture:
         - Multi-layer MLP backbone (deterministic, configurable depth)
@@ -1222,13 +1222,16 @@ class VTECFieldNet(nn.Module):
         - ReLU activations (can be swapped for Tanh for smoother fields)
     
     Uncertainty:
-        - Aleatoric: Captured by log_sigma output (data noise)
+        - Aleatoric: Captured by variance output (data noise)
         - Epistemic: Captured by Bayesian output layers (model uncertainty)
         - Use MC sampling during inference to quantify epistemic uncertainty
     
     Output:
         vtec_mean: Mean VTEC prediction at the IPP [batch_size]
-        vtec_log_sigma: Log of VTEC standard deviation [batch_size]
+        vtec_variance: Variance of VTEC prediction [batch_size]
+    
+    Note: Changed from log_sigma to variance to match working models (MLP_NLL, BNN_NLL)
+          and properly handle STEC-scale uncertainty after MF multiplication.
     """
     
     def __init__(self, vtec_in_dim: int, hidden_dim: int = 128, num_layers: int = 3, activation: str = "relu", prior_sigma: float = 0.1):
@@ -1268,7 +1271,8 @@ class VTECFieldNet(nn.Module):
             in_features=hidden_dim, 
             out_features=1
         )
-        self.log_sigma_head = bnn.BayesLinear(
+        # Changed from log_sigma_head to variance_head to match working models
+        self.variance_head = bnn.BayesLinear(
             prior_mu=0,
             prior_sigma=prior_sigma,
             in_features=hidden_dim,
@@ -1281,9 +1285,13 @@ class VTECFieldNet(nn.Module):
             self.mean_head.bias_mu.fill_(15.5)
             self.mean_head.weight_mu.normal_(0, 0.01)
             
-            # Initialize log_sigma head to small negative value (sigma ≈ 1-2 TECU initially)
-            self.log_sigma_head.bias_mu.fill_(0.0)  # exp(0) = 1 TECU
-            self.log_sigma_head.weight_mu.normal_(0, 0.01)
+            # Initialize variance head for STEC-scale uncertainty
+            # Target: NLL ≈ 2.0 requires var_stec ≈ 25-35 at typical elevations
+            # With MF averaging ~1.5-2.0, need var_vtec ≈ 10-15 (NOT 22!)
+            # softplus_inverse(12) ≈ 3.2
+            # Lower than before to compensate for MF² scaling
+            self.variance_head.bias_mu.fill_(3.2)  # Will give var ≈ 12 after softplus
+            self.variance_head.weight_mu.normal_(0, 0.01)
     
     def forward(self, x_vtec: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -1294,12 +1302,14 @@ class VTECFieldNet(nn.Module):
         
         Returns:
             vtec_mean: Mean VTEC prediction [batch_size]
-            vtec_log_sigma: Log of VTEC standard deviation [batch_size]
+            vtec_variance: Variance of VTEC prediction [batch_size]
         """
         h = self.backbone(x_vtec)
         vtec_mean = self.mean_head(h).squeeze(-1)
-        vtec_log_sigma = self.log_sigma_head(h).squeeze(-1)
-        return vtec_mean, vtec_log_sigma
+        vtec_variance_raw = self.variance_head(h).squeeze(-1)
+        # Use softplus + floor like all working models (MLP_NLL, BNN_NLL, etc.)
+        vtec_variance = F.softplus(vtec_variance_raw) + 1e-3
+        return vtec_mean, vtec_variance
 
 
 class GeomNet(nn.Module):
@@ -1463,31 +1473,38 @@ class FactorizedSTECModel(nn.Module):
         
         Returns:
             For training (when called from training loop):
-                Returns (mu_stec, sigma_stec^2) as tuple following repo convention
+                Returns (mu_stec, var_stec) as tuple following repo convention
             
             For inference/analysis (when return_dict=True in config):
                 Returns dict with all intermediate values:
                 {
                     "vtec_mean": VTEC mean prediction,
-                    "vtec_log_sigma": Log of VTEC std,
+                    "vtec_variance": VTEC variance,
                     "sigma_v": VTEC standard deviation,
                     "mf": Mapping factor,
                     "mu_stec": STEC mean prediction,
                     "sigma_stec": STEC standard deviation,
-                    "var_stec": STEC variance (sigma_stec^2)
+                    "var_stec": STEC variance
                 }
         """
         # VTEC prediction with uncertainty
-        vtec_mean, vtec_log_sigma = self.vtec_net(x_vtec)
-        sigma_v = torch.exp(vtec_log_sigma)
+        vtec_mean, vtec_variance = self.vtec_net(x_vtec)
+        sigma_v = torch.sqrt(vtec_variance)
         
         # Mapping factor prediction
         mf = self.geom_net(x_geom, elev_rad)
         
         # Combine: STEC = MF × VTEC with uncertainty propagation
         mu_stec = mf * vtec_mean
-        sigma_stec = torch.abs(mf) * sigma_v  # Propagate uncertainty
-        var_stec = sigma_stec ** 2
+        
+        # Propagate uncertainty: var_stec = MF^2 * var_vtec
+        # This is correct variance propagation for multiplication by a constant
+        var_stec_prop = (mf ** 2) * vtec_variance
+        
+        # Add minimum variance floor to prevent over-confidence
+        # This matches the pattern from working models: F.softplus(var) + 1e-3
+        # The floor is already in vtec_variance, but we add a small STEC-scale floor
+        var_stec = var_stec_prop + 1e-3
         
         # Return as (mean, variance) tuple following repo convention
         # The training loop expects this format
@@ -1509,20 +1526,21 @@ class FactorizedSTECModel(nn.Module):
             dict: Detailed outputs including VTEC, MF, STEC, and uncertainties
         """
         # VTEC prediction with uncertainty
-        vtec_mean, vtec_log_sigma = self.vtec_net(x_vtec)
-        sigma_v = torch.exp(vtec_log_sigma)
+        vtec_mean, vtec_variance = self.vtec_net(x_vtec)
+        sigma_v = torch.sqrt(vtec_variance)
         
         # Mapping factor prediction
         mf = self.geom_net(x_geom, elev_rad)
         
         # Combine: STEC = MF × VTEC with uncertainty propagation
         mu_stec = mf * vtec_mean
-        sigma_stec = torch.abs(mf) * sigma_v
-        var_stec = sigma_stec ** 2
+        var_stec_prop = (mf ** 2) * vtec_variance
+        var_stec = var_stec_prop + 1e-3
+        sigma_stec = torch.sqrt(var_stec)
         
         return {
             "vtec_mean": vtec_mean,
-            "vtec_log_sigma": vtec_log_sigma,
+            "vtec_variance": vtec_variance,
             "sigma_v": sigma_v,
             "mf": mf,
             "mu_stec": mu_stec,

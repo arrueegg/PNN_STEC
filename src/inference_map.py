@@ -69,7 +69,7 @@ def parse_args():
     parser.add_argument(
         "--date",
         type=str,
-        default="2024-05-01",
+        default="2024-07-01",
         help="Date for map generation (YYYY-MM-DD format)",
     )
     parser.add_argument(
@@ -201,13 +201,14 @@ def find_model_checkpoint(experiment_dir):
 
 
 
-def run_inference_with_trainer(trainer, dataloader, model):
+def run_inference_with_trainer(trainer, dataloader, model, config):
     """
     Run inference using the existing InferenceManager.
 
     Args:
         trainer: BaseTrainer instance with InferenceManager
         dataloader: DataLoader with inference data
+        config: Configuration dictionary
         model: Loaded model
 
     Returns:
@@ -523,7 +524,7 @@ def main():
             multitemporal_dataset.update_timestamp(timestamp)
 
             # Run inference using existing infrastructure (dataloader reuses updated dataset)
-            metrics_dict, results_df = run_inference_with_trainer(trainer, dataloader, model)
+            metrics_dict, results_df = run_inference_with_trainer(trainer, dataloader, model, config)
 
             # Extract predictions and uncertainties from results
             # InferenceManager returns metrics dict and DataFrame
