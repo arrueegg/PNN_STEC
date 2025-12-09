@@ -1,0 +1,51 @@
+program: src/main.py
+method: bayes  # Bayesian optimization for efficient search
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters
+  model.model_type:
+    values: ['BayesianResNetSTEC']
+
+  model.hidden_dim:
+    values: [256, 512, 1024]
+
+  model.num_layers:
+    values: [3, 4, 5]
+
+  model.dropout_rate:
+    values: [0.0, 0.1]
+
+  model.prior_sigma:
+    values: [0.01, 0.05, 0.1]
+
+  data.SH_degree:
+    values: [0, 5]
+
+  # Training hyperparameters
+  pretrain.learning_rate:
+    values: [0.0001, 0.0005, 0.001]
+
+  pretrain.batchsize:
+    values: [512, 1024]
+
+  training.loss_weight:
+    values: [0.01, 0.05, 0.1]  # KL weight for Bayesian head
+
+  # KL annealing
+  kl_annealing.enabled:
+    values: [true]
+  
+  kl_annealing.warmup_epochs:
+    values: [5, 10]
+  
+  kl_annealing.end_weight:
+    values: [0.01, 0.05, 0.1]
+
+  # Training configuration
+  training.loss_function:
+    values: ['GaussianNLLLoss']
+
+# Count limits
+run_cap: 80  # Maximum number of runs in this sweep

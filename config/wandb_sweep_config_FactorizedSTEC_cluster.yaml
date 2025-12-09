@@ -1,0 +1,59 @@
+program: src/main.py
+method: bayes  # Bayesian optimization for efficient search
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters
+  model.model_type:
+    values: ['FactorizedSTEC']
+
+  # VTEC network parameters
+  model.vtec_hidden:
+    values: [128, 256]
+
+  model.vtec_layers:
+    values: [3, 4]
+
+  # Geometry network parameters  
+  model.geom_hidden:
+    values: [64, 128]
+
+  model.geom_layers:
+    values: [2, 3]
+
+  model.activation:
+    values: ['relu']  # tanh could be tested for smoother fields
+
+  model.prior_sigma:
+    values: [0.05, 0.1]  # For Bayesian VTEC network
+
+  data.SH_degree:
+    values: [0, 5]
+
+  # Training hyperparameters
+  pretrain.learning_rate:
+    values: [0.0001, 0.0005, 0.001]
+
+  pretrain.batchsize:
+    values: [512, 1024]
+
+  training.loss_weight:
+    values: [0.005, 0.01, 0.02]  # Lower KL weight - only VTEC head is Bayesian
+
+  # KL annealing
+  kl_annealing.enabled:
+    values: [true]
+  
+  kl_annealing.warmup_epochs:
+    values: [10, 15]  # Longer warmup for physics-based model
+  
+  kl_annealing.end_weight:
+    values: [0.005, 0.01, 0.02]
+
+  # Training configuration
+  training.loss_function:
+    values: ['GaussianNLLLoss']
+
+# Count limits
+run_cap: 60  # Maximum number of runs in this sweep

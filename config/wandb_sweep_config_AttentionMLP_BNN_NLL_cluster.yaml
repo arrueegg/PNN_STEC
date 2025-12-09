@@ -1,0 +1,54 @@
+program: src/main.py
+method: bayes  # Bayesian optimization for efficient search
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters
+  model.model_type:
+    values: ['AttentionMLP_BNN_NLL']
+
+  model.hidden_dim:
+    values: [128, 256, 512]  # Lightweight model
+
+  model.num_layers:
+    values: [2, 3, 4]  # Fewer layers than full MLP
+
+  model.num_heads:
+    values: [4, 8]  # Multi-head attention
+
+  model.dropout_rate:
+    values: [0.0, 0.1, 0.2]
+
+  model.prior_sigma:
+    values: [0.01, 0.05, 0.1]
+
+  data.SH_degree:
+    values: [0, 5]
+
+  # Training hyperparameters
+  pretrain.learning_rate:
+    values: [0.0001, 0.0005, 0.001]
+
+  pretrain.batchsize:
+    values: [512, 1024]
+
+  training.loss_weight:
+    values: [0.01, 0.05]  # Lower KL weight for small Bayesian component
+
+  # KL annealing
+  kl_annealing.enabled:
+    values: [true]
+  
+  kl_annealing.warmup_epochs:
+    values: [5, 10]
+  
+  kl_annealing.end_weight:
+    values: [0.01, 0.05]
+
+  # Training configuration
+  training.loss_function:
+    values: ['GaussianNLLLoss']
+
+# Count limits
+run_cap: 60  # Maximum number of runs in this sweep

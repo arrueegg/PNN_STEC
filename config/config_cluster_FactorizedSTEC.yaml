@@ -1,0 +1,88 @@
+# Cluster configuration for FactorizedSTEC training
+# Physics-based STEC = MF × VTEC factorization
+
+# General configuration
+project_name: "PNN_STEC"
+output_dir: "experiments/"
+year: 2023
+doy: 1
+mode: pretrain # pretrain, finetune
+random_seed: 42
+debug: False  
+debug_single_batch: False  
+cluster: True
+
+# Wandb configuration
+wandb:
+  offline: false
+
+target: "stec"
+
+data:
+  GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
+  use_agg_h5: True
+  scratch_dir: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
+  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
+  move_to_scratch: True
+  every_x_doy: 1
+  use_SWI: True
+  SH_degree: 0
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 500_000
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+model:
+  model_type: FactorizedSTEC        # STEC = MF × VTEC factorization
+  vtec_hidden: 128                  # VTEC network hidden dim
+  vtec_layers: 3                    # VTEC network depth
+  geom_hidden: 64                   # Geometry network hidden dim
+  geom_layers: 2                    # Geometry network depth
+  activation: "relu"                # Activation function
+  prior_sigma: 0.1                  # Bayesian prior for VTEC variance head
+  
+training:
+  loss_function: "GaussianNLLLoss"
+  loss_weight: 0.01                 # Lower KL weight - only VTEC variance head is Bayesian
+  
+  # KL annealing - slower for physics-based model
+  kl_annealing:
+    enabled: true
+    start_weight: 0.0
+    end_weight: 0.01                # Match loss_weight
+    warmup_epochs: 10               # Slower warmup
+    schedule: "linear"
+    
+  # Target weighting (optional)
+  target_weighting:
+    enabled: false
+
+pretrain:
+  num_epochs: 150
+  batchsize: 1024
+  learning_rate: 0.0005
+  num_workers: 4
+  patience: 20
+
+finetune:
+  num_epochs: 50
+  batchsize: 512
+  learning_rate: 1.0e-5
+  num_workers: 4
+  patience: 10
+
+optimizer:
+  name: "Adam"
+  weight_decay: 0.0
+  
+lr_scheduler:
+  name: "ReduceLROnPlateau"
+  mode: "min"
+  factor: 0.5
+  patience: 10
+  min_lr: 1.0e-6
+  
+# Enable detailed timing for performance profiling (optional)
+enable_timing: False

@@ -1,0 +1,87 @@
+# Cluster configuration for AttentionMLP_BNN_NLL training
+# Lightweight attention-based model with Bayesian head
+
+# General configuration
+project_name: "PNN_STEC"
+output_dir: "experiments/"
+year: 2023
+doy: 1
+mode: pretrain # pretrain, finetune
+random_seed: 42
+debug: False  
+debug_single_batch: False  
+cluster: True
+
+# Wandb configuration
+wandb:
+  offline: false  # Set to true to run wandb in offline mode
+
+target: "stec" # stec or vtec
+
+data:
+  GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
+  use_agg_h5: True
+  scratch_dir: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
+  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
+  move_to_scratch: True
+  every_x_doy: 1
+  use_SWI: True
+  SH_degree: 0
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 500_000
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+model:
+  model_type: AttentionMLP_BNN_NLL  # Lightweight: deterministic attention + Bayesian head
+  hidden_dim: 256                   # Smaller than ResNet for efficiency
+  num_layers: 3                     # Fewer layers
+  num_heads: 4                      # Multi-head attention
+  prior_sigma: 0.05                 # Bayesian prior for output head
+  dropout_rate: 0.1                 # Dropout for regularization
+  
+training:
+  loss_function: "GaussianNLLLoss"
+  loss_weight: 0.05                 # Lower KL weight - only head is Bayesian
+  
+  # KL annealing
+  kl_annealing:
+    enabled: true
+    start_weight: 0.0
+    end_weight: 0.05                # Match loss_weight
+    warmup_epochs: 10
+    schedule: "linear"
+    
+  # Target weighting (optional)
+  target_weighting:
+    enabled: false
+
+pretrain:
+  num_epochs: 150
+  batchsize: 1024
+  learning_rate: 0.0005
+  num_workers: 4
+  patience: 20
+
+finetune:
+  num_epochs: 50
+  batchsize: 512
+  learning_rate: 1.0e-5
+  num_workers: 4
+  patience: 10
+
+optimizer:
+  name: "Adam"
+  weight_decay: 0.0
+  
+lr_scheduler:
+  name: "ReduceLROnPlateau"
+  mode: "min"
+  factor: 0.5
+  patience: 10
+  min_lr: 1.0e-6
+  
+# Enable detailed timing for performance profiling (optional)
+enable_timing: False
