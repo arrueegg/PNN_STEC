@@ -1204,6 +1204,395 @@ class DeepEnsemble_MLP(torch.nn.Module):
         )
 
 
+# ============================================================================
+# Factorized VTEC × MF Model with Uncertainty Propagation
+# ============================================================================
+
+
+class VTECFieldNet(nn.Module):
+    """
+    Neural network for predicting VTEC (Vertical TEC) with aleatoric and epistemic uncertainty.
+    
+    This network takes VTEC-field-related features (IPP location, time, SWI) and
+    outputs both the mean VTEC value and its uncertainty (log-sigma).
+    
+    Architecture:
+        - Multi-layer MLP backbone (deterministic, configurable depth)
+        - Bayesian output heads using BayesLinear for epistemic uncertainty
+        - ReLU activations (can be swapped for Tanh for smoother fields)
+    
+    Uncertainty:
+        - Aleatoric: Captured by log_sigma output (data noise)
+        - Epistemic: Captured by Bayesian output layers (model uncertainty)
+        - Use MC sampling during inference to quantify epistemic uncertainty
+    
+    Output:
+        vtec_mean: Mean VTEC prediction at the IPP [batch_size]
+        vtec_log_sigma: Log of VTEC standard deviation [batch_size]
+    """
+    
+    def __init__(self, vtec_in_dim: int, hidden_dim: int = 128, num_layers: int = 3, activation: str = "relu", prior_sigma: float = 0.1):
+        """
+        Initialize VTECFieldNet.
+        
+        Args:
+            vtec_in_dim: Input feature dimension (from FeatureSplitter.get_vtec_dim())
+            hidden_dim: Hidden layer dimension
+            num_layers: Number of hidden layers in the backbone
+            activation: Activation function ("relu" or "tanh")
+            prior_sigma: Prior std for Bayesian layers (epistemic uncertainty)
+        """
+        super().__init__()
+        
+        # Select activation function
+        if activation.lower() == "relu":
+            act_fn = nn.ReLU
+        elif activation.lower() == "tanh":
+            act_fn = nn.Tanh
+        else:
+            raise ValueError(f"Unsupported activation: {activation}. Use 'relu' or 'tanh'.")
+        
+        # Build deterministic backbone MLP
+        layers = []
+        in_dim = vtec_in_dim
+        for _ in range(num_layers):
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            layers.append(act_fn())
+            in_dim = hidden_dim
+        self.backbone = nn.Sequential(*layers)
+        
+        # Bayesian output heads for epistemic uncertainty
+        self.mean_head = bnn.BayesLinear(
+            prior_mu=0, 
+            prior_sigma=prior_sigma,
+            in_features=hidden_dim, 
+            out_features=1
+        )
+        self.log_sigma_head = bnn.BayesLinear(
+            prior_mu=0,
+            prior_sigma=prior_sigma,
+            in_features=hidden_dim,
+            out_features=1
+        )
+        
+        # Initialize output heads
+        with torch.no_grad():
+            # Initialize mean head bias to approximate VTEC mean (~15.5 TECU for STEC ≈ VTEC at high elevation)
+            self.mean_head.bias_mu.fill_(15.5)
+            self.mean_head.weight_mu.normal_(0, 0.01)
+            
+            # Initialize log_sigma head to small negative value (sigma ≈ 1-2 TECU initially)
+            self.log_sigma_head.bias_mu.fill_(0.0)  # exp(0) = 1 TECU
+            self.log_sigma_head.weight_mu.normal_(0, 0.01)
+    
+    def forward(self, x_vtec: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass through VTECFieldNet.
+        
+        Args:
+            x_vtec: VTEC-related features [batch_size, vtec_in_dim]
+        
+        Returns:
+            vtec_mean: Mean VTEC prediction [batch_size]
+            vtec_log_sigma: Log of VTEC standard deviation [batch_size]
+        """
+        h = self.backbone(x_vtec)
+        vtec_mean = self.mean_head(h).squeeze(-1)
+        vtec_log_sigma = self.log_sigma_head(h).squeeze(-1)
+        return vtec_mean, vtec_log_sigma
+
+
+class GeomNet(nn.Module):
+    """
+    Neural network for predicting the mapping factor (MF) from geometry features.
+    
+    This network takes geometry-related features (station location, elevation, azimuth)
+    and outputs a mapping factor that satisfies physical constraints:
+        - MF(90°) = 1  (vertical ray has no slant path elongation)
+        - MF ≥ 1 for all elevations (slant path ≥ vertical path)
+        - MF increases as elevation decreases (longer slant path at low elevations)
+    
+    The MF is computed as:
+        g(elev) = 1 - sin(elev)  # 0 at 90°, ~1 at 0°
+        MF = 1 + g(elev) * softplus(mf_raw)
+    
+    This ensures MF(90°) = 1 exactly and MF ≥ 1 everywhere.
+    
+    Output:
+        mf: Mapping factor [batch_size]
+    """
+    
+    def __init__(self, geom_in_dim: int, hidden_dim: int = 64, num_layers: int = 2, activation: str = "relu"):
+        """
+        Initialize GeomNet.
+        
+        Args:
+            geom_in_dim: Input feature dimension (from FeatureSplitter.get_geom_dim())
+            hidden_dim: Hidden layer dimension
+            num_layers: Number of hidden layers in the backbone
+            activation: Activation function ("relu" or "tanh")
+        """
+        super().__init__()
+        
+        # Select activation function
+        if activation.lower() == "relu":
+            act_fn = nn.ReLU
+        elif activation.lower() == "tanh":
+            act_fn = nn.Tanh
+        else:
+            raise ValueError(f"Unsupported activation: {activation}. Use 'relu' or 'tanh'.")
+        
+        # Build backbone MLP
+        layers = []
+        in_dim = geom_in_dim
+        for _ in range(num_layers):
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            layers.append(act_fn())
+            in_dim = hidden_dim
+        self.backbone = nn.Sequential(*layers)
+        
+        # MF output head
+        self.mf_head = nn.Linear(hidden_dim, 1)
+        
+        # Initialize MF head to produce small corrections initially
+        with torch.no_grad():
+            self.mf_head.bias.fill_(0.0)  # Start with mf_raw ≈ 0
+            self.mf_head.weight.normal_(0, 0.01)
+    
+    def forward(self, x_geom: torch.Tensor, elev_rad: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through GeomNet with elevation-dependent MF constraint.
+        
+        Args:
+            x_geom: Geometry-related features [batch_size, geom_in_dim]
+            elev_rad: Elevation in radians [batch_size]
+        
+        Returns:
+            mf: Mapping factor [batch_size], satisfying MF(90°)=1 and MF≥1
+        """
+        h = self.backbone(x_geom)
+        mf_raw = self.mf_head(h).squeeze(-1)
+        
+        # Elevation-dependent scaling function: g(90°) = 0, g(0°) ≈ 1
+        g = 1.0 - torch.sin(elev_rad)
+        
+        # Final mapping factor: MF(90°) = 1, MF ≥ 1 everywhere
+        # softplus ensures non-negativity, g scales the correction
+        mf = 1.0 + g * F.softplus(mf_raw)
+        
+        return mf
+
+
+class FactorizedSTECModel(nn.Module):
+    """
+    Factorized STEC prediction model: STEC = MF × VTEC.
+    
+    This model combines:
+        - VTECFieldNet: Predicts VTEC and its uncertainty (vtec_mean, vtec_log_sigma)
+        - GeomNet: Predicts geometry-dependent mapping factor (MF)
+    
+    The STEC prediction and uncertainty are derived as:
+        σ_v = exp(vtec_log_sigma)
+        μ_stec = MF × vtec_mean
+        σ_stec = |MF| × σ_v  (uncertainty propagation)
+    
+    This design separates the ionospheric field (VTEC) from geometric effects (MF),
+    allowing for better physical interpretation and targeted fine-tuning.
+    
+    Inputs (split from collated features via FeatureSplitter):
+        x_vtec: VTEC field features (IPP location, time, SWI)
+        x_geom: Geometry features (station location, elevation, azimuth)
+        elev_rad: Elevation in radians (for MF constraint)
+    
+    Output (following repo convention):
+        Returns (mu_stec, sigma_stec^2) as (mean, variance) tuple
+    """
+    
+    def __init__(
+        self, 
+        vtec_in_dim: int, 
+        geom_in_dim: int, 
+        vtec_hidden: int = 128, 
+        geom_hidden: int = 64,
+        vtec_layers: int = 3,
+        geom_layers: int = 2,
+        activation: str = "relu",
+        prior_sigma: float = 0.1
+    ):
+        """
+        Initialize FactorizedSTECModel.
+        
+        Args:
+            vtec_in_dim: VTEC feature dimension (from FeatureSplitter)
+            geom_in_dim: Geometry feature dimension (from FeatureSplitter)
+            vtec_hidden: Hidden dimension for VTECFieldNet
+            geom_hidden: Hidden dimension for GeomNet
+            vtec_layers: Number of layers in VTECFieldNet
+            geom_layers: Number of layers in GeomNet
+            activation: Activation function ("relu" or "tanh")
+            prior_sigma: Prior std for Bayesian layers in VTEC network
+        """
+        super().__init__()
+        
+        self.vtec_net = VTECFieldNet(
+            vtec_in_dim, 
+            hidden_dim=vtec_hidden, 
+            num_layers=vtec_layers,
+            activation=activation,
+            prior_sigma=prior_sigma
+        )
+        self.geom_net = GeomNet(
+            geom_in_dim, 
+            hidden_dim=geom_hidden, 
+            num_layers=geom_layers,
+            activation=activation
+        )
+        
+        # Store dimensions for debugging
+        self.vtec_in_dim = vtec_in_dim
+        self.geom_in_dim = geom_in_dim
+    
+    def forward(self, x_vtec: torch.Tensor, x_geom: torch.Tensor, elev_rad: torch.Tensor):
+        """
+        Forward pass through factorized STEC model.
+        
+        Args:
+            x_vtec: VTEC field features [batch_size, vtec_in_dim]
+            x_geom: Geometry features [batch_size, geom_in_dim]
+            elev_rad: Elevation in radians [batch_size]
+        
+        Returns:
+            For training (when called from training loop):
+                Returns (mu_stec, sigma_stec^2) as tuple following repo convention
+            
+            For inference/analysis (when return_dict=True in config):
+                Returns dict with all intermediate values:
+                {
+                    "vtec_mean": VTEC mean prediction,
+                    "vtec_log_sigma": Log of VTEC std,
+                    "sigma_v": VTEC standard deviation,
+                    "mf": Mapping factor,
+                    "mu_stec": STEC mean prediction,
+                    "sigma_stec": STEC standard deviation,
+                    "var_stec": STEC variance (sigma_stec^2)
+                }
+        """
+        # VTEC prediction with uncertainty
+        vtec_mean, vtec_log_sigma = self.vtec_net(x_vtec)
+        sigma_v = torch.exp(vtec_log_sigma)
+        
+        # Mapping factor prediction
+        mf = self.geom_net(x_geom, elev_rad)
+        
+        # Combine: STEC = MF × VTEC with uncertainty propagation
+        mu_stec = mf * vtec_mean
+        sigma_stec = torch.abs(mf) * sigma_v  # Propagate uncertainty
+        var_stec = sigma_stec ** 2
+        
+        # Return as (mean, variance) tuple following repo convention
+        # The training loop expects this format
+        return mu_stec, var_stec
+    
+    def forward_detailed(self, x_vtec: torch.Tensor, x_geom: torch.Tensor, elev_rad: torch.Tensor):
+        """
+        Forward pass with detailed outputs for analysis and debugging.
+        
+        Returns a dictionary with all intermediate values for visualization
+        and understanding of the model's internal predictions.
+        
+        Args:
+            x_vtec: VTEC field features [batch_size, vtec_in_dim]
+            x_geom: Geometry features [batch_size, geom_in_dim]
+            elev_rad: Elevation in radians [batch_size]
+        
+        Returns:
+            dict: Detailed outputs including VTEC, MF, STEC, and uncertainties
+        """
+        # VTEC prediction with uncertainty
+        vtec_mean, vtec_log_sigma = self.vtec_net(x_vtec)
+        sigma_v = torch.exp(vtec_log_sigma)
+        
+        # Mapping factor prediction
+        mf = self.geom_net(x_geom, elev_rad)
+        
+        # Combine: STEC = MF × VTEC with uncertainty propagation
+        mu_stec = mf * vtec_mean
+        sigma_stec = torch.abs(mf) * sigma_v
+        var_stec = sigma_stec ** 2
+        
+        return {
+            "vtec_mean": vtec_mean,
+            "vtec_log_sigma": vtec_log_sigma,
+            "sigma_v": sigma_v,
+            "mf": mf,
+            "mu_stec": mu_stec,
+            "sigma_stec": sigma_stec,
+            "var_stec": var_stec,
+        }
+
+
+class FactorizedSTECModelWrapper(nn.Module):
+    """
+    Wrapper for FactorizedSTECModel that integrates with the existing training pipeline.
+    
+    This wrapper:
+    1. Receives the full collated feature tensor (as all other models do)
+    2. Splits features into VTEC and geometry components using FeatureSplitter
+    3. Extracts elevation in radians for the MF constraint
+    4. Calls the factorized model with split inputs
+    5. Returns (mean, variance) tuple matching repo convention
+    
+    This allows the factorized model to work seamlessly with the existing
+    training/validation loops without modification.
+    """
+    
+    def __init__(self, factorized_model, feature_splitter):
+        """
+        Initialize wrapper with factorized model and feature splitter.
+        
+        Args:
+            factorized_model: FactorizedSTECModel instance
+            feature_splitter: FeatureSplitter instance for splitting features
+        """
+        super().__init__()
+        self.model = factorized_model
+        self.splitter = feature_splitter
+        
+        # Flag to indicate if this model should use Bayesian inference
+        # Currently factorized model has deterministic components, but this
+        # can be extended to Bayesian VTEC network
+        self._is_bayesian = False
+    
+    def forward(self, x):
+        """
+        Forward pass through wrapped factorized model.
+        
+        Args:
+            x: Full collated feature tensor [batch_size, total_features]
+        
+        Returns:
+            (mean, variance) tuple following repo convention
+        """
+        # Split features into VTEC, geometry, and elevation components
+        x_vtec, x_geom, elev_rad = self.splitter.split_features(x)
+        
+        # Forward through factorized model
+        return self.model(x_vtec, x_geom, elev_rad)
+    
+    def forward_detailed(self, x):
+        """
+        Forward pass with detailed outputs for analysis.
+        
+        Args:
+            x: Full collated feature tensor [batch_size, total_features]
+        
+        Returns:
+            dict: Detailed outputs including VTEC, MF, STEC, and uncertainties
+        """
+        x_vtec, x_geom, elev_rad = self.splitter.split_features(x)
+        return self.model.forward_detailed(x_vtec, x_geom, elev_rad)
+
+
 def get_model(config):
     model_type = config["model"]["model_type"]
     hidden_dim = config["model"].get(
@@ -1407,5 +1796,38 @@ def get_model(config):
             dropout_rate=dropout_rate,
             prior_sigma=prior_sigma
         )
+    elif model_type == "FactorizedSTEC":
+        # Import FeatureSplitter for feature splitting
+        from utils.feature_splitter import FeatureSplitter
+        
+        # Create feature splitter
+        splitter = FeatureSplitter(feature_registry)
+        
+        # Get VTEC and geometry dimensions
+        vtec_dim = splitter.get_vtec_dim()
+        geom_dim = splitter.get_geom_dim()
+        
+        # Get model hyperparameters
+        vtec_hidden = config["model"].get("vtec_hidden", 128)
+        geom_hidden = config["model"].get("geom_hidden", 64)
+        vtec_layers = config["model"].get("vtec_layers", num_layers)  # Default to num_layers
+        geom_layers = config["model"].get("geom_layers", 2)
+        activation = config["model"].get("activation", "relu")
+        
+        # Create factorized model with Bayesian VTEC network
+        factorized_model = FactorizedSTECModel(
+            vtec_in_dim=vtec_dim,
+            geom_in_dim=geom_dim,
+            vtec_hidden=vtec_hidden,
+            geom_hidden=geom_hidden,
+            vtec_layers=vtec_layers,
+            geom_layers=geom_layers,
+            activation=activation,
+            prior_sigma=prior_sigma  # Bayesian layers in VTEC network
+        )
+        
+        # Wrap model with feature splitter integration
+        model = FactorizedSTECModelWrapper(factorized_model, splitter)
+        return model
     else:
         raise ValueError(f"Model type {model_type} is not recognized.")

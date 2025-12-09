@@ -66,7 +66,7 @@ data:
   test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
 
 model:
-  model_type: BayesianResNetSTEC # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
+  model_type: FactorizedSTEC # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
   hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
@@ -117,7 +117,7 @@ finetune:
   epochs: 30
   batchsize: 512                 # Batch size for finetuning (can be different from pretrain)
   num_workers: 12
-  learning_rate: 0.0001
+  learning_rate: 0.000001
   scheduler: ReduceLROnPlateau  # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100       # Step size for scheduler (reduces lr every X epochs)
 

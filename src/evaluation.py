@@ -99,10 +99,16 @@ def run_model_inference(config, experiment_dir, model_path, logger):
     
     # Run Bayesian inference (same as inference_testset.py)
     logger.info("🧠 Running Bayesian inference...")
+    # Determine if model has Bayesian layers requiring MC sampling
+    model_type = config["model"]["model_type"]
+    is_bayesian = "BNN" in model_type or "Bayesian" in model_type or "FactorizedSTEC" in model_type
+    num_mc_samples = 100 if is_bayesian else 1
+    logger.info(f"Using {num_mc_samples} MC samples for model type: {model_type}")
+    
     bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
         model,
         test_loader,
-        num_samples=100 if "BNN" in config["model"]["model_type"] or "Bayesian" in config["model"]["model_type"] else 1,
+        num_samples=num_mc_samples,
     )
     
     logger.info(f"✅ Model inference completed: {len(test_df):,} predictions")

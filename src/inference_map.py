@@ -69,7 +69,7 @@ def parse_args():
     parser.add_argument(
         "--date",
         type=str,
-        default="2024-07-01",
+        default="2024-05-01",
         help="Date for map generation (YYYY-MM-DD format)",
     )
     parser.add_argument(
@@ -219,10 +219,17 @@ def run_inference_with_trainer(trainer, dataloader, model):
     # - Proper target transformations
     # - Memory-efficient processing
     # - Model type detection (BNN, MLP, etc.)
+    
+    # Determine if model has Bayesian layers requiring MC sampling
+    model_type = config["model"]["model_type"]
+    is_bayesian = "BNN" in model_type or "Bayesian" in model_type or "FactorizedSTEC" in model_type
+    num_mc_samples = 100 if is_bayesian else 1
+    logger.info(f"Using {num_mc_samples} MC samples for model type: {model_type}")
+    
     metrics_dict, results_df = trainer.inference_manager.bayesian_inference_total_uncertainty(
         model=model,
         dataloader=dataloader,
-        num_samples=100  # Number of Bayesian samples
+        num_samples=num_mc_samples
     )
 
     return metrics_dict, results_df

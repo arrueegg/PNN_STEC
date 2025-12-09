@@ -1,0 +1,140 @@
+# Configuration for Factorized VTEC × MF Model
+# This config demonstrates how to use the new FactorizedSTEC model type
+
+# General configuration
+project_name: "PNN_STEC"
+output_dir: "experiments/"
+year: 2024
+doy: 122
+mode: pretrain  # Start with pretrain, then switch to finetune
+random_seed: 42
+debug: True  
+debug_single_batch: False  
+cluster: False
+
+# Feature Control - All features enabled for factorized model
+# The model will automatically split these into VTEC and geometry components
+feature_control:
+  # Temporal features (used by VTEC field)
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+  
+  # Station features (used by MF geometry)
+  sm_lat_sta: true
+  sm_lon_sta: true
+  lat_sta: true
+  lon_sta: true
+  
+  # IPP features (used by VTEC field)
+  lat_ipp: true
+  lon_ipp: true
+  sm_lat_ipp: true
+  sm_lon_ipp: true
+  
+  # Direction features (used by MF geometry - REQUIRED for factorized model)
+  satazi: true
+  satele: true
+  
+  # Space Weather Indices (used by VTEC field)
+  Kp_index: true
+  R_Sunspot_No: true
+  Dst-index,_nT: true
+  AE-index,_nT: true
+  ap_index,_nT: true
+  f107_index: true
+
+# Wandb configuration
+wandb:
+  offline: False
+
+target: "stec"  # Must be "stec" for factorized model (requires station and direction features)
+
+data:
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
+  use_agg_h5: True
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
+  move_to_scratch: True
+  every_x_doy: 1
+  use_SWI: True  # Recommended for VTEC field modeling
+  SH_degree: 5   # Spherical harmonics for spatial encoding
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 500_000
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+model:
+  model_type: FactorizedSTEC  # NEW: Factorized VTEC × MF model
+  
+  # Activation function for both networks
+  activation: "relu"  # Options: "relu" or "tanh" (tanh may give smoother VTEC fields)
+  
+  # VTECFieldNet configuration
+  vtec_hidden: 128    # Hidden dimension for VTEC network
+  vtec_layers: 3      # Number of layers in VTEC network
+  
+  # GeomNet configuration  
+  geom_hidden: 64     # Hidden dimension for geometry/MF network
+  geom_layers: 2      # Number of layers in geometry network
+  
+  # Legacy parameters (kept for compatibility, will use vtec_hidden/vtec_layers if not specified)
+  hidden_dim: 128     # Fallback for vtec_hidden
+  num_layers: 3       # Fallback for vtec_layers
+
+training:
+  loss_function: "GaussianNLLLoss"  # Use Gaussian NLL for uncertainty-aware training
+  loss_weight: 0.0                   # No KL divergence for this deterministic model (set to 0)
+  
+  # KL annealing (disabled for factorized model - no Bayesian layers by default)
+  kl_annealing:
+    enabled: false
+    warmup_epochs: 0
+    start_weight: 0.0
+    end_weight: 0.0
+  
+  # Target weighting (recommended for high STEC values)
+  target_weighting:
+    enabled: true                   # Enable to improve high STEC predictions
+    weight_function: "linear"       # Options: linear, quadratic, log
+  
+  optimizer: "Adam"
+  weight_decay: 0.0
+  standardize_targets: False
+  log_target: False                 # Use linear space for STEC
+  
+  # Training schedule
+  pretrain:
+    num_epochs: 50
+    batch_size: 1024
+    lr: 1e-3
+    lr_scheduler: "ReduceLROnPlateau"
+    lr_scheduler_params:
+      mode: "min"
+      factor: 0.5
+      patience: 5
+      verbose: True
+  
+  finetune:
+    num_epochs: 20
+    batch_size: 512
+    lr: 1e-4
+    lr_scheduler: "ReduceLROnPlateau"
+    lr_scheduler_params:
+      mode: "min"
+      factor: 0.5
+      patience: 3
+      verbose: True
+    
+    # Fine-tuning strategy options
+    freeze_vtec_net: false     # Set to true to freeze VTEC network during fine-tuning
+    freeze_geom_net: true      # RECOMMENDED: Freeze MF (geometry is deterministic physics)
+    # Recommended strategy: freeze_geom_net=true, adapt VTEC to daily ionospheric conditions
+    # MF is deterministic (elevation→slant path), VTEC varies with space weather/ionosphere
+
+# Logging and checkpointing
+enable_timing: false  # Enable detailed timing profiling
+save_frequency: 5     # Save checkpoint every N epochs
