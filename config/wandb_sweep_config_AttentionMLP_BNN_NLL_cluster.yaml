@@ -9,29 +9,29 @@ parameters:
     values: ['AttentionMLP_BNN_NLL']
 
   model.hidden_dim:
-    values: [128, 256, 512]  # Lightweight model
+    values: [256, 512]  # Focus on mid-range
 
   model.num_layers:
-    values: [2, 3, 4]  # Fewer layers than full MLP
+    values: [3, 4]  # Sweet spot for attention
 
   model.num_heads:
-    values: [4, 8]  # Multi-head attention
+    values: [4, 8]  # Standard multi-head configs
 
   model.dropout_rate:
-    values: [0.0, 0.1, 0.2]
+    values: [0.0, 0.1]  # Light regularization
 
   model.prior_sigma:
-    values: [0.01, 0.05, 0.1]
+    values: [0.01, 0.05]  # Most impactful Bayesian param
 
   data.SH_degree:
     values: [0, 5]
 
   # Training hyperparameters
   pretrain.learning_rate:
-    values: [0.0001, 0.0005, 0.001]
+    values: [0.0005, 0.001]  # Attention typically needs higher LR
 
   pretrain.batchsize:
-    values: [512, 1024]
+    values: [1024]  # Fix at optimal
 
   training.loss_weight:
     values: [0.01, 0.05]  # Lower KL weight for small Bayesian component
@@ -41,7 +41,7 @@ parameters:
     values: [true]
   
   kl_annealing.warmup_epochs:
-    values: [5, 10]
+    values: [10]  # Fix at standard value
   
   kl_annealing.end_weight:
     values: [0.01, 0.05]
@@ -51,4 +51,4 @@ parameters:
     values: ['GaussianNLLLoss']
 
 # Count limits
-run_cap: 60  # Maximum number of runs in this sweep
+run_cap: 40  # Maximum number of runs in this sweep

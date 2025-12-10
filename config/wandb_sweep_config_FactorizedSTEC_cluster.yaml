@@ -10,23 +10,23 @@ parameters:
 
   # VTEC network parameters
   model.vtec_hidden:
-    values: [128, 256]
+    values: [64, 128, 256]
 
   model.vtec_layers:
-    values: [3, 4]
+    values: [3, 4, 5]
 
   # Geometry network parameters  
   model.geom_hidden:
-    values: [64, 128]
+    values: [32, 64, 128]
 
   model.geom_layers:
-    values: [2, 3]
+    values: [2, 3, 4]
 
   model.activation:
-    values: ['relu']  # tanh could be tested for smoother fields
+    values: ['relu', 'tanh']  # tanh could be tested for smoother fields
 
   model.prior_sigma:
-    values: [0.05, 0.1]  # For Bayesian VTEC network
+    values: [0.01, 0.05, 0.1]  # For Bayesian VTEC network
 
   data.SH_degree:
     values: [0, 5]
@@ -46,7 +46,7 @@ parameters:
     values: [true]
   
   kl_annealing.warmup_epochs:
-    values: [10, 15]  # Longer warmup for physics-based model
+    values: [5, 10, 15]  # Explore warmup duration for physics-based model
   
   kl_annealing.end_weight:
     values: [0.005, 0.01, 0.02]
@@ -56,4 +56,4 @@ parameters:
     values: ['GaussianNLLLoss']
 
 # Count limits
-run_cap: 60  # Maximum number of runs in this sweep
+run_cap: 40  # Maximum number of runs in this sweep

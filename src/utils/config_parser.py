@@ -19,8 +19,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gnss_path", type=str)
     parser.add_argument("--model_type", type=str)
     parser.add_argument("--debug", type=str)
-    parser.add_argument("--override", action="append", nargs="+", metavar="KEY=VAL")
-    return parser.parse_args()
+    
+    # Parse known args and capture any unknown args (for config overrides)
+    args, unknown = parser.parse_known_args()
+    
+    # Store overrides from unknown arguments
+    args.overrides = {}
+    
+    i = 0
+    while i < len(unknown):
+        arg = unknown[i]
+        
+        if arg.startswith("--"):
+            # Handle --key=value format (single argument)
+            if "=" in arg:
+                key, value = arg[2:].split("=", 1)
+                args.overrides[key] = value
+                i += 1
+            # Handle --key value format (two arguments)
+            elif i + 1 < len(unknown) and not unknown[i + 1].startswith("--"):
+                key = arg[2:]
+                value = unknown[i + 1]
+                args.overrides[key] = value
+                i += 2
+            else:
+                i += 1
+        else:
+            i += 1
+    
+    return args
 
 
 def apply_cli_overrides(
@@ -50,14 +77,10 @@ def apply_cli_overrides(
     if args.debug is not None:
         config["debug"] = args.debug.lower() in ["true", "1", "yes"]
 
-    # Nested overrides via --override
-    if args.override:
-        entries = [item for group in args.override for item in group]
-        for entry in entries:
-            if "=" not in entry:
-                raise ValueError(f"Override '{entry}' must be in key=value format.")
-            key, val = entry.split("=", 1)
-            update_nested_config(config, key, val)
+    # Apply config overrides from unknown arguments (WandB sweeps, manual overrides, etc.)
+    if hasattr(args, 'overrides') and args.overrides:
+        for key, value in args.overrides.items():
+            update_nested_config(config, key, value)
 
     # Determine special config variables based on yaml config
     if config["model"]["model_type"] == "PNN":
@@ -98,6 +121,21 @@ def compute_exp_name(config: dict) -> str:
     hidden_dim = config["model"].get("hidden_dim", 256)
     num_layers = config["model"].get("num_layers", 3)
     ensemble_size = config["model"].get("ensemble_size", 5)  # For ensemble models
+    
+    # Model-specific parameters for unique experiment naming
+    dropout_rate = config["model"].get("dropout_rate", 0.0)
+    prior_sigma = config["model"].get("prior_sigma", None)
+    num_heads = config["model"].get("num_heads", None)
+    vtec_hidden = config["model"].get("vtec_hidden", None)
+    geom_hidden = config["model"].get("geom_hidden", None)
+    vtec_layers = config["model"].get("vtec_layers", None)
+    geom_layers = config["model"].get("geom_layers", None)
+    activation = config["model"].get("activation", None)
+    
+    # KL annealing parameters (important for Bayesian models)
+    kl_annealing = config.get("kl_annealing", {})
+    kl_warmup = kl_annealing.get("warmup_epochs", None)
+    kl_end_weight = kl_annealing.get("end_weight", None)
 
     # Additional config parameters
     subset_size = config["data"].get("train_subset_size", 500_000)
@@ -134,6 +172,36 @@ def compute_exp_name(config: dict) -> str:
 
     # Add ensemble size for ensemble models
     ensemble_str = f"_ens{ensemble_size}" if model == "DE_MLP" else ""
+    
+    # Model-specific parameter strings for unique naming
+    dropout_str = f"_dr{dropout_rate}" if dropout_rate > 0.0 else ""
+    
+    # Format prior_sigma nicely
+    if prior_sigma is not None:
+        if prior_sigma >= 0.01:
+            prior_sigma_str = f"_ps{prior_sigma:.2f}".rstrip('0').rstrip('.')
+        else:
+            prior_sigma_str = f"_ps{prior_sigma:.0e}".replace("e-0", "e-")
+    else:
+        prior_sigma_str = ""
+    
+    num_heads_str = f"_nh{num_heads}" if num_heads is not None else ""
+    
+    # Factorized model parameters
+    factorized_str = ""
+    if vtec_hidden is not None and geom_hidden is not None:
+        factorized_str = f"_v{vtec_hidden}x{vtec_layers}_g{geom_hidden}x{geom_layers}"
+    activation_str = f"_{activation}" if activation is not None and activation != "relu" else ""
+    
+    # KL annealing parameters (for Bayesian models)
+    kl_str = ""
+    if kl_warmup is not None and kl_end_weight is not None:
+        # Format end_weight nicely
+        if kl_end_weight >= 0.01:
+            kl_weight_formatted = f"{kl_end_weight:.2f}".rstrip('0').rstrip('.')
+        else:
+            kl_weight_formatted = f"{kl_end_weight:.0e}".replace("e-0", "e-").replace("e-", "m")  # 0.005 -> 5m3
+        kl_str = f"_kl{kl_warmup}w{kl_weight_formatted}"
 
     # Add subset size (format large numbers nicely)
     if subset_size >= 1_000_000:
@@ -151,9 +219,9 @@ def compute_exp_name(config: dict) -> str:
     if mode == "finetune":
         doy_str = str(config["doy"]).zfill(3)
         year_str = str(config["year"])
-        exp_name = f"Finetune_{target}_{year_str}_{doy_str}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+        exp_name = f"Finetune_{target}_{year_str}_{doy_str}_{model}_h{hidden_dim}_l{num_layers}{num_heads_str}{factorized_str}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{dropout_str}{prior_sigma_str}{activation_str}{kl_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
     elif mode == "pretrain":
-        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}{num_heads_str}{factorized_str}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{dropout_str}{prior_sigma_str}{activation_str}{kl_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
