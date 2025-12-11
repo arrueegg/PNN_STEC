@@ -1211,6 +1211,408 @@ def analyze_azimuth_dependence(model, config, feature_splitter, raw_observations
     print("="*70)
 
 
+def analyze_high_dimensional_mf(model, config, feature_splitter, raw_observations, output_dir):
+    """
+    High-dimensional analysis of Mapping Factor across multiple parameters.
+    
+    Analyzes MF behavior in 3D parameter space (elevation × latitude × azimuth) to identify
+    complex interaction patterns and potential spurious dependencies.
+    
+    Args:
+        model: Trained FactorizedSTEC model
+        config: Experiment config
+        feature_splitter: FeatureSplitter instance
+        raw_observations: Sample observations for creating test cases
+        output_dir: Directory to save plots
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+    
+    print("\n" + "="*70)
+    print("HIGH-DIMENSIONAL MF ANALYSIS: Elevation × Latitude × Azimuth")
+    print("="*70)
+    
+    # Define parameter grids
+    elevation_grid = np.array([15, 30, 45, 60, 75, 90])  # 6 elevations
+    latitude_grid = np.linspace(-60, 60, 9)  # 9 latitudes
+    azimuth_grid = np.linspace(0, 315, 8)  # 8 azimuths (0-315 by 45°)
+    
+    print(f"Parameter grid:")
+    print(f"  Elevations: {len(elevation_grid)} points - {elevation_grid}")
+    print(f"  Latitudes: {len(latitude_grid)} points - {latitude_grid[0]:.0f}° to {latitude_grid[-1]:.0f}°")
+    print(f"  Azimuths: {len(azimuth_grid)} points - {azimuth_grid[0]:.0f}° to {azimuth_grid[-1]:.0f}°")
+    print(f"Total combinations: {len(elevation_grid) * len(latitude_grid) * len(azimuth_grid)}")
+    
+    # Get output indices from registry
+    registry = config['feature_registry']
+    total_features = initialize_output_indices_for_registry(registry, config)
+    output_indices = registry._output_indices
+    
+    # Use subset of observations
+    n_obs = min(5, len(raw_observations))
+    test_obs = raw_observations[:n_obs]
+    
+    # Generate test samples
+    test_samples = []
+    elev_labels = []
+    lat_labels = []
+    azim_labels = []
+    
+    print(f"Generating test samples from {n_obs} observations...")
+    
+    for obs in test_obs:
+        for lat_deg in latitude_grid:
+            for azim_deg in azimuth_grid:
+                for elev_deg in elevation_grid:
+                    elev_rad = np.deg2rad(elev_deg)
+                    azim_rad = np.deg2rad(azim_deg)
+                    
+                    sample = np.zeros(total_features)
+                    
+                    # Temporal features
+                    if 'year_norm' in output_indices:
+                        sample[output_indices['year_norm']] = (int(obs['year']) - 2000) / 30
+                    if 'doy_norm' in output_indices:
+                        doy_norm = (int(obs['doy']) - 1) / 365
+                        sample[output_indices['doy_sin']] = np.sin(doy_norm * 2 * np.pi)
+                        sample[output_indices['doy_cos']] = np.cos(doy_norm * 2 * np.pi)
+                        sample[output_indices['doy_norm']] = doy_norm
+                    if 'sod_norm' in output_indices:
+                        sod_norm = float(obs['sod']) / 86400
+                        sample[output_indices['sod_sin']] = np.sin(sod_norm * 2 * np.pi)
+                        sample[output_indices['sod_cos']] = np.cos(sod_norm * 2 * np.pi)
+                        sample[output_indices['sod_norm']] = sod_norm
+                    if 'local_time_hours_norm' in output_indices:
+                        lt_norm = (float(obs['sod']) / 3600) / 24
+                        sample[output_indices['local_time_hours_sin']] = np.sin(lt_norm * 2 * np.pi)
+                        sample[output_indices['local_time_hours_cos']] = np.cos(lt_norm * 2 * np.pi)
+                        sample[output_indices['local_time_hours_norm']] = lt_norm
+                    
+                    # Station features
+                    if 'lat_sta_norm' in output_indices:
+                        sample[output_indices['lat_sta_norm']] = float(obs['lat_sta']) / 90.0
+                    if 'lon_sta_norm' in output_indices:
+                        sample[output_indices['lon_sta_norm']] = float(obs['lon_sta']) / 180.0
+                    if 'sm_lat_sta_norm' in output_indices:
+                        sample[output_indices['sm_lat_sta_norm']] = float(obs['sm_lat_sta']) / 90.0
+                    if 'sm_lon_sta_norm' in output_indices:
+                        sample[output_indices['sm_lon_sta_norm']] = float(obs['sm_lon_sta']) / 180.0
+                    
+                    # Direction features - VARY ALL
+                    if 'e_up' in output_indices:
+                        sample[output_indices['e_up']] = np.sin(elev_rad)
+                        sample[output_indices['e_east']] = np.cos(elev_rad) * np.sin(azim_rad)
+                        sample[output_indices['e_north']] = np.cos(elev_rad) * np.cos(azim_rad)
+                    
+                    # IPP features - VARY LATITUDE
+                    if 'lat_ipp_norm' in output_indices:
+                        sample[output_indices['lat_ipp_norm']] = lat_deg / 90.0
+                    if 'lon_ipp_norm' in output_indices:
+                        sample[output_indices['lon_ipp_norm']] = float(obs['lon_ipp']) / 180.0
+                    if 'sm_lat_ipp_norm' in output_indices:
+                        sample[output_indices['sm_lat_ipp_norm']] = float(obs['sm_lat_ipp']) / 90.0
+                    if 'sm_lon_ipp_norm' in output_indices:
+                        sample[output_indices['sm_lon_ipp_norm']] = float(obs['sm_lon_ipp']) / 180.0
+                    
+                    # Spherical harmonics
+                    for sh_key in ['sh_sta_geo', 'sh_ipp_geo', 'sh_sta_sm', 'sh_ipp_sm']:
+                        if sh_key in output_indices and output_indices[sh_key] is not None:
+                            sh_slice = output_indices[sh_key]
+                            obs_seed = int(obs['year']) * 1000 + int(obs['doy'])
+                            rng = np.random.RandomState(obs_seed)
+                            sample[sh_slice] = rng.randn(sh_slice.stop - sh_slice.start) * 0.1
+                    
+                    # Space weather
+                    if 'Kp_index_norm' in output_indices:
+                        sample[output_indices['Kp_index_norm']] = 2.0 / 9.0
+                    if 'R_Sunspot_No_norm' in output_indices:
+                        sample[output_indices['R_Sunspot_No_norm']] = 50.0 / 300.0
+                    if 'Dst-index,_nT_norm' in output_indices:
+                        sample[output_indices['Dst-index,_nT_norm']] = (10.0 - (-500.0)) / 600.0
+                    if 'AE-index,_nT_norm' in output_indices:
+                        sample[output_indices['AE-index,_nT_norm']] = 100.0 / 2000.0
+                    if 'ap_index,_nT_norm' in output_indices:
+                        sample[output_indices['ap_index,_nT_norm']] = 10.0 / 400.0
+                    if 'f107_index_norm' in output_indices:
+                        sample[output_indices['f107_index_norm']] = 100.0 / 300.0
+                    
+                    test_samples.append(sample)
+                    elev_labels.append(elev_deg)
+                    lat_labels.append(lat_deg)
+                    azim_labels.append(azim_deg)
+    
+    test_tensor = torch.tensor(np.array(test_samples), dtype=torch.float32)
+    elev_labels = np.array(elev_labels)
+    lat_labels = np.array(lat_labels)
+    azim_labels = np.array(azim_labels)
+    
+    print(f"Generated {len(test_samples)} test samples")
+    print("Running inference...")
+    
+    # Run inference
+    model.eval()
+    with torch.no_grad():
+        detailed_output = model.forward_detailed(test_tensor)
+    
+    mf_values = detailed_output['mf'].cpu().numpy().flatten()
+    vtec_values = detailed_output['vtec_mean'].cpu().numpy().flatten()
+    
+    # Compute theoretical MF for each sample
+    Re = 6371  # Earth radius in km
+    h_shell = 350  # Shell height in km
+    theoretical_mf = np.zeros_like(elev_labels)
+    for i, elev in enumerate(elev_labels):
+        elev_rad = np.deg2rad(elev)
+        theoretical_mf[i] = 1 / np.sqrt(1 - ((Re / (Re + h_shell)) * np.cos(elev_rad))**2)
+    
+    # Average across observations
+    n_combos = len(elevation_grid) * len(latitude_grid) * len(azimuth_grid)
+    mf_averaged = np.zeros(n_combos)
+    vtec_averaged = np.zeros(n_combos)
+    theoretical_averaged = np.zeros(n_combos)
+    elev_final = np.zeros(n_combos)
+    lat_final = np.zeros(n_combos)
+    azim_final = np.zeros(n_combos)
+    
+    idx = 0
+    for i_lat, lat in enumerate(latitude_grid):
+        for i_azim, azim in enumerate(azimuth_grid):
+            for i_elev, elev in enumerate(elevation_grid):
+                mask = (elev_labels == elev) & (lat_labels == lat) & (azim_labels == azim)
+                mf_averaged[idx] = mf_values[mask].mean()
+                vtec_averaged[idx] = vtec_values[mask].mean()
+                theoretical_averaged[idx] = theoretical_mf[mask].mean()
+                elev_final[idx] = elev
+                lat_final[idx] = lat
+                azim_final[idx] = azim
+                idx += 1
+    
+    # Calculate errors
+    mf_error = mf_averaged - theoretical_averaged
+    mf_rel_error = 100 * mf_error / theoretical_averaged
+    
+    # Create comprehensive visualization
+    fig = plt.figure(figsize=(20, 16))
+    gs = fig.add_gridspec(4, 4, hspace=0.35, wspace=0.35)
+    
+    # === 3D Scatter Plot: MF in parameter space ===
+    ax = fig.add_subplot(gs[0:2, 0:2], projection='3d')
+    scatter = ax.scatter(elev_final, lat_final, azim_final, c=mf_averaged, 
+                        cmap='viridis', s=50, alpha=0.6)
+    ax.set_xlabel('Elevation (°)', fontsize=10)
+    ax.set_ylabel('Latitude (°)', fontsize=10)
+    ax.set_zlabel('Azimuth (°)', fontsize=10)
+    ax.set_title('MF in 3D Parameter Space\n(Elevation × Latitude × Azimuth)', 
+                 fontweight='bold', fontsize=11)
+    cbar = plt.colorbar(scatter, ax=ax, pad=0.1, shrink=0.7)
+    cbar.set_label('MF', fontsize=9)
+    
+    # === 3D Scatter Plot: MF Error ===
+    ax = fig.add_subplot(gs[0:2, 2:4], projection='3d')
+    vmax = max(abs(mf_error.min()), abs(mf_error.max()))
+    scatter = ax.scatter(elev_final, lat_final, azim_final, c=mf_error, 
+                        cmap='RdBu_r', s=50, alpha=0.6, vmin=-vmax, vmax=vmax)
+    ax.set_xlabel('Elevation (°)', fontsize=10)
+    ax.set_ylabel('Latitude (°)', fontsize=10)
+    ax.set_zlabel('Azimuth (°)', fontsize=10)
+    ax.set_title('MF Error in 3D Parameter Space\n(Predicted - Theoretical)', 
+                 fontweight='bold', fontsize=11)
+    cbar = plt.colorbar(scatter, ax=ax, pad=0.1, shrink=0.7)
+    cbar.set_label('ΔMF', fontsize=9)
+    
+    # === Heatmap: MF vs Elevation & Latitude (averaged over azimuth) ===
+    ax = fig.add_subplot(gs[2, 0])
+    mf_elev_lat = np.zeros((len(latitude_grid), len(elevation_grid)))
+    for i_lat, lat in enumerate(latitude_grid):
+        for i_elev, elev in enumerate(elevation_grid):
+            mask = (elev_final == elev) & (lat_final == lat)
+            mf_elev_lat[i_lat, i_elev] = mf_averaged[mask].mean()
+    
+    im = ax.imshow(mf_elev_lat, aspect='auto', cmap='viridis', origin='lower',
+                   extent=[elevation_grid[0], elevation_grid[-1], 
+                          latitude_grid[0], latitude_grid[-1]])
+    ax.set_xlabel('Elevation (°)', fontsize=10)
+    ax.set_ylabel('Latitude (°)', fontsize=10)
+    ax.set_title('MF: Elev × Lat\n(avg over azimuth)', fontweight='bold', fontsize=10)
+    plt.colorbar(im, ax=ax)
+    
+    # === Heatmap: MF vs Elevation & Azimuth (averaged over latitude) ===
+    ax = fig.add_subplot(gs[2, 1])
+    mf_elev_azim = np.zeros((len(azimuth_grid), len(elevation_grid)))
+    for i_azim, azim in enumerate(azimuth_grid):
+        for i_elev, elev in enumerate(elevation_grid):
+            mask = (elev_final == elev) & (azim_final == azim)
+            mf_elev_azim[i_azim, i_elev] = mf_averaged[mask].mean()
+    
+    im = ax.imshow(mf_elev_azim, aspect='auto', cmap='viridis', origin='lower',
+                   extent=[elevation_grid[0], elevation_grid[-1], 
+                          azimuth_grid[0], azimuth_grid[-1]])
+    ax.set_xlabel('Elevation (°)', fontsize=10)
+    ax.set_ylabel('Azimuth (°)', fontsize=10)
+    ax.set_title('MF: Elev × Azim\n(avg over latitude)', fontweight='bold', fontsize=10)
+    plt.colorbar(im, ax=ax)
+    
+    # === Heatmap: MF vs Latitude & Azimuth (averaged over elevation) ===
+    ax = fig.add_subplot(gs[2, 2])
+    mf_lat_azim = np.zeros((len(azimuth_grid), len(latitude_grid)))
+    for i_azim, azim in enumerate(azimuth_grid):
+        for i_lat, lat in enumerate(latitude_grid):
+            mask = (lat_final == lat) & (azim_final == azim)
+            mf_lat_azim[i_azim, i_lat] = mf_averaged[mask].mean()
+    
+    im = ax.imshow(mf_lat_azim, aspect='auto', cmap='viridis', origin='lower',
+                   extent=[latitude_grid[0], latitude_grid[-1], 
+                          azimuth_grid[0], azimuth_grid[-1]])
+    ax.set_xlabel('Latitude (°)', fontsize=10)
+    ax.set_ylabel('Azimuth (°)', fontsize=10)
+    ax.set_title('MF: Lat × Azim\n(avg over elevation)', fontweight='bold', fontsize=10)
+    plt.colorbar(im, ax=ax)
+    
+    # === Variance Analysis ===
+    ax = fig.add_subplot(gs[2, 3])
+    ax.axis('off')
+    
+    # Calculate variance contributions
+    mf_var_total = np.var(mf_averaged)
+    
+    # Variance by elevation (marginalizing others)
+    mf_by_elev = [mf_averaged[elev_final == e].mean() for e in elevation_grid]
+    var_elev = np.var(mf_by_elev)
+    
+    # Variance by latitude
+    mf_by_lat = [mf_averaged[lat_final == lat].mean() for lat in latitude_grid]
+    var_lat = np.var(mf_by_lat)
+    
+    # Variance by azimuth
+    mf_by_azim = [mf_averaged[azim_final == az].mean() for az in azimuth_grid]
+    var_azim = np.var(mf_by_azim)
+    
+    var_text = "Variance Decomposition\n" + "="*30 + "\n\n"
+    var_text += f"Total MF variance: {mf_var_total:.4f}\n\n"
+    var_text += f"Main Effects:\n"
+    var_text += f"  Elevation: {var_elev:.4f}\n"
+    var_text += f"    ({var_elev/mf_var_total*100:.1f}% of total)\n"
+    var_text += f"  Latitude: {var_lat:.4f}\n"
+    var_text += f"    ({var_lat/mf_var_total*100:.1f}% of total)\n"
+    var_text += f"  Azimuth: {var_azim:.4f}\n"
+    var_text += f"    ({var_azim/mf_var_total*100:.1f}% of total)\n\n"
+    
+    var_text += f"Expected:\n"
+    var_text += f"  Elevation: dominant\n"
+    var_text += f"  Latitude: small (physical)\n"
+    var_text += f"  Azimuth: ~0 (spurious)\n"
+    
+    ax.text(0.05, 0.95, var_text, transform=ax.transAxes, fontsize=9,
+            verticalalignment='top', fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+    
+    # === Distribution plots ===
+    ax = fig.add_subplot(gs[3, 0])
+    ax.hist(mf_error, bins=30, alpha=0.7, edgecolor='black')
+    ax.axvline(0, color='r', linestyle='--', linewidth=2)
+    ax.set_xlabel('MF Error (Pred - Theory)', fontsize=10)
+    ax.set_ylabel('Frequency', fontsize=10)
+    ax.set_title('Error Distribution', fontweight='bold', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    
+    ax = fig.add_subplot(gs[3, 1])
+    ax.hist(mf_rel_error, bins=30, alpha=0.7, edgecolor='black', color='C1')
+    ax.axvline(0, color='r', linestyle='--', linewidth=2)
+    ax.set_xlabel('Relative Error (%)', fontsize=10)
+    ax.set_ylabel('Frequency', fontsize=10)
+    ax.set_title('Relative Error Distribution', fontweight='bold', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    
+    # === Interaction effects ===
+    ax = fig.add_subplot(gs[3, 2])
+    # Plot MF range for each elevation across all lat/azim combinations
+    mf_ranges = []
+    for elev in elevation_grid:
+        mask = elev_final == elev
+        mf_ranges.append([mf_averaged[mask].min(), mf_averaged[mask].max()])
+    mf_ranges = np.array(mf_ranges)
+    
+    ax.plot(elevation_grid, mf_ranges[:, 0], 'o-', label='Min MF', linewidth=2)
+    ax.plot(elevation_grid, mf_ranges[:, 1], 's-', label='Max MF', linewidth=2)
+    ax.fill_between(elevation_grid, mf_ranges[:, 0], mf_ranges[:, 1], alpha=0.3)
+    ax.set_xlabel('Elevation (°)', fontsize=10)
+    ax.set_ylabel('MF Range', fontsize=10)
+    ax.set_title('MF Variability at Each Elevation\n(across all lat/azim)', 
+                 fontweight='bold', fontsize=10)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    
+    # === Statistics summary ===
+    ax = fig.add_subplot(gs[3, 3])
+    ax.axis('off')
+    
+    stats_text = "Statistics Summary\n" + "="*30 + "\n\n"
+    stats_text += f"MF Statistics:\n"
+    stats_text += f"  Range: {mf_averaged.min():.3f} - {mf_averaged.max():.3f}\n"
+    stats_text += f"  Mean: {mf_averaged.mean():.3f}\n"
+    stats_text += f"  Std: {mf_averaged.std():.3f}\n\n"
+    
+    stats_text += f"Accuracy:\n"
+    stats_text += f"  MAE: {np.abs(mf_error).mean():.3f}\n"
+    stats_text += f"  RMSE: {np.sqrt((mf_error**2).mean()):.3f}\n"
+    stats_text += f"  Mean bias: {mf_error.mean():.3f}\n"
+    stats_text += f"  Rel error: {mf_rel_error.mean():.2f}%\n\n"
+    
+    stats_text += f"VTEC Consistency:\n"
+    stats_text += f"  Mean: {vtec_averaged.mean():.2f} TECU\n"
+    stats_text += f"  Std: {vtec_averaged.std():.2f} TECU\n"
+    stats_text += f"  Range: {vtec_averaged.max()-vtec_averaged.min():.2f}\n"
+    
+    ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=9,
+            verticalalignment='top', fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.3))
+    
+    plt.suptitle('High-Dimensional MF Analysis: Full 3D Parameter Space', 
+                 fontsize=14, fontweight='bold')
+    
+    plot_path = output_dir / 'geomnet_high_dimensional_analysis.png'
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"\nHigh-dimensional analysis plot saved to: {plot_path}")
+    
+    # Print detailed summary
+    print("\n" + "="*70)
+    print("HIGH-DIMENSIONAL ANALYSIS SUMMARY")
+    print("="*70)
+    print(f"\nParameter Space:")
+    print(f"  Elevation: {len(elevation_grid)} levels")
+    print(f"  Latitude: {len(latitude_grid)} levels")
+    print(f"  Azimuth: {len(azimuth_grid)} levels")
+    print(f"  Total combinations: {len(elevation_grid) * len(latitude_grid) * len(azimuth_grid)}")
+    
+    print(f"\nVariance Decomposition (main effects):")
+    print(f"  Total variance: {mf_var_total:.4f}")
+    print(f"  Elevation contribution: {var_elev:.4f} ({var_elev/mf_var_total*100:.1f}%)")
+    print(f"  Latitude contribution: {var_lat:.4f} ({var_lat/mf_var_total*100:.1f}%)")
+    print(f"  Azimuth contribution: {var_azim:.4f} ({var_azim/mf_var_total*100:.1f}%)")
+    
+    # Interaction analysis
+    print(f"\nInteraction Analysis:")
+    for elev in elevation_grid:
+        mask = elev_final == elev
+        mf_range = mf_averaged[mask].max() - mf_averaged[mask].min()
+        print(f"  At {elev:.0f}°: MF range = {mf_range:.4f} (variation across lat/azim)")
+    
+    print(f"\nPhysical Interpretation:")
+    if var_azim / mf_var_total < 0.01:
+        print(f"  ✓ Azimuth dependence is negligible (<1% of variance)")
+    else:
+        print(f"  ⚠ Azimuth contributes {var_azim/mf_var_total*100:.1f}% - may indicate spurious dependence")
+    
+    if var_elev / mf_var_total > 0.90:
+        print(f"  ✓ Elevation is dominant factor (>{var_elev/mf_var_total*100:.1f}%)")
+    else:
+        print(f"  ⚠ Elevation only accounts for {var_elev/mf_var_total*100:.1f}% of variance")
+    
+    print("="*70)
+    
+    plt.show()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Validate FactorizedSTEC model with elevation angle tests')
     parser.add_argument('--exp_path', type=str, required=True,
@@ -1281,6 +1683,10 @@ def main():
     print("\n[BONUS] Running azimuth dependence analysis...")
     analyze_azimuth_dependence(model, config, feature_splitter, raw_observations, args.output_dir,
                               num_azimuth=18, elevation_deg=30.0)
+    
+    # High-dimensional analysis
+    print("\n[BONUS] Running high-dimensional analysis (Elevation × Latitude × Azimuth)...")
+    analyze_high_dimensional_mf(model, config, feature_splitter, raw_observations, args.output_dir)
     
     print(f"\n{'='*70}")
     print("Validation complete!")
