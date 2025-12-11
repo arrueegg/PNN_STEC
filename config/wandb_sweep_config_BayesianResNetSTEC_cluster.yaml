@@ -9,43 +9,36 @@ parameters:
     values: ['BayesianResNetSTEC']
 
   model.hidden_dim:
-    values: [256, 512]  # Focus on reasonable sizes
+    values: [512]  # Focus on reasonable sizes
 
   model.num_layers:
-    values: [4, 5]  # Deeper is usually better for ResNet
+    values: [4]  # Deeper is usually better for ResNet
 
   model.dropout_rate:
-    values: [0.0, 0.1]
+    values: [0.0, 0.1, 0.2]
+
+  training.weight_decay:
+    values: [0.0, 0.0001, 0.001]  # Light regularization
 
   model.prior_sigma:
-    values: [0.01, 0.05]  # Most critical Bayesian param
+    values: [0.05, 0.1] 
 
   data.SH_degree:
-    values: [0, 5]
+    values: [5]
 
   # Training hyperparameters
   pretrain.learning_rate:
-    values: [0.0001, 0.0005]  # Most stable range
+    values: [0.0001, 0.0005, 0.001]  # Most stable range
 
   pretrain.batchsize:
-    values: [1024]  # Fix at optimal
+    values: [1024] 
 
   training.loss_weight:
-    values: [0.01, 0.05]  # KL weight for Bayesian head
-
-  # KL annealing
-  kl_annealing.enabled:
-    values: [true]
-  
-  kl_annealing.warmup_epochs:
-    values: [10]  # Fix at reasonable value
-  
-  kl_annealing.end_weight:
-    values: [0.01, 0.05]
+    values: [0.01, 0.1]  # KL weight for Bayesian head
 
   # Training configuration
   training.loss_function:
     values: ['GaussianNLLLoss']
 
 # Count limits
-run_cap: 40  # Maximum number of runs in this sweep
+run_cap: 100  # Maximum number of runs in this sweep
