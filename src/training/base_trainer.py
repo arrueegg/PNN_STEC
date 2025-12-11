@@ -415,11 +415,16 @@ class BaseTrainer:
             model, test_loader, num_samples=num_samples
         )
 
+        # Get scenario evaluation setting from config (default to False to save runtime)
+        enable_scenarios = self.config.get("evaluation", {}).get("enable_scenarios", False)
+        self.logger.info(f"Scenario-based evaluation: {'enabled' if enable_scenarios else 'disabled (saves runtime)'}")
+
         # Plotting test metrics from bayesian inference
         plot_test_metrics(
             test_res_df,
             output_dir=self.config["output_dir"],
             feature_registry=self.feature_registry,
+            enable_scenarios=enable_scenarios,
         )
 
         # Temporal split analysis
@@ -442,6 +447,7 @@ class BaseTrainer:
 
             if self.config["mode"] == "pretrain":
                 # Generate separate plots for each subset if they have sufficient data
+                # Scenario evaluation is always disabled for temporal splits to save runtime
                 if len(interpolation_df) > 1000:  # Minimum threshold for meaningful plots
                     try:
                         interpolation_base_dir = os.path.join(
@@ -451,6 +457,7 @@ class BaseTrainer:
                             interpolation_df,
                             output_dir=interpolation_base_dir,
                             feature_registry=self.feature_registry,
+                            enable_scenarios=False,
                         )
                         self.logger.info("Generated plots for interpolation data")
                     except Exception as e:
@@ -467,6 +474,7 @@ class BaseTrainer:
                             extrapolation_df,
                             output_dir=extrapolation_base_dir,
                             feature_registry=self.feature_registry,
+                            enable_scenarios=False,
                         )
                         self.logger.info("Generated plots for extrapolation data")
                     except Exception as e:

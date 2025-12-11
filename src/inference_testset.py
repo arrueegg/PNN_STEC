@@ -128,10 +128,15 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
     print("")
     logger.info("📊 Generating comprehensive analysis...")
 
+    # Get scenario evaluation setting from config (default to False to save runtime)
+    enable_scenarios = config.get("evaluation", {}).get("enable_scenarios", False)
+    logger.info(f"Scenario-based evaluation: {'enabled' if enable_scenarios else 'disabled (saves runtime)'}")
+
     # Import the plot function from existing viz module
     # Generate main test plots
     plot_test_metrics(
-        test_df, output_dir=experiment_dir, feature_registry=feature_registry
+        test_df, output_dir=experiment_dir, feature_registry=feature_registry,
+        enable_scenarios=enable_scenarios
     )
 
     # Perform temporal split analysis

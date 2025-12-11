@@ -330,7 +330,7 @@ def plot_test_metrics(
     test_df: pd.DataFrame,
     output_dir: str = "plots",
     feature_registry: Optional[Any] = None,
-    enable_scenarios: bool = True,
+    enable_scenarios: bool = False,
 ) -> None:
     """
     Generate comprehensive test metrics plots organized in subfolders.
@@ -342,7 +342,8 @@ def plot_test_metrics(
         test_df: DataFrame with test results
         output_dir: Directory to save plots
         feature_registry: Optional feature registry for binning ranges
-        enable_scenarios: If True, perform scenario-based evaluation (default: True)
+        enable_scenarios: If True, perform scenario-based evaluation (default: False to save runtime)
+                         Set evaluation.enable_scenarios: true in config.yaml to enable
     """
     import logging
 

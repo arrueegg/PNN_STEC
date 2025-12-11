@@ -47,6 +47,11 @@ feature_control:
 wandb:
   offline: False  # Set to true to run wandb in offline mode (saves locally, sync manually later)
 
+# Evaluation configuration
+evaluation:
+  enable_scenarios: False  # Set to true to enable scenario-based evaluation (high/low solar activity, storm days)
+                          # Disabling saves runtime during training/inference
+
 target: "stec" # stec or vtec
 
 data:
