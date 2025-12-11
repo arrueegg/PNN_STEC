@@ -79,6 +79,9 @@ def freeze_factorized_model(model, config, logger):
     - VTEC field network: freeze_vtec_net=True (keep ionospheric field fixed)
     - Geometry/MF network: freeze_geom_net=True (keep geometric model fixed)
     
+    If freeze_body=True without specific subnet flags, defaults to freezing GeomNet
+    and training VTECNet (recommended for daily fine-tuning).
+    
     Recommended fine-tuning strategy:
     - Daily fine-tuning: freeze_geom_net=True, adapt VTEC to daily ionospheric conditions
       → MF is deterministic physics (elevation → slant path), doesn't change day-to-day
@@ -94,8 +97,18 @@ def freeze_factorized_model(model, config, logger):
     Returns:
         tuple: (frozen_params_count, trainable_params_count)
     """
-    freeze_vtec = config.get("finetune", {}).get("freeze_vtec_net", False)
-    freeze_geom = config.get("finetune", {}).get("freeze_geom_net", False)
+    finetune_config = config.get("finetune", {})
+    
+    # Check for explicit subnet freezing flags
+    freeze_vtec = finetune_config.get("freeze_vtec_net", False)
+    freeze_geom = finetune_config.get("freeze_geom_net", False)
+    freeze_body = finetune_config.get("freeze_body", False)
+    
+    # If freeze_body=True but no explicit subnet flags, default to freezing GeomNet
+    # (train only VTEC for daily ionospheric adaptation)
+    if freeze_body and not freeze_vtec and not freeze_geom:
+        freeze_geom = True
+        logger.info("freeze_body=True for FactorizedSTEC: freezing GeomNet, training VTECNet only")
     
     frozen_params = 0
     trainable_params = 0

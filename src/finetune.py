@@ -26,7 +26,7 @@ class Finetuner(BaseTrainer):
         device = self.device
         model = get_model(self.config).to(device)
         pretrain_model_dir = os.path.join(self.config["pretrain_folder"], "model")
-        pretrain_filename = f"pretrain_{self.config['model']['model_type']}_seed{model_seed:02}.pth"
+        pretrain_filename = f"pretrain_{self.config['model']['model_type']}_seed{model_seed}.pth"
         pretrain_checkpoint_path = os.path.join(pretrain_model_dir, pretrain_filename)
         if not os.path.exists(pretrain_checkpoint_path):
             raise FileNotFoundError(f"Pretrained checkpoint not found: {pretrain_checkpoint_path}")

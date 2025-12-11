@@ -133,7 +133,7 @@ def compute_exp_name(config: dict) -> str:
     activation = config["model"].get("activation", None)
     
     # KL annealing parameters (important for Bayesian models)
-    kl_annealing = config.get("kl_annealing", {})
+    kl_annealing = config.get("training", {}).get("kl_annealing", {})
     kl_warmup = kl_annealing.get("warmup_epochs", None)
     kl_end_weight = kl_annealing.get("end_weight", None)
 
@@ -242,11 +242,14 @@ def create_experiment_dirs(config: dict):
     if config["mode"] == "pretrain":
         config["pretrain_folder"] = output_dir
     elif config["mode"] == "finetune":
-        # Create a copy of config and set mode to 'pretrain' for exp name generation
-        pretrain_config = config.copy()
-        pretrain_config["mode"] = "pretrain"
-        pretrain_exp_name = compute_exp_name(pretrain_config)
-        config["pretrain_folder"] = f"experiments/{pretrain_exp_name}"
+        # Only compute pretrain_folder if not explicitly specified in config
+        if "pretrain_folder" not in config or not config["pretrain_folder"]:
+            # Create a copy of config and set mode to 'pretrain' for exp name generation
+            pretrain_config = config.copy()
+            pretrain_config["mode"] = "pretrain"
+            pretrain_exp_name = compute_exp_name(pretrain_config)
+            config["pretrain_folder"] = f"experiments/{pretrain_exp_name}"
+        # else: keep the explicitly specified pretrain_folder from YAML
     else:
         raise ValueError(f"Unknown mode: {config['mode']}")
 

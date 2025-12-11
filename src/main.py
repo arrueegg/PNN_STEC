@@ -76,25 +76,41 @@ def main():
         logger.info("Starting pretraining...")
         Pretrainer(config, logger)
     elif config["mode"] == "finetune":
-        folder = f"{config['pretrain_folder']}/model/"
-        model_path = os.listdir(folder) if os.path.exists(folder) else None
-        if not model_path:
-            print("")
-            logger.info("Pretrained model not found.")
-            logger.info("Starting pretraining...")
-            # Preserve the feature registry when switching to pretrain mode
-            original_feature_registry = config["feature_registry"]
-            pretrain_config = parse_config(
-                mode="pretrain", device=device, data_path=data_path
-            )
-            pretrain_config["feature_registry"] = original_feature_registry
-            Pretrainer(pretrain_config, logger)
-            # Preserve feature registry when switching back to finetune
-            config = parse_config(mode="finetune", device=device, data_path=data_path)
-            config["feature_registry"] = original_feature_registry
-        print("")
-        logger.info("Starting finetuning...")
-        Finetuner(config, logger)
+        # Try to find pretrained model in experiments folder
+        # First check if pretrain_folder is explicitly specified
+        if "pretrain_folder" in config:
+            pretrain_folder = config["pretrain_folder"]
+            logger.info(f"Using specified pretrain_folder: {pretrain_folder}")
+        else:
+            # Auto-detect based on current experiment settings
+            # This will match the pretrain experiment with same model settings
+            pretrain_folder = None
+            experiments_dir = config.get("output_dir", "experiments/")
+            if os.path.exists(experiments_dir):
+                # Look for matching pretrain experiment
+                model_type = config['model']['model_type']
+                for exp_dir in os.listdir(experiments_dir):
+                    if exp_dir.startswith(f"Pretrain_STEC_{model_type}"):
+                        pretrain_folder = os.path.join(experiments_dir, exp_dir)
+                        logger.info(f"Auto-detected pretrain_folder: {pretrain_folder}")
+                        break
+        
+        if pretrain_folder and os.path.exists(pretrain_folder):
+            config["pretrain_folder"] = pretrain_folder
+            model_folder = os.path.join(pretrain_folder, "model")
+            
+            if os.path.exists(model_folder) and os.listdir(model_folder):
+                logger.info(f"Found pretrained model in: {model_folder}")
+                print("")
+                logger.info("Starting finetuning...")
+                Finetuner(config, logger)
+            else:
+                logger.error(f"Model folder exists but is empty: {model_folder}")
+        else:
+            logger.error("Pretrained model not found.")
+            logger.error("Either specify 'pretrain_folder' in config.yaml or ensure a pretrain experiment exists.")
+            if "pretrain_folder" in config:
+                logger.error(f"Specified folder does not exist: {config['pretrain_folder']}")
     else:
         logger.error('Invalid mode selected. Choose either "pretrain" or "finetune".')
 

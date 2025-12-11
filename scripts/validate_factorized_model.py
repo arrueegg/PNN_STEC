@@ -781,7 +781,7 @@ def plot_results(elevation_angles, results, ground_truth, output_dir):
     
     # Theoretical MF (simple thin shell approximation)
     Re = 6371  # Earth radius in km
-    h_shell = 350  # Shell height in km
+    h_shell = 450  # Shell height in km
     theoretical_mf = 1 / np.sqrt(1 - ((Re / (Re + h_shell)) * np.cos(np.deg2rad(unique_elevs)))**2)
     
     # Create comprehensive plot

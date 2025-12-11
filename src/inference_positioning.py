@@ -40,11 +40,91 @@ from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from utils.config_parser import load_config
-from utils.feature_registry import initialize_feature_registry
+from utils.feature_registry import initialize_feature_registry, FeatureType
 from training.base_trainer import BaseTrainer
 from model.model import get_model
 from data_loader.collation import CollateWithSH
 from torch.utils.data import Dataset, DataLoader
+
+
+def initialize_output_indices_for_registry(registry, config):
+    """
+    Initialize output indices for the feature registry.
+    This mimics what CollateWithSH does but for inference without data loader.
+    """
+    output_indices = {}
+    current_idx = 0
+    
+    # Year (normalized)
+    temporal_features = registry.get_feature_names(FeatureType.TEMPORAL)
+    for feature_name in temporal_features:
+        if feature_name == "year":
+            output_indices[f"{feature_name}_norm"] = current_idx
+            current_idx += 1
+        elif feature_name in ["doy", "sod", "local_time_hours"]:
+            # sin, cos, norm for cyclical features
+            output_indices[f"{feature_name}_sin"] = current_idx
+            output_indices[f"{feature_name}_cos"] = current_idx + 1
+            output_indices[f"{feature_name}_norm"] = current_idx + 2
+            current_idx += 3
+    
+    # Station features
+    station_features = registry.get_feature_names(FeatureType.STATION)
+    for feature_name in station_features:
+        output_indices[f"{feature_name}_norm"] = current_idx
+        current_idx += 1
+    
+    # Direction features - Cartesian unit vector
+    direction_features = registry.get_feature_names(FeatureType.DIRECTION)
+    if direction_features and "satazi" in direction_features and "satele" in direction_features:
+        output_indices["e_up"] = current_idx
+        output_indices["e_east"] = current_idx + 1
+        output_indices["e_north"] = current_idx + 2
+        current_idx += 3
+    
+    # IPP features
+    ipp_features = registry.get_feature_names(FeatureType.IPP)
+    for feature_name in ipp_features:
+        output_indices[f"{feature_name}_norm"] = current_idx
+        current_idx += 1
+    
+    # SH embeddings if enabled
+    sh_degree = config.get('data', {}).get('SH_degree', 0)
+    if sh_degree > 0:
+        sh_dim = sh_degree * sh_degree
+        has_station = len(station_features) > 0
+        
+        if has_station:
+            output_indices["sh_sta_geo"] = slice(current_idx, current_idx + sh_dim)
+            current_idx += sh_dim
+        else:
+            output_indices["sh_sta_geo"] = None
+        
+        output_indices["sh_ipp_geo"] = slice(current_idx, current_idx + sh_dim)
+        current_idx += sh_dim
+        
+        if has_station:
+            output_indices["sh_sta_sm"] = slice(current_idx, current_idx + sh_dim)
+            current_idx += sh_dim
+        else:
+            output_indices["sh_sta_sm"] = None
+        
+        output_indices["sh_ipp_sm"] = slice(current_idx, current_idx + sh_dim)
+        current_idx += sh_dim
+    else:
+        output_indices["sh_sta_geo"] = None
+        output_indices["sh_ipp_geo"] = None
+        output_indices["sh_sta_sm"] = None
+        output_indices["sh_ipp_sm"] = None
+    
+    # SWI features
+    swi_features = registry.get_feature_names(FeatureType.SWI)
+    for feature_name in swi_features:
+        output_indices[f"{feature_name}_norm"] = current_idx
+        current_idx += 1
+    
+    registry.set_output_indices(output_indices)
+    return current_idx
 
 
 def setup_logging():
@@ -468,6 +548,10 @@ def main():
         # Initialize feature registry
         feature_registry = initialize_feature_registry(config)
         config["feature_registry"] = feature_registry
+        
+        # Initialize output indices for feature splitter
+        total_features = initialize_output_indices_for_registry(feature_registry, config)
+        logger.info(f"📊 Total features: {total_features}")
         
         # Load test stations
         test_stations = load_test_stations()
