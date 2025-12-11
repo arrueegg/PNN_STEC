@@ -1375,6 +1375,7 @@ class GeomNet(nn.Module):
         
         Args:
             x_geom: Geometry-related features [batch_size, geom_in_dim]
+                   Includes station lat/lon, azimuth info (as direction vector), and SH embeddings
             elev_rad: Elevation in radians [batch_size]
         
         Returns:
@@ -1383,12 +1384,16 @@ class GeomNet(nn.Module):
         h = self.backbone(x_geom)
         mf_raw = self.mf_head(h).squeeze(-1)
         
-        # Elevation-dependent scaling function: g(90°) = 0, g(0°) ≈ 1
-        g = 1.0 - torch.sin(elev_rad)
+        # Elevation-dependent scaling: g(90°) = 0, g(0°) ≈ 1
+        # This provides the primary elevation dependence (thin-shell approximation)
+        g_elev = 1.0 - torch.sin(elev_rad)
         
-        # Final mapping factor: MF(90°) = 1, MF ≥ 1 everywhere
-        # softplus ensures non-negativity, g scales the correction
-        mf = 1.0 + g * F.softplus(mf_raw)
+        # Final mapping factor with learned corrections:
+        # MF = 1 + g_elev * (baseline + learned_correction)
+        # - baseline=1: gives thin-shell approximation MF ≈ 1/sin(elev)
+        # - mf_raw: learned deviations for latitude/azimuth/local effects
+        # - tanh allows both positive and negative corrections in [-1, 1]
+        mf = 1.0 + g_elev * (1.0 + torch.tanh(mf_raw))
         
         return mf
 
