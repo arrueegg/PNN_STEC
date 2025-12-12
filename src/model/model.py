@@ -1671,7 +1671,7 @@ def get_model(config):
 
     # SH embeddings (if enabled)
     sh_degree = config["data"]["SH_degree"]
-    sh_dim_per_location = 4 * sh_degree ** 2
+    sh_dim_per_location = sh_degree ** 2  # Each location gets degree² features
     
     # Calculate total SH dimension based on available features
     # For each location (station geo, station SM, IPP geo, IPP SM), we add SH embeddings
@@ -1681,10 +1681,10 @@ def get_model(config):
         has_station_features = len(station_features) > 0
         
         if has_station_features:
-            # Station geographic SH + Station SM SH + IPP geographic SH + IPP SM SH
+            # STEC: Station geo + Station SM + IPP geo + IPP SM = 4 locations
             total_sh_dim = 4 * sh_dim_per_location
         else:
-            # For VTEC (no station features): only IPP geographic SH + IPP SM SH
+            # VTEC: IPP geo + IPP SM = 2 locations
             total_sh_dim = 2 * sh_dim_per_location
 
     # Total input features after all transformations
