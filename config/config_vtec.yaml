@@ -1,0 +1,128 @@
+# VTEC Model Configuration
+# This config is for training a VTEC model using the classical approach
+# The trained VTEC model will be compared against direct STEC models
+
+# General configuration
+project_name: "PNN_VTEC"
+output_dir: "experiments/"
+year: 2024
+doy: 183
+mode: finetune # pretrain, finetune
+random_seed: 42
+debug: False  
+debug_single_batch: False  
+cluster: False
+
+# Feature Control - VTEC models don't need station position or satellite direction
+# These features are only relevant for STEC (slant path geometry)
+feature_control:
+  # Temporal features
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+  
+  # Station features - DISABLED for VTEC (vertical measurement, no station dependency)
+  sm_lat_sta: false
+  sm_lon_sta: false
+  lat_sta: false
+  lon_sta: false
+  
+  # IPP (Ionospheric Pierce Point) features - These define VTEC location
+  lat_ipp: true
+  lon_ipp: true
+  sm_lat_ipp: true
+  sm_lon_ipp: true
+  
+  # Direction features - DISABLED for VTEC (vertical measurement, no direction dependency)
+  satazi: false
+  satele: false
+  
+  # Space Weather Indices
+  Kp_index: true
+  R_Sunspot_No: true
+  Dst-index,_nT: true
+  AE-index,_nT: true
+  ap_index,_nT: true
+  f107_index: true
+
+# Wandb configuration
+wandb:
+  offline: False
+
+# Evaluation configuration
+evaluation:
+  enable_scenarios: False
+
+# TARGET: VTEC instead of STEC
+target: "vtec"
+
+data:
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
+  use_agg_h5: True
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
+  move_to_scratch: True
+  every_x_doy: 1
+  use_SWI: True
+  SH_degree: 5
+  min_elevation: 5.0  # Still filter low elevations even for VTEC
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 500_000
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+model:
+  # Use same architecture as STEC models for fair comparison
+  model_type: BNN_NLL  # Bayesian NN with Gaussian NLL loss
+  hidden_dim: 256      # Match your STEC model architecture
+  num_layers: 4        # Match your STEC model architecture
+  prior_sigma: 0.1
+  dropout_rate: 0.0
+  
+training:
+  loss_function: "GaussianNLLLoss"
+  loss_weight: 1.0  # Standard weight for VTEC (values are smaller than STEC)
+  
+  # KL annealing for BNN training
+  kl_annealing:
+    enabled: true
+    warmup_epochs: 15
+    start_weight: 0.0
+    end_weight: 0.02
+  
+  # Target weighting
+  target_weighting:
+    enabled: false
+    weight_function: "linear"
+  
+  optimizer: "Adam"
+  weight_decay: 0.0
+  standardize_targets: False
+  log_target: False
+  log_space_point: "mean"
+
+pretrain:
+  epochs: 150
+  batchsize: 1024
+  num_workers: 12 
+  prefetch_factor: 4
+  learning_rate: 0.0005
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 150
+  early_stopping: true
+  patience: 20
+  save_model_every_epoch: False
+
+finetune:
+  freeze_body: True
+  epochs: 50
+  batchsize: 1024
+  num_workers: 12
+  learning_rate: 0.00001
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 100
+  early_stopping: true
+  patience: 15
+  save_model_every_epoch: False

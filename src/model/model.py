@@ -1670,11 +1670,26 @@ def get_model(config):
     num_SWI_params = swi_dim
 
     # SH embeddings (if enabled)
-    sh_dim = 4 * config["data"]["SH_degree"] ** 2  # Currently 0 for SH_degree=0
+    sh_degree = config["data"]["SH_degree"]
+    sh_dim_per_location = 4 * sh_degree ** 2
+    
+    # Calculate total SH dimension based on available features
+    # For each location (station geo, station SM, IPP geo, IPP SM), we add SH embeddings
+    total_sh_dim = 0
+    if sh_degree > 0:
+        # Check if station features are available
+        has_station_features = len(station_features) > 0
+        
+        if has_station_features:
+            # Station geographic SH + Station SM SH + IPP geographic SH + IPP SM SH
+            total_sh_dim = 4 * sh_dim_per_location
+        else:
+            # For VTEC (no station features): only IPP geographic SH + IPP SM SH
+            total_sh_dim = 2 * sh_dim_per_location
 
     # Total input features after all transformations
     in_features = (
-        temporal_dim + station_dim + direction_dim + ipp_dim + swi_dim + sh_dim
+        temporal_dim + station_dim + direction_dim + ipp_dim + swi_dim + total_sh_dim
     )
 
     if model_type == "MLP":

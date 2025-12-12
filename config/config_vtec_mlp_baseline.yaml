@@ -1,0 +1,198 @@
+# =====================================================================
+# Simple VTEC MLP Baseline Configuration
+# =====================================================================
+# This is a simple baseline for VTEC prediction using a standard MLP
+# with MSE loss (no uncertainty quantification).
+#
+# Key characteristics:
+# - Deterministic MLP (no Bayesian uncertainty)
+# - MSE loss (standard regression)
+# - Predicts VTEC (vertical TEC)
+# - No geometry features (azimuth/elevation/station)
+# - Single day training (no pretrain needed)
+#
+# Usage:
+#   python src/main.py --config config/config_vtec_mlp_baseline.yaml
+# =====================================================================
+
+# General configuration
+project_name: "PNN_VTEC_MLP_Baseline"
+output_dir: "experiments/"
+year: 2024
+doy: 183
+mode: finetune                  # Use finetune mode for single-day training
+finetune_from_scratch: true     # Train from scratch (no pretrain required)
+random_seed: 42
+debug: True  
+debug_single_batch: false  
+cluster: false
+enable_timing: false
+
+# Feature Control - VTEC models don't need geometry features
+feature_control:
+  # Temporal features - ENABLED
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+  
+  # Station features - DISABLED for VTEC (no station-specific geometry)
+  sm_lat_sta: false
+  sm_lon_sta: false
+  lat_sta: false
+  lon_sta: false
+  
+  # IPP (Ionospheric Pierce Point) features - ENABLED for location
+  lat_ipp: true
+  lon_ipp: true
+  sm_lat_ipp: true
+  sm_lon_ipp: true
+  
+  # Direction features - DISABLED for VTEC (no slant path)
+  satazi: false
+  satele: false
+  
+  # Space Weather Indices - ENABLED
+  Kp_index: true
+  R_Sunspot_No: true
+  Dst-index,_nT: true
+  AE-index,_nT: true
+  ap_index,_nT: true
+  f107_index: true
+
+# Wandb configuration
+wandb:
+  offline: false
+
+# Evaluation configuration
+evaluation:
+  enable_scenarios: false
+
+# =====================================================================
+# TARGET: VTEC
+# =====================================================================
+target: "vtec"
+
+# =====================================================================
+# Data Configuration
+# =====================================================================
+data:
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
+  use_agg_h5: false             # Single day file
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
+  move_to_scratch: true
+  every_x_doy: 1
+  use_SWI: true
+  SH_degree: 5                  # Spherical harmonics for spatial encoding
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: true
+  train_subset_size: 500_000     # 500K training samples
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+# =====================================================================
+# Model Configuration - Simple MLP
+# =====================================================================
+model:
+  model_type: MLP               # Standard deterministic MLP
+  
+  # Network dimensions
+  hidden_dim: 512               # Moderate size for baseline
+  num_layers: 4                 # 4 hidden layers
+  
+  # Dropout for regularization
+  dropout_rate: 0.1
+  
+  # Note: MLP doesn't use Bayesian parameters
+  # prior_sigma is ignored for non-Bayesian models
+
+# =====================================================================
+# Training Configuration
+# =====================================================================
+training:
+  loss_function: "MSELoss"      # Standard MSE loss (no uncertainty)
+  loss_weight: 1.0              # Standard weight
+  
+  # KL annealing - Not used for non-Bayesian models
+  kl_annealing:
+    enabled: false
+  
+  # Target weighting - Disabled for baseline
+  target_weighting:
+    enabled: false
+  
+  # Optimizer
+  optimizer: "Adam"
+  learning_rate: 0.0001         # 1e-4 (higher than FactorizedSTEC)
+  weight_decay: 0.0001          # Small L2 regularization
+  
+  # Scheduler
+  scheduler:
+    type: "ReduceLROnPlateau"
+    mode: "min"
+    factor: 0.5
+    patience: 5
+    min_lr: 0.000001
+  
+  # Training parameters
+  epochs: 50                    # Fewer epochs for single day
+  
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0001
+  
+  # Checkpointing
+  save_best_only: true
+  checkpoint_every: 1
+  
+  # Mixed precision training
+  use_amp: true
+
+# Pretrain configuration (required even though we use finetune mode)
+pretrain:
+  epochs: 50
+  batchsize: 2048
+  num_workers: 4
+  prefetch_factor: 4
+  learning_rate: 0.0001
+  scheduler: ReduceLROnPlateau
+  early_stopping: true
+  patience: 10
+
+# Finetune configuration
+finetune:
+  epochs: 50
+  batchsize: 2048
+  num_workers: 4
+  freeze_body: false            # Don't freeze anything when training from scratch
+  learning_rate: 0.0001        # 1e-4
+  scheduler: ReduceLROnPlateau
+  early_stopping: true
+  patience: 10
+
+# =====================================================================
+# Notes
+# =====================================================================
+# 
+# This baseline is intentionally simple:
+# - Standard MLP architecture (no fancy components)
+# - MSE loss (no uncertainty quantification)
+# - Single day training (fast to train)
+# - Moderate capacity (512 hidden, 4 layers)
+#
+# Expected performance on 2024 DOY 183:
+# - VTEC RMSE: ~3-5 TECU (direct vertical prediction)
+# - After mapping to STEC: ~13-15 TECU
+# - Should be comparable to or slightly worse than GIM
+#
+# Training time: ~2-3 hours on GPU
+#
+# This provides a simple reference point to show that:
+# 1. Direct STEC modeling beats VTEC+mapping
+# 2. Bayesian uncertainty improves over simple MSE
+# 3. Advanced architectures (FactorizedSTEC) help
+# =====================================================================

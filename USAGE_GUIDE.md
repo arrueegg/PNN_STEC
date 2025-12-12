@@ -77,6 +77,63 @@ python src/dstec_evaluation.py
 - Configuration set directly in file (not in `config.yaml`)
 - Compares model vs GIM using elevation-based differences
 
+### `src/compare_stec_vtec.py`
+**Fair comparison: Direct STEC vs Classical VTEC+Mapping**
+
+```bash
+# Quick comparison using shell script
+bash scripts/compare_stec_vtec.sh <STEC_EXPERIMENT> <VTEC_EXPERIMENT>
+
+# Full control with Python script
+python src/compare_stec_vtec.py \
+    --stec_experiment "Pretrain_STEC_BNN_NLL_..." \
+    --vtec_experiment "Pretrain_VTEC_BNN_NLL_..." \
+    --mapping_function MSLM \
+    --output_dir "comparisons/my_comparison"
+```
+
+- Compares direct STEC modeling vs classical VTEC approach with mapping functions
+- Loads both models, runs inference on same test set
+- Applies standard mapping functions (MSLM or SLM)
+- Generates publication-quality comparison plots and metrics
+- See `docs/VTEC_COMPARISON_QUICK_START.md` for detailed guide
+
+### `src/compare_stec_vtec_gim.py`
+**Comprehensive comparison: STEC vs VTEC vs IGS GIM**
+
+```bash
+# STEC model only
+env/bin/python src/compare_stec_vtec_gim.py \
+    --stec_experiment "Pretrain_STEC_BNN_NLL_..." \
+    --output_dir "comparisons/stec_validation"
+
+# STEC vs VTEC+mapping
+env/bin/python src/compare_stec_vtec_gim.py \
+    --stec_experiment "Pretrain_STEC_BNN_NLL_..." \
+    --vtec_experiment "Pretrain_VTEC_BNN_NLL_..." \
+    --output_dir "comparisons/stec_vs_vtec"
+
+# STEC vs IGS GIM
+env/bin/python src/compare_stec_vtec_gim.py \
+    --stec_experiment "Pretrain_STEC_BNN_NLL_..." \
+    --include_gim \
+    --gim_path "/path/to/gim/data" \
+    --output_dir "comparisons/stec_vs_gim"
+
+# Full three-way comparison
+env/bin/python src/compare_stec_vtec_gim.py \
+    --stec_experiment "Pretrain_STEC_BNN_NLL_..." \
+    --vtec_experiment "Pretrain_VTEC_BNN_NLL_..." \
+    --include_gim \
+    --output_dir "comparisons/full_comparison"
+```
+
+- **NEW!** Comprehensive comparison framework
+- Compare against VTEC+mapping AND/OR IGS GIM operational products
+- Flexible: run any combination of comparisons
+- Shows improvement over both classical approach and operational products
+- See `docs/COMPREHENSIVE_COMPARISON_GUIDE.md` for full guide
+
 ---
 
 ## 📊 Positioning Evaluation

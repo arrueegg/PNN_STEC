@@ -57,3 +57,4 @@ hp_search/logs/
 hp_search/config_*.yaml
 hp_search/wandb_slurm_scripts/
 *results*/
+comparisons*/

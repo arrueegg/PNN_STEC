@@ -21,19 +21,28 @@ class Finetuner(BaseTrainer):
     def initialize_model(self, model_seed):
         """
         Finetuner-specific model initialization.
-        If in finetune mode, loads pretrained weights from pretrain_folder.
+        If in finetune mode, loads pretrained weights from pretrain_folder (unless finetune_from_scratch=True).
         """
         device = self.device
         model = get_model(self.config).to(device)
-        pretrain_model_dir = os.path.join(self.config["pretrain_folder"], "model")
-        pretrain_filename = f"pretrain_{self.config['model']['model_type']}_seed{model_seed}.pth"
-        pretrain_checkpoint_path = os.path.join(pretrain_model_dir, pretrain_filename)
-        if not os.path.exists(pretrain_checkpoint_path):
-            raise FileNotFoundError(f"Pretrained checkpoint not found: {pretrain_checkpoint_path}")
-        import torch
-        checkpoint = torch.load(pretrain_checkpoint_path, weights_only=True)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        logger.info(f"Loaded pretrained weights from {pretrain_checkpoint_path}")
+        
+        # Check if we should finetune from scratch (no pretrained weights)
+        finetune_from_scratch = self.config.get("finetune_from_scratch", False)
+        
+        if finetune_from_scratch:
+            logger.info("⚠️  Finetuning from scratch (no pretrained weights loaded)")
+            logger.info("   This is useful for single-day training without pretrain phase")
+        else:
+            # Load pretrained weights
+            pretrain_model_dir = os.path.join(self.config["pretrain_folder"], "model")
+            pretrain_filename = f"pretrain_{self.config['model']['model_type']}_seed{model_seed}.pth"
+            pretrain_checkpoint_path = os.path.join(pretrain_model_dir, pretrain_filename)
+            if not os.path.exists(pretrain_checkpoint_path):
+                raise FileNotFoundError(f"Pretrained checkpoint not found: {pretrain_checkpoint_path}")
+            import torch
+            checkpoint = torch.load(pretrain_checkpoint_path, weights_only=True)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            logger.info(f"Loaded pretrained weights from {pretrain_checkpoint_path}")
         
         # Freeze body parameters if configured (only train output head)
         freeze_model_body(model, self.config, logger)

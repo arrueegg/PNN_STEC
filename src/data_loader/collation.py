@@ -30,7 +30,9 @@ class CollateWithSH:
         self.sh_degree = config["data"].get("SH_degree", 0) or 0
         self.sh_enabled = self.sh_degree > 0
         if self.sh_enabled:
-            self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree)
+            # SphericalHarmonics produces L² features. We want 4*degree² features.
+            # So we need L = 2*degree (since (2*degree)² = 4*degree²)
+            self.sh_encoder = SphericalHarmonics(legendre_polys=2 * self.sh_degree)
 
         # Pre-compute feature slices for efficiency
         self.slices = {
@@ -131,7 +133,7 @@ class CollateWithSH:
 
         # SH embeddings if enabled
         if self.sh_enabled:
-            sh_dim = self.sh_degree * self.sh_degree
+            sh_dim = 4 * self.sh_degree * self.sh_degree  # FIXED: SH produces 4*degree^2 features
 
             # Check if station features are available (they're excluded for VTEC)
             has_station_features = (

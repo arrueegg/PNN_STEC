@@ -296,7 +296,7 @@ def get_test_data_loader(config, logger=None):
 
     # Load test dataset
     split = "test"
-    if config["data"].get("use_agg_h5", False):
+    if config["data"].get("use_agg_h5", False) and config.get("mode") == "pretrain":
         # Move SWI data to scratch if needed
         swi_scratch_path = os.path.join(
             config["data"]["scratch_dir"], "omni_hourly_2010-2025.h5"
@@ -324,15 +324,51 @@ def get_test_data_loader(config, logger=None):
             ds = H5Dataset(config, path, split)
     else:
         preprocessor = DataPreprocessor(config, logger)
-        file_splits = preprocessor.get_split_file_lists()
-        datasets = []
 
-        for file_path in tqdm(file_splits[split], desc=f"Loading {split}"):
-            # Extract year and doy from file path
-            year = file_path.split("/")[-3]
-            doy = file_path.split("/")[-2]
-            datasets.append(PyTablesDatasetSplit(file_path, year, doy, split, config))
-        ds = torch.utils.data.ConcatDataset(datasets)
+        # Finetune mode: load only the single-day file specified by config year/doy
+        if config.get("mode") == "finetune":
+            window = int(config.get("data", {}).get("finetune_window", 1))
+            if window < 1:
+                raise ValueError("data.finetune_window must be >= 1")
+
+            year = int(config.get("year"))
+            doy = int(config.get("doy"))
+            center_date = datetime(year, 1, 1) + timedelta(days=(doy - 1))
+
+            # Build list of past days including center_date
+            dates = [center_date - timedelta(days=i) for i in range(window)]
+
+            datasets = []
+            for d in dates:
+                y = str(d.year)
+                dd = f"{d.timetuple().tm_yday:03d}"
+                filename = f"ccl_{d.year}{dd}_30_5.h5"
+                file_path = os.path.join(preprocessor.gnss_data_path, y, dd, filename)
+                if not os.path.exists(file_path):
+                    if logger:
+                        logger.warning(f"Finetune file not found, skipping: {file_path}")
+                    continue
+                datasets.append(DayRAMDataset(file_path, y, dd, split, config))
+
+            if len(datasets) == 0:
+                raise RuntimeError(
+                    f"No finetune files found for date {center_date.date()} with window={window}"
+                )
+            elif len(datasets) == 1:
+                ds = datasets[0]
+            else:
+                ds = torch.utils.data.ConcatDataset(datasets)
+        else:
+            # Pretrain mode with use_agg_h5=False: load from multiple day files
+            file_splits = preprocessor.get_split_file_lists()
+            datasets = []
+
+            for file_path in tqdm(file_splits[split], desc=f"Loading {split}"):
+                # Extract year and doy from file path
+                year = file_path.split("/")[-3]
+                doy = file_path.split("/")[-2]
+                datasets.append(PyTablesDatasetSplit(file_path, year, doy, split, config))
+            ds = torch.utils.data.ConcatDataset(datasets)
 
     # Apply subset if requested
     if test_subset and test_subset < len(ds):
