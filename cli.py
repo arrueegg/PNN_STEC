@@ -268,6 +268,77 @@ Examples:
     return parser
 
 
+def create_multiday_parser(subparsers):
+    """Create parser for multi-day evaluation command."""
+    parser = subparsers.add_parser(
+        "multiday",
+        help="Multi-day evaluation across multiple days",
+        description="Automated training and evaluation pipeline for multiple test days",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Single day
+  python cli.py multiday \\
+      --dates "2024-183" \\
+      --stec_config config/config.yaml \\
+      --vtec_config config/config_vtec_mlp_baseline.yaml
+  
+  # Multiple specific days
+  python cli.py multiday \\
+      --dates "2024-183,2024-184,2024-185" \\
+      --stec_config config/config.yaml \\
+      --vtec_config config/config_vtec_mlp_baseline.yaml
+  
+  # Date range (inclusive, one week)
+  python cli.py multiday \\
+      --dates "2024-183:2024-189" \\
+      --stec_config config/config.yaml \\
+      --vtec_config config/config_vtec_mlp_baseline.yaml \\
+      --output_dir multiday_results/july_week1
+  
+  # Quick test
+  python cli.py multiday \\
+      --dates "2024-183,2024-184" \\
+      --stec_config config/config.yaml \\
+      --vtec_config config/config_vtec_mlp_baseline.yaml \\
+      --num_inference_samples 10
+
+What it does:
+  For each date:
+    1. Finetune STEC model on that day
+    2. Finetune VTEC model on that day
+    3. Run comprehensive comparison (STEC vs VTEC+Mapping vs GIM)
+    4. Store results in organized structure
+  
+  Finally:
+    - Generate aggregate statistics across all days
+    - Create comparison plots and summary tables
+    - Perfect for robust paper evaluations
+
+Date formats:
+  - YYYY-DOY: "2024-183"
+  - YYYY-MM-DD: "2024-07-01"  
+  - Range: "2024-183:2024-192"
+  - List: "2024-183,2024-184,2024-185"
+        """
+    )
+    
+    parser.add_argument("--dates", type=str, required=True,
+                       help="Date(s) to evaluate (single, list, or range)")
+    parser.add_argument("--stec_config", type=str, required=True,
+                       help="Base config file for STEC training")
+    parser.add_argument("--vtec_config", type=str, required=True,
+                       help="Base config file for VTEC training")
+    parser.add_argument("--output_dir", type=str, default="multiday_results",
+                       help="Output directory (default: multiday_results)")
+    parser.add_argument("--num_inference_samples", type=int, default=100,
+                       help="MC samples for Bayesian inference (default: 100)")
+    parser.add_argument("--test_size", type=int, default=None,
+                       help="Test set size (default: full)")
+    
+    return parser
+
+
 def run_train(args):
     """Execute training workflow."""
     import sys
@@ -388,6 +459,25 @@ def run_map(args):
     main()
 
 
+def run_multiday(args):
+    """Execute multi-day evaluation workflow."""
+    import sys
+    sys.argv = [
+        "multiday_evaluation.py",
+        "--dates", args.dates,
+        "--stec_config", args.stec_config,
+        "--vtec_config", args.vtec_config,
+        "--output_dir", args.output_dir,
+        "--num_inference_samples", str(args.num_inference_samples)
+    ]
+    
+    if args.test_size:
+        sys.argv.extend(["--test_size", str(args.test_size)])
+    
+    from multiday_evaluation import main
+    main()
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -402,11 +492,13 @@ Commands:
   inference   Run inference on test data
   positioning Evaluate positioning accuracy
   map         Generate spatial STEC maps
+  multiday    Multi-day evaluation for robust paper results (NEW!)
 
 Examples:
   python cli.py train --config config/config.yaml
   python cli.py compare --stec_experiment "Finetune_STEC_..." --vtec_experiment "Finetune_VTEC_..."
   python cli.py evaluate --experiment "Finetune_STEC_..."
+  python cli.py multiday --dates "2024-183:2024-189" --stec_config config/config.yaml --vtec_config config/config_vtec_mlp_baseline.yaml
 
 For detailed help on any command:
   python cli.py <command> --help
@@ -422,6 +514,7 @@ For detailed help on any command:
     create_inference_parser(subparsers)
     create_positioning_parser(subparsers)
     create_map_parser(subparsers)
+    create_multiday_parser(subparsers)
     
     # Parse arguments
     args = parser.parse_args()
@@ -439,6 +532,8 @@ For detailed help on any command:
         run_positioning(args)
     elif args.command == "map":
         run_map(args)
+    elif args.command == "multiday":
+        run_multiday(args)
     else:
         parser.print_help()
         sys.exit(1)

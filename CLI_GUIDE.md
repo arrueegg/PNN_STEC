@@ -153,6 +153,53 @@ python cli.py map \
 
 ---
 
+### 7. Multi-Day Evaluation
+
+Automated pipeline for training and evaluating models across multiple test days. Essential for statistically robust paper results.
+
+```bash
+# One week evaluation
+python cli.py multiday \
+    --dates "2024-183:2024-189" \
+    --stec_config config/config.yaml \
+    --vtec_config config/config_vtec_mlp_baseline.yaml
+
+# Specific days
+python cli.py multiday \
+    --dates "2024-183,2024-184,2024-185" \
+    --stec_config config/config.yaml \
+    --vtec_config config/config_vtec_mlp_baseline.yaml
+
+# Monthly evaluation for paper
+python cli.py multiday \
+    --dates "2024-183:2024-213" \
+    --stec_config config/config.yaml \
+    --vtec_config config/config_vtec_mlp_baseline.yaml \
+    --output_dir multiday_results/july_2024
+
+# Quick test
+python cli.py multiday \
+    --dates "2024-183,2024-184" \
+    --stec_config config/config.yaml \
+    --vtec_config config/config_vtec_mlp_baseline.yaml \
+    --num_inference_samples 10
+```
+
+**What it does:**
+For each date:
+1. Finetune STEC model on that day
+2. Finetune VTEC model on that day  
+3. Run comprehensive comparison (STEC vs VTEC+Mapping vs GIM)
+4. Evaluate on both own test set and Madrigal independent test
+
+Finally generates aggregate statistics, comparison plots, and summary tables.
+
+**Equivalent to:** `python src/multiday_evaluation.py --dates ...`
+
+See [MULTIDAY_EVALUATION_GUIDE.md](docs/MULTIDAY_EVALUATION_GUIDE.md) for complete documentation.
+
+---
+
 ## Common Options
 
 ### Experiment Names
