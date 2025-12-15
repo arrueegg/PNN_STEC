@@ -87,6 +87,10 @@ class MadrigalSTECDataset(Dataset):
         # Load Madrigal data
         self._load_data(max_samples)
         
+        # Check if we should return metadata
+        self.return_metadata = config.get("return_metadata", False)
+        self.metadata_fields = config.get("metadata_fields", ["station", "sat", "satele", "satazi"])
+        
     def _load_data(self, max_samples: Optional[int] = None):
         """Load and preprocess Madrigal data."""
         # Convert DOY to date
@@ -239,6 +243,33 @@ class MadrigalSTECDataset(Dataset):
         
         features = torch.tensor(feature_values, dtype=torch.float32)
         target = torch.tensor(self.data['los_tec'][idx], dtype=torch.float32)
+        
+        # Return metadata if requested
+        if self.return_metadata:
+            metadata = {}
+            for field in self.metadata_fields:
+                # Map metadata field names to data keys
+                if field == 'station':
+                    value = self.data['station'][idx] if 'station' in self.data else 'UNKNOWN'
+                elif field == 'sat':
+                    value = self.data['sat'][idx] if 'sat' in self.data else 'G00'
+                elif field == 'satele':
+                    value = self.data['satele'][idx] if 'satele' in self.data else self.data.get('elm', [0])[idx]
+                elif field == 'satazi':
+                    value = self.data['satazi'][idx] if 'satazi' in self.data else self.data.get('azm', [0])[idx]
+                elif field in self.data:
+                    value = self.data[field][idx]
+                else:
+                    value = 0.0
+                
+                # Convert to native Python types for consistency
+                if isinstance(value, (np.ndarray, np.generic)):
+                    value = value.item()
+                if isinstance(value, bytes):
+                    value = value.decode('utf-8')
+                    
+                metadata[field] = value
+            return features, target, metadata
         
         return features, target
     

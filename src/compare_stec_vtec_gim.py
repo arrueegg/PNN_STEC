@@ -64,6 +64,14 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 
+def set_test_size(config: Dict, test_size_arg: Optional[str]) -> None:
+    """Set test_size in config, using 'full' as default if not specified."""
+    if test_size_arg:
+        config['data']['test_size'] = int(test_size_arg)
+    elif 'test_size' not in config['data']:
+        config['data']['test_size'] = "full"
+
+
 def load_experiment_config(experiment_folder: str) -> Tuple[Dict, Path]:
     """Load configuration from a trained experiment."""
     experiment_dir = Path(experiment_folder)
@@ -152,7 +160,12 @@ def run_inference(
     logger,
     num_inference_samples: int = 100
 ) -> pd.DataFrame:
-    """Run inference with a model."""
+    """Run inference with a model.
+    
+    For fair comparison:
+    - Bayesian models: Use MC sampling with num_inference_samples
+    - Deterministic models: Single forward pass (num_samples=1)
+    """
     logger.info(f"🧠 Running {model_name} inference...")
     
     trainer = BaseTrainer(config, logger)
@@ -161,8 +174,11 @@ def run_inference(
     model_type = config["model"]["model_type"]
     is_bayesian = "BNN" in model_type or "Bayesian" in model_type or "FactorizedSTEC" in model_type
     samples = num_inference_samples if is_bayesian else 1
+    
+    if not is_bayesian and num_inference_samples > 1:
+        logger.info(f"   Note: {model_type} is deterministic - using 1 sample instead of {num_inference_samples}")
         
-    # Run Bayesian inference
+    # Run inference (handles both Bayesian and deterministic models)
     bayesian_results, test_df = trainer.bayesian_inference_total_uncertainty(
         model, test_loader, num_samples=samples
     )
@@ -198,7 +214,15 @@ def apply_mapping_function(
     elevations_rad = np.radians(vtec_df['satele'].values)
     
     # Get VTEC predictions
-    vtec_pred = vtec_df['pred_mean'].values
+    # Note: Column is named 'pred_stec' from inference output, but values are VTEC
+    if 'pred_stec' in vtec_df.columns:
+        vtec_pred = vtec_df['pred_stec'].values
+        var_col = 'pred_aleatoric_unc'
+    elif 'pred_mean' in vtec_df.columns:
+        vtec_pred = vtec_df['pred_mean'].values
+        var_col = 'pred_var'
+    else:
+        raise KeyError(f"Could not find prediction column. Available: {vtec_df.columns.tolist()}")
     
     # Compute mapping factor
     mapping_factors = np.array([mapper.get_mapping_factor(el) for el in elevations_rad])
@@ -207,8 +231,11 @@ def apply_mapping_function(
     stec_mapped = vtec_pred * mapping_factors
     
     # Also propagate uncertainty (variance scales with mapping factor squared)
-    if 'pred_var' in vtec_df.columns:
-        vtec_var = vtec_df['pred_var'].values
+    if var_col in vtec_df.columns:
+        vtec_var = vtec_df[var_col].values
+        # If uncertainty is std, square it first
+        if 'unc' in var_col:
+            vtec_var = vtec_var ** 2
         stec_var_mapped = vtec_var * (mapping_factors ** 2)
         vtec_df[f'{column_prefix}_stec_var'] = stec_var_mapped
     
@@ -418,7 +445,7 @@ def save_results(
         if args.vtec_experiment:
             f.write(f"VTEC Experiment: {args.vtec_experiment}\n")
         f.write(f"Mapping Function: {args.mapping_function}\n")
-        if args.include_gim:
+        if not args.no_gim:
             f.write(f"GIM Path: {args.gim_path}\n")
         f.write(f"Test Samples: {len(test_df):,}\n\n")
         
@@ -451,31 +478,77 @@ def save_results(
 
 
 def main():
-    """Main comparison workflow."""
-    parser = argparse.ArgumentParser(description="Compare STEC model(s) vs VTEC+Mapping and/or GIM")
+    """Main comparison workflow.
+    
+    Standard usage (comprehensive evaluation):
+        python src/compare_stec_vtec_gim.py \\
+            --stec_experiment "Finetune_STEC_..." \\
+            --vtec_experiment "Finetune_VTEC_..."
+    
+    Automatically evaluates on:
+    - Own test set (from training data)
+    - Madrigal independent test set (if available)
+    - VTEC+Mapping baseline (if vtec_experiment provided)
+    - IGS GIM baseline (enabled by default)
+    """
+    parser = argparse.ArgumentParser(
+        description="Comprehensive STEC Model Comparison",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Standard comprehensive evaluation (recommended)
+  python src/compare_stec_vtec_gim.py \\
+      --stec_experiment "Finetune_STEC_2024_183_FactorizedSTEC_..." \\
+      --vtec_experiment "Finetune_VTEC_2024_183_MLP_..."
+  
+  # STEC only (no VTEC baseline)
+  python src/compare_stec_vtec_gim.py \\
+      --stec_experiment "Finetune_STEC_..."
+  
+  # Quick test with subset
+  python src/compare_stec_vtec_gim.py \\
+      --stec_experiment "Finetune_STEC_..." \\
+      --vtec_experiment "Finetune_VTEC_..." \\
+      --test_size 1000 \\
+      --num_inference_samples 10
+  
+  # Skip GIM comparison
+  python src/compare_stec_vtec_gim.py \\
+      --stec_experiment "Finetune_STEC_..." \\
+      --vtec_experiment "Finetune_VTEC_..." \\
+      --no_gim
+        """
+    )
+    
+    # Required arguments
     parser.add_argument("--stec_experiment", type=str, required=True,
                        help="Path to STEC model experiment folder")
     parser.add_argument("--vtec_experiment", type=str, default=None,
                        help="Path to VTEC model experiment folder (optional)")
-    parser.add_argument("--include_gim", action="store_true",
-                       help="Include IGS GIM comparison")
+    
+    # Optional arguments with defaults for comprehensive evaluation
+    parser.add_argument("--num_inference_samples", type=int, default=100,
+                       help="Number of MC samples for Bayesian inference (default: 100)")
+    parser.add_argument("--test_size", default=None,
+                       help="Number of test samples, or None for full test set (default: None/full)")
+    
+    # Data sources (automatically evaluates on all available datasets)
+    parser.add_argument("--madrigal_path", type=str,
+                       default="/home/space/data/iono/Madrigal_STEC",
+                       help="Path to Madrigal STEC data directory (auto-evaluated if available)")
+    
+    parser.add_argument("--no_gim", action="store_true",
+                       help="Skip IGS GIM baseline comparison")
     parser.add_argument("--gim_path", type=str, 
                        default="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex",
                        help="Path to GIM/IONEX data directory")
-    parser.add_argument("--use_madrigal", action="store_true",
-                       help="Use Madrigal STEC as independent ground truth")
-    parser.add_argument("--madrigal_path", type=str,
-                       default="/home/space/data/iono/Madrigal_STEC",
-                       help="Path to Madrigal STEC data directory")
+    
+    # Other options
     parser.add_argument("--mapping_function", type=str, default="MSLM",
                        choices=["SLM", "MSLM"],
-                       help="Mapping function to use (default: MSLM)")
+                       help="Mapping function for VTEC→STEC conversion (default: MSLM)")
     parser.add_argument("--output_dir", type=str, default=None,
-                       help="Output directory for results (default: inside experiment folder)")
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                       help="Number of inference samples for Bayesian models")
-    parser.add_argument("--test_size", default=None,
-                       help="Number of test samples (for faster testing, use smaller value)")
+                       help="Additional output directory (results always saved to experiment folder)")
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -504,180 +577,244 @@ def main():
     stec_checkpoint = find_best_checkpoint(stec_dir)
     stec_model, stec_registry = load_model_from_checkpoint(stec_config, stec_checkpoint, logger)
     
-    # Decide test data source: Madrigal (independent) or original test set
-    if args.use_madrigal:
-        logger.info("\n" + "="*70)
-        logger.info("Using Madrigal STEC as Independent Test Set")
-        logger.info("="*70)
-        
-        # Get year and doy from config
-        year = stec_config.get('year', 2024)
-        doy = stec_config.get('doy', 183)
-        if stec_config.get('mode') == 'finetune':
-            year = int(year)
-            doy = int(doy)
-        else:
-            # For pretrained models, need to infer from test data
-            logger.warning("Pretrained model detected - using first observation's date")
-            raise NotImplementedError("Madrigal comparison currently only supported for finetuned models")
-        
-        # Load test station list for filtering
-        test_station_file = Path("src/data_processing/test_station.list")
-        test_stations = None
-        if test_station_file.exists():
-            with open(test_station_file, 'r') as f:
-                test_stations = [line.strip().upper() for line in f if line.strip()]
-            logger.info(f"📋 Loaded {len(test_stations)} test stations for filtering")
-        else:
-            logger.warning(f"⚠️  Test station list not found at {test_station_file}, using all stations")
-        
-        # Create Madrigal data loader for direct inference
-        from data_loader.madrigal_dataset import get_madrigal_data_loader
-        
-        madrigal_loader, madrigal_dataset = get_madrigal_data_loader(
-            madrigal_path=args.madrigal_path,
-            year=year,
-            doy=doy,
-            config=stec_config,
-            batch_size=8192,
-            num_workers=4,
-            elevation_threshold=5.0,
-            max_samples=int(args.test_size) if args.test_size else None,
-            station_list=test_stations,
-            logger=logger
-        )
-        
-        # Run inference on Madrigal data
-        logger.info("🧠 Running STEC model inference on Madrigal observations...")
-        test_df = run_inference(stec_model, madrigal_loader, stec_config, "STEC Model (Madrigal)", logger, args.num_inference_samples)
-        
-        # Rename columns for consistency
-        test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
-        
-        # Add metadata from Madrigal dataset
-        logger.info("📋 Adding Madrigal metadata to results...")
-        metadata_list = []
-        for idx in range(len(madrigal_dataset)):
-            metadata_list.append(madrigal_dataset.get_metadata(idx))
-        metadata_df = pd.DataFrame(metadata_list)
-        
-        # Merge metadata with predictions
-        for col in metadata_df.columns:
-            if col not in test_df.columns:
-                test_df[col] = metadata_df[col].values
-        
-        logger.info(f"✅ Madrigal inference completed: {len(test_df):,} observations")
+    # Determine which datasets to evaluate on
+    datasets_to_evaluate = []
     
+    # 1. Always evaluate on own test set
+    datasets_to_evaluate.append(('own', 'Own Test Set'))
+    
+    # 2. Try to evaluate on Madrigal if available and model is finetuned
+    if stec_config.get('mode') == 'finetune':
+        madrigal_path = Path(args.madrigal_path)
+        if madrigal_path.exists():
+            datasets_to_evaluate.append(('madrigal', 'Madrigal Independent Test Set'))
+        else:
+            logger.warning(f"⚠️  Madrigal path not found: {madrigal_path}, skipping Madrigal evaluation")
     else:
-        # Use original test set from training data
-        logger.info("📦 Loading test data...")
+        logger.info("ℹ️  Pretrained model detected - Madrigal evaluation only supported for finetuned models")
+    
+    logger.info(f"\n📊 Will evaluate on {len(datasets_to_evaluate)} dataset(s): {', '.join([name for _, name in datasets_to_evaluate])}")
+    
+    # Loop through each dataset
+    for dataset_type, dataset_name in datasets_to_evaluate:
+        logger.info("\n" + "="*70)
+        logger.info(f"Evaluating on: {dataset_name}")
+        logger.info("="*70)
         
-        # For finetuned models, use the single-day test data from STEC_DB_CASDCB
-        # For pretrained models, use the general test.h5
-        if stec_config.get('mode') == 'finetune':
-            logger.info(f"   Using single-day test data for finetuned model (year={stec_config.get('year')}, doy={stec_config.get('doy')})")
+        # Prepare test data based on dataset type
+        if dataset_type == 'madrigal':
+            # Get year and doy from config
+            year = int(stec_config.get('year', 2024))
+            doy = int(stec_config.get('doy', 183))
+            
+            # Load test station list for filtering
+            test_station_file = Path("src/data_processing/test_station.list")
+            test_stations = None
+            if test_station_file.exists():
+                with open(test_station_file, 'r') as f:
+                    test_stations = [line.strip().upper() for line in f if line.strip()]
+                logger.info(f"📋 Loaded {len(test_stations)} test stations for filtering")
+            else:
+                logger.warning(f"⚠️  Test station list not found at {test_station_file}, using all stations")
+            
+            # Create Madrigal data loader for direct inference
+            from data_loader.madrigal_dataset import get_madrigal_data_loader
+            
+            madrigal_loader, madrigal_dataset = get_madrigal_data_loader(
+                madrigal_path=args.madrigal_path,
+                year=year,
+                doy=doy,
+                config=stec_config,
+                batch_size=8192,
+                num_workers=4,
+                elevation_threshold=5.0,
+                max_samples=int(args.test_size) if args.test_size else None,
+                station_list=test_stations,
+                logger=logger
+            )
+            
+            # Run inference on Madrigal data
+            logger.info("🧠 Running STEC model inference on Madrigal observations...")
+            test_df = run_inference(stec_model, madrigal_loader, stec_config, "STEC Model (Madrigal)", logger, args.num_inference_samples)
+            
+            # Rename columns for consistency
+            test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
+            
+            # Add metadata from Madrigal dataset
+            logger.info("📋 Adding Madrigal metadata to results...")
+            metadata_list = []
+            for idx in range(len(madrigal_dataset)):
+                metadata_list.append(madrigal_dataset.get_metadata(idx))
+            metadata_df = pd.DataFrame(metadata_list)
+            
+            # Merge metadata with predictions
+            for col in metadata_df.columns:
+                if col not in test_df.columns:
+                    test_df[col] = metadata_df[col].values
+            
+            logger.info(f"✅ Madrigal inference completed: {len(test_df):,} observations")
+        
+        else:  # dataset_type == 'own'
+            # Use original test set from training data
+            logger.info("📦 Loading test data...")
+            
+            # For finetuned models, use the single-day test data from STEC_DB_CASDCB
+            # For pretrained models, use the general test.h5
+            if stec_config.get('mode') == 'finetune':
+                logger.info(f"   Using single-day test data for finetuned model (year={stec_config.get('year')}, doy={stec_config.get('doy')})")
+            else:
+                logger.info(f"   Using general test.h5 for pretrained model")
+            
+            # Set test size (use full test set if not specified)
+            set_test_size(stec_config, args.test_size)
+            stec_test_loader = get_test_data_loader(stec_config, logger)
+            
+            # Run STEC inference
+            test_df = run_inference(stec_model, stec_test_loader, stec_config, "STEC Model", logger, args.num_inference_samples)
+            
+            # Rename columns for consistency (pred_stec -> stec_pred, target_stec -> true_stec)
+            test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
+        
+        # Load and run VTEC model if provided
+        vtec_col = None
+        if args.vtec_experiment:
+            logger.info("\n" + "="*70)
+            logger.info("Processing VTEC Model")
+            logger.info("="*70)
+            
+            # Load VTEC config and model once (at start of loop, reuse for all datasets)
+            if not hasattr(main, '_vtec_model_loaded'):
+                vtec_config, vtec_dir = load_experiment_config(args.vtec_experiment)
+                
+                # Verify VTEC target
+                if vtec_config.get('target', 'vtec').lower() != 'vtec':
+                    raise ValueError(f"VTEC experiment must have target='vtec', got {vtec_config.get('target')}")
+                
+                vtec_config["device"] = device
+                
+                # Enable metadata return to include elevation even though it's not a model input
+                # This allows us to apply the mapping function later
+                vtec_config["return_metadata"] = True
+                vtec_config["metadata_fields"] = ["satele", "satazi", "station", "sat"]
+                
+                # Load VTEC model - this also initializes feature_registry in vtec_config
+                vtec_checkpoint = find_best_checkpoint(vtec_dir)
+                vtec_model, vtec_registry = load_model_from_checkpoint(vtec_config, vtec_checkpoint, logger)
+                
+                # Save for reuse in subsequent datasets
+                main._vtec_model_loaded = True
+                main._vtec_config = vtec_config
+                main._vtec_model = vtec_model
+            else:
+                # Reuse from previous iteration
+                vtec_config = main._vtec_config
+                vtec_model = main._vtec_model
+            
+            # Create appropriate data loader based on dataset type
+            if dataset_type == 'madrigal':
+                logger.info("🔄 Creating VTEC data loader from Madrigal observations...")
+                
+                # Reuse the same Madrigal dataset but with VTEC config
+                vtec_madrigal_loader, _ = get_madrigal_data_loader(
+                    madrigal_path=args.madrigal_path,
+                    year=year,
+                    doy=doy,
+                    config=vtec_config,
+                    batch_size=8192,
+                    num_workers=4,
+                    elevation_threshold=5.0,
+                    max_samples=int(args.test_size) if args.test_size else None,
+                    station_list=test_stations,
+                    logger=logger
+                )
+                
+                vtec_test_loader = vtec_madrigal_loader
+            else:
+                # Use separate test data for VTEC (must match STEC test size for fair comparison)
+                set_test_size(vtec_config, args.test_size)
+                vtec_test_loader = get_test_data_loader(vtec_config, logger)
+            
+            # Run VTEC inference
+            vtec_df = run_inference(vtec_model, vtec_test_loader, vtec_config, "VTEC Model", logger, args.num_inference_samples)
+            
+            # Elevation should now be available in vtec_df from metadata
+            # Apply mapping function
+            vtec_df = apply_mapping_function(vtec_df, args.mapping_function, 'vtec_model', logger)
+            
+            # Verify same number of observations for fair comparison
+            if len(vtec_df) != len(test_df):
+                raise ValueError(f"VTEC predictions ({len(vtec_df)}) don't match STEC predictions ({len(test_df)}). "
+                               "Ensure both models use the same test data.")
+            
+            # Merge VTEC results into test_df (assumes same order from same data loader)
+            test_df['vtec_model_stec'] = vtec_df['vtec_model_stec'].values
+            vtec_col = 'vtec_model_stec'
+        
+        # Add GIM comparison if requested
+        gim_col = None
+        if not args.no_gim:
+            logger.info("\n" + "="*70)
+            logger.info("Processing IGS GIM Data")
+            logger.info("="*70)
+            
+            test_df = add_gim_comparison(test_df, args.gim_path, args.mapping_function, logger)
+            gim_col = 'gim_stec'
+        
+        # Compare all models for this dataset
+        logger.info("\n" + "="*70)
+        logger.info(f"Final Comparison - {dataset_name}")
+        logger.info("="*70)
+        
+        metrics = compare_all_models(test_df, 'stec_pred', vtec_col, gim_col, logger)
+        
+        # Determine output directory
+        comparison_parts = [dataset_type]  # 'own' or 'madrigal'
+        if args.vtec_experiment:
+            comparison_parts.append("vtec")
+        if not args.no_gim:
+            comparison_parts.append("gim")
+        
+        comparison_name = "_".join(comparison_parts)
+        experiment_output_dir = stec_dir / "evaluation" / comparison_name
+        experiment_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Also save to custom output_dir if specified (only for first dataset)
+        if args.output_dir and dataset_type == datasets_to_evaluate[0][0]:
+            custom_output_dir = Path(args.output_dir)
+            custom_output_dir.mkdir(parents=True, exist_ok=True)
+            output_dirs = [experiment_output_dir, custom_output_dir]
         else:
-            logger.info(f"   Using general test.h5 for pretrained model")
+            output_dirs = [experiment_output_dir]
         
-        # Override test_size if specified in arguments, otherwise use config default
-        if args.test_size:
-            stec_config['data']['test_size'] = args.test_size
-        elif 'test_size' not in stec_config['data']:
-            # Set default if not specified
-            stec_config['data']['test_size'] = 100000
-        
-        stec_test_loader = get_test_data_loader(stec_config, logger)
-        
-        # Run STEC inference
-        test_df = run_inference(stec_model, stec_test_loader, stec_config, "STEC Model", logger, args.num_inference_samples)
-        
-        # Rename columns for consistency (pred_stec -> stec_pred, target_stec -> true_stec)
-        test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
-    
-    # Load and run VTEC model if provided
-    vtec_col = None
-    if args.vtec_experiment:
+        # Create publication-ready visualizations
         logger.info("\n" + "="*70)
-        logger.info("Processing VTEC Model")
+        logger.info("📊 Generating Publication-Ready Plots")
         logger.info("="*70)
         
-        vtec_config, vtec_dir = load_experiment_config(args.vtec_experiment)
+        for output_dir in output_dirs:
+            generate_all_plots(
+                test_df=test_df,
+                stec_col='stec_pred',
+                vtec_col=vtec_col,
+                gim_col=gim_col,
+                metrics=metrics,
+                output_dir=output_dir,
+                logger=logger
+            )
+            
+            # Save results
+            save_results(metrics, test_df, output_dir, args, logger)
         
-        # Verify VTEC target
-        if vtec_config.get('target', 'vtec').lower() != 'vtec':
-            raise ValueError(f"VTEC experiment must have target='vtec', got {vtec_config.get('target')}")
-        
-        vtec_config["device"] = device
-        vtec_config['data']['test_size'] = args.test_size
-        
-        # Load VTEC model
-        vtec_checkpoint = find_best_checkpoint(vtec_dir)
-        vtec_model, vtec_registry = load_model_from_checkpoint(vtec_config, vtec_checkpoint, logger)
-        
-        # Get VTEC test data loader
-        vtec_test_loader = get_test_data_loader(vtec_config, logger)
-        
-        # Run VTEC inference
-        vtec_df = run_inference(vtec_model, vtec_test_loader, vtec_config, "VTEC Model", logger, args.num_inference_samples)
-        
-        # Apply mapping function
-        vtec_df = apply_mapping_function(vtec_df, args.mapping_function, 'vtec_model', logger)
-        
-        # Merge VTEC results into test_df
-        test_df['vtec_model_stec'] = vtec_df['vtec_model_stec'].values
-        vtec_col = 'vtec_model_stec'
+        logger.info(f"📁 Results saved to: {experiment_output_dir.absolute()}")
+        if args.output_dir and dataset_type == datasets_to_evaluate[0][0]:
+            logger.info(f"📁 Also saved to: {custom_output_dir.absolute()}")
     
-    # Add GIM comparison if requested
-    gim_col = None
-    if args.include_gim:
-        logger.info("\n" + "="*70)
-        logger.info("Processing IGS GIM Data")
-        logger.info("="*70)
-        
-        test_df = add_gim_comparison(test_df, args.gim_path, args.mapping_function, logger)
-        gim_col = 'gim_stec'
-    
-    # Compare all models
+    # Final summary
     logger.info("\n" + "="*70)
-    logger.info("Final Comparison")
-    if args.use_madrigal:
-        logger.info("(Using Madrigal STEC as independent ground truth)")
+    logger.info("✅ All evaluations completed successfully!")
+    logger.info(f"📁 Results saved in: {stec_dir / 'evaluation'}")
     logger.info("="*70)
     
-    metrics = compare_all_models(test_df, 'stec_pred', vtec_col, gim_col, logger)
-    
-    # Determine output directory
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
-    else:
-        # Save in experiment folder by default
-        comparison_type = "Madrigal" if args.use_madrigal else "Normal"
-        output_dir = stec_dir / "evaluation" / f"{comparison_type.lower()}_comparison"
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create publication-ready visualizations
-    logger.info("\n" + "="*70)
-    logger.info("📊 Generating Publication-Ready Plots")
-    logger.info("="*70)
-    
-    generate_all_plots(
-        test_df=test_df,
-        stec_col='stec_pred',
-        vtec_col=vtec_col,
-        gim_col=gim_col,
-        metrics=metrics,
-        output_dir=output_dir,
-        logger=logger
-    )
-    
-    # Save results
-    save_results(metrics, test_df, output_dir, args, logger)
-    
-    logger.info("\n" + "="*70)
-    logger.info("✅ Comparison completed successfully!")
-    logger.info(f"📁 Results saved to: {output_dir.absolute()}")
-    logger.info("="*70)
 
 
 if __name__ == "__main__":

@@ -72,7 +72,30 @@ The models incorporate GNSS observations and Space Weather Indices (SWI) to pred
 
 ## Usage
 
-### Quick Start
+### Quick Start with CLI (Recommended)
+
+The project now includes a unified CLI for all workflows:
+
+```bash
+# Get help
+python cli.py --help
+python cli.py <command> --help
+
+# Train a model
+python cli.py train --config config/config.yaml
+
+# Compare STEC model against baselines
+python cli.py compare \
+    --stec_experiment "Finetune_STEC_..." \
+    --vtec_experiment "Finetune_VTEC_..."
+
+# Evaluate model
+python cli.py evaluate --experiment "Finetune_STEC_..."
+```
+
+See [CLI_GUIDE.md](CLI_GUIDE.md) for complete documentation.
+
+### Traditional Method
 
 1. **Configure your experiment** by editing `config/config.yaml`:
    ```yaml
@@ -83,7 +106,9 @@ The models incorporate GNSS observations and Space Weather Indices (SWI) to pred
 
 2. **Run training**:
    ```bash
-   python src/main.py
+   python src/main.py --config config/config.yaml
+   # or
+   python cli.py train --config config/config.yaml
    ```
 
 ### Configuration Options

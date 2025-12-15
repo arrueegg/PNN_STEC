@@ -23,7 +23,7 @@ doy: 183
 mode: finetune                  # Use finetune mode for single-day training
 finetune_from_scratch: true     # Train from scratch (no pretrain required)
 random_seed: 42
-debug: True  
+debug: False  
 debug_single_batch: false  
 cluster: false
 enable_timing: false
@@ -133,23 +133,6 @@ training:
   log_target: false             # Train in linear space
   log_space_point: "mean"       # For compatibility
   
-  # Scheduler
-  scheduler:
-    type: "ReduceLROnPlateau"
-    mode: "min"
-    factor: 0.5
-    patience: 5
-    min_lr: 0.000001
-  
-  # Training parameters
-  epochs: 50                    # Fewer epochs for single day
-  
-  # Early stopping
-  early_stopping:
-    enabled: true
-    patience: 10
-    min_delta: 0.0001
-  
   # Checkpointing
   save_best_only: true
   checkpoint_every: 1
@@ -159,7 +142,7 @@ training:
 
 # Pretrain configuration (required even though we use finetune mode)
 pretrain:
-  epochs: 50
+  epochs: 150
   batchsize: 2048
   num_workers: 4
   prefetch_factor: 4
@@ -172,9 +155,9 @@ pretrain:
 
 # Finetune configuration
 finetune:
-  epochs: 50
+  epochs: 150
   batchsize: 2048
-  num_workers: 4
+  num_workers: 8
   prefetch_factor: 4
   freeze_body: false            # Don't freeze anything when training from scratch
   learning_rate: 0.0001         # 1e-4
