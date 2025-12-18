@@ -29,7 +29,7 @@ import seaborn as sns
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.config_parser import parse_config
+from utils.config_parser import parse_config, compute_exp_name
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -94,8 +94,17 @@ def generate_date_list(dates_arg: str) -> List[Tuple[int, int]]:
 
 
 def create_modified_config(base_config_path: str, year: int, doy: int, 
-                          output_dir: Path, is_vtec: bool = False) -> str:
+                          output_dir: Path, is_vtec: bool = False,
+                          pretrain_folder: str = None) -> str:
     """Create modified config file for specific date.
+    
+    Args:
+        base_config_path: Path to base config
+        year: Year for this training day
+        doy: Day of year for this training day
+        output_dir: Directory to save temp config
+        is_vtec: Whether this is VTEC model (finetune from scratch)
+        pretrain_folder: Explicit pretrain folder to use (optional)
     
     Returns path to temporary config file.
     """
@@ -105,6 +114,8 @@ def create_modified_config(base_config_path: str, year: int, doy: int,
     
     # Modify for this date
     config['mode'] = 'finetune'
+    config['year'] = year  # Top-level year for experiment name generation
+    config['doy'] = doy    # Top-level doy for experiment name generation
     config['finetune']['year'] = year
     config['finetune']['doy'] = doy
     
@@ -113,6 +124,10 @@ def create_modified_config(base_config_path: str, year: int, doy: int,
         config['finetune']['finetune_from_scratch'] = True
     else:
         config['finetune']['finetune_from_scratch'] = False
+        # Set pretrain_folder if provided
+        if pretrain_folder:
+            config['pretrain_folder'] = pretrain_folder
+            logger.info(f"Using specified pretrain_folder: {pretrain_folder}")
     
     # Create temporary config file
     model_type = "vtec" if is_vtec else "stec"
@@ -122,6 +137,64 @@ def create_modified_config(base_config_path: str, year: int, doy: int,
         yaml.dump(config, f, default_flow_style=False)
     
     return str(temp_config_path)
+
+
+def ensure_pretrain_exists(base_config_path: str, output_dir: Path) -> Tuple[bool, str]:
+    """Check if pretrain experiment exists, run if not.
+    
+    Returns (success, pretrain_folder_path).
+    """
+    # Load config to determine what pretrain experiment should exist
+    with open(base_config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Temporarily set mode to pretrain to compute pretrain experiment name
+    original_mode = config['mode']
+    config['mode'] = 'pretrain'
+    
+    # Compute what the pretrain experiment name should be
+    try:
+        pretrain_exp_name = compute_exp_name(config)
+    except Exception as e:
+        logger.error(f"Failed to compute pretrain experiment name: {e}")
+        return False, None
+    
+    pretrain_folder = Path("experiments") / pretrain_exp_name
+    model_folder = pretrain_folder / "model"
+    
+    # Check if pretrain experiment exists with trained model
+    if pretrain_folder.exists() and model_folder.exists() and list(model_folder.glob("*.pth")):
+        logger.info(f"✓ Found existing pretrain experiment: {pretrain_exp_name}")
+        return True, str(pretrain_folder)
+    
+    # Pretrain doesn't exist - need to run it
+    logger.info(f"⚠️  Pretrain experiment not found: {pretrain_exp_name}")
+    logger.info("Running pretraining first...")
+    
+    # Create pretrain config
+    config['mode'] = 'pretrain'
+    temp_pretrain_config = output_dir / "temp_config_pretrain.yaml"
+    
+    with open(temp_pretrain_config, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
+    
+    # Run pretrain
+    success, exp_name = run_training(str(temp_pretrain_config))
+    
+    if not success:
+        logger.error("✗ Pretraining failed")
+        return False, None
+    
+    # Verify model was trained
+    pretrain_folder = Path("experiments") / exp_name
+    model_folder = pretrain_folder / "model"
+    
+    if not (model_folder.exists() and list(model_folder.glob("*.pth"))):
+        logger.error(f"✗ Pretrain completed but no model found in {model_folder}")
+        return False, None
+    
+    logger.info(f"✓ Pretraining completed: {exp_name}")
+    return True, str(pretrain_folder)
 
 
 def run_training(config_path: str) -> Tuple[bool, str]:
@@ -134,21 +207,50 @@ def run_training(config_path: str) -> Tuple[bool, str]:
     # Build command - use sys.executable to get current Python interpreter
     cmd = [sys.executable, "src/main.py", "--config", config_path]
     
+    # Determine log file path (in same directory as config)
+    config_path_obj = Path(config_path)
+    log_file = config_path_obj.parent / f"{config_path_obj.stem}_training.log"
+    
+    logger.info(f"Training log: {log_file}")
+    
     try:
-        result = subprocess.run(
-            cmd,
-            cwd=Path(__file__).parent.parent,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        # Disable tqdm progress bars for cleaner logs
+        env = os.environ.copy()
+        env['TQDM_DISABLE'] = '1'
+        
+        # Open log file for real-time writing
+        output_lines = []
+        with open(log_file, 'w', buffering=1) as f:  # Line buffered
+            process = subprocess.Popen(
+                cmd,
+                cwd=Path(__file__).parent.parent,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=env,
+                bufsize=1
+            )
+            
+            # Stream output line by line, filtering out tqdm progress bars
+            for line in process.stdout:
+                # Skip tqdm progress bar lines (contain progress indicators like |, %, [time])
+                if not (('|' in line and '%' in line and 'it/s' in line) or 
+                       (line.strip().startswith('Training:') and '%|' in line) or
+                       (line.strip().startswith('Validation:') and '%|' in line)):
+                    f.write(line)
+                    f.flush()
+                output_lines.append(line.rstrip())
+            
+            # Wait for process to complete
+            return_code = process.wait()
+            
+            if return_code != 0:
+                raise subprocess.CalledProcessError(return_code, cmd)
         
         # Extract experiment name from output
-        # Look for "Experiment directory: experiments/..."
         experiment_name = None
-        for line in result.stdout.split('\n') + result.stderr.split('\n'):
+        for line in output_lines:
             if "Experiment directory:" in line or "experiment_dir" in line.lower():
-                # Extract experiment folder name
                 if "experiments/" in line:
                     parts = line.split("experiments/")
                     if len(parts) > 1:
@@ -166,9 +268,13 @@ def run_training(config_path: str) -> Tuple[bool, str]:
         return True, experiment_name
     
     except subprocess.CalledProcessError as e:
+        logger.error(f"✗ Training failed with exit code {e.returncode}")
+        return False, None
+    
+    except Exception as e:
         logger.error(f"✗ Training failed: {e}")
-        logger.error(f"stdout: {e.stdout}")
-        logger.error(f"stderr: {e.stderr}")
+        with open(log_file, 'a') as f:
+            f.write(f"\n\n=== ERROR ===\n{e}\n")
         return False, None
 
 
@@ -462,6 +568,8 @@ Date formats supported:
                        help="Test set size (default: full)")
     parser.add_argument("--skip_training", action="store_true",
                        help="Skip training, only run evaluation (experiments must exist)")
+    parser.add_argument("--pretrain_folder", type=str, default=None,
+                       help="Pretrain experiment folder to use for STEC model (optional, auto-runs pretrain if needed)")
     
     args = parser.parse_args()
     
@@ -502,10 +610,23 @@ Date formats supported:
         }
         
         if not args.skip_training:
+            # Step 0: Ensure pretrain exists for STEC (only check once, first day)
+            pretrain_folder = args.pretrain_folder
+            if pretrain_folder is None and (year, doy) == dates[0]:
+                logger.info("\n[0/3] Checking pretrain experiment...")
+                pretrain_success, pretrain_folder = ensure_pretrain_exists(args.stec_config, date_dir)
+                if not pretrain_success:
+                    logger.error("✗ Failed to ensure pretrain experiment exists, aborting")
+                    break
+                # Use this pretrain folder for all subsequent days
+                args.pretrain_folder = pretrain_folder
+                pretrain_folder = args.pretrain_folder
+            
             # Step 1: Train STEC model
             logger.info(f"\n[1/3] Training STEC model for {date_str}")
             stec_config = create_modified_config(args.stec_config, year, doy, 
-                                                date_dir, is_vtec=False)
+                                                date_dir, is_vtec=False,
+                                                pretrain_folder=pretrain_folder)
             stec_success, stec_exp = run_training(stec_config)
             
             if not stec_success:
