@@ -91,8 +91,9 @@ model:
   num_heads: 4        # Number of attention heads (must divide hidden_dim, default: 4)
 
 training:
-  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.1                  # Weight for the loss function
+  loss_function: "GaussianNLLLoss"  # Options: MSELoss, MAELoss, GaussianNLLLoss, FairCRPS
+  crps_num_samples: 16              # Number of stochastic samples for FairCRPS loss (must be >= 2)
+  loss_weight: 0.1                  # Weight for the loss function (for KL divergence)
 
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:

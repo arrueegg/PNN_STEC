@@ -10,6 +10,7 @@ Extracted from BaseTrainer to separate training execution concerns.
 import torch
 from tqdm import tqdm
 from utils.metrics import calculate_metrics
+from utils.loss_function import FairCRPSLoss
 
 
 class TrainManager:
@@ -24,6 +25,11 @@ class TrainManager:
 
         # Training configuration
         self.use_log_target = config["training"].get("log_target", True)
+        self.loss_function = config["training"].get("loss_function", "GaussianNLLLoss")
+        self.crps_num_samples = config["training"].get("crps_num_samples", 16)
+        
+        # Initialize CRPS loss if needed
+        self.crps_criterion = FairCRPSLoss() if self.loss_function == "FairCRPS" else None
 
     def train_epoch(
         self,
@@ -54,25 +60,59 @@ class TrainManager:
 
             optimizer.zero_grad()
 
-            # Forward pass
-            outputs = model(inputs)
-            pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(outputs)
+            # Check if we're using CRPS loss
+            if self.loss_function == "FairCRPS":
+                # Multiple stochastic forward passes for CRPS
+                samples_list = []
+                for _ in range(self.crps_num_samples):
+                    outputs = model(inputs)
+                    pred_mean_raw, _ = self.data_transforms.compute_mean_var(outputs)
+                    samples_list.append(pred_mean_raw.flatten())
+                
+                # Stack samples: [N, B]
+                samples = torch.stack(samples_list, dim=0)
+                
+                # Compute CRPS loss
+                crps_loss = self.crps_criterion(samples, training_targets)
+                
+                # Add KL divergence (same as for GaussianNLL)
+                kld_loss = criterion_kld(model)
+                current_kl_weight = self.training_utils.get_current_kl_weight(epoch)
+                loss = crps_loss + current_kl_weight * kld_loss
+                
+                # For logging: use mean of samples as prediction
+                pred_mean_raw = samples.mean(dim=0)
+                pred_var_raw = samples.var(dim=0)
+                
+                # Compute auxiliary losses for logging (no gradient)
+                with torch.no_grad():
+                    mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                    nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                
+            else:
+                # Standard forward pass for Gaussian NLL or MSE
+                outputs = model(inputs)
+                pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(outputs)
 
-            pred_mean_raw = pred_mean_raw.flatten()
-            pred_var_raw = pred_var_raw.flatten()
+                pred_mean_raw = pred_mean_raw.flatten()
+                pred_var_raw = pred_var_raw.flatten()
 
-            # Loss computation
-            mse_loss = criterion_mse(pred_mean_raw, training_targets)
-            nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
-            kld_loss = criterion_kld(model)
+                # Loss computation
+                mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                kld_loss = criterion_kld(model)
 
-            # Use annealed KL weight
-            current_kl_weight = self.training_utils.get_current_kl_weight(epoch)
+                # Use annealed KL weight
+                current_kl_weight = self.training_utils.get_current_kl_weight(epoch)
 
-            if self.config["training"]["loss_function"] == "GaussianNLLLoss":
-                loss = nll_loss + current_kl_weight * kld_loss
-            elif self.config["training"]["loss_function"] == "MSELoss":
-                loss = mse_loss
+                # Select loss based on loss_function
+                if self.loss_function == "GaussianNLLLoss":
+                    loss = nll_loss + current_kl_weight * kld_loss
+                elif self.loss_function == "MSELoss":
+                    loss = mse_loss
+                else:
+                    # Default to GaussianNLL for backward compatibility
+                    loss = nll_loss + current_kl_weight * kld_loss
 
             # Backward pass
             loss.backward()
@@ -151,23 +191,57 @@ class TrainManager:
 
             optimizer.zero_grad()
 
-            # Forward pass through ensemble
-            outputs = model(inputs)
-            pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(outputs)
+            # Check if we're using CRPS loss
+            if self.loss_function == "FairCRPS":
+                # Multiple stochastic forward passes for CRPS
+                samples_list = []
+                for _ in range(self.crps_num_samples):
+                    outputs = model(inputs)
+                    pred_mean_raw, _ = self.data_transforms.compute_mean_var(outputs)
+                    samples_list.append(pred_mean_raw.flatten())
+                
+                # Stack samples: [N, B]
+                samples = torch.stack(samples_list, dim=0)
+                
+                # Compute CRPS loss
+                crps_loss = self.crps_criterion(samples, training_targets)
+                
+                # Add KL divergence with annealing
+                kld_loss = criterion_kld(model)
+                current_kl_weight = self.training_utils.get_current_kl_weight(epoch)
+                loss = crps_loss + current_kl_weight * kld_loss
+                
+                # For logging: use mean of samples as prediction
+                pred_mean_raw = samples.mean(dim=0)
+                pred_var_raw = samples.var(dim=0)
+                
+                # Compute auxiliary losses for logging (no gradient)
+                with torch.no_grad():
+                    mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                    nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                
+            else:
+                # Standard forward pass for Gaussian NLL or MSE
+                outputs = model(inputs)
+                pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(outputs)
 
-            pred_mean_raw = pred_mean_raw.flatten()
-            pred_var_raw = pred_var_raw.flatten()
+                pred_mean_raw = pred_mean_raw.flatten()
+                pred_var_raw = pred_var_raw.flatten()
 
-            # Loss computation
-            mse_loss = criterion_mse(pred_mean_raw, training_targets)
-            nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
-            kld_loss = criterion_kld(model)
+                # Loss computation
+                mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                kld_loss = criterion_kld(model)
 
-            # For ensemble models, KL divergence might be handled differently
-            if self.config["training"]["loss_function"] == "GaussianNLLLoss":
-                loss = nll_loss + kld_loss
-            elif self.config["training"]["loss_function"] == "MSELoss":
-                loss = mse_loss
+                # For ensemble models, KL divergence might be handled differently
+                # Select loss based on loss_function
+                if self.loss_function == "GaussianNLLLoss":
+                    loss = nll_loss + kld_loss
+                elif self.loss_function == "MSELoss":
+                    loss = mse_loss
+                else:
+                    # Default to GaussianNLL for backward compatibility
+                    loss = nll_loss + kld_loss
 
             # Backward pass
             loss.backward()

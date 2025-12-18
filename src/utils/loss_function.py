@@ -3,6 +3,67 @@ import torch.nn as nn
 import torchbnn as bnn
 
 
+class FairCRPSLoss(nn.Module):
+    """
+    Fair CRPS (Continuous Ranked Probability Score) loss for probabilistic regression.
+    
+    Fair CRPS definition (per sample b in batch, scalar target y_b):
+        fCRPS(s_{1:N}, y) = (1/N) * sum_n |s_n - y|  -  (1 / (2*N*(N-1))) * sum_{n != m} |s_n - s_m|
+    
+    This loss requires multiple stochastic forward passes through the model to generate
+    N samples per input. It encourages both accuracy (first term) and diversity (second term).
+    
+    Args:
+        samples: Tensor of shape [N, B] or [N, B, 1] where N is number of stochastic samples
+                 and B is batch size
+        y: Target tensor of shape [B] or [B, 1]
+    
+    Returns:
+        Scalar loss tensor (mean over batch)
+    
+    Raises:
+        ValueError: If N < 2 (degenerates to MAE and defeats probabilistic training)
+    """
+    
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, samples: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # Squeeze trailing singleton dims for robustness
+        if samples.dim() == 3 and samples.size(-1) == 1:
+            samples = samples.squeeze(-1)  # [N, B]
+        if y.dim() == 2 and y.size(-1) == 1:
+            y = y.squeeze(-1)              # [B]
+
+        assert samples.dim() == 2, f"samples must be [N,B], got {samples.shape}"
+        assert y.dim() == 1, f"y must be [B], got {y.shape}"
+
+        N, B = samples.shape
+        if N < 2:
+            raise ValueError(
+                f"FairCRPSLoss requires N >= 2 samples per input (got N={N}). "
+                "N==1 degenerates to MAE and defeats probabilistic training."
+            )
+
+        y = y.view(1, B)  # [1, B]
+
+        # term1: mean_n |s_n - y|
+        term1 = torch.mean(torch.abs(samples - y), dim=0)  # [B]
+
+        # term2: (1 / (2*N*(N-1))) * sum_{n!=m} |s_n - s_m|
+        # Compute pairwise differences: [N, N, B]
+        diffs = torch.abs(samples.unsqueeze(1) - samples.unsqueeze(0))  # [N, N, B]
+        
+        # Sum all pairwise differences and subtract diagonal (where n==m)
+        # Create mask for off-diagonal elements
+        mask = ~torch.eye(N, dtype=torch.bool, device=samples.device).unsqueeze(2)  # [N, N, 1]
+        off_diag_sum = (diffs * mask).sum(dim=(0, 1))  # [B]
+        
+        term2 = off_diag_sum / (2.0 * N * (N - 1))  # [B]
+
+        return (term1 - term2).mean()  # scalar
+
+
 class WeightedMSELoss(nn.Module):
     def __init__(self, weight_function="linear"):
         super().__init__()

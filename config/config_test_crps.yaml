@@ -1,0 +1,111 @@
+# Quick training test configuration for FairCRPS loss
+# This is a minimal config for testing the CRPS loss implementation
+
+project_name: "PNN_STEC_CRPS_TEST"
+output_dir: "experiments/"
+year: 2024
+doy: 183
+mode: pretrain
+random_seed: 42
+debug: True  # Enable debug mode for faster testing
+debug_single_batch: True  # Only run one batch for quick testing
+cluster: False
+
+# Feature Control
+feature_control:
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+  sm_lat_sta: true
+  sm_lon_sta: true
+  lat_sta: true
+  lon_sta: true
+  lat_ipp: true
+  lon_ipp: true
+  sm_lat_ipp: true
+  sm_lon_ipp: true
+  satazi: true
+  satele: true
+  Kp_index: true
+  R_Sunspot_No: true
+  Dst-index,_nT: true
+  AE-index,_nT: true
+  ap_index,_nT: true
+  f107_index: true
+
+wandb:
+  offline: True
+
+evaluation:
+  enable_scenarios: False
+
+target: "stec"
+
+data:
+  GNSS_data_path: "/home/space/data/iono/STEC_DB_CASDCB"
+  use_agg_h5: True
+  scratch_dir: "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/home/space/data/iono/SWI/"
+  move_to_scratch: True
+  every_x_doy: 1
+  use_SWI: True
+  SH_degree: 5
+  min_elevation: 5.0
+  max_elevation: 90.0
+  shuffle: True
+  train_subset_size: 1000  # Small subset for quick testing
+  val_size: 1000
+  test_size: 1000
+
+model:
+  model_type: BNN_NLL  # Simple Bayesian model
+  hidden_dim: 128      # Smaller for faster testing
+  num_layers: 2        # Fewer layers for faster testing
+  prior_sigma: 0.1
+  dropout_rate: 0.0
+
+training:
+  loss_function: "FairCRPS"  # Test the new CRPS loss!
+  crps_num_samples: 8        # Use 8 samples for quick testing
+  loss_weight: 0.1
+  
+  kl_annealing:
+    enabled: true
+    warmup_epochs: 2
+    start_weight: 0.0
+    end_weight: 0.1
+
+  target_weighting:
+    enabled: false
+    weight_function: "linear"
+
+  optimizer: "Adam"
+  weight_decay: 0.0
+  standardize_targets: False
+  log_target: False
+  log_space_point: "mean"
+
+pretrain:
+  epochs: 2  # Just 2 epochs for testing
+  batchsize: 128
+  num_workers: 4
+  prefetch_factor: 2
+  learning_rate: 0.001
+  scheduler: none
+  scheduler_step_size: 150
+  early_stopping: false
+  patience: 20
+  save_model_every_epoch: False
+
+finetune:
+  freeze_body: True
+  epochs: 1
+  batchsize: 128
+  num_workers: 4
+  learning_rate: 0.0001
+  scheduler: none
+  scheduler_step_size: 100
+  early_stopping: false
+  patience: 15
+  save_model_every_epoch: False

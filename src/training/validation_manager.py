@@ -11,6 +11,7 @@ import torch
 from tqdm import tqdm
 from utils.metrics import calculate_metrics
 from utils.feature_registry import FeatureType
+from utils.loss_function import FairCRPSLoss
 
 
 class ValidationManager:
@@ -25,6 +26,11 @@ class ValidationManager:
 
         # Training configuration
         self.use_log_target = config["training"].get("log_target", True)
+        self.loss_function = config["training"].get("loss_function", "GaussianNLLLoss")
+        self.crps_num_samples = config["training"].get("crps_num_samples", 16)
+        
+        # Initialize CRPS loss if needed
+        self.crps_criterion = FairCRPSLoss() if self.loss_function == "FairCRPS" else None
 
     def validate_epoch(
         self, model, dataloader, criterion_mse, criterion_nll, criterion_kld, epoch=0
@@ -44,27 +50,64 @@ class ValidationManager:
                     self.data_transforms.targets_to_training_space(targets)
                 )
 
-                outputs = model(inputs)
-                pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(
-                    outputs
-                )
+                # Check if we're using CRPS loss
+                if self.loss_function == "FairCRPS":
+                    # Multiple stochastic forward passes for CRPS
+                    # Temporarily set to train mode for stochastic sampling
+                    was_training = model.training
+                    model.train()
+                    
+                    samples_list = []
+                    for _ in range(self.crps_num_samples):
+                        outputs = model(inputs)
+                        pred_mean_raw, _ = self.data_transforms.compute_mean_var(outputs)
+                        samples_list.append(pred_mean_raw.flatten())
+                    
+                    # Restore original mode
+                    if not was_training:
+                        model.eval()
+                    
+                    # Stack samples: [N, B]
+                    samples = torch.stack(samples_list, dim=0)
+                    
+                    # Compute CRPS loss (NOTE: KL divergence NOT included in loss)
+                    loss = self.crps_criterion(samples, training_targets)
+                    
+                    # For logging: use mean of samples as prediction
+                    pred_mean_raw = samples.mean(dim=0)
+                    pred_var_raw = samples.var(dim=0)
+                    
+                    # Compute auxiliary losses for logging
+                    mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                    nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                    kld_loss = criterion_kld(model)
+                    
+                else:
+                    # Standard forward pass
+                    outputs = model(inputs)
+                    pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(
+                        outputs
+                    )
 
-                pred_mean_raw = pred_mean_raw.flatten()
-                pred_var_raw = pred_var_raw.flatten()
+                    pred_mean_raw = pred_mean_raw.flatten()
+                    pred_var_raw = pred_var_raw.flatten()
 
-                # Losses in training space
-                mse_loss = criterion_mse(pred_mean_raw, training_targets)
-                nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
-                kld_loss = criterion_kld(model)
+                    # Losses in training space
+                    mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                    nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                    kld_loss = criterion_kld(model)
 
-                # Use same annealed KL weight as training
-                current_kl_weight = self.training_utils.get_current_kl_weight(epoch)
+                    # Use same annealed KL weight as training
+                    current_kl_weight = self.training_utils.get_current_kl_weight(epoch)
 
-                # Use same loss calculation logic as training
-                if self.config["training"]["loss_function"] == "GaussianNLLLoss":
-                    loss = nll_loss + current_kl_weight * kld_loss
-                elif self.config["training"]["loss_function"] == "MSELoss":
-                    loss = mse_loss
+                    # Use same loss calculation logic as training
+                    if self.loss_function == "GaussianNLLLoss":
+                        loss = nll_loss + current_kl_weight * kld_loss
+                    elif self.loss_function == "MSELoss":
+                        loss = mse_loss
+                    else:
+                        # Default to GaussianNLL for backward compatibility
+                        loss = nll_loss + current_kl_weight * kld_loss
 
                 # Accumulate losses
                 running_loss += loss.item()
@@ -129,26 +172,62 @@ class ValidationManager:
                     self.data_transforms.targets_to_training_space(targets)
                 )
 
-                # Get ensemble prediction (aggregated)
-                outputs = model(inputs)
-                pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(
-                    outputs
-                )
+                # Check if we're using CRPS loss
+                if self.loss_function == "FairCRPS":
+                    # Multiple stochastic forward passes for CRPS
+                    # Temporarily set to train mode for stochastic sampling
+                    was_training = model.training
+                    model.train()
+                    
+                    samples_list = []
+                    for _ in range(self.crps_num_samples):
+                        outputs = model(inputs)
+                        pred_mean_raw, _ = self.data_transforms.compute_mean_var(outputs)
+                        samples_list.append(pred_mean_raw.flatten())
+                    
+                    # Restore original mode
+                    if not was_training:
+                        model.eval()
+                    
+                    # Stack samples: [N, B]
+                    samples = torch.stack(samples_list, dim=0)
+                    
+                    # Compute CRPS loss (NOTE: KL divergence NOT included for ensembles)
+                    loss = self.crps_criterion(samples, training_targets)
+                    
+                    # For logging: use mean of samples as prediction
+                    pred_mean_raw = samples.mean(dim=0)
+                    pred_var_raw = samples.var(dim=0)
+                    
+                    # Compute auxiliary losses for logging
+                    mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                    nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                    kld_loss = torch.tensor(0.0, device=self.device)  # No KL loss for ensembles
+                    
+                else:
+                    # Get ensemble prediction (aggregated)
+                    outputs = model(inputs)
+                    pred_mean_raw, pred_var_raw = self.data_transforms.compute_mean_var(
+                        outputs
+                    )
 
-                pred_mean_raw = pred_mean_raw.flatten()
-                pred_var_raw = pred_var_raw.flatten()
+                    pred_mean_raw = pred_mean_raw.flatten()
+                    pred_var_raw = pred_var_raw.flatten()
 
-                # Losses in training space
-                mse_loss = criterion_mse(pred_mean_raw, training_targets)
-                nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
-                kld_loss = torch.tensor(
-                    0.0, device=self.device
-                )  # No KL loss for MLP ensembles
+                    # Losses in training space
+                    mse_loss = criterion_mse(pred_mean_raw, training_targets)
+                    nll_loss = criterion_nll(pred_mean_raw, training_targets, pred_var_raw)
+                    kld_loss = torch.tensor(
+                        0.0, device=self.device
+                    )  # No KL loss for MLP ensembles
 
-                if self.config["training"]["loss_function"] == "GaussianNLLLoss":
-                    loss = nll_loss
-                elif self.config["training"]["loss_function"] == "MSELoss":
-                    loss = mse_loss
+                    if self.loss_function == "GaussianNLLLoss":
+                        loss = nll_loss
+                    elif self.loss_function == "MSELoss":
+                        loss = mse_loss
+                    else:
+                        # Default to GaussianNLL
+                        loss = nll_loss
 
                 # Accumulate losses
                 running_loss += loss.item()
