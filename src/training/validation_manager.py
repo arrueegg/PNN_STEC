@@ -344,28 +344,34 @@ class ValidationManager:
             for feature_name in feature_names:
                 if feature_type == FeatureType.TEMPORAL:
                     if feature_name == "year":
-                        norm_idx = output_indices[f"{feature_name}_norm"]
-                        rescaled_features[feature_name] = (
-                            feature_registry.denormalize_feature(
-                                feature_name, x[:, norm_idx]
+                        norm_key = f"{feature_name}_norm"
+                        if norm_key in output_indices:
+                            norm_idx = output_indices[norm_key]
+                            rescaled_features[feature_name] = (
+                                feature_registry.denormalize_feature(
+                                    feature_name, x[:, norm_idx]
+                                )
                             )
-                        )
-                    elif feature_name in ["doy", "sod"]:
+                    elif feature_name in ["doy", "sod", "local_time_hours"]:
                         # For cyclic features, we use the normalized version for inverse transform
-                        norm_idx = output_indices[f"{feature_name}_norm"]
-                        rescaled_features[feature_name] = (
-                            feature_registry.denormalize_feature(
-                                feature_name, x[:, norm_idx]
+                        norm_key = f"{feature_name}_norm"
+                        if norm_key in output_indices:
+                            norm_idx = output_indices[norm_key]
+                            rescaled_features[feature_name] = (
+                                feature_registry.denormalize_feature(
+                                    feature_name, x[:, norm_idx]
+                                )
                             )
-                        )
 
                 elif feature_type == FeatureType.STATION:
-                    norm_idx = output_indices[f"{feature_name}_norm"]
-                    rescaled_features[feature_name] = (
-                        feature_registry.denormalize_feature(
-                            feature_name, x[:, norm_idx]
+                    norm_key = f"{feature_name}_norm"
+                    if norm_key in output_indices:
+                        norm_idx = output_indices[norm_key]
+                        rescaled_features[feature_name] = (
+                            feature_registry.denormalize_feature(
+                                feature_name, x[:, norm_idx]
+                            )
                         )
-                    )
 
                 elif feature_type == FeatureType.DIRECTION:
                     if feature_name == "satazi":
@@ -421,20 +427,25 @@ class ValidationManager:
                             rescaled_features[feature_name] = torch.full((x.size(0),), float('nan'))
 
                 elif feature_type == FeatureType.IPP:
-                    norm_idx = output_indices[f"{feature_name}_norm"]
-                    rescaled_features[feature_name] = (
-                        feature_registry.denormalize_feature(
-                            feature_name, x[:, norm_idx]
+                    norm_key = f"{feature_name}_norm"
+                    # Only process if the feature exists in output_indices (it's enabled)
+                    if norm_key in output_indices:
+                        norm_idx = output_indices[norm_key]
+                        rescaled_features[feature_name] = (
+                            feature_registry.denormalize_feature(
+                                feature_name, x[:, norm_idx]
+                            )
                         )
-                    )
 
                 elif feature_type == FeatureType.SWI:
-                    norm_idx = output_indices[f"{feature_name}_norm"]
-                    rescaled_features[feature_name] = (
-                        feature_registry.denormalize_feature(
-                            feature_name, x[:, norm_idx]
+                    norm_key = f"{feature_name}_norm"
+                    if norm_key in output_indices:
+                        norm_idx = output_indices[norm_key]
+                        rescaled_features[feature_name] = (
+                            feature_registry.denormalize_feature(
+                                feature_name, x[:, norm_idx]
+                            )
                         )
-                    )
 
         # Convert to tensor and return in a consistent order
         feature_list = []

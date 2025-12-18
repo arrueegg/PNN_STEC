@@ -54,13 +54,13 @@ data:
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True
-  train_subset_size: 1000  # Small subset for quick testing
-  val_size: 1000
-  test_size: 1000
+  train_subset_size: 100000  # Small subset for quick testing
+  val_size: 100000
+  test_size: 1000000
 
 model:
-  model_type: BNN_NLL  # Simple Bayesian model
-  hidden_dim: 128      # Smaller for faster testing
+  model_type: BayesianResNetSTEC  # Simple Bayesian model
+  hidden_dim: 256      # Smaller for faster testing
   num_layers: 2        # Fewer layers for faster testing
   prior_sigma: 0.1
   dropout_rate: 0.0
@@ -88,7 +88,7 @@ training:
 
 pretrain:
   epochs: 2  # Just 2 epochs for testing
-  batchsize: 128
+  batchsize: 512
   num_workers: 4
   prefetch_factor: 2
   learning_rate: 0.001

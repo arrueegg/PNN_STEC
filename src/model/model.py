@@ -1679,13 +1679,19 @@ def get_model(config):
     if sh_degree > 0:
         # Check if station features are available
         has_station_features = len(station_features) > 0
+        # Check if IPP features are available
+        has_ipp_features = len(ipp_features) > 0
         
-        if has_station_features:
-            # STEC: Station geo + Station SM + IPP geo + IPP SM = 4 locations
+        if has_station_features and has_ipp_features:
+            # STEC with IPP: Station geo + Station SM + IPP geo + IPP SM = 4 locations
             total_sh_dim = 4 * sh_dim_per_location
-        else:
+        elif has_station_features:
+            # STEC without IPP: Station geo + Station SM = 2 locations
+            total_sh_dim = 2 * sh_dim_per_location
+        elif has_ipp_features:
             # VTEC: IPP geo + IPP SM = 2 locations
             total_sh_dim = 2 * sh_dim_per_location
+        # else: no SH embeddings at all
 
     # Total input features after all transformations
     in_features = (

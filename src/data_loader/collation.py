@@ -124,11 +124,12 @@ class CollateWithSH:
                     output_indices[f"{feature_name}_norm"] = current_idx
                     current_idx += 1
 
-        # IPP features
+        # IPP features - only add if there are enabled IPP features
         ipp_features = self.feature_registry.get_feature_names(FeatureType.IPP)
-        for feature_name in ipp_features:
-            output_indices[f"{feature_name}_norm"] = current_idx
-            current_idx += 1
+        if ipp_features:
+            for feature_name in ipp_features:
+                output_indices[f"{feature_name}_norm"] = current_idx
+                current_idx += 1
 
         # SH embeddings if enabled
         if self.sh_enabled:
@@ -139,6 +140,8 @@ class CollateWithSH:
             has_station_features = (
                 len(self.feature_registry.get_feature_names(FeatureType.STATION)) > 0
             )
+            # Check if IPP features are available
+            has_ipp_features = len(ipp_features) > 0
 
             # Store ranges for SH embeddings - only include station SH if station features available
             if has_station_features:
@@ -147,8 +150,12 @@ class CollateWithSH:
             else:
                 output_indices["sh_sta_geo"] = None
 
-            output_indices["sh_ipp_geo"] = slice(current_idx, current_idx + sh_dim)
-            current_idx += sh_dim
+            # Only add IPP SH embeddings if IPP features are available
+            if has_ipp_features:
+                output_indices["sh_ipp_geo"] = slice(current_idx, current_idx + sh_dim)
+                current_idx += sh_dim
+            else:
+                output_indices["sh_ipp_geo"] = None
 
             if has_station_features:
                 output_indices["sh_sta_sm"] = slice(current_idx, current_idx + sh_dim)
@@ -156,8 +163,12 @@ class CollateWithSH:
             else:
                 output_indices["sh_sta_sm"] = None
 
-            output_indices["sh_ipp_sm"] = slice(current_idx, current_idx + sh_dim)
-            current_idx += sh_dim
+            # Only add IPP SM SH embeddings if IPP features are available
+            if has_ipp_features:
+                output_indices["sh_ipp_sm"] = slice(current_idx, current_idx + sh_dim)
+                current_idx += sh_dim
+            else:
+                output_indices["sh_ipp_sm"] = None
 
         # SWI features
         swi_features = self.feature_registry.get_feature_names(FeatureType.SWI)
@@ -273,6 +284,10 @@ class CollateWithSH:
     def transform_ipp(self, features):
         """Transform IPP features"""
         ipp_features = self.feature_registry.get_feature_names(FeatureType.IPP)
+        
+        if not ipp_features:
+            return None
+        
         transformed_features = []
 
         for feature_name in ipp_features:
@@ -316,6 +331,14 @@ class CollateWithSH:
         has_sm_station_features = (
             "sm_lon_sta" in self.input_indices and "sm_lat_sta" in self.input_indices
         )
+        
+        # Check if IPP features are available
+        has_ipp_features = (
+            "lon_ipp" in self.input_indices and "lat_ipp" in self.input_indices
+        )
+        has_sm_ipp_features = (
+            "sm_lon_ipp" in self.input_indices and "sm_lat_ipp" in self.input_indices
+        )
 
         # Station SH embeddings (use geographic coordinates for SH) - only if station features available
         if has_station_features:
@@ -326,11 +349,14 @@ class CollateWithSH:
         else:
             sh_sta_geo = None
 
-        # IPP SH embeddings (use geographic coordinates for SH)
-        ipp_lon = features[:, self.input_indices["lon_ipp"]]
-        ipp_lat = features[:, self.input_indices["lat_ipp"]]
-        ipp_lonlat = torch.stack([ipp_lon, ipp_lat], dim=1)
-        sh_ipp_geo = self.sh_encoder(ipp_lonlat)
+        # IPP SH embeddings (use geographic coordinates for SH) - only if IPP features available
+        if has_ipp_features:
+            ipp_lon = features[:, self.input_indices["lon_ipp"]]
+            ipp_lat = features[:, self.input_indices["lat_ipp"]]
+            ipp_lonlat = torch.stack([ipp_lon, ipp_lat], dim=1)
+            sh_ipp_geo = self.sh_encoder(ipp_lonlat)
+        else:
+            sh_ipp_geo = None
 
         # Station SH embedding (use solar magnetic coordinates for SH) - only if station features available
         if has_sm_station_features:
@@ -341,11 +367,14 @@ class CollateWithSH:
         else:
             sh_sta_sm = None
 
-        # IPP SH embedding (use solar magnetic coordinates for SH)
-        sm_lon_ipp = features[:, self.input_indices["sm_lon_ipp"]]
-        sm_lat_ipp = features[:, self.input_indices["sm_lat_ipp"]]
-        sm_lonlat_ipp = torch.stack([sm_lon_ipp, sm_lat_ipp], dim=1)
-        sh_ipp_sm = self.sh_encoder(sm_lonlat_ipp)
+        # IPP SH embedding (use solar magnetic coordinates for SH) - only if IPP features available
+        if has_sm_ipp_features:
+            sm_lon_ipp = features[:, self.input_indices["sm_lon_ipp"]]
+            sm_lat_ipp = features[:, self.input_indices["sm_lat_ipp"]]
+            sm_lonlat_ipp = torch.stack([sm_lon_ipp, sm_lat_ipp], dim=1)
+            sh_ipp_sm = self.sh_encoder(sm_lonlat_ipp)
+        else:
+            sh_ipp_sm = None
 
         # Return in the order expected by _compute_and_store_output_indices
         return sh_sta_geo, sh_ipp_geo, sh_sta_sm, sh_ipp_sm
@@ -387,17 +416,22 @@ class CollateWithSH:
         if direction_transformed is not None:
             output_features.append(direction_transformed)
 
-        output_features.append(ipp_transformed)
+        # Add IPP features if they exist
+        if ipp_transformed is not None:
+            output_features.append(ipp_transformed)
 
         # Add SH embeddings if computed (in the exact order from _compute_and_store_output_indices)
         if self.sh_enabled:
             # Only add station SH embeddings if they exist (they're excluded for VTEC)
             if sh_sta_geo is not None:
                 output_features.append(sh_sta_geo)
-            output_features.append(sh_ipp_geo)
+            # Only add IPP SH embeddings if they exist (they're excluded when IPP features are disabled)
+            if sh_ipp_geo is not None:
+                output_features.append(sh_ipp_geo)
             if sh_sta_sm is not None:
                 output_features.append(sh_sta_sm)
-            output_features.append(sh_ipp_sm)
+            if sh_ipp_sm is not None:
+                output_features.append(sh_ipp_sm)
 
         # Add SWI features if available
         if swi_transformed is not None:
