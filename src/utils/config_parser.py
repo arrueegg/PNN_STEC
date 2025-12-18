@@ -215,13 +215,26 @@ def compute_exp_name(config: dict) -> str:
     swi_str = "_SWI" if use_swi else ""
     log_str = "_logTgt" if log_target else ""
     tw_str = f"_TW{target_weighting_function}" if target_weighting_enabled else ""
+    
+    # Feature control suffixes (only add when features are disabled)
+    feature_control = config.get("feature_control", {})
+    feature_str = ""
+    
+    # Check if year is disabled
+    if not feature_control.get("year", True):
+        feature_str += "_woYear"
+    
+    # Check if all IPP features are disabled
+    ipp_features = ["lat_ipp", "lon_ipp", "sm_lat_ipp", "sm_lon_ipp"]
+    if all(not feature_control.get(feat, True) for feat in ipp_features):
+        feature_str += "_woIPP"
 
     if mode == "finetune":
         doy_str = str(config["doy"]).zfill(3)
         year_str = str(config["year"])
-        exp_name = f"Finetune_{target}_{year_str}_{doy_str}_{model}_h{hidden_dim}_l{num_layers}{num_heads_str}{factorized_str}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{dropout_str}{prior_sigma_str}{activation_str}{kl_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+        exp_name = f"Finetune_{target}_{year_str}_{doy_str}_{model}_h{hidden_dim}_l{num_layers}{num_heads_str}{factorized_str}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{dropout_str}{prior_sigma_str}{activation_str}{kl_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}{feature_str}"
     elif mode == "pretrain":
-        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}{num_heads_str}{factorized_str}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{dropout_str}{prior_sigma_str}{activation_str}{kl_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}"
+        exp_name = f"Pretrain_{target}_{model}_h{hidden_dim}_l{num_layers}{num_heads_str}{factorized_str}_lr{lr_str}_bs{batch_size}_{loss_fn_short}_{optimizer}_{scheduler_short}{ensemble_str}{subset_str}_SH{sh_degree}{dropout_str}{prior_sigma_str}{activation_str}{kl_str}{weight_decay_str}{loss_weight_str}{swi_str}{log_str}{tw_str}{feature_str}"
     else:
         raise ValueError(f"Unknown mode: {mode}")
 

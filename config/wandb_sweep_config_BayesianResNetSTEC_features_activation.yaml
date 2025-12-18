@@ -1,0 +1,53 @@
+program: scripts/wandb_run_wrapper.py
+method: grid  # grid search for systematic testing of all combinations
+metric:
+  goal: minimize
+  name: val_MAE
+parameters:
+  # Model architecture parameters - FIXED
+  model.model_type:
+    values: ['BayesianResNetSTEC']
+
+  model.hidden_dim:
+    values: [1024]
+
+  model.num_layers:
+    values: [4]
+
+  # Prior sigma - VARY
+  model.prior_sigma:
+    values: [0.01, 0.05, 0.1, 0.5]
+
+  # Activation function - VARY
+  model.activation:
+    values: ['relu', 'gelu', 'tanh']
+
+  # Feature control - VARY year
+  feature_control.year:
+    values: [true, false]
+
+  # Feature control - VARY IPP features (all on or all off together)
+  use_ipp_features:
+    values: [true, false]
+
+  # Training hyperparameters - FIXED
+  pretrain.learning_rate:
+    values: [0.01, 0.005, 0.001, 0.0005, 0.0001]
+
+  pretrain.batchsize:
+    values: [1024]
+
+  training.loss_weight:
+    values: [0.1, 0.5, 1.0, 2.0, 5.0]
+
+  # Training configuration - FIXED
+  training.loss_function:
+    values: ['GaussianNLLLoss', 'FairCRPS']
+
+  # Scheduler - FIXED
+  pretrain.scheduler:
+    values: ['ReduceLROnPlateau']
+
+# Count limits
+run_cap: 200  # 4 prior_sigma * 3 activations * 2 year * 2 IPP configs * 5 learning_rates = 240 runs
+
