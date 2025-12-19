@@ -458,6 +458,23 @@ def save_results(
                     f.write(f"  {key}: {val:.6f}\n")
             f.write("\n")
     
+    # Save metrics as CSV for multiday aggregation
+    metrics_rows = []
+    for model_name, model_metrics in metrics.items():
+        row = {'Model': model_name}
+        # Rename keys to match expected format (capitalized for consistency)
+        row['RMSE'] = model_metrics['rmse']
+        row['MAE'] = model_metrics['mae']
+        row['R²'] = model_metrics['r2']
+        row['Bias'] = model_metrics['bias']
+        row['Std'] = model_metrics['std']
+        row['Count'] = model_metrics['count']
+        metrics_rows.append(row)
+    
+    metrics_df = pd.DataFrame(metrics_rows)
+    metrics_csv_path = output_dir / 'metrics_summary.csv'
+    metrics_df.to_csv(metrics_csv_path, index=False)
+    
     # Save detailed predictions CSV
     csv_cols = ['true_stec', 'stec_pred', 'satele']
     rename_dict = {'satele': 'elevation'}
@@ -475,6 +492,10 @@ def save_results(
     save_df.to_csv(csv_path, index=False)
     
     logger.info(f"✅ Results saved to {output_dir}")
+    logger.info(f"   - comparison_summary.txt")
+    logger.info(f"   - metrics_summary.csv")
+    logger.info(f"   - detailed_predictions.csv")
+    logger.info(f"   - 5 publication-ready plots")
 
 
 def main():
