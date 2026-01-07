@@ -570,6 +570,8 @@ Date formats supported:
                        help="Skip training, only run evaluation (experiments must exist)")
     parser.add_argument("--pretrain_folder", type=str, default=None,
                        help="Pretrain experiment folder to use for STEC model (optional, auto-runs pretrain if needed)")
+    parser.add_argument("--no_aggregate", action="store_true",
+                       help="Skip aggregate report generation (for parallel execution)")
     
     args = parser.parse_args()
     
@@ -683,7 +685,7 @@ Date formats supported:
     success_count = sum(1 for r in batch_results if r['success'])
     logger.info(f"Successful: {success_count}/{len(batch_results)} days")
     
-    if success_count > 0:
+    if success_count > 0 and not args.no_aggregate:
         generate_aggregate_report(batch_results, output_base)
     
     logger.info(f"\n✅ All results saved to: {output_base}")

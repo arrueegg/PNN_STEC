@@ -335,6 +335,10 @@ Date formats:
                        help="MC samples for Bayesian inference (default: 100)")
     parser.add_argument("--test_size", type=int, default=None,
                        help="Test set size (default: full)")
+    parser.add_argument("--pretrain_folder", type=str, default=None,
+                       help="Pretrain experiment folder to use for STEC model (optional)")
+    parser.add_argument("--no_aggregate", action="store_true",
+                       help="Skip aggregate report generation (for parallel execution)")
     
     return parser
 
@@ -473,6 +477,12 @@ def run_multiday(args):
     
     if args.test_size:
         sys.argv.extend(["--test_size", str(args.test_size)])
+    
+    if args.pretrain_folder:
+        sys.argv.extend(["--pretrain_folder", args.pretrain_folder])
+    
+    if args.no_aggregate:
+        sys.argv.extend(["--no_aggregate"])
     
     from multiday_evaluation import main
     main()

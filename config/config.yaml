@@ -72,10 +72,10 @@ data:
 
 model:
   model_type: BayesianResNetSTEC # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
-  hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
+  hidden_dim: 512    # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.05   # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
-  dropout_rate: 0.0   # Dropout rate for models
+  dropout_rate: 0.1   # Dropout rate for models
 
   # FactorizedSTEC specific configuration
   vtec_hidden: 128    # Hidden dimension for VTEC network
@@ -126,9 +126,9 @@ pretrain:
   save_model_every_epoch: False      # Whether to save the model every epoch
 
 finetune:
-  freeze_body: True                  # Whether to freeze the body of the network during finetuning
+  freeze_body: False                  # Whether to freeze the body of the network during finetuning
   epochs: 30
-  batchsize: 512                     # Batch size for finetuning (can be different from pretrain)
+  batchsize: 2048                     # Batch size for finetuning (can be different from pretrain)
   num_workers: 12
   learning_rate: 0.0001
   scheduler: ReduceLROnPlateau       # none, StepLR, CosineAnnealingLR
