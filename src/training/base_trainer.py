@@ -395,7 +395,7 @@ class BaseTrainer:
         # Load best checkpoint for testing
         filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{seed:02}.pth"
         checkpoint_path = os.path.join(model_dir, filename)
-        checkpoint = torch.load(checkpoint_path, weights_only=True)
+        checkpoint = torch.load(checkpoint_path, weights_only=True, map_location=self.config["device"])
         model.load_state_dict(checkpoint["model_state_dict"])
 
         test_outputs, test_targets = self.test_model(model, test_loader)

@@ -1,5 +1,5 @@
 program: scripts/wandb_run_wrapper.py
-method: grid  # grid search for systematic testing of all combinations
+method: bayes  # grid search for systematic testing of all combinations
 metric:
   goal: minimize
   name: val_MAE

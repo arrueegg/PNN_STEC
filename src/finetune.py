@@ -40,7 +40,7 @@ class Finetuner(BaseTrainer):
             if not os.path.exists(pretrain_checkpoint_path):
                 raise FileNotFoundError(f"Pretrained checkpoint not found: {pretrain_checkpoint_path}")
             import torch
-            checkpoint = torch.load(pretrain_checkpoint_path, weights_only=True)
+            checkpoint = torch.load(pretrain_checkpoint_path, weights_only=True, map_location=device)
             model.load_state_dict(checkpoint["model_state_dict"])
             logger.info(f"Loaded pretrained weights from {pretrain_checkpoint_path}")
         

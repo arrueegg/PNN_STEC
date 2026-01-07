@@ -60,7 +60,7 @@ def get_fixed_subset_indices(ds, k, cache_path, seed=0):
 
     # Try load from cache
     if os.path.exists(cache_path):
-        saved = torch.load(cache_path)
+        saved = torch.load(cache_path, map_location='cpu')
         if saved.get("len", None) == len(ds) and saved.get("k", None) == k:
             return saved["indices"]
 

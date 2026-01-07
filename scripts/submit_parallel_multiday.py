@@ -130,9 +130,9 @@ def create_slurm_script(chunk_dates: List[Tuple[int, int]], chunk_id: int,
 
     script_content = f'''#!/bin/bash
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=12
 #SBATCH --time=6:00:00
-#SBATCH --mem-per-cpu=6G
+#SBATCH --mem-per-cpu=2G
 #SBATCH --output=multiday_parallel/logs/chunk_{chunk_id:02d}-%j.out
 #SBATCH --job-name=multiday_{chunk_id:02d}
 

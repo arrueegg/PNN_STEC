@@ -1,29 +1,68 @@
 # General configuration
 project_name: "PNN_STEC"
 output_dir: "experiments/"
-year: 2023
-doy: 1
+year: 2024
+doy: 183
 mode: pretrain # pretrain, finetune
 random_seed: 42
-debug: False  
-debug_single_batch: False  
-cluster: True
+debug: False
+debug_single_batch: False
+cluster: False
+
+# Feature Control - Enable/disable individual features for experiments
+# Set to true to use a feature, false to exclude it from the model
+# Note: This controls which features are used as inputs, not which are in the data
+feature_control:
+  # Temporal features
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+
+  # Station features (only used when target=stec)
+  sm_lat_sta: true
+  sm_lon_sta: true
+  lat_sta: true
+  lon_sta: true
+
+  # IPP (Ionospheric Pierce Point) features
+  lat_ipp: true
+  lon_ipp: true
+  sm_lat_ipp: true
+  sm_lon_ipp: true
+
+  # Direction features (only used when target=stec)
+  satazi: true
+  satele: true
+
+  # Space Weather Indices (only used when data.use_SWI=true)
+  Kp_index: true
+  R_Sunspot_No: true
+  Dst-index,_nT: true
+  AE-index,_nT: true
+  ap_index,_nT: true
+  f107_index: true
 
 # Wandb configuration
 wandb:
-  offline: false  # Set to true to run wandb in offline mode (saves locally, sync manually later)
+  offline: False  # Set to true to run wandb in offline mode (saves locally, sync manually later)
+
+# Evaluation configuration
+evaluation:
+  enable_scenarios: False  # Set to true to enable scenario-based evaluation (high/low solar activity, storm days)
+                          # Disabling saves runtime during training/inference
 
 target: "stec" # stec or vtec
 
 data:
   GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
   use_agg_h5: True
-  scratch_dir: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
-  SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
+  scratch_dir: "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/"
   move_to_scratch: True # Whether to move data to scratch for faster access
   every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data
-  SH_degree: 0
+  SH_degree: 5
   min_elevation: 5.0
   max_elevation: 90.0
   shuffle: True
@@ -32,53 +71,68 @@ data:
   test_size: 10_000_000  # Number of test samples to use ('full' for entire test set, or integer for specific count)
 
 model:
-  model_type: BNN_NLL # BNN_NLL, BNN_mse, BranchMLP, Branch_BNN_NLL, MLP_MCDropout_NLL, MLP_MCDropout_mse, MLP_DE, MLP, DE_MLP
-  hidden_dim: 1024     # Number of neurons in hidden layers (default: 256)
-  num_layers: 6       # Number of hidden layers (not including output layer) (default: 4)
-  prior_sigma: 0.05  # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
-  
+  model_type: BayesianResNetSTEC # Available: BNN_NLL, ResNet_NLL, ResNet_BNN_NLL, ResNet_MSE, AttentionMLP_NLL, AttentionMLP_MSE
+  hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
+  num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
+  prior_sigma: 0.1   # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
+  dropout_rate: 0.1   # Dropout rate for models
+
+  # FactorizedSTEC specific configuration
+  vtec_hidden: 128    # Hidden dimension for VTEC network
+  vtec_layers: 4      # Number of layers in VTEC network
+  geom_hidden: 32     # Hidden dimension for GeomNet (mapping factor)
+  geom_layers: 2      # Number of layers in GeomNet
+  activation: relu    # Activation function (relu, gelu, silu)
+
   # Deep Ensemble specific configuration (only used when model_type: DE_MLP)
   ensemble_size: 5    # Number of ensemble members (default: 5)
-  
+
+  # Attention model specific configuration (only used for AttentionMLP_* models)
+  num_heads: 4        # Number of attention heads (must divide hidden_dim, default: 4)
+
 training:
-  loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 0.5
-  
+  loss_function: "GaussianNLLLoss"  # Options: MSELoss, MAELoss, GaussianNLLLoss, FairCRPS
+  crps_num_samples: 16              # Number of stochastic samples for FairCRPS loss (must be >= 2)
+  loss_weight: 0.1                  # Weight for the loss function (for KL divergence)
+
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
     enabled: true                    # Enable KL annealing
-    warmup_epochs: 5               # Number of epochs to warm up KL weight from 0 to full
-    start_weight: 0.0               # Starting KL weight (0 = no KL initially)
-    end_weight: 0.1                 # Final KL weight (should match loss_weight above)
-  
+    warmup_epochs: 5                 # Number of epochs to warm up KL weight from 0 to full
+    start_weight: 0.0                # Starting KL weight (0 = no KL initially)
+    end_weight: 0.1                  # Final KL weight (should match loss_weight above)
+
   # Target weighting configuration for addressing underprediction of high values
   target_weighting:
-    enabled: false                    # Enable weighted loss based on target values
-    weight_function: "linear"      # Options: linear, quadratic, log
-  
-  optimizer: "Adam"             # SGD, Adam, AdamW
-  weight_decay: 0.0             # Weight decay for regularization
-  standardize_targets: False        # Disable target standardization to avoid negative loss
-  log_target: False              # Disable log-space training
-  log_space_point: "mean"        # For compatibility
+    enabled: false                   # Enable weighted loss based on target values
+    weight_function: "linear"        # Options: linear, quadratic, log
+
+  optimizer: "Adam"                  # SGD, Adam, AdamW
+  weight_decay: 0.0                  # Weight decay for regularization
+  standardize_targets: False         # Disable target standardization to avoid negative loss
+  log_target: False                  # Disable log-space training
+  log_space_point: "mean"            # For compatibility
 
 pretrain:
-  epochs: 200
-  batchsize: 512
-  num_workers: 12 
+  epochs: 150
+  batchsize: 1024
+  num_workers: 12
   prefetch_factor: 4
-  learning_rate: 0.002
-  scheduler: CosineAnnealingLR            # none, StepLR, CosineAnnealingLR
-  scheduler_step_size: 200       # Step size for scheduler (reduces lr every X epochs)
-  early_stopping: true          # Whether to use early stopping
-  patience: 30                   # Patience for early stopping
-  save_model_every_epoch: False # Whether to save the model every epoch
+  learning_rate: 0.001
+  scheduler: ReduceLROnPlateau       # none, StepLR, CosineAnnealingLR
+  scheduler_step_size: 150           # Step size for scheduler (reduces lr every X epochs)
+  early_stopping: true               # Whether to use early stopping
+  patience: 20                       # Patience for early stopping
+  save_model_every_epoch: False      # Whether to save the model every epoch
 
 finetune:
-  epochs: 5
+  freeze_body: False                  # Whether to freeze the body of the network during finetuning
+  epochs: 30
+  batchsize: 2048                     # Batch size for finetuning (can be different from pretrain)
   num_workers: 4
-  learning_rate: 0.001
-  scheduler: StepLR            # Scheduler: none, step_lr, cosine_annealing
-  scheduler_step_size: 10       # Step size for scheduler (reduces lr every X epochs)
-
-
+  learning_rate: 0.0001
+  scheduler: ReduceLROnPlateau       # none, StepLR, CosineAnnealingLR
+  scheduler_step_size: 100           # Step size for scheduler (reduces lr every X epochs)
+  early_stopping: true               # Enable early stopping
+  patience: 15                       # Patience for early stopping
+  save_model_every_epoch: False      # Save only best model
