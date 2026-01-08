@@ -119,6 +119,12 @@ def create_modified_config(base_config_path: str, year: int, doy: int,
     config['finetune']['year'] = year
     config['finetune']['doy'] = doy
     
+    # CRITICAL: Disable aggregated H5 to validly force day-specific loading
+    # This prevents loading the 100GB train.h5 or 6GB test.h5
+    if 'data' not in config:
+        config['data'] = {}
+    config['data']['use_agg_h5'] = False
+    
     # Set finetune_from_scratch for VTEC
     if is_vtec:
         config['finetune']['finetune_from_scratch'] = True
@@ -213,6 +219,23 @@ def run_training(config_path: str) -> Tuple[bool, str]:
     
     logger.info(f"Training log: {log_file}")
     
+    # Pre-calculate experiment name to ensure we get the correct one
+    # This avoids issues where we guess the wrong directory (e.g. STEC instead of VTEC due to timestamps)
+    try:
+        with open(config_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+        
+        # Ensure year/doy strings match what main.py expects
+        if 'year' in config_dict:
+            config_dict['year'] = str(config_dict['year'])
+        if 'doy' in config_dict:
+            config_dict['doy'] = str(config_dict['doy']).zfill(3)
+            
+        expected_experiment_name = compute_exp_name(config_dict)
+    except Exception as e:
+        logger.warning(f"Could not pre-calculate experiment name: {e}")
+        expected_experiment_name = None
+
     try:
         # Disable tqdm progress bars for cleaner logs
         env = os.environ.copy()
@@ -247,6 +270,12 @@ def run_training(config_path: str) -> Tuple[bool, str]:
             if return_code != 0:
                 raise subprocess.CalledProcessError(return_code, cmd)
         
+        # Use pre-calculated name if available, otherwise fallback to parsing/guessing
+        if expected_experiment_name:
+            experiment_name = expected_experiment_name
+            logger.info(f"✓ Training completed (Exp: {experiment_name})")
+            return True, experiment_name
+
         # Extract experiment name from output
         experiment_name = None
         for line in output_lines:
@@ -276,6 +305,70 @@ def run_training(config_path: str) -> Tuple[bool, str]:
         with open(log_file, 'a') as f:
             f.write(f"\n\n=== ERROR ===\n{e}\n")
         return False, None
+
+
+def run_positioning_pipeline(experiment_name: str, year: int, doy: int) -> bool:
+    """Run complete positioning pipeline for a given experiment and date.
+    
+    1. Generate STEC corrections (inference_positioning.py)
+    2. Run PPPx and evaluate (run_positioning_evaluation.py)
+    
+    Returns success status.
+    """
+    date_str = f"{year}-{doy:03d}"
+    logger.info(f"Running positioning pipeline for {experiment_name} on {date_str}")
+    
+    # 1. Generate STEC corrections
+    logger.info("Step 1: Generating STEC corrections...")
+    cmd_inference = [
+        sys.executable,
+        "src/inference_positioning.py",
+        "--experiment", experiment_name,
+        "--year", str(year),
+        "--doy", str(doy)
+    ]
+    
+    try:
+        subprocess.run(
+            cmd_inference,
+            cwd=Path(__file__).parent.parent,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info("✓ STEC corrections generated")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"✗ STEC inference failed: {e}")
+        logger.error(f"stderr: {e.stderr}")
+        return False
+        
+    # 2. Run Positioning Evaluation
+    # Convert to YYYY-MM-DD for this script
+    dt = datetime(year, 1, 1) + timedelta(days=doy - 1)
+    date_formatted = dt.strftime("%Y-%m-%d")
+    
+    logger.info("Step 2: Running PPPx evaluation...")
+    cmd_eval = [
+        sys.executable,
+        "src/positioning_eval/run_positioning_evaluation.py",
+        "--experiment", experiment_name,
+        "--date", date_formatted,
+        "--all_test_stations",
+        "--cleanup" # Clean up downloaded files to save space
+    ]
+    
+    try:
+        # stream output to show progress bars
+        subprocess.run(
+            cmd_eval,
+            cwd=Path(__file__).parent.parent,
+            check=True
+        )
+        logger.info("✓ Positioning evaluation completed")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"✗ Positioning evaluation failed: {e}")
+        return False
 
 
 def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path, 
@@ -315,18 +408,16 @@ def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path,
         return False
 
 
-def extract_metrics_from_experiment(stec_exp_name: str) -> Dict[str, Dict]:
+def extract_metrics_from_experiment(evaluation_dir: Path) -> Dict[str, Dict]:
     """Extract metrics from experiment evaluation results.
     
     Returns dict with metrics for each dataset type.
     """
-    exp_dir = Path("experiments") / stec_exp_name / "evaluation"
-    
     metrics = {}
     
     # Check for both dataset types
     for dataset_type in ["own_vtec_gim", "madrigal_vtec_gim"]:
-        dataset_dir = exp_dir / dataset_type
+        dataset_dir = evaluation_dir / dataset_type
         metrics_file = dataset_dir / "metrics_summary.csv"
         
         if metrics_file.exists():
@@ -334,6 +425,64 @@ def extract_metrics_from_experiment(stec_exp_name: str) -> Dict[str, Dict]:
             metrics[dataset_type] = df.to_dict('records')
     
     return metrics
+
+
+def extract_elevation_metrics_from_experiment(evaluation_dir: Path) -> Dict[str, pd.DataFrame]:
+    """Extract elevation-binned metrics from detailed predictions.
+    
+    Returns dict with elevation-binned metrics for the dataset.
+    """
+    elevation_metrics = {}
+    
+    # Check for both dataset types
+    for dataset_type in ["own_vtec_gim", "madrigal_vtec_gim"]:
+        dataset_dir = evaluation_dir / dataset_type
+        predictions_file = dataset_dir / "detailed_predictions.csv"
+        
+        if predictions_file.exists():
+            # Read the predictions file
+            df = pd.read_csv(predictions_file)
+            
+            # Bin elevations (typical GNSS elevations are 5-90 degrees)
+            elevation_bins = np.arange(0, 91, 5)  # 0-5, 5-10, ..., 85-90
+            df['elevation_bin'] = pd.cut(df['elevation'], bins=elevation_bins, labels=elevation_bins[:-1])
+            
+            # Calculate metrics per elevation bin
+            binned_metrics = []
+            for bin_start, group in df.groupby('elevation_bin'):
+                if len(group) > 100:  # Only include bins with sufficient data
+                    # Direct STEC metrics
+                    stec_rmse = np.sqrt(np.mean((group['true_stec'] - group['stec_pred'])**2))
+                    stec_mae = np.mean(np.abs(group['true_stec'] - group['stec_pred']))
+                    stec_bias = np.mean(group['stec_pred'] - group['true_stec'])
+                    
+                    # VTEC+Mapping metrics
+                    vtec_rmse = np.sqrt(np.mean((group['true_stec'] - group['vtec_model_stec'])**2))
+                    vtec_mae = np.mean(np.abs(group['true_stec'] - group['vtec_model_stec']))
+                    vtec_bias = np.mean(group['vtec_model_stec'] - group['true_stec'])
+                    
+                    # GIM metrics
+                    gim_rmse = np.sqrt(np.mean((group['true_stec'] - group['gim_stec'])**2))
+                    gim_mae = np.mean(np.abs(group['true_stec'] - group['gim_stec']))
+                    gim_bias = np.mean(group['gim_stec'] - group['true_stec'])
+                    
+                    binned_metrics.append({
+                        'elevation_bin': bin_start,
+                        'count': len(group),
+                        'Direct STEC RMSE': stec_rmse,
+                        'Direct STEC MAE': stec_mae,
+                        'Direct STEC Bias': stec_bias,
+                        'VTEC + Mapping RMSE': vtec_rmse,
+                        'VTEC + Mapping MAE': vtec_mae,
+                        'VTEC + Mapping Bias': vtec_bias,
+                        'IGS GIM RMSE': gim_rmse,
+                        'IGS GIM MAE': gim_mae,
+                        'IGS GIM Bias': gim_bias
+                    })
+            
+            elevation_metrics[dataset_type] = pd.DataFrame(binned_metrics)
+    
+    return elevation_metrics
 
 
 def generate_aggregate_report(batch_results: List[Dict], output_dir: Path):
@@ -369,6 +518,12 @@ def generate_aggregate_report(batch_results: List[Dict], output_dir: Path):
                     **metric_row
                 }
                 all_results.append(row)
+        
+        # Extract elevation metrics
+        # Note: output_dir is typically multiday_results, so day folders are inside it
+        evaluation_dir = output_dir / f"{result['year']}_DOY_{result['doy']}" / "evaluation"
+        elevation_metrics = extract_elevation_metrics_from_experiment(evaluation_dir)
+        result['elevation_metrics'] = elevation_metrics
     
     if not all_results:
         logger.warning("No successful results to aggregate")
@@ -414,103 +569,313 @@ def generate_aggregate_report(batch_results: List[Dict], output_dir: Path):
     logger.info(summary_df.to_string(index=False))
     
     # Generate plots
-    generate_aggregate_plots(df, summary_dir)
+    generate_aggregate_plots(df, batch_results, summary_dir)
     
     logger.info(f"\n✅ Aggregate report saved to: {summary_dir}")
 
 
-def generate_aggregate_plots(df: pd.DataFrame, output_dir: Path):
+def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output_dir: Path):
     """Generate publication-ready aggregate plots."""
     
     logger.info("Generating aggregate plots...")
     
-    # Set style
-    sns.set_style("whitegrid")
+    # Dataset name mapping used for filenames
+    name_map = {
+        'own_vtec_gim': 'ownDS',
+        'madrigal_vtec_gim': 'Madrigal'
+    }
+    
+    # Set aesthetics for publication-quality plots
+    sns.set_context("paper", font_scale=1.4)
+    sns.set_style("whitegrid", {'grid.linestyle': '--', 'grid.alpha': 0.6})
     plt.rcParams['figure.dpi'] = 300
-    plt.rcParams['font.size'] = 10
+    plt.rcParams['lines.linewidth'] = 2.5
+    plt.rcParams['lines.markersize'] = 8
     
-    # 1. RMSE comparison across days
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    # Define consistent colors for models
+    colors = sns.color_palette("deep")
+    model_colors = {
+        'Direct STEC': colors[0],
+        'VTEC + Mapping': colors[1],
+        'IGS GIM + Mapping': colors[2]
+    }
     
-    for idx, dataset in enumerate(df['dataset'].unique()):
-        ax = axes[idx]
+    unique_datasets = df['dataset'].unique()
+    
+    # Normalize model names in df to ensure consistency
+    df['Model'] = df['Model'].replace({
+        'Direct STEC Model': 'Direct STEC',
+        'IGS GIM': 'IGS GIM + Mapping'
+    })
+    
+    # -------------------------------------------------------------------------
+    # 1. RMSE comparison across days (Separate plot per dataset)
+    # -------------------------------------------------------------------------
+    for dataset in unique_datasets:
+        mapped_name = name_map.get(dataset, dataset)
         dataset_df = df[df['dataset'] == dataset]
         
-        # Pivot for plotting
+        plt.figure(figsize=(12, 6))
+        
         pivot_df = dataset_df.pivot(index='date', columns='Model', values='RMSE')
         
-        pivot_df.plot(ax=ax, marker='o', linewidth=2, markersize=6)
-        ax.set_xlabel('Date (YYYY-DOY)', fontsize=11)
-        ax.set_ylabel('RMSE (TECU)', fontsize=11)
-        ax.set_title(f'RMSE by Date - {dataset}', fontsize=12, fontweight='bold')
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3)
-        ax.tick_params(axis='x', rotation=45)
-    
-    plt.tight_layout()
-    plt.savefig(output_dir / 'rmse_by_date.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # 2. Box plots comparing models
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    
-    metrics = ['RMSE', 'MAE', 'R²', 'Bias']
-    
-    for idx, metric in enumerate(metrics):
-        ax = axes[idx // 2, idx % 2]
+        # Plot each model with consistent colors
+        for model in pivot_df.columns:
+            color = model_colors.get(model, 'gray')
+            plt.plot(pivot_df.index, pivot_df[model], marker='o', label=model, color=color)
         
-        # Combine all datasets
-        sns.boxplot(data=df, x='Model', y=metric, hue='dataset', ax=ax)
-        ax.set_title(f'{metric} Distribution Across All Days', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Model', fontsize=11)
-        ax.set_ylabel(metric, fontsize=11)
-        ax.legend(title='Dataset', loc='best')
-        ax.tick_params(axis='x', rotation=45)
+        plt.xlabel('Date (YYYY-DOY)')
+        plt.ylabel('RMSE (TECU)')
+        plt.title('RMSE by Date')
+        plt.legend(loc='best', frameon=True, framealpha=0.9)
+        plt.xticks(rotation=45)
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        
+        filename = output_dir / f'rmse_by_date_{mapped_name}.png'
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.close()
+        logger.info(f"Saved RMSE vs Date plot: {filename}")
     
-    plt.tight_layout()
-    plt.savefig(output_dir / 'metrics_boxplots.png', dpi=300, bbox_inches='tight')
-    plt.close()
+    # -------------------------------------------------------------------------
+    # 2. Box plots comparing models (Separate plot per dataset)
+    # -------------------------------------------------------------------------
+    metrics_list = ['RMSE', 'MAE', 'R²', 'Bias']
     
-    # 3. Improvement statistics
-    fig, ax = plt.subplots(figsize=(10, 6))
+    for dataset in unique_datasets:
+        mapped_name = name_map.get(dataset, dataset)
+        dataset_df = df[df['dataset'] == dataset]
+        
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        
+        for idx, metric in enumerate(metrics_list):
+            ax = axes[idx // 2, idx % 2]
+            
+            sns.boxplot(data=dataset_df, x='Model', y=metric, ax=ax, palette=model_colors)
+            ax.set_title(f'{metric} Distribution')
+            ax.set_xlabel('')
+            ax.tick_params(axis='x', rotation=30)
+            ax.grid(True, linestyle='--', alpha=0.5)
+        
+        plt.suptitle(f"Model Performance Metrics", fontsize=16, y=1.02)
+        plt.tight_layout()
+        
+        filename = output_dir / f'metrics_boxplots_{mapped_name}.png'
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.close()
+        logger.info(f"Saved metric boxplots: {filename}")
     
-    # Calculate improvements for Direct STEC over baselines
-    improvements = []
-    
-    for date in df['date'].unique():
-        for dataset in df['dataset'].unique():
-            subset = df[(df['date'] == date) & (df['dataset'] == dataset)]
+    # -------------------------------------------------------------------------
+    # 3. Improvement statistics (Separate plot per dataset)
+    # -------------------------------------------------------------------------
+    for dataset in unique_datasets:
+        mapped_name = name_map.get(dataset, dataset)
+        dataset_df = df[df['dataset'] == dataset]
+        
+        improvements = []
+        for date in dataset_df['date'].unique():
+            subset = dataset_df[dataset_df['date'] == date]
             
             stec_rmse = subset[subset['Model'] == 'Direct STEC']['RMSE'].values
             vtec_rmse = subset[subset['Model'] == 'VTEC + Mapping']['RMSE'].values
-            gim_rmse = subset[subset['Model'] == 'IGS GIM']['RMSE'].values
+            gim_rmse = subset[subset['Model'] == 'IGS GIM + Mapping']['RMSE'].values
             
             if len(stec_rmse) > 0 and len(vtec_rmse) > 0:
                 imp_vtec = (1 - stec_rmse[0] / vtec_rmse[0]) * 100
-                improvements.append({'date': date, 'dataset': dataset, 
-                                   'baseline': 'VTEC+Mapping', 'improvement': imp_vtec})
+                improvements.append({'date': date, 'baseline': 'VTEC+Mapping', 'improvement': imp_vtec})
             
             if len(stec_rmse) > 0 and len(gim_rmse) > 0:
                 imp_gim = (1 - stec_rmse[0] / gim_rmse[0]) * 100
-                improvements.append({'date': date, 'dataset': dataset,
-                                   'baseline': 'GIM', 'improvement': imp_gim})
-    
-    if improvements:
-        imp_df = pd.DataFrame(improvements)
-        sns.barplot(data=imp_df, x='date', y='improvement', hue='baseline', ax=ax)
-        ax.set_xlabel('Date (YYYY-DOY)', fontsize=11)
-        ax.set_ylabel('RMSE Improvement (%)', fontsize=11)
-        ax.set_title('Direct STEC Improvement Over Baselines', fontsize=12, fontweight='bold')
-        ax.axhline(y=0, color='black', linestyle='--', linewidth=1)
-        ax.legend(title='Baseline', loc='best')
-        ax.tick_params(axis='x', rotation=45)
+                improvements.append({'date': date, 'baseline': 'GIM + Mapping', 'improvement': imp_gim})
         
-        plt.tight_layout()
-        plt.savefig(output_dir / 'improvement_by_date.png', dpi=300, bbox_inches='tight')
+        if improvements:
+            plt.figure(figsize=(12, 6))
+            imp_df = pd.DataFrame(improvements)
+            
+            sns.barplot(data=imp_df, x='date', y='improvement', hue='baseline', palette='viridis')
+            
+            plt.xlabel('Date (YYYY-DOY)')
+            plt.ylabel('RMSE Improvement (%)')
+            plt.title('Direct STEC Improvement Over Baselines')
+            plt.axhline(y=0, color='black', linestyle='-', linewidth=1)
+            plt.legend(title='Baseline', loc='best', frameon=True)
+            plt.xticks(rotation=45)
+            plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+            plt.tight_layout()
+            
+            filename = output_dir / f'improvement_by_date_{mapped_name}.png'
+            plt.savefig(filename, dpi=300, bbox_inches='tight')
+            plt.close()
+            logger.info(f"Saved improvement plot: {filename}")
+
+    # -------------------------------------------------------------------------
+    # 4. Elevation-dependent plots
+    # -------------------------------------------------------------------------
+    logger.info("Generating elevation-dependent plots...")
     
-    plt.close()
+    # Prepare elevation data
+    all_elevation_data = []
+    
+    # First try to gather from batch_results
+    for result in batch_results:
+        if not result.get('success', False) or 'elevation_metrics' not in result:
+            continue
+        
+        year = result['year']
+        doy = result['doy']
+        date_str = f"{year}-{doy:03d}"
+        
+        for dataset_type, elev_df in result['elevation_metrics'].items():
+            if not elev_df.empty:
+                df_copy = elev_df.copy()
+                df_copy['date'] = date_str
+                df_copy['dataset'] = dataset_type
+                all_elevation_data.append(df_copy)
+    
+    elevation_agg = None
+    
+    if all_elevation_data:
+        elevation_df = pd.concat(all_elevation_data, ignore_index=True)
+        # Aggregate across all days
+        elevation_agg = elevation_df.groupby(['elevation_bin', 'dataset']).agg({
+            'Direct STEC RMSE': ['mean', 'std'],
+            'Direct STEC MAE': ['mean', 'std'],
+            'VTEC + Mapping RMSE': ['mean', 'std'],
+            'VTEC + Mapping MAE': ['mean', 'std'],
+            'IGS GIM RMSE': ['mean', 'std'],
+            'IGS GIM MAE': ['mean', 'std'],
+            'count': 'sum'
+        }).round(3)
+        
+        # Flatten columns
+        elevation_agg.columns = ['_'.join(col).strip() for col in elevation_agg.columns.values]
+        elevation_agg = elevation_agg.reset_index()
+        
+        # Save metrics
+        csv_path = output_dir / 'elevation_metrics.csv'
+        elevation_agg.to_csv(csv_path, index=False)
+        logger.info(f"Saved elevation metrics: {csv_path}")
+
+    elif (output_dir / 'elevation_metrics.csv').exists():
+        # Fallback to loading existing CSV if no batch results provided (summary_only mode)
+        elevation_agg = pd.read_csv(output_dir / 'elevation_metrics.csv')
+        logger.info(f"Loaded existing elevation metrics: {output_dir / 'elevation_metrics.csv'}")
+
+    # Plotting Elevation Results
+    if elevation_agg is not None:
+        for dataset in elevation_agg['dataset'].unique():
+            mapped_name = name_map.get(dataset, dataset)
+            dataset_elev = elevation_agg[elevation_agg['dataset'] == dataset]
+            
+            # Helper for elevation plots
+            def plot_elevation_metric(metric_name, ylabel, filename_prefix):
+                plt.figure(figsize=(10, 6))
+                
+                # Add jitter to x-axis to prevent overlap
+                x = dataset_elev['elevation_bin'].values.astype(float)
+                offset = 0.8
+                
+                # Direct STEC (Shift Left)
+                plt.errorbar(x - offset, 
+                           dataset_elev[f'Direct STEC {metric_name}_mean'],
+                           yerr=dataset_elev[f'Direct STEC {metric_name}_std'],
+                           label='Direct STEC', marker='o', capsize=4, 
+                           color=model_colors['Direct STEC'],
+                           markersize=6, alpha=0.9)
+                
+                # VTEC + Mapping (Center)
+                plt.errorbar(x, 
+                           dataset_elev[f'VTEC + Mapping {metric_name}_mean'],
+                           yerr=dataset_elev[f'VTEC + Mapping {metric_name}_std'],
+                           label='VTEC + Mapping', marker='s', capsize=4, 
+                           color=model_colors['VTEC + Mapping'],
+                           markersize=6, alpha=0.9)
+                
+                # IGS GIM using simplified columns but new label (Shift Right)
+                plt.errorbar(x + offset, 
+                           dataset_elev[f'IGS GIM {metric_name}_mean'],
+                           yerr=dataset_elev[f'IGS GIM {metric_name}_std'],
+                           label='IGS GIM + Mapping', marker='^', capsize=4, 
+                           color=model_colors['IGS GIM + Mapping'],
+                           markersize=6, alpha=0.9)
+                
+                plt.xlabel('Elevation Angle (degrees)')
+                plt.ylabel(ylabel)
+                plt.title(f'{metric_name} vs Elevation')
+                plt.legend(loc='best', frameon=True)
+                plt.grid(True, linestyle='--', alpha=0.5)
+                plt.xlim(0, 90)
+                plt.tight_layout()
+                
+                fname = output_dir / f'{filename_prefix}_{mapped_name}.png'
+                plt.savefig(fname, dpi=300, bbox_inches='tight')
+                plt.close()
+                logger.info(f"Saved {metric_name} plot: {fname}")
+
+            # Create RMSE Plot
+            plot_elevation_metric('RMSE', 'RMSE (TECU)', 'rmse_vs_elevation')
+            
+            # Create MAE Plot
+            plot_elevation_metric('MAE', 'MAE (TECU)', 'mae_vs_elevation')
     
     logger.info(f"✓ Plots saved to {output_dir}")
+
+
+def collect_existing_results(output_base: Path) -> List[Dict]:
+    """Collect results from existing experiment directories."""
+    batch_results = []
+    
+    # Find all date directories
+    date_dirs = [d for d in output_base.iterdir() if d.is_dir() and '_' in d.name and 'DOY' in d.name]
+    
+    for date_dir in sorted(date_dirs):
+        try:
+            # Parse year and doy from directory name
+            parts = date_dir.name.split('_')
+            if len(parts) >= 3 and parts[1] == 'DOY':
+                year = int(parts[0])
+                doy = int(parts[2])
+                date_str = f"{year}-{doy:03d}"
+                
+                # Check if evaluation exists
+                eval_dir = date_dir / "evaluation"
+                if not eval_dir.exists():
+                    continue
+                
+                # Extract metrics directly from evaluation directory
+                metrics = {}
+                for dataset_type in ["own_vtec_gim", "madrigal_vtec_gim"]:
+                    dataset_dir = eval_dir / dataset_type
+                    metrics_file = dataset_dir / "metrics_summary.csv"
+                    
+                    if metrics_file.exists():
+                        df = pd.read_csv(metrics_file)
+                        metrics[dataset_type] = df.to_dict('records')
+                
+                if metrics:  # Only add if we found metrics
+                    result = {
+                        'year': year,
+                        'doy': doy,
+                        'date': date_str,
+                        'success': True,
+                        'stec_experiment': f"multiday_{date_str}",  # Dummy name
+                        'vtec_experiment': None,
+                        'metrics': metrics
+                    }
+                    
+                    # Extract elevation metrics
+                    evaluation_dir = date_dir / "evaluation"
+                    elevation_metrics = extract_elevation_metrics_from_experiment(evaluation_dir)
+                    result['elevation_metrics'] = elevation_metrics
+                    
+                    batch_results.append(result)
+                    logger.info(f"✓ Collected results for {date_str}")
+                
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Skipping invalid directory {date_dir.name}: {e}")
+            continue
+    
+    return batch_results
 
 
 def main():
@@ -554,11 +919,11 @@ Date formats supported:
         """
     )
     
-    parser.add_argument("--dates", type=str, required=True,
+    parser.add_argument("--dates", type=str,
                        help="Date(s) to evaluate (single, comma-separated, or range)")
-    parser.add_argument("--stec_config", type=str, required=True,
+    parser.add_argument("--stec_config", type=str,
                        help="Base config file for STEC training")
-    parser.add_argument("--vtec_config", type=str, required=True,
+    parser.add_argument("--vtec_config", type=str,
                        help="Base config file for VTEC training")
     parser.add_argument("--output_dir", type=str, default="multiday_results",
                        help="Output directory for all results (default: multiday_results)")
@@ -572,20 +937,63 @@ Date formats supported:
                        help="Pretrain experiment folder to use for STEC model (optional, auto-runs pretrain if needed)")
     parser.add_argument("--no_aggregate", action="store_true",
                        help="Skip aggregate report generation (for parallel execution)")
+    parser.add_argument("--summary_only", action="store_true",
+                       help="Skip processing, only generate aggregate report from existing results")
+    parser.add_argument("--positioning", action="store_true",
+                       help="Run positioning evaluation for each day")
     
     args = parser.parse_args()
+    
+    if not args.summary_only and (not args.dates or not args.stec_config or not args.vtec_config):
+        parser.error("--dates, --stec_config, and --vtec_config are required unless --summary_only is used")
     
     logger.info("="*70)
     logger.info("MULTI-DAY EVALUATION PIPELINE")
     logger.info("="*70)
     
-    # Parse dates
-    dates = generate_date_list(args.dates)
-    logger.info(f"Evaluating {len(dates)} day(s): {dates}")
-    
     # Create output directory
     output_base = Path(args.output_dir)
     output_base.mkdir(parents=True, exist_ok=True)
+    
+    if args.summary_only:
+        # Skip processing, collect existing results from summary CSV
+        summary_csv = output_base / "summary" / "all_results.csv"
+        if summary_csv.exists():
+            logger.info(f"Reading existing results from {summary_csv}")
+            df = pd.read_csv(summary_csv)
+            batch_results = []
+            # Group by date and reconstruct batch_results
+            for (date, year, doy), group in df.groupby(['date', 'year', 'doy']):
+                metrics = {}
+                for dataset in group['dataset'].unique():
+                    dataset_df = group[group['dataset'] == dataset]
+                    metrics[dataset] = dataset_df.drop(columns=['date', 'year', 'doy', 'dataset']).to_dict('records')
+                
+                batch_results.append({
+                    'year': int(year),
+                    'doy': int(doy),
+                    'date': date,
+                    'success': True,
+                    'stec_experiment': f"multiday_{date}",
+                    'vtec_experiment': None,
+                    'metrics': metrics
+                })
+        else:
+            logger.info("No existing summary found, collecting from individual evaluations...")
+            batch_results = collect_existing_results(output_base)
+        
+        success_count = len([r for r in batch_results if r['success']])
+        logger.info(f"Found {success_count} successful experiments")
+        
+        if success_count > 0:
+            generate_aggregate_report(batch_results, output_base)
+        
+        logger.info(f"\n✅ Summary generated from existing results in: {output_base}")
+        return
+    
+    # Parse dates
+    dates = generate_date_list(args.dates)
+    logger.info(f"Evaluating {len(dates)} day(s): {dates}")
     
     # Store results
     batch_results = []
@@ -654,10 +1062,54 @@ Date formats supported:
         else:
             # Find existing experiments for this date
             logger.info(f"Looking for existing experiments for {date_str}...")
-            # User needs to provide experiment names or we find them
-            # For now, skip this complexity
-            logger.error("--skip_training not yet fully implemented")
-            continue
+            
+            # Helper to check existence
+            def find_exp(config_path, is_vtec):
+                try:
+                    with open(config_path, 'r') as f:
+                        cfg = yaml.safe_load(f)
+                    
+                    cfg['mode'] = 'finetune'
+                    cfg['year'] = str(year)
+                    cfg['doy'] = str(doy).zfill(3)
+                    
+                    if is_vtec:
+                        cfg['finetune']['finetune_from_scratch'] = True
+                        if 'target' not in cfg: cfg['target'] = 'vtec'
+                    else:
+                        cfg['finetune']['finetune_from_scratch'] = False
+                        if 'target' not in cfg: cfg['target'] = 'stec'
+
+                    exp_name = compute_exp_name(cfg)
+                    exp_path = Path("experiments") / exp_name
+                    
+                    if exp_path.exists():
+                         return True, exp_name
+                    else:
+                         return False, exp_name
+                except Exception as e:
+                    logger.error(f"Error computing experiment name: {e}")
+                    return False, None
+
+            # STEC
+            stec_found, stec_exp = find_exp(args.stec_config, is_vtec=False)
+            if stec_found:
+                logger.info(f"✓ Found existing STEC experiment: {stec_exp}")
+                result['stec_experiment'] = stec_exp
+            else:
+                logger.error(f"✗ STEC experiment not found (expected: {stec_exp}), skipping {date_str}")
+                batch_results.append(result)
+                continue
+
+            # VTEC
+            vtec_found, vtec_exp = find_exp(args.vtec_config, is_vtec=True)
+            if vtec_found:
+                 logger.info(f"✓ Found existing VTEC experiment: {vtec_exp}")
+                 result['vtec_experiment'] = vtec_exp
+            else:
+                 logger.error(f"✗ VTEC experiment not found (expected: {vtec_exp}), skipping {date_str}")
+                 batch_results.append(result)
+                 continue
         
         # Step 3: Run comparison evaluation
         logger.info(f"\n[3/3] Running comparison evaluation for {date_str}")
@@ -670,8 +1122,20 @@ Date formats supported:
         
         if comp_success:
             result['success'] = True
-            result['metrics'] = extract_metrics_from_experiment(result['stec_experiment'])
+            result['metrics'] = extract_metrics_from_experiment(date_dir / "evaluation")
             logger.info(f"✓ All steps completed for {date_str}")
+            
+            # Step 4: Run positioning evaluation (Optional)
+            if args.positioning:
+                logger.info(f"\n[4/4] Running positioning evaluation for {date_str}")
+                pos_success = run_positioning_pipeline(result['stec_experiment'], year, doy)
+                if pos_success:
+                    logger.info(f"✓ Positioning evaluation completed for {date_str}")
+                else:
+                    logger.warning(f"⚠️ Positioning evaluation failed for {date_str}")
+                    # We don't mark the whole day as failed just because positioning failed, 
+                    # as the main STEC/VTEC comparison might be the primary goal.
+                    # Unless strict mode is desired. For now, just warn.
         else:
             logger.error(f"✗ Comparison failed for {date_str}")
         

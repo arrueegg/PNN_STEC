@@ -323,11 +323,11 @@ Date formats:
         """
     )
     
-    parser.add_argument("--dates", type=str, required=True,
+    parser.add_argument("--dates", type=str,
                        help="Date(s) to evaluate (single, list, or range)")
-    parser.add_argument("--stec_config", type=str, required=True,
+    parser.add_argument("--stec_config", type=str,
                        help="Base config file for STEC training")
-    parser.add_argument("--vtec_config", type=str, required=True,
+    parser.add_argument("--vtec_config", type=str,
                        help="Base config file for VTEC training")
     parser.add_argument("--output_dir", type=str, default="multiday_results",
                        help="Output directory (default: multiday_results)")
@@ -337,8 +337,14 @@ Date formats:
                        help="Test set size (default: full)")
     parser.add_argument("--pretrain_folder", type=str, default=None,
                        help="Pretrain experiment folder to use for STEC model (optional)")
+    parser.add_argument("--skip_training", action="store_true",
+                       help="Skip training, only run evaluation (experiments must exist)")
     parser.add_argument("--no_aggregate", action="store_true",
                        help="Skip aggregate report generation (for parallel execution)")
+    parser.add_argument("--summary_only", action="store_true",
+                       help="Skip processing, only generate aggregate report from existing results")
+    parser.add_argument("--positioning", action="store_true",
+                       help="Run positioning evaluation for each day")
     
     return parser
 
@@ -466,23 +472,41 @@ def run_map(args):
 def run_multiday(args):
     """Execute multi-day evaluation workflow."""
     import sys
-    sys.argv = [
-        "multiday_evaluation.py",
-        "--dates", args.dates,
-        "--stec_config", args.stec_config,
-        "--vtec_config", args.vtec_config,
-        "--output_dir", args.output_dir,
-        "--num_inference_samples", str(args.num_inference_samples)
-    ]
     
-    if args.test_size:
-        sys.argv.extend(["--test_size", str(args.test_size)])
-    
-    if args.pretrain_folder:
-        sys.argv.extend(["--pretrain_folder", args.pretrain_folder])
-    
-    if args.no_aggregate:
-        sys.argv.extend(["--no_aggregate"])
+    if args.summary_only:
+        sys.argv = [
+            "multiday_evaluation.py",
+            "--summary_only",
+            "--output_dir", args.output_dir
+        ]
+    else:
+        if not args.dates or not args.stec_config or not args.vtec_config:
+            print("Error: --dates, --stec_config, and --vtec_config are required unless --summary_only is used")
+            return
+        
+        sys.argv = [
+            "multiday_evaluation.py",
+            "--dates", args.dates,
+            "--stec_config", args.stec_config,
+            "--vtec_config", args.vtec_config,
+            "--output_dir", args.output_dir,
+            "--num_inference_samples", str(args.num_inference_samples)
+        ]
+        
+        if args.test_size:
+            sys.argv.extend(["--test_size", str(args.test_size)])
+        
+        if args.pretrain_folder:
+            sys.argv.extend(["--pretrain_folder", args.pretrain_folder])
+        
+        if args.skip_training:
+            sys.argv.extend(["--skip_training"])
+        
+        if args.no_aggregate:
+            sys.argv.extend(["--no_aggregate"])
+
+        if args.positioning:
+            sys.argv.extend(["--positioning"])
     
     from multiday_evaluation import main
     main()

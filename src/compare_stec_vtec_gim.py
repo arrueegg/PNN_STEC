@@ -225,7 +225,8 @@ def apply_mapping_function(
         raise KeyError(f"Could not find prediction column. Available: {vtec_df.columns.tolist()}")
     
     # Compute mapping factor
-    mapping_factors = np.array([mapper.get_mapping_factor(el) for el in elevations_rad])
+    # Vectorized call: pass the entire numpy array at once
+    mapping_factors = mapper.get_mapping_factor(elevations_rad)
     
     # Convert VTEC to STEC
     stec_mapped = vtec_pred * mapping_factors
@@ -309,7 +310,8 @@ def add_gim_comparison(
             # Also compute VTEC at IPP for reference (divide out mapping factor)
             mapper = MappingFunction(mapping_type=mapping_type)
             elevations_rad = np.radians(elevations)
-            mapping_factors = np.array([mapper.get_mapping_factor(el) for el in elevations_rad])
+            # Vectorized mapping factor calculation
+            mapping_factors = mapper.get_mapping_factor(elevations_rad)
             gim_vtec = gim_stec / mapping_factors
             test_df.loc[indices, 'gim_vtec'] = gim_vtec
             
@@ -581,6 +583,13 @@ Examples:
     # Load STEC configuration
     stec_config, stec_dir = load_experiment_config(args.stec_experiment)
     
+    # CRITICAL: For finetuned models, force use_agg_h5=False to use day-specific test data
+    # instead of the global 6GB test.h5 file
+    if stec_config.get('mode') == 'finetune':
+        if 'data' in stec_config and stec_config['data'].get('use_agg_h5'):
+            logger.info("⚡ Optimizing: Disabling use_agg_h5 for finetuned model to use day-specific data")
+            stec_config['data']['use_agg_h5'] = False
+    
     # Verify STEC target
     if stec_config.get('target', 'stec').lower() != 'stec':
         raise ValueError(f"STEC experiment must have target='stec', got {stec_config.get('target')}")
@@ -707,6 +716,12 @@ Examples:
             if not hasattr(main, '_vtec_model_loaded'):
                 vtec_config, vtec_dir = load_experiment_config(args.vtec_experiment)
                 
+                # CRITICAL: For finetuned models, force use_agg_h5=False to use day-specific test data
+                if vtec_config.get('mode') == 'finetune':
+                    if 'data' in vtec_config and vtec_config['data'].get('use_agg_h5'):
+                        logger.info("⚡ Optimizing: Disabling use_agg_h5 for VTEC finetuned model")
+                        vtec_config['data']['use_agg_h5'] = False
+                
                 # Verify VTEC target
                 if vtec_config.get('target', 'vtec').lower() != 'vtec':
                     raise ValueError(f"VTEC experiment must have target='vtec', got {vtec_config.get('target')}")
@@ -799,13 +814,14 @@ Examples:
         experiment_output_dir = stec_dir / "evaluation" / comparison_name
         experiment_output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Also save to custom output_dir if specified (only for first dataset)
-        if args.output_dir and dataset_type == datasets_to_evaluate[0][0]:
-            custom_output_dir = Path(args.output_dir)
+        output_dirs = [experiment_output_dir]
+        
+        # Also save to custom output_dir if specified
+        if args.output_dir:
+            # Create subdirectory matching comparison name to keep results organized
+            custom_output_dir = Path(args.output_dir) / comparison_name
             custom_output_dir.mkdir(parents=True, exist_ok=True)
-            output_dirs = [experiment_output_dir, custom_output_dir]
-        else:
-            output_dirs = [experiment_output_dir]
+            output_dirs.append(custom_output_dir)
         
         # Create publication-ready visualizations
         logger.info("\n" + "="*70)

@@ -75,7 +75,7 @@ model:
   hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.1   # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
-  dropout_rate: 0.1   # Dropout rate for models
+  dropout_rate: 0.0   # Dropout rate for models
 
   # FactorizedSTEC specific configuration
   vtec_hidden: 128    # Hidden dimension for VTEC network

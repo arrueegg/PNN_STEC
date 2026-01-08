@@ -39,12 +39,12 @@ class MappingFunction:
         self.RE = 6371.0  # Earth radius in km
         self.type = mapping_type
         
-    def SLM_MF(self, elevation: float) -> float:
+    def SLM_MF(self, elevation: np.ndarray) -> np.ndarray:
         """
         Calculate the mapping function for the Single Layer Model (SLM).
         
         Args:
-            elevation: Elevation angle in radians
+            elevation: Elevation angle in radians (scalar or array)
             
         Returns:
             Mapping factor to convert VTEC to STEC
@@ -53,12 +53,12 @@ class MappingFunction:
         mapping_function = np.cos(np.arcsin(self.RE / (self.RE + H) * np.sin(np.pi/2 - elevation)))
         return 1.0 / mapping_function
 
-    def MSLM_MF(self, elevation: float) -> float:
+    def MSLM_MF(self, elevation: np.ndarray) -> np.ndarray:
         """
         Calculate the mapping function for the Modified Single Layer Model (MSLM).
         
         Args:
-            elevation: Elevation angle in radians
+            elevation: Elevation angle in radians (scalar or array)
             
         Returns:
             Mapping factor to convert VTEC to STEC
@@ -68,7 +68,7 @@ class MappingFunction:
         mapping_function = np.cos(np.arcsin(self.RE / (self.RE + H) * np.sin(alpha * (np.pi/2 - elevation))))
         return 1.0 / mapping_function
         
-    def get_mapping_factor(self, elevation: float) -> float:
+    def get_mapping_factor(self, elevation: np.ndarray) -> np.ndarray:
         """Get mapping factor based on configured type."""
         if self.type == 'SLM':
             return self.SLM_MF(elevation)
@@ -395,32 +395,98 @@ class GIMMapper:
         Returns:
             Array of STEC values (TECU)
         """
+        return ionex_files
+        
+    def map_vtec_to_stec(self, 
+                        sods: np.ndarray,
+                        ipp_lat: np.ndarray, 
+                        ipp_lon: np.ndarray,
+                        elevations: np.ndarray) -> np.ndarray:
+        """
+        Map VTEC to STEC for given observation geometry.
+        
+        Args:
+            sods: Satellite observation times (seconds of day)
+            ipp_lat: Ionospheric pierce point latitudes (degrees)
+            ipp_lon: Ionospheric pierce point longitudes (degrees) 
+            elevations: Satellite elevation angles (degrees)
+            
+        Returns:
+            Array of STEC values (TECU)
+        """
         if not self.gim_data:
             raise ValueError("No GIM data loaded. Call load_gim_data() first.")
             
         n_obs = len(sods)
-        stec_values = np.full(n_obs, np.nan)
         
         logger.debug(f"Mapping VTEC to STEC for {n_obs} observations")
         
-        # Create temporal interpolator - no longer needed as we do this in interpolate_vtec
-
-        for i, (sod, lat, lon, elev) in enumerate(zip(sods, ipp_lat, ipp_lon, elevations)):
-            try:
-                # Get VTEC at this time/location
-                vtec = self._interpolate_vtec(sod, lat, lon)
+        # Prepare inputs for vectorized interpolation
+        # Normalize longitude to [-180, 180]
+        lons_norm = (ipp_lon + 180) % 360 - 180
+        lats_clipped = np.clip(ipp_lat, -90, 90)
+        
+        # Convert times to hours of day
+        hods = sods / 3600.0
+        
+        # Build epoch list in hours (for interpolator)
+        gim_day = self.gim_data['epochs'][0].day
+        gim_epochs = []
+        for epoch in self.gim_data['epochs']:
+            if epoch.day == gim_day:
+                gim_epochs.append(epoch.hour + epoch.minute / 60.0)
+            else:
+                gim_epochs.append(epoch.hour + epoch.minute / 60.0 + 24)
+        
+        # Handle latitude grid orientation
+        lat_grid = self.gim_data['lat_grid']
+        vtec_maps = np.array(self.gim_data['vtec_maps'])
+        
+        if lat_grid[0] > lat_grid[-1]:
+            lats_corrected = lat_grid[::-1]
+            vtec_corrected = vtec_maps[:, ::-1, :]
+        else:
+            lats_corrected = lat_grid
+            vtec_corrected = vtec_maps
+        
+        try:
+            # Create interpolator once
+            # Note: RegularGridInterpolator is efficient but creating it is somewhat costly. 
+            # We create it once and reuse it for all points.
+            interpolator = RegularGridInterpolator(
+                (gim_epochs, lats_corrected, self.gim_data['lon_grid']),
+                vtec_corrected, 
+                bounds_error=False, 
+                fill_value=None
+            )
+            
+            # Helper to batch process if too large to avoid memory issues
+            batch_size = 100000
+            vtec_values = np.zeros(n_obs)
+            
+            for i in range(0, n_obs, batch_size):
+                end_idx = min(i + batch_size, n_obs)
+                # Stack coordinates for batch: (N, 3) array of [time, lat, lon]
+                points = np.column_stack((hods[i:end_idx], lats_clipped[i:end_idx], lons_norm[i:end_idx]))
+                vtec_values[i:end_idx] = interpolator(points)
+            
+            # Apply mapping function
+            # Convert elevation to radians if it looks like degrees (> pi is a crude check but typical given GNSS elevs)
+            # Assuming inputs are degrees as per docstring, but let's be robust
+            if np.any(elevations > np.pi):
+                elev_rad = np.radians(elevations)
+            else:
+                elev_rad = elevations
                 
-                if not np.isnan(vtec):
-                    # Apply mapping function (convert elevation to radians if needed)
-                    elev_rad = np.radians(elev) if elev > np.pi else elev
-                    mapping_factor = self.mapping_func.get_mapping_factor(elev_rad)
-                    stec_values[i] = vtec * mapping_factor
-                    
-            except Exception as e:
-                logger.debug(f"Failed to map observation {i}: {e}")
-                continue
-                        
-        return stec_values
+            mapping_factors = self.mapping_func.get_mapping_factor(elev_rad)
+            stec_values = vtec_values * mapping_factors
+            
+            return stec_values
+            
+        except Exception as e:
+            logger.error(f"Vectorized GIM mapping failed: {e}")
+            # Fallback to slow loop if vectorization crashes (unlikely)
+            return np.full(n_obs, np.nan)
 
     def _interpolate_vtec(self, sod: int, lat: float, lon: float) -> float:
         """
