@@ -60,9 +60,17 @@ def get_fixed_subset_indices(ds, k, cache_path, seed=0):
 
     # Try load from cache
     if os.path.exists(cache_path):
-        saved = torch.load(cache_path, map_location='cpu')
-        if saved.get("len", None) == len(ds) and saved.get("k", None) == k:
-            return saved["indices"]
+        try:
+            saved = torch.load(cache_path, map_location='cpu')
+            if saved.get("len", None) == len(ds) and saved.get("k", None) == k:
+                return saved["indices"]
+        except Exception as e:
+            print(f"Warning: Failed to load cache file {cache_path}: {e}. Regenerating...")
+            # Remove corrupted cache file
+            try:
+                os.remove(cache_path)
+            except:
+                pass
 
     # Create new subset
     g = torch.Generator().manual_seed(seed)

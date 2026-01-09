@@ -221,10 +221,12 @@ def get_data_loaders(config, logger=None):
                     )
                 else:
                     cache_dir = "./val_test_subsets_idx"
+                    # Make cache files unique per job to avoid conflicts in parallel runs
+                    job_id = f"{config.get('year', 'unknown')}_{config.get('doy', 'unknown')}"
                     cache_path = os.path.join(
                         config["data"]["scratch_dir"],
                         cache_dir,
-                        f"{split}_subset_idx.pt",
+                        f"{split}_subset_idx_{job_id}.pt",
                     )
 
                 idx = get_fixed_subset_indices(ds, subset_size, cache_path, seed=seed)
@@ -373,8 +375,10 @@ def get_test_data_loader(config, logger=None):
     # Apply subset if requested
     if test_subset and test_subset < len(ds):
         cache_dir = "./val_test_subsets_idx"
+        # Make cache files unique per job to avoid conflicts in parallel runs
+        job_id = f"{config.get('year', 'unknown')}_{config.get('doy', 'unknown')}"
         cache_path = os.path.join(
-            config["data"]["scratch_dir"], cache_dir, f"{split}_subset_idx.pt"
+            config["data"]["scratch_dir"], cache_dir, f"{split}_subset_idx_{job_id}.pt"
         )
         idx = get_fixed_subset_indices(ds, test_subset, cache_path, seed=seed)
         ds = Subset(ds, idx)

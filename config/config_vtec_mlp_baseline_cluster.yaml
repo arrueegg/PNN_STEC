@@ -23,7 +23,7 @@ doy: 183
 mode: finetune                  # Use finetune mode for single-day training
 finetune_from_scratch: true     # Train from scratch (no pretrain required)
 random_seed: 42
-debug: False  
+debug: True  
 debug_single_batch: false  
 cluster: false
 enable_timing: false

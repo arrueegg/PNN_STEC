@@ -5,7 +5,7 @@ year: 2024
 doy: 183
 mode: pretrain # pretrain, finetune
 random_seed: 42
-debug: False
+debug: True
 debug_single_batch: False
 cluster: False
 
