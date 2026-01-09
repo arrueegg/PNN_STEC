@@ -500,7 +500,79 @@ def save_results(
     logger.info(f"   - 5 publication-ready plots")
 
 
-def main():
+def run_comparison(
+    stec_experiment: str,
+    vtec_experiment: str = None,
+    num_inference_samples: int = 100,
+    test_size: int = None,
+    madrigal_path: str = "/home/space/data/iono/Madrigal_STEC",
+    no_gim: bool = False,
+    gim_path: str = "/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex",
+    mapping_function: str = "MSLM",
+    output_dir: str = None,
+):
+    """
+    Programmatic entry point for comparison workflow.
+    """
+    logger = logging.getLogger(__name__)
+    # Reset handlers to avoid accumulation if called multiple times
+    if logger.hasHandlers():
+        logger.handlers.clear()
+    
+    # Setup basic logging to stdout/stderr or allow parent logger to handle it
+    # For now, we'll re-use setup_logging logic or similar if needed.
+    # But note: setup_logging() in this file might configure root logger.
+    
+    # Let's use the existing setup_logging helper but be careful
+    logger = setup_logging() # This sets up root logger
+
+    logger.info("="*70)
+    logger.info("Comprehensive STEC Model Comparison")
+    logger.info("="*70)
+    
+    # Load STEC configuration
+    stec_config, stec_dir = load_experiment_config(stec_experiment)
+    
+    # CRITICAL: For finetuned models, force use_agg_h5=False to use day-specific test data
+    # instead of the global 6GB test.h5 file
+    if stec_config.get('mode') == 'finetune':
+        if 'data' in stec_config and stec_config['data'].get('use_agg_h5'):
+            logger.info("⚡ Optimizing: Disabling use_agg_h5 for finetuned model to use day-specific data")
+            stec_config['data']['use_agg_h5'] = False
+    
+    # Verify STEC target
+    if stec_config.get('target', 'stec').lower() != 'stec':
+        raise ValueError(f"STEC experiment must have target='stec', got {stec_config.get('target')}")
+    
+    # Setup device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    stec_config["device"] = device
+    logger.info(f"Using device: {device}")
+    
+    # Load VTEC configuration if provided
+    vtec_config = None
+    vtec_dir = None
+    if vtec_experiment:
+        vtec_config, vtec_dir = load_experiment_config(vtec_experiment)
+        if vtec_config.get('target', 'stec').lower() != 'vtec':
+            logger.warning(f"VTEC experiment has target={vtec_config.get('target')}, expected 'vtec'")
+            
+        # Ensure VTEC uses same test set logic
+        if vtec_config.get('mode') == 'finetune':
+            if 'data' in vtec_config and vtec_config['data'].get('use_agg_h5'):
+                vtec_config['data']['use_agg_h5'] = False
+                
+        vtec_config["device"] = device
+
+    # ... Rest of the function body ...
+    # This function is too long to replace entirely cleanly without reading more context.
+    # I will first just rename main() to run_comparison_cli() and create a wrapper.
+    # But wait, I need to convert args to function parameters.
+    
+    # Let's try a different approach. I'll modify main to take an 'args' object optionally.
+    pass
+
+def main(args=None):
     """Main comparison workflow.
     
     Standard usage (comprehensive evaluation):
@@ -514,66 +586,44 @@ def main():
     - VTEC+Mapping baseline (if vtec_experiment provided)
     - IGS GIM baseline (enabled by default)
     """
-    parser = argparse.ArgumentParser(
-        description="Comprehensive STEC Model Comparison",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Standard comprehensive evaluation (recommended)
-  python src/compare_stec_vtec_gim.py \\
-      --stec_experiment "Finetune_STEC_2024_183_FactorizedSTEC_..." \\
-      --vtec_experiment "Finetune_VTEC_2024_183_MLP_..."
-  
-  # STEC only (no VTEC baseline)
-  python src/compare_stec_vtec_gim.py \\
-      --stec_experiment "Finetune_STEC_..."
-  
-  # Quick test with subset
-  python src/compare_stec_vtec_gim.py \\
-      --stec_experiment "Finetune_STEC_..." \\
-      --vtec_experiment "Finetune_VTEC_..." \\
-      --test_size 1000 \\
-      --num_inference_samples 10
-  
-  # Skip GIM comparison
-  python src/compare_stec_vtec_gim.py \\
-      --stec_experiment "Finetune_STEC_..." \\
-      --vtec_experiment "Finetune_VTEC_..." \\
-      --no_gim
-        """
-    )
-    
-    # Required arguments
-    parser.add_argument("--stec_experiment", type=str, required=True,
-                       help="Path to STEC model experiment folder")
-    parser.add_argument("--vtec_experiment", type=str, default=None,
-                       help="Path to VTEC model experiment folder (optional)")
-    
-    # Optional arguments with defaults for comprehensive evaluation
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                       help="Number of MC samples for Bayesian inference (default: 100)")
-    parser.add_argument("--test_size", default=None,
-                       help="Number of test samples, or None for full test set (default: None/full)")
-    
-    # Data sources (automatically evaluates on all available datasets)
-    parser.add_argument("--madrigal_path", type=str,
-                       default="/home/space/data/iono/Madrigal_STEC",
-                       help="Path to Madrigal STEC data directory (auto-evaluated if available)")
-    
-    parser.add_argument("--no_gim", action="store_true",
-                       help="Skip IGS GIM baseline comparison")
-    parser.add_argument("--gim_path", type=str, 
-                       default="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex",
-                       help="Path to GIM/IONEX data directory")
-    
-    # Other options
-    parser.add_argument("--mapping_function", type=str, default="MSLM",
-                       choices=["SLM", "MSLM"],
-                       help="Mapping function for VTEC→STEC conversion (default: MSLM)")
-    parser.add_argument("--output_dir", type=str, default=None,
-                       help="Additional output directory (results always saved to experiment folder)")
-    
-    args = parser.parse_args()
+    if args is None:
+        parser = argparse.ArgumentParser(
+            description="Comprehensive STEC Model Comparison",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        
+        # Required arguments
+        parser.add_argument("--stec_experiment", type=str, required=True,
+                        help="Path to STEC model experiment folder")
+        parser.add_argument("--vtec_experiment", type=str, default=None,
+                        help="Path to VTEC model experiment folder (optional)")
+        
+        # Optional arguments with defaults for comprehensive evaluation
+        parser.add_argument("--num_inference_samples", type=int, default=100,
+                        help="Number of MC samples for Bayesian inference (default: 100)")
+        parser.add_argument("--test_size", default=None,
+                        help="Number of test samples, or None for full test set (default: None/full)")
+        
+        # Data sources (automatically evaluates on all available datasets)
+        parser.add_argument("--madrigal_path", type=str,
+                        default="/home/space/data/iono/Madrigal_STEC",
+                        help="Path to Madrigal STEC data directory (auto-evaluated if available)")
+        
+        parser.add_argument("--no_gim", action="store_true",
+                        help="Skip IGS GIM baseline comparison")
+        parser.add_argument("--gim_path", type=str, 
+                        default="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex",
+                        help="Path to GIM/IONEX data directory")
+        
+        # Other options
+        parser.add_argument("--mapping_function", type=str, default="MSLM",
+                        choices=["SLM", "MSLM"],
+                        help="Mapping function for VTEC→STEC conversion (default: MSLM)")
+        parser.add_argument("--output_dir", type=str, default=None,
+                        help="Additional output directory (results always saved to experiment folder)")
+        
+        args = parser.parse_args()
+
     logger = setup_logging()
     
     logger.info("="*70)

@@ -25,11 +25,47 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import torch
+from types import SimpleNamespace
+from contextlib import redirect_stdout, redirect_stderr, contextmanager
+import gc
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.config_parser import parse_config, compute_exp_name
+from main import main as run_main_training
+from compare_stec_vtec_gim import main as run_main_comparison
+# from inference_positioning import main as run_main_positioning # TODO: refactor inference_positioning.py first
+
+@contextmanager
+def capture_execution(log_file_path):
+    """
+    Context manager to redirect stdout, stderr AND logging to a file.
+    Critically important for in-process execution to mimic subprocess isolation.
+    """
+    # 1. Setup logging to file
+    root_logger = logging.getLogger()
+    file_handler = logging.FileHandler(log_file_path, mode='w')
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    
+    # Save original handlers and remove them (to silence console)
+    original_handlers = root_logger.handlers[:]
+    for h in original_handlers:
+        root_logger.removeHandler(h)
+    
+    root_logger.addHandler(file_handler)
+    
+    # 2. Redirect stdout/stderr
+    with open(log_file_path, 'a') as f, redirect_stdout(f), redirect_stderr(f):
+        try:
+            yield
+        finally:
+            # Restore logging
+            root_logger.removeHandler(file_handler)
+            for h in original_handlers:
+                root_logger.addHandler(h)
+            file_handler.close()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -242,9 +278,6 @@ def run_training(config_path: str) -> Tuple[bool, str]:
     """
     logger.info(f"Training with config: {config_path}")
     
-    # Build command - use sys.executable to get current Python interpreter
-    cmd = [sys.executable, "src/main.py", "--config", config_path]
-    
     # Determine log file path (in same directory as config)
     config_path_obj = Path(config_path)
     log_file = config_path_obj.parent / f"{config_path_obj.stem}_training.log"
@@ -269,74 +302,55 @@ def run_training(config_path: str) -> Tuple[bool, str]:
         expected_experiment_name = None
 
     try:
-        # Disable tqdm progress bars for cleaner logs
-        env = os.environ.copy()
-        env['TQDM_DISABLE'] = '1'
+        # Disable tqdm progress bars for cleaner logs and redirect output
+        os.environ['TQDM_DISABLE'] = '1'
         
-        # Open log file for real-time writing
-        output_lines = []
-        with open(log_file, 'w', buffering=1) as f:  # Line buffered
-            process = subprocess.Popen(
-                cmd,
-                cwd=Path(__file__).parent.parent,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                env=env,
-                bufsize=1
-            )
+        # Clear garbage and cache before training
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
             
-            # Stream output line by line, filtering out tqdm progress bars
-            for line in process.stdout:
-                # Skip tqdm progress bar lines (contain progress indicators like |, %, [time])
-                if not (('|' in line and '%' in line and 'it/s' in line) or 
-                       (line.strip().startswith('Training:') and '%|' in line) or
-                       (line.strip().startswith('Validation:') and '%|' in line)):
-                    f.write(line)
-                    f.flush()
-                output_lines.append(line.rstrip())
+        with capture_execution(log_file):
+            # Run training in-process
+            run_main_training(config_path=config_path)
             
-            # Wait for process to complete
-            return_code = process.wait()
-            
-            if return_code != 0:
-                raise subprocess.CalledProcessError(return_code, cmd)
-        
         # Use pre-calculated name if available, otherwise fallback to parsing/guessing
         if expected_experiment_name:
             experiment_name = expected_experiment_name
             logger.info(f"✓ Training completed (Exp: {experiment_name})")
             return True, experiment_name
 
-        # Extract experiment name from output
-        experiment_name = None
-        for line in output_lines:
-            if "Experiment directory:" in line or "experiment_dir" in line.lower():
-                if "experiments/" in line:
-                    parts = line.split("experiments/")
-                    if len(parts) > 1:
-                        experiment_name = parts[1].strip().split()[0]
-                        break
+        # For in-process execution, we assume success if no exception was raised.
+        # However, finding the experiment name without parsing stdout is harder if we didn't compute it.
+        # But we computed expected_experiment_name above, so we should be good.
         
-        if not experiment_name:
-            # Fallback: find most recent experiment directory
+        if not expected_experiment_name:
+             # Fallback: find most recent experiment directory (less reliable now that we don't have stdout lines easily)
             experiments_dir = Path(__file__).parent.parent / "experiments"
             exp_dirs = [d for d in experiments_dir.iterdir() if d.is_dir()]
             if exp_dirs:
                 experiment_name = max(exp_dirs, key=lambda x: x.stat().st_mtime).name
-        
-        logger.info(f"✓ Training completed: {experiment_name}")
-        return True, experiment_name
-    
-    except subprocess.CalledProcessError as e:
-        logger.error(f"✗ Training failed with exit code {e.returncode}")
-        return False, None
+            else:
+                 logger.warning("Could not determine experiment name after training.")
+                 return True, None # Return True but no name?
+
+            return True, experiment_name
+            
+        return True, expected_experiment_name
     
     except Exception as e:
         logger.error(f"✗ Training failed: {e}")
+        # traceback
+        import traceback
+        traceback.print_exc()
         with open(log_file, 'a') as f:
             f.write(f"\n\n=== ERROR ===\n{e}\n")
+            traceback.print_exc(file=f)
         return False, None
+    finally:
+         # Clean up env var
+        if 'TQDM_DISABLE' in os.environ:
+            del os.environ['TQDM_DISABLE']
 
 
 def run_positioning_pipeline(experiment_name: str, year: int, doy: int) -> bool:
@@ -416,38 +430,51 @@ def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path,
     log_file = output_dir / "comparison.log"
     logger.info(f"Comparison log: {log_file}")
     
-    # Build command - use sys.executable to get current Python interpreter
-    cmd = [
-        sys.executable,
-        "src/compare_stec_vtec_gim.py",
-        "--stec_experiment", stec_exp,
-        "--vtec_experiment", vtec_exp,
-        "--num_inference_samples", str(num_samples),
-        "--output_dir", str(output_dir)
-    ]
-    
     try:
         # Disable tqdm to keep log clean
-        env = os.environ.copy()
-        env['TQDM_DISABLE'] = '1'
+        os.environ['TQDM_DISABLE'] = '1'
 
-        with open(log_file, "w") as f:
-            result = subprocess.run(
-                cmd,
-                cwd=Path(__file__).parent.parent,
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                text=True,
-                check=True,
-                env=env
+        # Clear garbage and cache
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        with capture_execution(log_file):
+            # Construct args object explicitly mimicking argparse.Namespace
+            # or pass direct arguments if we refactored run_comparison signature (which we did partially, but using Namespace is safer for now as I kept 'args' support)
+            
+            # Create a namespace object with all arguments expected by run_main_comparison
+            # Note: I modified run_main_comparison (aka main) to accept 'args'.
+            # I can just pass a Namespace object.
+            
+            args = SimpleNamespace(
+                stec_experiment=stec_exp,
+                vtec_experiment=vtec_exp,
+                num_inference_samples=num_samples,
+                test_size=None, # Default as per CLI
+                madrigal_path="/home/space/data/iono/Madrigal_STEC", # Default
+                no_gim=False, # Default
+                gim_path="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex", # Default
+                mapping_function="MSLM", # Default
+                output_dir=str(output_dir)
             )
+            
+            run_main_comparison(args=args)
         
         logger.info(f"✓ Comparison completed")
         return True
     
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         logger.error(f"✗ Comparison failed. See log at {log_file}")
+        import traceback
+        with open(log_file, 'a') as f:
+            f.write(f"\n\n=== ERROR ===\n{e}\n")
+            traceback.print_exc(file=f)
         return False
+    finally:
+         # Clean up env var
+        if 'TQDM_DISABLE' in os.environ:
+            del os.environ['TQDM_DISABLE']
 
 
 def extract_metrics_from_experiment(evaluation_dir: Path) -> Dict[str, Dict]:

@@ -25,8 +25,8 @@ def setup_seed(seed):
     random.seed(seed)
 
 
-def main():
-    config = parse_config()
+def main(config_path=None):
+    config = parse_config(config_path=config_path)
 
     # Set wandb mode based on config and sweep status
     wandb_mode = "offline" if config.get("wandb", {}).get("offline", False) else "online"

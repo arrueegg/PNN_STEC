@@ -8,7 +8,7 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(file)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(args_list=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Process config for GIM training pipeline"
     )
@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--debug", type=str)
     
     # Parse known args and capture any unknown args (for config overrides)
-    args, unknown = parser.parse_known_args()
+    args, unknown = parser.parse_known_args(args_list)
     
     # Store overrides from unknown arguments
     args.overrides = {}
@@ -270,8 +270,13 @@ def create_experiment_dirs(config: dict):
         yaml.safe_dump({k: v for k, v in config.items() if k != "device"}, f)
 
 
-def parse_config(mode=None, device=None, data_path=None) -> dict:
-    args = parse_args()
+def parse_config(mode=None, device=None, data_path=None, config_path=None) -> dict:
+    # If config_path is provided directly, create a dummy args list
+    args_list = None
+    if config_path:
+        args_list = ["--config_path", str(config_path)]
+        
+    args = parse_args(args_list)
     config = load_config(args.config_path)
     config = apply_cli_overrides(
         config, args, mode=mode, device=device, data_path=data_path

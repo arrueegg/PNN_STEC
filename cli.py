@@ -351,42 +351,14 @@ Date formats:
 
 def run_train(args):
     """Execute training workflow."""
-    import sys
-    # Set up arguments for main.py
-    sys.argv = ["main.py", "--config", args.config]
     from main import main
-    main()
+    main(config_path=args.config)
 
 
 def run_compare(args):
     """Execute comparison workflow."""
-    import sys
-    # Build argument list
-    sys.argv = [
-        "compare_stec_vtec_gim.py",
-        "--stec_experiment", args.stec_experiment
-    ]
-    
-    if args.vtec_experiment:
-        sys.argv.extend(["--vtec_experiment", args.vtec_experiment])
-    
-    if args.test_size:
-        sys.argv.extend(["--test_size", str(args.test_size)])
-    
-    sys.argv.extend(["--num_inference_samples", str(args.num_inference_samples)])
-    sys.argv.extend(["--madrigal_path", args.madrigal_path])
-    sys.argv.extend(["--mapping_function", args.mapping_function])
-    
-    if args.no_gim:
-        sys.argv.append("--no_gim")
-    else:
-        sys.argv.extend(["--gim_path", args.gim_path])
-    
-    if args.output_dir:
-        sys.argv.extend(["--output_dir", args.output_dir])
-    
     from compare_stec_vtec_gim import main
-    main()
+    main(args)
 
 
 def run_evaluate(args):
