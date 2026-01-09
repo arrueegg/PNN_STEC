@@ -75,7 +75,7 @@ model:
   hidden_dim: 1024    # Number of neurons in hidden layers (default: 256)
   num_layers: 4       # Number of hidden layers (not including output layer) (default: 4)
   prior_sigma: 0.1   # Standard deviation for the Gaussian prior in BNNs (default: 0.1)
-  dropout_rate: 0.1   # Dropout rate for models
+  dropout_rate: 0.0   # Dropout rate for models
 
   # FactorizedSTEC specific configuration
   vtec_hidden: 128    # Hidden dimension for VTEC network
@@ -127,10 +127,10 @@ pretrain:
 
 finetune:
   freeze_body: False                  # Whether to freeze the body of the network during finetuning
-  epochs: 30
-  batchsize: 2048                     # Batch size for finetuning (can be different from pretrain)
+  epochs: 50
+  batchsize: 512                     # Batch size for finetuning (can be different from pretrain)
   num_workers: 4
-  learning_rate: 0.0001
+  learning_rate: 0.0002
   scheduler: ReduceLROnPlateau       # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100           # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true               # Enable early stopping

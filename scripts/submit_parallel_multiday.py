@@ -121,12 +121,18 @@ def ensure_pretrain_exists(stec_config_path: str) -> str:
 
 def create_slurm_script(chunk_dates: List[Tuple[int, int]], chunk_id: int,
                        stec_config: str, vtec_config: str, output_dir: str,
-                       num_inference_samples: int, base_dir: str, pretrain_folder: str) -> str:
+                       num_inference_samples: int, base_dir: str, pretrain_folder: str,
+                       skip_comparison: bool = False) -> str:
     """Create SLURM script for a chunk of dates."""
 
     # Convert dates to string format
     date_strings = [f"{year}-{doy:03d}" for year, doy in chunk_dates]
     dates_arg = ",".join(date_strings)
+
+    # Optional flags
+    optional_flags = ""
+    if skip_comparison:
+        optional_flags += " \\\n    --skip_comparison"
 
     script_content = f'''#!/bin/bash
 #SBATCH --ntasks=1
@@ -163,7 +169,7 @@ python cli.py multiday \\
     --output_dir "{output_dir}" \\
     --num_inference_samples {num_inference_samples} \\
     --pretrain_folder "{pretrain_folder}" \\
-    --no_aggregate
+    --no_aggregate{optional_flags}
 
 echo "✅ Chunk {chunk_id} completed successfully"
 '''
@@ -208,6 +214,8 @@ Examples:
     parser.add_argument("--base_dir", type=str,
                        default="/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC",
                        help="Base directory on cluster")
+    parser.add_argument("--skip_comparison", action="store_true",
+                       help="Skip comparison evaluation (Step 3)")
     parser.add_argument("--dry_run", action="store_true",
                        help="Show what would be submitted without actually submitting")
 
@@ -253,7 +261,8 @@ Examples:
         # Create SLURM script
         script_content = create_slurm_script(
             chunk, chunk_id, args.stec_config, args.vtec_config,
-            args.output_dir, args.num_inference_samples, args.base_dir, pretrain_folder
+            args.output_dir, args.num_inference_samples, args.base_dir, pretrain_folder,
+            skip_comparison=args.skip_comparison
         )
 
         script_path = scripts_dir / f"chunk_{chunk_id:02d}.sh"

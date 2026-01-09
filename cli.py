@@ -343,6 +343,8 @@ Date formats:
                        help="Skip aggregate report generation (for parallel execution)")
     parser.add_argument("--summary_only", action="store_true",
                        help="Skip processing, only generate aggregate report from existing results")
+    parser.add_argument("--skip_comparison", action="store_true",
+                       help="Skip comparison evaluation (Step 3)")
     parser.add_argument("--positioning", action="store_true",
                        help="Run positioning evaluation for each day")
     
@@ -473,6 +475,9 @@ def run_multiday(args):
         
         if args.skip_training:
             sys.argv.extend(["--skip_training"])
+        
+        if args.skip_comparison:
+            sys.argv.extend(["--skip_comparison"])
         
         if args.no_aggregate:
             sys.argv.extend(["--no_aggregate"])

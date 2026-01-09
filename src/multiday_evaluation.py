@@ -1002,6 +1002,8 @@ Date formats supported:
                        help="Test set size (default: full)")
     parser.add_argument("--skip_training", action="store_true",
                        help="Skip training, only run evaluation (experiments must exist)")
+    parser.add_argument("--skip_comparison", action="store_true",
+                       help="Skip comparison evaluation (Step 3)")
     parser.add_argument("--pretrain_folder", type=str, default=None,
                        help="Pretrain experiment folder to use for STEC model (optional, auto-runs pretrain if needed)")
     parser.add_argument("--no_aggregate", action="store_true",
@@ -1190,18 +1192,26 @@ Date formats supported:
                  continue
         
         # Step 3: Run comparison evaluation
-        logger.info(f"\n[3/3] Running comparison evaluation for {date_str}")
-        comp_success = run_comparison(
-            result['stec_experiment'],
-            result['vtec_experiment'],
-            date_dir / "evaluation",
-            args.num_inference_samples
-        )
-        
+        comp_success = False
+        if not args.skip_comparison:
+            logger.info(f"\n[3/3] Running comparison evaluation for {date_str}")
+            comp_success = run_comparison(
+                result['stec_experiment'],
+                result['vtec_experiment'],
+                date_dir / "evaluation",
+                args.num_inference_samples
+            )
+        else:
+            logger.info(f"\n[3/3] Skipping comparison evaluation for {date_str}")
+            comp_success = True
+
         if comp_success:
             result['success'] = True
-            result['metrics'] = extract_metrics_from_experiment(date_dir / "evaluation")
-            logger.info(f"✓ All steps completed for {date_str}")
+            if not args.skip_comparison:
+                result['metrics'] = extract_metrics_from_experiment(date_dir / "evaluation")
+                logger.info(f"✓ All steps completed for {date_str}")
+            else:
+                logger.info(f"✓ Training steps completed for {date_str}")
             
             # Step 4: Run positioning evaluation (Optional)
             if args.positioning:
