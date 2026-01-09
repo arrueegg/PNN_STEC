@@ -145,6 +145,38 @@ def create_modified_config(base_config_path: str, year: int, doy: int,
     return str(temp_config_path)
 
 
+def check_experiment_exists(config_path: str) -> Tuple[bool, str]:
+    """Check if an experiment described by the config already exists."""
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Ensure year/doy strings match what main.py expects/formats
+        if 'year' in config:
+            config['year'] = str(config['year'])
+        if 'doy' in config:
+            config['doy'] = str(config['doy']).zfill(3)
+
+        exp_name = compute_exp_name(config)
+        exp_path = Path("experiments") / exp_name
+        
+        # Check if experiment exists with a trained model
+        # 1. Check for root .pt files (common in some setups)
+        # 2. Check for model/*.pth files (standard in this repo)
+        model_dir = exp_path / "model"
+        
+        has_root_model = (exp_path / "best_model.pt").exists() or (exp_path / "model.pt").exists()
+        has_subdir_model = model_dir.exists() and any(model_dir.glob("*.pth"))
+        
+        if exp_path.exists() and (has_root_model or has_subdir_model):
+            return True, exp_name
+            
+        return False, exp_name
+    except Exception as e:
+        logger.warning(f"Failed to check if experiment exists: {e}")
+        return False, None
+
+
 def ensure_pretrain_exists(base_config_path: str, output_dir: Path) -> Tuple[bool, str]:
     """Check if pretrain experiment exists, run if not.
     
@@ -378,6 +410,11 @@ def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path,
     Returns success status.
     """
     logger.info(f"Running comparison: {stec_exp} vs {vtec_exp}")
+
+    # Ensure output directory exists for logging
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_file = output_dir / "comparison.log"
+    logger.info(f"Comparison log: {log_file}")
     
     # Build command - use sys.executable to get current Python interpreter
     cmd = [
@@ -390,21 +427,26 @@ def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path,
     ]
     
     try:
-        result = subprocess.run(
-            cmd,
-            cwd=Path(__file__).parent.parent,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        # Disable tqdm to keep log clean
+        env = os.environ.copy()
+        env['TQDM_DISABLE'] = '1'
+
+        with open(log_file, "w") as f:
+            result = subprocess.run(
+                cmd,
+                cwd=Path(__file__).parent.parent,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=True,
+                env=env
+            )
         
         logger.info(f"✓ Comparison completed")
         return True
     
     except subprocess.CalledProcessError as e:
-        logger.error(f"✗ Comparison failed: {e}")
-        logger.error(f"stdout: {e.stdout}")
-        logger.error(f"stderr: {e.stderr}")
+        logger.error(f"✗ Comparison failed. See log at {log_file}")
         return False
 
 
@@ -1050,7 +1092,16 @@ Date formats supported:
             logger.info(f"\n[2/3] Training VTEC model for {date_str}")
             vtec_config = create_modified_config(args.vtec_config, year, doy,
                                                 date_dir, is_vtec=True)
-            vtec_success, vtec_exp = run_training(vtec_config)
+            
+            # Check if VTEC experiment already exists to skip redundant training
+            vtec_exists, vtec_exp_name = check_experiment_exists(vtec_config)
+            
+            if vtec_exists:
+                logger.info(f"✓ Found existing VTEC experiment: {vtec_exp_name}, skipping training")
+                vtec_success = True
+                vtec_exp = vtec_exp_name
+            else:
+                vtec_success, vtec_exp = run_training(vtec_config)
             
             if not vtec_success:
                 logger.error(f"✗ VTEC training failed for {date_str}, skipping...")

@@ -127,10 +127,10 @@ pretrain:
 
 finetune:
   freeze_body: False                  # Whether to freeze the body of the network during finetuning
-  epochs: 30
-  batchsize: 2048                     # Batch size for finetuning (can be different from pretrain)
+  epochs: 50
+  batchsize: 512                     # Batch size for finetuning (can be different from pretrain)
   num_workers: 12
-  learning_rate: 0.0001
+  learning_rate: 0.0002
   scheduler: ReduceLROnPlateau       # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100           # Step size for scheduler (reduces lr every X epochs)
   early_stopping: true               # Enable early stopping
