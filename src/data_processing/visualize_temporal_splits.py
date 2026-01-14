@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from pathlib import Path
+import argparse
 
 
 def load_date_splits():
@@ -30,7 +31,14 @@ def load_date_splits():
     return train_dates, val_dates, test_dates
 
 
-def create_timeline_heatmap(train_dates, val_dates, test_dates, save_path=None):
+def create_timeline_heatmap(
+    train_dates,
+    val_dates,
+    test_dates,
+    save_path=None,
+    start_year=2014,
+    end_year=2024,
+):
     """
     Create a timeline heatmap showing temporal splits.
 
@@ -39,9 +47,11 @@ def create_timeline_heatmap(train_dates, val_dates, test_dates, save_path=None):
         val_dates: Array of validation dates in YYYY-MM format
         test_dates: Array of test dates in YYYY-MM format
         save_path: Optional path to save the figure
+        start_year: Start year for visualization
+        end_year: End year for visualization (inclusive)
     """
     # Create a matrix for the heatmap (years x months)
-    years = range(2010, 2025)  # 2010-2024
+    years = range(start_year, end_year + 1)
     months = range(1, 13)  # Jan-Dec
 
     # Initialize matrix with 0 (no data)
@@ -52,21 +62,21 @@ def create_timeline_heatmap(train_dates, val_dates, test_dates, save_path=None):
     for date_str in train_dates:
         year, month = map(int, date_str.split("-"))
         if year in years:
-            year_idx = year - 2010
+            year_idx = year - start_year
             month_idx = month - 1
             data_matrix[year_idx, month_idx] = 1
 
     for date_str in val_dates:
         year, month = map(int, date_str.split("-"))
         if year in years:
-            year_idx = year - 2010
+            year_idx = year - start_year
             month_idx = month - 1
             data_matrix[year_idx, month_idx] = 2
 
     for date_str in test_dates:
         year, month = map(int, date_str.split("-"))
         if year in years:
-            year_idx = year - 2010
+            year_idx = year - start_year
             month_idx = month - 1
             data_matrix[year_idx, month_idx] = 3
 
@@ -116,10 +126,19 @@ def create_timeline_heatmap(train_dates, val_dates, test_dates, save_path=None):
     ax.tick_params(which="minor", length=0)
 
     # Create custom legend with percentages
-    total_months = len(train_dates) + len(val_dates) + len(test_dates)
-    train_pct = len(train_dates) / total_months * 100
-    val_pct = len(val_dates) / total_months * 100
-    test_pct = len(test_dates) / total_months * 100
+    train_count = np.sum(data_matrix == 1)
+    val_count = np.sum(data_matrix == 2)
+    test_count = np.sum(data_matrix == 3)
+    total_months = train_count + val_count + test_count
+
+    if total_months > 0:
+        train_pct = train_count / total_months * 100
+        val_pct = val_count / total_months * 100
+        test_pct = test_count / total_months * 100
+    else:
+        train_pct = 0.0
+        val_pct = 0.0
+        test_pct = 0.0
 
     legend_elements = [
         patches.Patch(color=colors[1], label=f"Training ({train_pct:.1f}%)"),
@@ -147,10 +166,27 @@ def create_timeline_heatmap(train_dates, val_dates, test_dates, save_path=None):
     return fig, ax
 
 
-def print_split_statistics(train_dates, val_dates, test_dates):
+def print_split_statistics(train_dates, val_dates, test_dates, start_year=None, end_year=None):
     """Print statistics about the temporal splits."""
+    
+    # Filter dates if range provided
+    if start_year is not None and end_year is not None:
+        def filter_dates(dates):
+            res = []
+            for d in dates:
+                y = int(d.split('-')[0])
+                if start_year <= y <= end_year:
+                    res.append(d)
+            return res
+            
+        train_dates = filter_dates(train_dates)
+        val_dates = filter_dates(val_dates)
+        test_dates = filter_dates(test_dates)
+
     print("=" * 60)
     print("TEMPORAL SPLIT STATISTICS")
+    if start_year and end_year:
+        print(f"Range: {start_year} - {end_year}")
     print("=" * 60)
 
     print(f"Training months: {len(train_dates)}")
@@ -161,11 +197,15 @@ def print_split_statistics(train_dates, val_dates, test_dates):
     )
 
     # Year coverage
-    all_dates = list(train_dates) + list(val_dates) + list(test_dates)
-    years_covered = sorted(set([int(date.split("-")[0]) for date in all_dates]))
-    print(
-        f"Years covered: {years_covered[0]}-{years_covered[-1]} ({len(years_covered)} years)"
-    )
+    if len(train_dates) + len(val_dates) + len(test_dates) > 0:
+        all_dates = list(train_dates) + list(val_dates) + list(test_dates)
+        years_covered = sorted(set([int(date.split("-")[0]) for date in all_dates]))
+        print(
+            f"Years covered: {years_covered[0]}-{years_covered[-1]} ({len(years_covered)} years)"
+        )
+    else:
+        print("No data in selected range.")
+        years_covered = []
 
     # Monthly distribution
     print("\nMonthly distribution:")
@@ -217,26 +257,44 @@ def print_split_statistics(train_dates, val_dates, test_dates):
         print(f"  {split_name}:")
         for year in years_covered:
             count = year_counts.get(year, 0)
-            print(f"    {year}: {count:2d}", end="  ")
-            if (year - years_covered[0] + 1) % 5 == 0:
-                print()
-        print()
+            if count > 0:
+                print(f"    {year}: {count:2d}")
 
 
 def main():
     """Main function to create the temporal split visualization."""
+    parser = argparse.ArgumentParser(description="Visualize temporal splits.")
+    parser.add_argument(
+        "--start_year", type=int, default=2014, help="Start year for visualization"
+    )
+    parser.add_argument(
+        "--end_year", type=int, default=2024, help="End year for visualization"
+    )
+    args = parser.parse_args()
+
     print("Loading temporal split data...")
 
     # Load the date splits
     train_dates, val_dates, test_dates = load_date_splits()
 
     # Print statistics
-    print_split_statistics(train_dates, val_dates, test_dates)
+    print_split_statistics(
+        train_dates, val_dates, test_dates, start_year=args.start_year, end_year=args.end_year
+    )
 
     # Create the timeline heatmap
-    print("\nCreating timeline heatmap...")
+    print(
+        f"\nCreating timeline heatmap from {args.start_year} to {args.end_year}..."
+    )
     save_path = Path(__file__).parent / "temporal_splits_heatmap.png"
-    fig, ax = create_timeline_heatmap(train_dates, val_dates, test_dates, save_path)
+    fig, ax = create_timeline_heatmap(
+        train_dates,
+        val_dates,
+        test_dates,
+        save_path,
+        start_year=args.start_year,
+        end_year=args.end_year,
+    )
 
     print("\nVisualization complete!")
     print(f"Heatmap saved as: {save_path}")

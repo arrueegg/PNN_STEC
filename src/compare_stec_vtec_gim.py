@@ -624,6 +624,15 @@ def main(args=None):
         
         args = parser.parse_args()
 
+    # CRITICAL: Reset static cache attributes to ensure no cross-contamination between runs
+    # This is necessary when main is called multiple times in the same process (e.g. multiday evaluation)
+    if hasattr(main, '_vtec_model_loaded'):
+        del main._vtec_model_loaded
+    if hasattr(main, '_vtec_config'):
+        del main._vtec_config
+    if hasattr(main, '_vtec_model'):
+        del main._vtec_model
+
     logger = setup_logging()
     
     logger.info("="*70)
