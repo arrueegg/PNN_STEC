@@ -145,10 +145,10 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
         test_df
     )
 
-    # Save temporal analysis
-    trainer.save_temporal_split_metrics(
-        interpolation_df, extrapolation_df, split_info, experiment_dir
-    )
+    # Save temporal analysis (skip txt summary files as requested)
+    # trainer.save_temporal_split_metrics(
+    #    interpolation_df, extrapolation_df, split_info, experiment_dir
+    # )
 
     # Generate plots for interpolation and extrapolation if sufficient data
     # Disable scenario evaluation for these temporal splits
@@ -197,36 +197,76 @@ def main():
         torch.cuda.manual_seed(42)
 
     try:
-        # Load config
-        config = parse_config()
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        config["device"] = device
+        # Manual argument parsing to check for model_checkpoint
+        import argparse
+        parser = argparse.ArgumentParser(description="Inference Testset", add_help=False)
+        parser.add_argument("--model_checkpoint", type=str, help="Path to specific model checkpoint")
+        args, _ = parser.parse_known_args()
 
-        logger.info(
-            f"🔧 Config: {config['mode']} | {config['model']['model_type']} | Device: {device}"
-        )
+        if args.model_checkpoint:
+            # Mode 1: Direct inference on specific model
+            model_path = args.model_checkpoint
+            if not os.path.exists(model_path):
+                logger.error(f"❌ Model not found: {model_path}")
+                return 1
+            
+            # Infer experiment directory (assuming structure experiments/EXP_NAME/model/model.pth)
+            experiment_dir = os.path.dirname(os.path.dirname(model_path))
+            
+            logger.info(f"📍 Using experiment directory: {experiment_dir}")
+            
+            # Load config from experiment directory
+            config_path = os.path.join(experiment_dir, "config.yaml")
+            if os.path.exists(config_path):
+                logger.info(f"📄 Loading config from: {config_path}")
+                from utils.config_parser import load_config
+                config = load_config(config_path)
+            else:
+                logger.warning(f"⚠️ Config not found in {experiment_dir}, loading from default/CLI")
+                config = parse_config()
 
-        # Generate experiment name
-        experiment_name = compute_exp_name(config)
-        logger.info(f"🔍 Looking for experiment: {experiment_name}")
-
-        # Find experiment directory
-        experiment_dir = find_experiment_directory(experiment_name)
-        if experiment_dir is None:
-            logger.error(f"❌ EXPERIMENT NOT FOUND: {experiment_name}")
-            logger.error("Available experiments:")
-            experiments_dir = "experiments"
-            if os.path.exists(experiments_dir):
-                for exp in sorted(os.listdir(experiments_dir)):
-                    if os.path.isdir(os.path.join(experiments_dir, exp)):
-                        logger.error(f"  - {exp}")
-            logger.error(
-                "Please train the model first or check your config.yaml settings."
+            # Setup device
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            config["device"] = device
+            config["output_dir"] = experiment_dir
+            
+            logger.info(
+                f"🔧 Config: {config.get('mode', 'inference')} | {config['model']['model_type']} | Device: {device}"
             )
-            return 1
+            
+        else:
+            # Mode 2: Standard workflow (find experiment by config name)
+            # Load config
+            config = parse_config()
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            config["device"] = device
 
-        # Find model checkpoint
-        model_path = find_model_checkpoint(experiment_dir)
+            logger.info(
+                f"🔧 Config: {config['mode']} | {config['model']['model_type']} | Device: {device}"
+            )
+
+            # Generate experiment name
+            experiment_name = compute_exp_name(config)
+            logger.info(f"🔍 Looking for experiment: {experiment_name}")
+
+            # Find experiment directory
+            experiment_dir = find_experiment_directory(experiment_name)
+            if experiment_dir is None:
+                logger.error(f"❌ EXPERIMENT NOT FOUND: {experiment_name}")
+                logger.error("Available experiments:")
+                experiments_dir = "experiments"
+                if os.path.exists(experiments_dir):
+                    for exp in sorted(os.listdir(experiments_dir)):
+                        if os.path.isdir(os.path.join(experiments_dir, exp)):
+                            logger.error(f"  - {exp}")
+                logger.error(
+                    "Please train the model first or check your config.yaml settings."
+                )
+                return 1
+
+            # Find model checkpoint
+            model_path = find_model_checkpoint(experiment_dir)
+        
         logger.info(f"✅ Found model: {model_path}")
 
         # Run complete inference analysis

@@ -9,6 +9,7 @@ import numpy as np
 import os
 import logging
 import matplotlib.pyplot as plt
+import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -378,6 +379,13 @@ def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
     if lat_col not in df.columns:
         return  # Skip if column doesn't exist
 
+    
+    # Set shared style
+    sns.set_context("paper", font_scale=1.5)
+    sns.set_style("whitegrid", {'grid.linestyle': '--', 'grid.alpha': 0.6})
+    plt.rcParams['figure.dpi'] = 300
+    colors = sns.color_palette("colorblind")
+
     bins = np.arange(-90, 91, 10)
     df["lat_bin"] = pd.cut(df[lat_col], bins=bins, include_lowest=True, right=False)
 
@@ -406,25 +414,11 @@ def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     bin_centers = [(interval.left + interval.right) / 2 for interval in grouped.index]
 
-    fig, axs = plt.subplots(
-        2, 1, figsize=(12, 10), sharex=True, gridspec_kw={"hspace": 0.1}
-    )
-    fig.align_ylabels()
+    fig, ax = plt.subplots(figsize=(12, 7))
 
-    # Top panel: RMSE and MAE
-    axs[0].plot(bin_centers, rmse_lat["error"], marker="o", label="RMSE")
-    axs[0].plot(bin_centers, mae_lat["ae"], marker="o", label="MAE")
-    axs[0].legend(loc="upper right", fontsize=14, framealpha=0.9)
-    axs[0].set_xlim([-90, 90])
-    axs[0].set_ylim(bottom=0)
-    axs[0].set_ylabel("RMSE/MAE (TECU)")
-    axs[0].set_title(
-        "Performance by Solar Magnetic Latitude", fontweight="bold", pad=20
-    )
-
-    # Bottom panel: Boxplot of residuals
-    axs[1].axhline(y=0, color="red", linestyle="-", linewidth=1, zorder=1, alpha=0.8)
-    bp = axs[1].boxplot(
+    # 1. Boxplot of residuals (Background)
+    ax.axhline(y=0, color="black", linestyle="-", linewidth=1.5, zorder=1, alpha=0.8)
+    bp = ax.boxplot(
         box_data,
         positions=bin_centers,
         widths=5,
@@ -435,20 +429,30 @@ def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
     )
 
     for patch in bp["boxes"]:
-        patch.set_facecolor("lightblue")
-        patch.set_alpha(0.7)
+        patch.set_facecolor(colors[2])
+        patch.set_alpha(0.5)  # Slightly more transparent to see grid
     for element in ["whiskers", "caps", "medians"]:
         for item in bp[element]:
-            item.set_linewidth(1.2)
+            item.set_linewidth(1.5)
+            if element == 'medians':
+                item.set_color('black')
 
-    axs[1].set_xticks(bins)
-    axs[1].set_xticklabels([f"{b}" for b in bins], rotation=45)
-    axs[1].set_ylim([-30, 30])
-    axs[1].set_xlabel("Solar Magnetic Latitude [°]")
-    axs[1].set_ylabel("Residual (TECU)")
+    # 2. RMSE and MAE Lines (Foreground)
+    ax.plot(bin_centers, rmse_lat["error"], marker="o", label="RMSE", color=colors[0], linewidth=3, markersize=8, zorder=3)
+    ax.plot(bin_centers, mae_lat["ae"], marker="s", label="MAE", color=colors[1], linewidth=3, markersize=8, zorder=3)
 
-    axs[0].grid(True, alpha=0.3)
-    axs[1].grid(True, alpha=0.3)
-    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    # Styling
+    ax.set_xticks(bins)
+    ax.set_xticklabels([f"{b}" for b in bins], rotation=45)
+    ax.set_ylim([-30, 30])
+    ax.set_xlabel("Solar Magnetic Latitude [°]")
+    ax.set_ylabel("Residual / Error (TECU)")
+    
+    # Legend
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.15), ncol=2, frameon=True)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.title("Performance by Solar Magnetic Latitude", fontweight="bold", y=1.02)
+    plt.tight_layout()
     save_plot(fig, "mLat_summary.png", output_dir)
     plt.close(fig)

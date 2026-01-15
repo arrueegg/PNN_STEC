@@ -260,7 +260,7 @@ def plot_test_metrics_for_subset(
                 f.write(f"{key}: {value:.6f}\n")
     
     # Create temporal metrics summaries
-    create_temporal_metrics_summaries(df, output_dir)
+    # create_temporal_metrics_summaries(df, output_dir)
     
     # =========================================================================
     # SCENARIO-BASED EVALUATION (if enabled)
@@ -507,8 +507,8 @@ def plot_test_metrics(
                 f.write(f"{key}: {value:.6f}\n")
 
     # Create temporal metrics summaries
-    logger.info("Creating temporal metrics summaries...")
-    create_temporal_metrics_summaries(df, test_metrics_dir)
+    logger.info("Skipping temporal metrics summaries (txt files)...")
+    # create_temporal_metrics_summaries(df, test_metrics_dir)
 
     if uncertainty_cols:
         logger.info(
