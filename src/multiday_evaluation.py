@@ -16,6 +16,7 @@ import os
 import sys
 import yaml
 import logging
+import math
 import argparse
 import subprocess
 from pathlib import Path
@@ -24,6 +25,7 @@ from typing import List, Tuple, Dict
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import seaborn as sns
 import torch
 from types import SimpleNamespace
@@ -70,6 +72,12 @@ class LogFilter:
 
     def flush(self):
         self.stream.flush()
+
+    def isatty(self):
+        """Allow checks for TTY (needed by tools like wandb)."""
+        if hasattr(self.stream, 'isatty'):
+            return self.stream.isatty()
+        return False
 
 @contextmanager
 def capture_execution(log_file_path):
@@ -692,19 +700,33 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
     }
     
     # Set aesthetics for publication-quality plots
-    sns.set_context("paper", font_scale=1.4)
+    sns.set_context("paper", font_scale=1.5)
     sns.set_style("whitegrid", {'grid.linestyle': '--', 'grid.alpha': 0.6})
     plt.rcParams['figure.dpi'] = 300
     plt.rcParams['lines.linewidth'] = 2.5
     plt.rcParams['lines.markersize'] = 8
     
-    # Define consistent colors for models
-    colors = sns.color_palette("deep")
+    # Define consistent colors for models using a colorblind-friendly palette
+    # Direct STEC: Blue, VTEC+Mapping: Orange, IGS GIM: Green
+    colors = sns.color_palette("colorblind")
     model_colors = {
         'Direct STEC': colors[0],
         'VTEC + Mapping': colors[1],
         'IGS GIM + Mapping': colors[2]
     }
+    
+    # Define baseline colors (subset of model_colors for consistency in improvement plots)
+    baseline_colors = {
+        'VTEC + Mapping': model_colors['VTEC + Mapping'],
+        'IGS GIM + Mapping': model_colors['IGS GIM + Mapping']
+    }
+    
+    # Ensure date column is datetime for proper plotting
+    if 'date' in df.columns:
+        df['datetime'] = pd.to_datetime(df['date'], format='%Y-%j')
+        df = df.sort_values('datetime')
+    else: 
+        logger.warning("No 'date' column found in dataframe, skipping datetime conversion")
     
     unique_datasets = df['dataset'].unique()
     
@@ -721,20 +743,37 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
         mapped_name = name_map.get(dataset, dataset)
         dataset_df = df[df['dataset'] == dataset]
         
-        plt.figure(figsize=(12, 6))
+        plt.figure(figsize=(14, 7))
         
-        pivot_df = dataset_df.pivot(index='date', columns='Model', values='RMSE')
+        # Determine x-axis values (datetime if available, else string)
+        use_date_obj = 'datetime' in dataset_df.columns
+        x_col = 'datetime' if use_date_obj else 'date'
+        
+        pivot_df = dataset_df.pivot(index=x_col, columns='Model', values='RMSE')
         
         # Plot each model with consistent colors
         for model in pivot_df.columns:
             color = model_colors.get(model, 'gray')
             plt.plot(pivot_df.index, pivot_df[model], marker='o', label=model, color=color)
         
-        plt.xlabel('Date (YYYY-DOY)')
         plt.ylabel('RMSE (TECU)')
-        plt.title('RMSE by Date')
-        plt.legend(loc='best', frameon=True, framealpha=0.9)
-        plt.xticks(rotation=45)
+        plt.title(f'RMSE by Date ({mapped_name})')
+        # Move legend further down
+        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(model_colors), frameon=True)
+        
+        # Improved date formatting
+        if use_date_obj:
+            plt.xlabel('Date')
+            ax = plt.gca()
+            locator = mdates.AutoDateLocator()
+            formatter = mdates.DateFormatter('%Y-%m-%d')
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(formatter)
+            plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
+        else:
+            plt.xlabel('Date (YYYY-DOY)')
+            plt.xticks(rotation=45)
+            
         plt.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
         
@@ -744,7 +783,7 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
         logger.info(f"Saved RMSE vs Date plot: {filename}")
     
     # -------------------------------------------------------------------------
-    # 2. Box plots comparing models (Separate plot per dataset)
+    # 2. Box plots comparing models (Separate plot per dataset AND metric)
     # -------------------------------------------------------------------------
     metrics_list = ['RMSE', 'MAE', 'R²', 'Bias']
     
@@ -752,24 +791,26 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
         mapped_name = name_map.get(dataset, dataset)
         dataset_df = df[df['dataset'] == dataset]
         
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-        
-        for idx, metric in enumerate(metrics_list):
-            ax = axes[idx // 2, idx % 2]
+        for metric in metrics_list:
+            if metric not in dataset_df.columns:
+                continue
+                
+            plt.figure(figsize=(8, 6))
+            sns.boxplot(data=dataset_df, x='Model', y=metric, palette=model_colors, hue='Model', legend=False)
             
-            sns.boxplot(data=dataset_df, x='Model', y=metric, ax=ax, palette=model_colors)
-            ax.set_title(f'{metric} Distribution')
-            ax.set_xlabel('')
-            ax.tick_params(axis='x', rotation=30)
-            ax.grid(True, linestyle='--', alpha=0.5)
-        
-        plt.suptitle(f"Model Performance Metrics", fontsize=16, y=1.02)
-        plt.tight_layout()
-        
-        filename = output_dir / f'metrics_boxplots_{mapped_name}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        plt.close()
-        logger.info(f"Saved metric boxplots: {filename}")
+            plt.title(f'{metric} Distribution ({mapped_name})')
+            plt.xlabel('')
+            plt.ylabel(metric)
+            plt.tick_params(axis='x', rotation=15)
+            plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+            plt.tight_layout()
+            
+            # Clean filename
+            metric_clean = metric.replace('²', '2')
+            filename = output_dir / f'{metric_clean.lower()}_boxplot_{mapped_name}.png'
+            plt.savefig(filename, dpi=300, bbox_inches='tight')
+            plt.close()
+            logger.info(f"Saved {metric} boxplot: {filename}")
     
     # -------------------------------------------------------------------------
     # 3. Improvement statistics (Separate plot per dataset)
@@ -779,33 +820,63 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
         dataset_df = df[df['dataset'] == dataset]
         
         improvements = []
-        for date in dataset_df['date'].unique():
-            subset = dataset_df[dataset_df['date'] == date]
+        
+        # Group by date/datetime
+        use_date_obj = 'datetime' in dataset_df.columns
+        x_col = 'datetime' if use_date_obj else 'date'
+        
+        for date_val in dataset_df[x_col].unique():
+            subset = dataset_df[dataset_df[x_col] == date_val]
             
-            stec_rmse = subset[subset['Model'] == 'Direct STEC']['RMSE'].values
-            vtec_rmse = subset[subset['Model'] == 'VTEC + Mapping']['RMSE'].values
-            gim_rmse = subset[subset['Model'] == 'IGS GIM + Mapping']['RMSE'].values
+            # Get values safely
+            direct_stec = subset[subset['Model'] == 'Direct STEC']
+            vtec_map = subset[subset['Model'] == 'VTEC + Mapping']
+            igs_gim = subset[subset['Model'] == 'IGS GIM + Mapping']
             
-            if len(stec_rmse) > 0 and len(vtec_rmse) > 0:
-                imp_vtec = (1 - stec_rmse[0] / vtec_rmse[0]) * 100
-                improvements.append({'date': date, 'baseline': 'VTEC+Mapping', 'improvement': imp_vtec})
+            if direct_stec.empty: 
+                continue
+                
+            stec_rmse = direct_stec['RMSE'].values[0]
             
-            if len(stec_rmse) > 0 and len(gim_rmse) > 0:
-                imp_gim = (1 - stec_rmse[0] / gim_rmse[0]) * 100
-                improvements.append({'date': date, 'baseline': 'GIM + Mapping', 'improvement': imp_gim})
+            if not vtec_map.empty:
+                vtec_rmse = vtec_map['RMSE'].values[0]
+                imp_vtec = (1 - stec_rmse / vtec_rmse) * 100
+                improvements.append({'date_val': date_val, 'baseline': 'VTEC + Mapping', 'improvement': imp_vtec})
+            
+            if not igs_gim.empty:
+                gim_rmse = igs_gim['RMSE'].values[0]
+                imp_gim = (1 - stec_rmse / gim_rmse) * 100
+                improvements.append({'date_val': date_val, 'baseline': 'IGS GIM + Mapping', 'improvement': imp_gim})
         
         if improvements:
-            plt.figure(figsize=(12, 6))
+            plt.figure(figsize=(14, 7))
             imp_df = pd.DataFrame(improvements)
             
-            sns.barplot(data=imp_df, x='date', y='improvement', hue='baseline', palette='viridis')
+            # Use scatter + line for time series with consistent baseline colors
+            sns.scatterplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
+                            palette=baseline_colors, s=80, alpha=0.9, legend=False)
+            sns.lineplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
+                         palette=baseline_colors, alpha=0.9)
             
-            plt.xlabel('Date (YYYY-DOY)')
             plt.ylabel('RMSE Improvement (%)')
-            plt.title('Direct STEC Improvement Over Baselines')
+            plt.title(f'Direct STEC Improvement Over Baselines ({mapped_name})')
             plt.axhline(y=0, color='black', linestyle='-', linewidth=1)
-            plt.legend(title='Baseline', loc='best', frameon=True)
-            plt.xticks(rotation=45)
+            # Move legend further down
+            plt.legend(title='Baseline', loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(baseline_colors), frameon=True)
+            
+             # Improved date formatting
+            if use_date_obj:
+                plt.xlabel('Date')
+                ax = plt.gca()
+                locator = mdates.AutoDateLocator()
+                formatter = mdates.DateFormatter('%Y-%m-%d')
+                ax.xaxis.set_major_locator(locator)
+                ax.xaxis.set_major_formatter(formatter)
+                plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
+            else:
+                plt.xlabel('Date (YYYY-DOY)')
+                plt.xticks(rotation=45)
+
             plt.grid(True, axis='y', linestyle='--', alpha=0.5)
             plt.tight_layout()
             
@@ -824,19 +895,13 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
     
     # First try to gather from batch_results
     for result in batch_results:
-        if not result.get('success', False) or 'elevation_metrics' not in result:
-            continue
-        
-        year = result['year']
-        doy = result['doy']
-        date_str = f"{year}-{doy:03d}"
-        
-        for dataset_type, elev_df in result['elevation_metrics'].items():
-            if not elev_df.empty:
-                df_copy = elev_df.copy()
-                df_copy['date'] = date_str
-                df_copy['dataset'] = dataset_type
-                all_elevation_data.append(df_copy)
+        # Check if elevation metrics exist in memory
+        if result.get('success', False) and 'elevation_metrics' in result:
+             for dataset_type, elev_df in result['elevation_metrics'].items():
+                if not elev_df.empty:
+                    df_copy = elev_df.copy()
+                    df_copy['dataset'] = dataset_type
+                    all_elevation_data.append(df_copy)
     
     elevation_agg = None
     
@@ -907,8 +972,9 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                 
                 plt.xlabel('Elevation Angle (degrees)')
                 plt.ylabel(ylabel)
-                plt.title(f'{metric_name} vs Elevation')
-                plt.legend(loc='best', frameon=True)
+                plt.title(f'{metric_name} vs Elevation ({mapped_name})')
+                # Move legend further down
+                plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(model_colors), frameon=True)
                 plt.grid(True, linestyle='--', alpha=0.5)
                 plt.xlim(0, 90)
                 plt.tight_layout()

@@ -144,6 +144,12 @@ def parse_args():
         default="ETH",
         help="Analysis center code for IONEX header (default: ETH)",
     )
+    parser.add_argument(
+        "--model_checkpoint",
+        type=str,
+        default=None,
+        help="Path to specific model checkpoint to load (overrides automatic search)",
+    )
     return parser.parse_args()
 
 
@@ -459,14 +465,44 @@ def main():
         feature_registry = initialize_feature_registry(config)
         config["feature_registry"] = feature_registry
 
-        # Determine experiment name
-        experiment_name = compute_exp_name(config)
+        # Determine model source: direct checkpoint or auto-search
+        if args.model_checkpoint:
+            checkpoint_path = args.model_checkpoint
+            if not os.path.exists(checkpoint_path):
+                raise FileNotFoundError(f"Provided checkpoint not found: {checkpoint_path}")
+            
+            logger.info(f"Using provided checkpoint: {checkpoint_path}")
+            
+            # Infer experiment directory from checkpoint path (assuming .../exp_name/model/checkpoint.pth)
+            # Try to go up two levels
+            parent = os.path.dirname(checkpoint_path) # model/
+            grandparent = os.path.dirname(parent)     # exp_name/
+            experiment_dir = grandparent
+            
+            # If explicit output dir is not what we want, the user can move files later, 
+            # but usually this structure holds for this project.
+        else:
+            # First, check if the directory containing the config file is a valid experiment directory
+            # This handles cases where user provides config from inside a fine-tuning or multiday result folder
+            config_dir = os.path.dirname(os.path.abspath(args.config_path))
+            potential_model_dir = os.path.join(config_dir, "model")
+            
+            if os.path.isdir(potential_model_dir):
+                logger.info(f"Using experiment directory derived from config path: {config_dir}")
+                experiment_dir = config_dir
+                checkpoint_path = find_model_checkpoint(experiment_dir)
+            else:
+                # Fallback to standard search mechanism based on experiment name
+                logger.info("Config directory does not contain 'model' folder. Searching in experiments/...")
+                
+                # Determine experiment name
+                experiment_name = compute_exp_name(config)
 
-        # Find experiment directory
-        experiment_dir = find_experiment_directory(experiment_name)
+                # Find experiment directory
+                experiment_dir = find_experiment_directory(experiment_name)
 
-        # Find model checkpoint
-        checkpoint_path = find_model_checkpoint(experiment_dir)
+                # Find model checkpoint
+                checkpoint_path = find_model_checkpoint(experiment_dir)
 
         # Create BaseTrainer to handle all the infrastructure
         trainer = BaseTrainer(config, logger)
