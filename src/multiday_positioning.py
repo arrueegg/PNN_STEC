@@ -128,6 +128,10 @@ def plot_trends(df, output_dir):
         df['date'] = pd.to_datetime(df['date'])
         df = df.sort_values('date')
     
+    # Renaming known columns if they differ
+    if 'error_3d_rms' in df.columns:
+        df['3d_rms'] = df['error_3d_rms'] * 100 # Convert m to cm
+
     # Ensure standard column names
     if '3d_rms' in df.columns and 'method' in df.columns:
         
@@ -235,7 +239,7 @@ def plot_trends(df, output_dir):
         plt.close()
         
     else:
-        print("Required columns (3d_rms, method) not found for plotting.")    
+        print(f"Required columns (3d_rms or error_3d_rms, method) not found for plotting. Columns: {df.columns.tolist()}")    
 
 # Re-adding the original simple plots just in case
 def plot_trends_legacy(df, output_dir):
@@ -256,6 +260,7 @@ def main():
     parser.add_argument("--parallel", type=int, default=4, help="Parallel stations per day")
     parser.add_argument("--skip_inference", action="store_true", help="Skip STEC generation step")
     parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
+    parser.add_argument("--cleanup", action="store_true", help="Delete downloaded RINEX/Product files after processing")
     # Removed model_mode as we assume finetune based on user request ("train stec and vtec daily")
     
     args = parser.parse_args()
@@ -350,6 +355,9 @@ def main():
         
         if args.skip_downloads:
             eval_cmd.append("--skip_downloads")
+
+        if args.cleanup:
+            eval_cmd.append("--cleanup")
         
         if run_command(eval_cmd, f"Evaluation for {date_str}", logger):
             # Track result file for aggregation

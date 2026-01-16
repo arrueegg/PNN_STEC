@@ -410,7 +410,9 @@ def main():
         # Step 3: Download RINEX files
         if not args.skip_downloads:
             logger.info("\n📥 Step 3: Downloading RINEX files...")
-            rinex_results = download_rinex_batch(stations, year, doy, str(rinex_dir), logger)
+            # Use more threads for downloading (I/O bound) than processing (CPU bound)
+            download_threads = max(4, args.parallel * 4) 
+            rinex_results = download_rinex_batch(stations, year, doy, str(rinex_dir), logger, max_workers=download_threads)
             logger.info(f"✓ Downloaded {len(rinex_results)}/{len(stations)} RINEX files")
         else:
             logger.info("\n⏭️  Skipping RINEX download")

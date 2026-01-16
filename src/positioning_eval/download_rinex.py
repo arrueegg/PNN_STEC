@@ -12,6 +12,7 @@ import subprocess
 import logging
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def setup_logging():
@@ -111,9 +112,9 @@ def download_rinex_file(station, year, doy, output_dir, logger=None):
         return None
 
 
-def download_rinex_batch(stations, year, doy, output_dir, logger=None):
+def download_rinex_batch(stations, year, doy, output_dir, logger=None, max_workers=8):
     """
-    Download RINEX files for multiple stations.
+    Download RINEX files for multiple stations in parallel.
     
     Args:
         stations: List of station names
@@ -121,6 +122,7 @@ def download_rinex_batch(stations, year, doy, output_dir, logger=None):
         doy: Day of year (int)
         output_dir: Directory to save files
         logger: Optional logger instance
+        max_workers: Number of parallel download threads
     
     Returns:
         Dictionary mapping station names to downloaded file paths
@@ -128,14 +130,27 @@ def download_rinex_batch(stations, year, doy, output_dir, logger=None):
     if logger is None:
         logger = setup_logging()
     
-    logger.info(f"Downloading RINEX files for {len(stations)} stations ({year}/{doy:03d})")
+    logger.info(f"Downloading RINEX files for {len(stations)} stations ({year}/{doy:03d}) with {max_workers} threads")
     
     results = {}
-    for station in stations:
-        # Bash script now caches directory listing internally
-        rinex_path = download_rinex_file(station, year, doy, output_dir, logger)
-        if rinex_path:
-            results[station] = rinex_path
     
+    # Use ThreadPoolExecutor for parallel downloads
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all download tasks
+        future_to_station = {
+            executor.submit(download_rinex_file, station, year, doy, output_dir, logger): station
+            for station in stations
+        }
+        
+        # Process results as they complete
+        for future in as_completed(future_to_station):
+            station = future_to_station[future]
+            try:
+                rinex_path = future.result()
+                if rinex_path:
+                    results[station] = rinex_path
+            except Exception as e:
+                logger.error(f"Thread error downloading {station}: {e}")
+
     logger.info(f"Successfully downloaded {len(results)}/{len(stations)} RINEX files")
     return results
