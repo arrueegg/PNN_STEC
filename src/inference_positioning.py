@@ -526,10 +526,62 @@ def main():
         elif args.year and args.doy:
             pass  # Already set
         elif args.start_date and args.end_date:
-            logger.error("Date range processing not yet implemented. Use --date or --year/--doy for now.")
-            return 1
+            # Date range logic
+            start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
+            end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
+            
+            logger.info("🚀 POSITIONING STEC INFERENCE (Date Range)")
+            logger.info("=" * 80)
+            
+            # Find and load experiment
+            experiment_dir = find_experiment_directory(args.experiment)
+            args.experiment_dir = experiment_dir
+            logger.info(f"📂 Experiment: {experiment_dir.name}")
+            
+            # Load configuration
+            config = load_experiment_config(experiment_dir)
+            config["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            logger.info(f"💻 Device: {config['device']}")
+            
+            # Initialize feature registry
+            feature_registry = initialize_feature_registry(config)
+            config["feature_registry"] = feature_registry
+            
+            # Initialize output indices for feature splitter
+            total_features = initialize_output_indices_for_registry(feature_registry, config)
+            # logger.info(f"📊 Total features: {total_features}")
+            
+            # Load test stations
+            test_stations = load_test_stations()
+            logger.info(f"📍 Test stations: {len(test_stations)}")
+            
+            # Find and load model
+            model_path = find_model_checkpoint(experiment_dir)
+            logger.info(f"🎯 Model: {model_path.name}")
+            
+            model = get_model(config).to(config["device"])
+            checkpoint = torch.load(model_path, map_location=config["device"], weights_only=True)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            model.eval()
+            logger.info(f"✅ Model loaded: {config['model']['model_type']}")
+            
+            # Iterate through date range
+            current_date = start_date
+            while current_date <= end_date:
+                args.year = current_date.year
+                args.doy = current_date.timetuple().tm_yday
+                
+                logger.info(f"\n📅 Processing {current_date.strftime('%Y-%m-%d')} ({args.year}-{args.doy:03d})...")
+                process_date(args, config, model, feature_registry, test_stations, logger)
+                
+                current_date += timedelta(days=1)
+                
+            logger.info("")
+            logger.info("✅ POSITIONING INFERENCE COMPLETED FOR RANGE!")
+            return 0
+
         else:
-            logger.error("Must specify either --date or --year/--doy")
+            logger.error("Must specify either --date or --year/--doy or --start_date/--end_date")
             return 1
         
         logger.info("🚀 POSITIONING STEC INFERENCE")
