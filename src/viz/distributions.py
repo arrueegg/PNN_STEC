@@ -354,10 +354,10 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     
     # Set shared style
-    sns.set_context("paper", font_scale=1.5)
-    sns.set_style("whitegrid", {'grid.linestyle': '--', 'grid.alpha': 0.6})
-    plt.rcParams['figure.dpi'] = 300
-    colors = sns.color_palette("colorblind")
+    # sns.set_context("paper", font_scale=1.5)
+    # sns.set_style("whitegrid", {'grid.linestyle': '--', 'grid.alpha': 0.6})
+    # plt.rcParams['figure.dpi'] = 300
+    # colors = sns.color_palette("colorblind")
 
     # Calculate metrics, ensuring order is maintained
     rmse_lat = (
@@ -371,7 +371,7 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     fig, ax = plt.subplots(figsize=(16, 8))
 
     # 1. Boxplot of residuals (Background)
-    ax.axhline(y=0, color="black", linestyle="-", linewidth=1.5, zorder=1, alpha=0.8)
+    ax.axhline(y=0, color="red", linestyle="-", linewidth=2, zorder=1, alpha=0.8)
     bp = ax.boxplot(
         box_data,
         widths=0.5,
@@ -383,30 +383,30 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     )
 
     for patch in bp["boxes"]:
-        patch.set_facecolor(colors[2])
-        patch.set_alpha(0.5)
+        patch.set_facecolor("lightblue")
+        patch.set_alpha(0.7)
     for element in ["whiskers", "caps", "medians"]:
         for item in bp[element]:
-            item.set_linewidth(1.5)
+            item.set_linewidth(2)
             if element == 'medians':
-                item.set_color('black')
+                item.set_color('red')
 
     # 2. RMSE and MAE Lines (Foreground)
-    ax.plot(pos, rmse_lat["error"], marker="o", label="RMSE", color=colors[0], linewidth=3, markersize=8, zorder=3)
-    ax.plot(pos, mae_lat["ae"], marker="s", label="MAE", color=colors[1], linewidth=3, markersize=8, zorder=3)
+    ax.plot(pos, mae_lat["ae"], marker="o", label="MAE", color="green", linewidth=3, markersize=8, zorder=3)
+    ax.plot(pos, rmse_lat["error"], marker="s", label="RMSE", color="orange", linewidth=3, markersize=8, zorder=3)
 
     # Styling
     ax.set_xticks(pos)
     ax.set_xticklabels(order, rotation=45, ha="right")
     ax.set_ylim([-30, 30])
-    ax.set_xlabel("Year-Month")
-    ax.set_ylabel("Residual / Error [TECU]")
+    ax.set_xlabel("Year-Month", fontweight="bold")
+    ax.set_ylabel("Residual / Error [TECU]", fontweight="bold")
 
     # Legend
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.15), ncol=2, frameon=True)
+    ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
     ax.grid(True, linestyle='--', alpha=0.5)
 
-    plt.title("Monthly Performance Metrics", fontweight="bold", y=1.02)
+    plt.title("Monthly Performance Metrics", fontweight="bold", pad=20)
     plt.tight_layout()
     save_plot(fig, "year_month_summary.png", output_dir)
     plt.close(fig)

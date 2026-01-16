@@ -529,9 +529,9 @@ def plot_binned_uncertainty_error_analysis(
     df: pd.DataFrame, output_dir: str = "plots"
 ) -> None:
     """
-    Creates a comprehensive binned uncertainty analysis plot.
-    Shows the distribution of absolute error against total uncertainty, along with
-    mean model and data uncertainties using boxplots and line plots.
+    Creates comprehensive binned uncertainty analysis plots.
+    1. Standard version with all components (binned_uncertainty_error_analysis.png)
+    2. Simplified version (Predicted Uncertainty vs Error only) (binned_uncertainty_error_analysis_simplified.png)
 
     Args:
         df: DataFrame with uncertainty columns and predictions
@@ -550,22 +550,27 @@ def plot_binned_uncertainty_error_analysis(
     df = df.copy()
     df["abs_error"] = (df["target_stec"] - df["pred_stec"]).abs()
 
-    # Create proper bins based on uncertainty VALUE ranges (not sample counts)
+    # Create proper bins based on uncertainty VALUE ranges
     max_unc = df["pred_total_unc"].quantile(
         0.95
     )  # Use 95th percentile to avoid outliers
     
-    # Skip if uncertainty is essentially zero (e.g., MLP models without uncertainty)
+    # Skip if uncertainty is essentially zero
     if max_unc < 1e-6:
         logger.warning(
             f"Maximum uncertainty is {max_unc:.2e}, too small for binned analysis. "
             "Skipping binned uncertainty error analysis (likely a deterministic model)."
         )
         return
-    n_bins = min(30, max(10, len(df) // 300))  # Adaptive number of bins
 
-    # Create equal-width bins from 0 to max_unc
-    bin_edges = np.linspace(0, max_unc, n_bins + 1)
+    # Use fixed bin width of 1.0 TECU (boundaries at integers 0, 1, 2, ...)
+    # standard approach for continuous variables, providing meaningful "per TECU" bins.
+    bin_width = 1.0
+    # Ensure at least a few bins cover the range up to max_unc
+    # We use ceil to ensure the last bin covers the max_unc value
+    max_bin_edge = max(np.ceil(max_unc), 1.0) # Ensure at least 0-1 range
+    bin_edges = np.arange(0, max_bin_edge + bin_width, bin_width)
+    
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
     # Assign each point to a bin
@@ -610,22 +615,23 @@ def plot_binned_uncertainty_error_analysis(
         logger.warning("No bins with sufficient data for uncertainty analysis")
         return
 
-    # Plotting
-    fig, ax = plt.subplots(figsize=(12, 8))
+    # Helper function to generate plot
+    def create_plot(show_components: bool, filename: str):
+        fig, ax = plt.subplots(figsize=(12, 8))
 
-    # 1. Boxplots for Absolute Error
-    if box_data:
-        ax.boxplot(
-            box_data,
-            positions=plot_positions,
-            widths=min(0.8, (max_unc / n_bins) * 0.8),  # Scale width to bin size
-            showfliers=False,
-            patch_artist=True,
-            boxprops=dict(facecolor="white", edgecolor="black"),
-            whiskerprops=dict(color="black"),
-            capprops=dict(color="black"),
-            medianprops=dict(color="orange"),
-        )
+        # 1. Boxplots for Absolute Error (Light Grey, No Whiskers)
+        if box_data:
+            ax.boxplot(
+                box_data,
+                positions=plot_positions,
+                widths=bin_width * 0.8,
+                showfliers=False,
+                patch_artist=True,
+                boxprops=dict(facecolor="lightgrey", edgecolor="black", alpha=0.7),
+                whiskerprops=dict(linewidth=0), # Remove whiskers
+                capprops=dict(linewidth=0),     # Remove caps
+                medianprops=dict(color="red", linewidth=1.5),
+            )
 
         # 2. Line plots for mean values
         ax.plot(
@@ -645,93 +651,78 @@ def plot_binned_uncertainty_error_analysis(
             color="red",
             marker="s",
             linestyle="-",
-            label="Mean Total Uncertainty",
+            label="Mean Predicted Uncertainty",
             zorder=20,
             linewidth=2,
             markersize=6,
         )
 
-        # Only plot epistemic/aleatoric if they exist and have non-zero values
-        if max(mean_model_unc) > 0:
-            ax.plot(
-                plot_positions,
-                mean_model_unc,
-                color="black",
-                marker="^",
-                linestyle="-",
-                label="Mean Epistemic Uncertainty",
-                zorder=20,
-                linewidth=2,
-                markersize=6,
-            )
+        if show_components:
+            if max(mean_model_unc) > 0:
+                ax.plot(
+                    plot_positions,
+                    mean_model_unc,
+                    color="black",
+                    marker="^",
+                    linestyle="-",
+                    label="Mean Epistemic Uncertainty",
+                    zorder=20,
+                    linewidth=2,
+                    markersize=6,
+                )
 
-        if max(mean_data_unc) > 0:
-            ax.plot(
-                plot_positions,
-                mean_data_unc,
-                color="blue",
-                marker="v",
-                linestyle="-",
-                label="Mean Aleatoric Uncertainty",
-                zorder=20,
-                linewidth=2,
-                markersize=6,
-            )
+            if max(mean_data_unc) > 0:
+                ax.plot(
+                    plot_positions,
+                    mean_data_unc,
+                    color="blue",
+                    marker="v",
+                    linestyle="-",
+                    label="Mean Aleatoric Uncertainty",
+                    zorder=20,
+                    linewidth=2,
+                    markersize=6,
+                )
 
-    # 3. Perfect Calibration Line
-    ax.plot(
-        [0, max_unc],
-        [0, max_unc],
-        "r--",
-        label="Perfect Calibration",
-        zorder=15,
-        linewidth=2,
-    )
+        # Formatting
+        ax.set_xlabel("Predicted Uncertainty [TECU]", fontweight="bold", fontsize=14)
+        ax.set_ylabel("Absolute Error [TECU]", fontweight="bold", fontsize=14)
+        
+        title = "Binned Uncertainty Analysis" if show_components else "Predicted Uncertainty vs Error"
+        ax.set_title(
+            title, fontweight="bold", pad=20, fontsize=16
+        )
 
-    # Formatting
-    ax.set_xlabel("Total Uncertainty [TECU]", fontweight="bold", fontsize=14)
-    ax.set_ylabel("Values [TECU]", fontweight="bold", fontsize=14)
-    ax.set_title(
-        "Binned Uncertainty & Error Analysis", fontweight="bold", pad=20, fontsize=16
-    )
+        # Improve x-axis tick formatting
+        if plot_positions:
+            x_max = max(plot_positions) * 1.1
+            step = 1 if x_max <= 10 else (2 if x_max <= 20 else 5)
+            # Ensure ticks cover the range
+            x_ticks = np.arange(0, int(x_max) + step, step)
+            
+            ax.set_xticks(x_ticks)
+            ax.set_xticklabels([f"{int(tick)}" for tick in x_ticks], fontsize=12)
+            ax.tick_params(axis="both", labelsize=12)
 
-    # Improve x-axis tick formatting
-    if plot_positions:
-        x_max = max(plot_positions) * 1.1
+        ax.legend(fontsize=12, framealpha=0.9, loc="upper left")
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
 
-        # Set reasonable number of ticks based on the range
-        if x_max <= 10:
-            x_ticks = np.arange(0, x_max + 1, 1)
-        elif x_max <= 20:
-            x_ticks = np.arange(0, x_max + 2, 2)
-        elif x_max <= 50:
-            x_ticks = np.arange(0, x_max + 5, 5)
-        else:
-            x_ticks = np.arange(0, x_max + 10, 10)
+        # Set axis limits
+        if plot_positions:
+            x_max = max(plot_positions) + bin_width
+            y_max = max(max(mean_abs_error), max(mean_total_unc)) * 1.2
 
-        ax.set_xticks(x_ticks)
-        ax.set_xticklabels([f"{int(tick)}" for tick in x_ticks], fontsize=12)
-        ax.tick_params(axis="x", labelsize=12)
-        ax.tick_params(axis="y", labelsize=12)
+            # Consider boxplot range (Q3) since whiskers are hidden
+            if box_data:
+                q3_max = max([np.percentile(data, 75) for data in box_data])
+                y_max = max(y_max, q3_max * 1.2)
 
-    ax.legend(fontsize=12, framealpha=0.9, loc="upper left")
-    ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
+            ax.set_xlim(0, x_max)
+            ax.set_ylim(0, y_max)
 
-    # Set axis limits to show all data properly
-    if plot_positions:
-        x_max = max(plot_positions) * 1.1
-        y_max = max(max(mean_abs_error), max(mean_total_unc)) * 1.2
+        plt.tight_layout()
+        save_plot(fig, filename, output_dir)
 
-        # Also consider the boxplot data for y-axis
-        if box_data:
-            max_box_val = max([np.percentile(data, 95) for data in box_data])
-            y_max = max(y_max, max_box_val * 1.1)
-
-        ax.set_xlim(0, x_max)
-        ax.set_ylim(0, y_max)
-    else:
-        ax.set_xlim(0, 50)
-        ax.set_ylim(0, 50)
-
-    plt.tight_layout()
-    save_plot(fig, "binned_uncertainty_error_analysis.png", output_dir)
+    # Generate both plots
+    create_plot(True, "binned_uncertainty_error_analysis.png")
+    create_plot(False, "binned_uncertainty_error_analysis_simplified.png")
