@@ -973,8 +973,8 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                 plt.xlabel('Elevation Angle (degrees)')
                 plt.ylabel(ylabel)
                 plt.title(f'{metric_name} vs Elevation ({mapped_name})')
-                # Move legend further down
-                plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(model_colors), frameon=True)
+                # Move legend closer to plot
+                plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=len(model_colors), frameon=True)
                 plt.grid(True, linestyle='--', alpha=0.5)
                 plt.xlim(0, 90)
                 plt.tight_layout()

@@ -89,6 +89,7 @@ class IONEXReader:
     def __init__(self):
         self.header = {}
         self.vtec_maps = []  # List of (epoch, vtec_grid) tuples
+        self.rms_maps = []   # List of (epoch, rms_grid) tuples
         self.lat_grid = None
         self.lon_grid = None
         self.epochs = []
@@ -101,7 +102,7 @@ class IONEXReader:
             filepath: Path to IONEX file (.??i format)
             
         Returns:
-            Dict containing epochs, grids, and VTEC data
+            Dict containing epochs, grids, VTEC data, and RMS data
         """
         filepath = Path(filepath)
         if not filepath.exists():
@@ -112,6 +113,7 @@ class IONEXReader:
         # Clear previous data to prevent accumulation
         self.header = {}
         self.vtec_maps = []
+        self.rms_maps = []
         self.lat_grid = None
         self.lon_grid = None
         self.epochs = []
@@ -130,6 +132,7 @@ class IONEXReader:
             'lat_grid': self.lat_grid,
             'lon_grid': self.lon_grid,
             'vtec_maps': self.vtec_maps,
+            'rms_maps': self.rms_maps,
             'header': self.header
         }
     
@@ -265,6 +268,70 @@ class IONEXReader:
                     self.epochs.append(current_epoch)
                     self.vtec_maps.append(vtec_map.copy())
                     
+            elif 'START OF RMS MAP' in line:
+                # Read the epoch
+                i += 1
+                while i < len(lines) and 'EPOCH OF CURRENT MAP' not in lines[i]:
+                    i += 1
+                
+                if i >= len(lines):
+                    break
+                    
+                # We don't need to parse date again if we assume consistency, 
+                # but let's do it to find the matching index if needed.
+                # For simplicity, we assume RMS maps follow the same order or are interleaved.
+                
+                # Initialize RMS map
+                rms_map = np.zeros((len(self.lat_grid), len(self.lon_grid)))
+                
+                # Read the RMS map
+                i += 1
+                while i < len(lines):
+                    line = lines[i]
+                    if 'END OF RMS MAP' in line:
+                        break
+                    elif 'LAT/LON1/LON2/DLON' in line:
+                        # Parse latitude row header
+                        line_splitted = line.replace('-', ' -').strip().split()
+                        if len(line_splitted) >= 4:
+                            lat = float(line_splitted[0])
+                            lon1 = float(line_splitted[1])
+                            lon2 = float(line_splitted[2])
+                            dlon = float(line_splitted[3])
+
+                            n_lons = int(round((lon2 - lon1) / dlon)) + 1
+                            n_values_read = 0
+                            values = []
+                            
+                            while n_values_read < n_lons and i + 1 < len(lines):
+                                i += 1
+                                data_line = lines[i].strip()
+                                try:
+                                    data_values = [float(rms)/10.0 for rms in data_line.split()]
+                                    values.extend(data_values)
+                                    n_values_read += len(data_values)
+                                except ValueError:
+                                    continue
+                            
+                            lat_idx = np.where(np.isclose(self.lat_grid, lat, atol=0.1))[0]
+                            if len(lat_idx) > 0 and len(values) >= len(self.lon_grid):
+                                rms_map[lat_idx[0], :] = values[:len(self.lon_grid)]
+                    i += 1
+                
+                # Store completed RMS map
+                # We append to the list. If TEC maps were read first, 
+                # we might need to align. But for now, just append.
+                # Later we can reconcile.
+                # Actually, standard IONEX often has all TEC maps then all RMS maps.
+                # If we rely on simple appending, we might have issues if they are not 1:1.
+                # But let's assume they are for now.
+                
+                # If we have more RMS maps than TEC maps (because RMS came first?), 
+                # we should handle it. 
+                # Better strategy: Just append to self.rms_maps. 
+                # When using, we check lengths.
+                self.rms_maps.append(rms_map.copy())
+
             else:
                 i += 1
 

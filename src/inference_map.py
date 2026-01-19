@@ -50,6 +50,7 @@ from utils.config_parser import load_config, compute_exp_name
 from utils.feature_registry import initialize_feature_registry
 from utils.coordinate_transforms import create_global_grid
 from utils.ionex_writer import IONEXWriter, generate_ionex_filename
+from evaluation.gim_mapper import IONEXReader
 from data_loader.multitemporal_inference_dataset import create_multitemporal_inference_dataloader
 from data_loader.collation import CollateWithSH
 from training.base_trainer import BaseTrainer
@@ -143,6 +144,17 @@ def parse_args():
         type=str,
         default="ETH",
         help="Analysis center code for IONEX header (default: ETH)",
+    )
+    parser.add_argument(
+        "--plot_ionex",
+        action="store_true",
+        help="Plot IGS IONEX VTEC maps (skips inference unless model is specified)",
+    )
+    parser.add_argument(
+        "--ionex_path",
+        type=str,
+        default=None,
+        help="Path to directory containing IONEX files",
     )
     parser.add_argument(
         "--model_checkpoint",
@@ -240,6 +252,177 @@ def run_inference_with_trainer(trainer, dataloader, model, config):
     )
 
     return metrics_dict, results_df
+
+
+def find_ionex_files(ionex_path, date_str, center_code=None):
+    """Find IONEX files in the specified directory for a given date and optional center."""
+    if not ionex_path:
+        return []
+        
+    ionex_path = Path(ionex_path)
+    if not ionex_path.exists():
+        logger.warning(f"IONEX path does not exist: {ionex_path}")
+        return []
+
+    target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    year_str = str(target_date.year)
+    doy = target_date.timetuple().tm_yday
+    doy_str = f"{doy:03d}"
+    
+    # Common IGS directory structures:
+    # 1. /path/to/files/ (flat)
+    # 2. /path/to/files/YYYY/ (year-organized)
+    # 3. /path/to/files/YYYY/DDD/ (day-organized)
+    search_paths = [
+        ionex_path,
+        ionex_path / year_str,
+        ionex_path / year_str / doy_str
+    ]
+    
+    # Try multiple patterns since IGS naming can vary
+    patterns = ["*.??i", "*.??I", "*.d.Z", "*.i.Z"] # Compressed or uncompressed
+    ionex_files = []
+    
+    for search_path in search_paths:
+        if not search_path.exists():
+            continue
+            
+        for pattern in patterns:
+            for filepath in search_path.glob(pattern):
+                try:
+                    filename = filepath.name
+                    
+                    # Filter by center code if provided
+                    if center_code:
+                        # Check start of filename (case insensitive)
+                        if not filename.lower().startswith(center_code.lower()):
+                            continue
+                    
+                    # Basic check: if we found it in a specific date folder, it's probably correct
+                    if str(doy_str) in str(filepath.parent) or str(doy_str) in filename:
+                        ionex_files.append(filepath)
+                        continue
+
+                    # Otherwise, check filename format (CCCgDDD.YYI)
+                    if len(filename) >= 8 and filename[3:6].isdigit():
+                        file_doy = int(filename[3:6])
+                        if file_doy == doy:
+                            ionex_files.append(filepath)
+                except Exception:
+                    continue
+                
+    # Additional filter to verify DOY in filename if not already sure
+    matching_files = []
+    seen_paths = set()
+    
+    for filepath in ionex_files:
+        if filepath in seen_paths:
+            continue
+        seen_paths.add(filepath)
+        
+        try:
+            if doy_str in filepath.name:
+                matching_files.append(filepath)
+        except:
+            pass
+            
+    return sorted(matching_files)
+
+
+def save_vtec_map(
+    lat_grid,
+    lon_grid,
+    vtec_map,
+    output_path,
+    date_str,
+    hour,
+    vmin=0,
+    vmax=80,
+    title_prefix="IGS"
+):
+    """Save individual VTEC map as PNG file."""
+    # Create figure with cartographic projection matching GIM style
+    fig, ax = plt.subplots(
+        1, 1, figsize=(12, 6), subplot_kw={"projection": ccrs.PlateCarree()}
+    )
+
+    # Create the VTEC map plot with fixed colorscale
+    im = ax.pcolormesh(
+        lon_grid,
+        lat_grid,
+        vtec_map,
+        cmap="gist_heat",
+        shading="auto",
+        transform=ccrs.PlateCarree(),
+        vmin=vmin,
+        vmax=vmax,
+    )
+
+    # Add coastlines
+    ax.coastlines(color="white")
+
+    # Set title
+    time_str = f"{int(hour):02d}:{int((hour % 1) * 60):02d}"
+    ax.set_title(
+        f"{title_prefix} VTEC for {date_str} {time_str} UTC",
+        fontweight="bold",
+        fontsize=16,
+    )
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax, orientation="vertical", shrink=0.8, aspect=20)
+    cbar.set_label("VTEC (TECU)", fontweight="bold", fontsize=14)
+
+    # Set global extent
+    ax.set_global()
+
+    # Save
+    plt.tight_layout()
+    plt.savefig(f"{output_path}.png", dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def save_rms_map(
+    lat_grid,
+    lon_grid,
+    rms_map,
+    output_path,
+    date_str,
+    hour,
+    title_prefix="IGS"
+):
+    """Save individual RMS map as PNG file."""
+    fig, ax = plt.subplots(
+        1, 1, figsize=(12, 6), subplot_kw={"projection": ccrs.PlateCarree()}
+    )
+
+    # Create the RMS map plot
+    # Use a different colormap for uncertainty (e.g., viridis or plasma)
+    im = ax.pcolormesh(
+        lon_grid,
+        lat_grid,
+        rms_map,
+        cmap="plasma",
+        shading="auto",
+        transform=ccrs.PlateCarree(),
+    )
+
+    ax.coastlines(color="white")
+
+    time_str = f"{int(hour):02d}:{int((hour % 1) * 60):02d}"
+    ax.set_title(
+        f"{title_prefix} RMS for {date_str} {time_str} UTC",
+        fontweight="bold",
+        fontsize=16,
+    )
+
+    cbar = plt.colorbar(im, ax=ax, orientation="vertical", shrink=0.8, aspect=20)
+    cbar.set_label("RMS (TECU)", fontweight="bold", fontsize=14)
+
+    ax.set_global()
+    plt.tight_layout()
+    plt.savefig(f"{output_path}.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
 
 def save_hourly_plot(
@@ -433,7 +616,118 @@ def main():
     try:
         # Parse arguments
         args = parse_args()
-        
+
+        # -------------------------------------------------------------------------
+        # IONEX Plotting Mode
+        # -------------------------------------------------------------------------
+        if args.plot_ionex:
+            print(f"🌍 Plotting IONEX VTEC maps for {args.date}...")
+            
+            # Use default path if not provided
+            ionex_path = args.ionex_path
+            if not ionex_path:
+                # Default location on this system
+                ionex_path = "/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex"
+                if not os.path.exists(ionex_path):
+                    logger.warning(f"Default IONEX path not found: {ionex_path}")
+                    logger.warning("Please provide --ionex_path")
+                else:
+                    logger.info(f"Using default IONEX path: {ionex_path}")
+            
+            # Filter by center code (if not default "ETH")
+            center_code = args.ionex_center if args.ionex_center != "ETH" else None
+            ionex_files = find_ionex_files(ionex_path, args.date, center_code)
+            
+            if not ionex_files:
+                logger.error(f"No IONEX files found for {args.date} (center: {center_code if center_code else 'ALL'})")
+            else:
+                # Create output dir
+                output_dir = os.path.join("ionex_plots", args.date)
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Load and plot
+                reader = IONEXReader()
+                stec_image_paths = []
+                rms_image_paths = []
+                
+                print(f"Found {len(ionex_files)} IONEX files. Processing...")
+                for filepath in tqdm(ionex_files, desc="Plotting IONEX"):
+                    try:
+                        # Extract center code from filename (first 3 chars, standard IGS)
+                        file_center = filepath.name[:3].upper()
+                        
+                        data = reader.read_ionex_file(filepath)
+                        # Sort epochs
+                        if data['epochs']:
+                            sorted_indices = np.argsort(data['epochs'])
+                            epochs = [data['epochs'][i] for i in sorted_indices]
+                            vtec_maps = [data['vtec_maps'][i] for i in sorted_indices]
+                            
+                            # Handle RMS maps if available
+                            rms_maps = []
+                            if 'rms_maps' in data and data['rms_maps']:
+                                # Ensure alignment if needed, but for now take what matches
+                                rms_maps = [data['rms_maps'][i] for i in sorted_indices if i < len(data['rms_maps'])]
+
+                            for i, (epoch, vtec_map) in enumerate(zip(epochs, vtec_maps)):
+                                hour = epoch.hour + epoch.minute / 60.0
+                                time_str = epoch.strftime('%H%M')
+                                
+                                # Plot VTEC
+                                base_filename = f"vtec_{file_center}_{time_str}"
+                                base_path = os.path.join(output_dir, base_filename)
+                                save_vtec_map(
+                                    data['lat_grid'], 
+                                    data['lon_grid'], 
+                                    vtec_map, 
+                                    base_path, 
+                                    args.date, 
+                                    hour, 
+                                    vmin=args.vmin, 
+                                    vmax=args.vmax,
+                                    title_prefix=file_center
+                                )
+                                stec_image_paths.append(f"{base_path}.png")
+                                
+                                # Plot RMS if available for this epoch
+                                if i < len(rms_maps) and rms_maps[i] is not None:
+                                    rms_filename = f"rms_{file_center}_{time_str}"
+                                    rms_path = os.path.join(output_dir, rms_filename)
+                                    save_rms_map(
+                                        data['lat_grid'],
+                                        data['lon_grid'],
+                                        rms_maps[i],
+                                        rms_path,
+                                        args.date,
+                                        hour,
+                                        title_prefix=file_center
+                                    )
+                                    rms_image_paths.append(f"{rms_path}.png")
+                                    
+                    except Exception as e:
+                        logger.warning(f"Failed to process {filepath}: {e}")
+            
+                if args.create_gif:
+                    if stec_image_paths:
+                        stec_image_paths.sort()
+                        gif_path = os.path.join(output_dir, f"vtec_{args.date}.gif")
+                        create_gif(stec_image_paths, gif_path)
+                        print(f"📹 VTEC GIF created: {gif_path}")
+                        
+                    if rms_image_paths:
+                        rms_image_paths.sort()
+                        # If multiple centers, this mixes them in one GIF sorted by time/name. 
+                        # Ideally should be separate, but good enough.
+                        gif_path_rms = os.path.join(output_dir, f"rms_{args.date}.gif")
+                        create_gif(rms_image_paths, gif_path_rms)
+                        print(f"📹 RMS GIF created: {gif_path_rms}")
+
+            # Exit if no model checkpoint provided (assume plotting only)
+            if not args.model_checkpoint:
+                print("✅ IONEX plotting finished.")
+                print("ℹ️  To run model inference, provide --model_checkpoint")
+                return
+
         # Safety checks for grid size
         n_lat = int(180 / args.lat_res) + 1
         n_lon = int(360 / args.lon_res) + 1
