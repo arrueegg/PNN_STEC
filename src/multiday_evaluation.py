@@ -695,8 +695,8 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
     
     # Dataset name mapping used for filenames
     name_map = {
-        'own_vtec_gim': 'ownDS',
-        'madrigal_vtec_gim': 'Madrigal'
+        'own_vtec_gim': 'Testset',
+        'madrigal_vtec_gim': 'Madrigal data'
     }
     
     # Set aesthetics for publication-quality plots

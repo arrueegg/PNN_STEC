@@ -20,6 +20,7 @@ import argparse
 import logging
 import subprocess
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import yaml
@@ -183,9 +184,9 @@ def plot_trends(df, output_dir):
         plot_df = df[df['method'].isin(methods)] # Just safety
         
         # Create boxplot
-        sns.boxplot(x='method', y='3d_rms', data=plot_df, 
+        sns.boxplot(x='method', y='3d_rms', hue='method', data=plot_df, 
                     width=0.5, palette=[model_color, gim_color], 
-                    showfliers=False) # Hide outliers for cleaner look
+                    showfliers=False, legend=False) # Hide outliers for cleaner look
                     
         # Add swarmplot for data density visibility (optional, good for papers with few points)
         if len(plot_df) < 500:
@@ -199,7 +200,9 @@ def plot_trends(df, output_dir):
         # Rename x-tick labels for clarity
         current_labels = [l.get_text() for l in plt.gca().get_xticklabels()]
         new_labels = ["Model" if 'model' in l.lower() else "IGS GIM" for l in current_labels]
-        plt.gca().set_xticklabels(new_labels)
+        ax = plt.gca()
+        ax.set_xticks(ax.get_xticks())
+        ax.set_xticklabels(new_labels)
         
         plt.grid(True, axis='y', linestyle='--', alpha=0.5)
         plt.tight_layout()
