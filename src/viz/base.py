@@ -37,10 +37,12 @@ PLOT_CONFIG = {
 }
 
 # Standardized figure sizes for consistent text scaling
-FIGSIZE_SQUARE = (12, 12)  # Square plots: scatter, correlation, calibration
-FIGSIZE_WIDE = (16, 10)  # Wide plots: spatial maps, multi-panel layouts
-FIGSIZE_HISTOGRAM = (14, 8)  # Histogram/distribution plots
-FIGSIZE_HEATMAP = (16, 10)  # Heatmaps and spatial plots
+FIGSIZE_SQUARE = (12, 12)           # Square plots: scatter, correlation, calibration
+FIGSIZE_WIDE = (16, 10)             # Wide plots: spatial maps, single panel timelines
+FIGSIZE_DOUBLE_WIDE = (24, 10)      # Double width: 2-panel side-by-side plots
+FIGSIZE_QUAD = (20, 16)             # Quad: 4-panel 2x2 grids
+FIGSIZE_HISTOGRAM = (16, 10)        # Histogram/distribution plots (same as WIDE)
+FIGSIZE_HEATMAP = (16, 10)          # Heatmaps and spatial plots
 
 
 def configure_plotting() -> None:

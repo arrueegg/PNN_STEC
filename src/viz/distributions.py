@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 from .base import (
     FIGSIZE_HISTOGRAM,
+    FIGSIZE_WIDE,
     get_scientific_label,
     save_plot,
 )
@@ -122,9 +123,9 @@ def plot_binned_boxplot(
         )
 
         # Add legend for MAE/RMSE
-        ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
+        ax.legend(loc="upper right", framealpha=0.9)
 
-    ax.tick_params(axis="x", rotation=45, labelsize=18)
+    ax.tick_params(axis="x", rotation=45)
 
     # Set labels
     x_label = get_scientific_label(x_col)
@@ -203,7 +204,7 @@ def plot_binned_boxplot_clipped(
         for item in bp[element]:
             item.set_linewidth(2)
 
-    ax.tick_params(axis="x", rotation=45, labelsize=18)
+    ax.tick_params(axis="x", rotation=45)
 
     # Apply axis limits if specified
     if x_limits:
@@ -250,8 +251,8 @@ def plot_histogram_of_residuals(df: pd.DataFrame, output_dir: str = "plots") -> 
     # Labels and title
     ax.set_xlabel("Residuals [TECU]", fontweight="bold")
     ax.set_ylabel("Density", fontweight="bold")
-    ax.set_title("Distribution of Residuals", fontweight="bold", pad=20)
-    ax.legend()
+    ax.set_title("Histogram of Prediction Residuals", fontweight="bold", pad=20)
+    ax.legend(framealpha=0.9)
 
     # Add statistics text box
     textstr = f"Mean: {mean_res:.3f}\nStd: {std_res:.3f}\nN: {len(residuals)}"
@@ -261,7 +262,6 @@ def plot_histogram_of_residuals(df: pd.DataFrame, output_dir: str = "plots") -> 
         0.98,
         textstr,
         transform=ax.transAxes,
-        fontsize=14,
         verticalalignment="top",
         bbox=props,
     )
@@ -368,7 +368,7 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     grouped = df.groupby("year_month")["error"].apply(list).reindex(order)
     box_data = [grouped[date] for date in order]
 
-    fig, ax = plt.subplots(figsize=(16, 8))
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
 
     # 1. Boxplot of residuals (Background)
     ax.axhline(y=0, color="red", linestyle="-", linewidth=2, zorder=1, alpha=0.8)
@@ -400,13 +400,13 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax.set_xticklabels(order, rotation=45, ha="right")
     ax.set_ylim([-30, 30])
     ax.set_xlabel("Year-Month", fontweight="bold")
-    ax.set_ylabel("Residual / Error [TECU]", fontweight="bold")
+    ax.set_ylabel("Residual [TECU]", fontweight="bold")
 
     # Legend
-    ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
+    ax.legend(loc="upper right", framealpha=0.9)
     ax.grid(True, linestyle='--', alpha=0.5)
 
-    plt.title("Monthly Performance Metrics", fontweight="bold", pad=20)
+    plt.title("Temporal Evolution of Model Performance (Monthly)", fontweight="bold", pad=20)
     plt.tight_layout()
     save_plot(fig, "year_month_summary.png", output_dir)
     plt.close(fig)
@@ -467,7 +467,7 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
     hourly_stats["hour_numeric"] = hourly_stats["hour"].astype(int)
 
     # Create plot
-    fig, ax = plt.subplots(figsize=(14, 8))
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
 
     # Set x-axis limits and ticks first to ensure full range is shown
     ax.set_xlim(-0.5, 23.5)
@@ -540,16 +540,16 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
         zorder=10,
     )
 
-    # Add legend
-    ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
-
     # Styling
     ax.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
-    ax.set_xlabel("Local Solar Time [hours]", fontweight="bold", fontsize=14)
-    ax.set_ylabel("Residual [TECU]", fontweight="bold", fontsize=14)
+    ax.set_xlabel("Local Solar Time [hours]", fontweight="bold")
+    ax.set_ylabel("Residual [TECU]", fontweight="bold")
     ax.set_title(
-        "Residuals vs Local Solar Time", fontweight="bold", pad=20, fontsize=16
+        "Model Performance vs Local Solar Time", fontweight="bold", pad=20
     )
+
+    # Add legend
+    ax.legend(loc="upper right", framealpha=0.9)
 
     # Ensure x-axis shows full range (already set above, but reinforce)
     ax.set_xlim(-0.5, 23.5)
@@ -617,7 +617,7 @@ def plot_residuals_vs_solar_indices(
 
     # Create subplots for each available solar index
     n_indices = len(solar_indices)
-    fig, axes = plt.subplots(n_indices, 1, figsize=(16, 6 * n_indices))
+    fig, axes = plt.subplots(n_indices, 1, figsize=(FIGSIZE_WIDE[0], 6 * n_indices))
     if n_indices == 1:
         axes = [axes]
 
@@ -783,13 +783,12 @@ def plot_residuals_vs_solar_indices(
 
         # Styling
         ax.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
-        ax.set_xlabel(label, fontweight="bold", fontsize=14)
-        ax.set_ylabel("Residual [TECU]", fontweight="bold", fontsize=14)
-        ax.set_title(f"Residuals vs {label}", fontweight="bold", pad=20, fontsize=16)
+        ax.set_xlabel(label, fontweight="bold")
+        ax.set_ylabel("Residual [TECU]", fontweight="bold")
+        ax.set_title(f"Model Performance vs {label}", fontweight="bold", pad=20)
 
         # Add legend
-        ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
-
+        ax.legend(loc="upper right", framealpha=0.9)
         # Format x-axis with appropriate labeling for each solar index
         if col == "Kp_index":
             # For Kp, show all integer values (0-9) 

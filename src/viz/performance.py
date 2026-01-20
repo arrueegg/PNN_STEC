@@ -40,7 +40,7 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
     np.mean(y_pred - y_true)
 
     # 1. Main scatter plot
-    fig, ax = plt.subplots(figsize=(10, 8))
+    fig, ax = plt.subplots(figsize=FIGSIZE_SQUARE)
     h = ax.hist2d(y_true, y_pred, bins=50, cmap="Blues", norm=LogNorm())
 
     # Perfect prediction line
@@ -57,8 +57,8 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
 
     ax.set_xlabel("True STEC [TECU]", fontweight="bold")
     ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
-    ax.set_title("Predictions vs True Values", fontweight="bold", pad=20)
-    ax.legend()
+    ax.set_title("Predicted vs Observed STEC", fontweight="bold", pad=20)
+    ax.legend(framealpha=0.9)
 
     # Add colorbar
     cbar = fig.colorbar(h[3], ax=ax)
@@ -142,7 +142,7 @@ def plot_az_el_heatmap(
 
     # Title and colorbar
     metric_label = get_scientific_label(metric)
-    ax.set_title(f"{metric_label} vs Azimuth/Elevation", fontweight="bold", pad=20)
+    ax.set_title(f"{metric_label} Distribution by Azimuth & Elevation", fontweight="bold", pad=20)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label(metric_label, fontweight="bold")
@@ -209,7 +209,7 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     monthly_stats["rmse"] = rmse_list
 
     # Create plot with 3 subplots
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 12), sharex=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=FIGSIZE_WIDE, sharex=True)
 
     # 1. Boxplot of residuals instead of mean residuals
     months_for_boxplot = []
@@ -238,7 +238,7 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     ax1.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
     ax1.set_ylabel("Residual [TECU]", fontweight="bold")
-    ax1.set_title("Monthly Residual Statistics", fontweight="bold", pad=20)
+    ax1.set_title("Temporal Evolution of Model Performance", fontweight="bold", pad=20)
     ax1.grid(True, alpha=0.3)
 
     # 2. Combined MAE and RMSE as line plots
@@ -261,7 +261,7 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
         label="RMSE",
     )
     ax2.set_ylabel("Error [TECU]", fontweight="bold")
-    ax2.legend(fontsize=12, framealpha=0.9)
+    ax2.legend(framealpha=0.9)
     ax2.grid(True, alpha=0.3)
 
     # 3. Sample count as bars
@@ -346,9 +346,9 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots", max_lim
     ax.set_xlim(min_val, max_val)
     ax.set_ylim(min_val, max_val)
 
-    ax.set_xlabel("True STEC [TECU]", fontsize=16, fontweight="bold")
-    ax.set_ylabel("Predicted STEC [TECU]", fontsize=16, fontweight="bold")
-    ax.set_title("Prediction Density Analysis", fontsize=20, fontweight="bold", pad=25)
+    ax.set_xlabel("True STEC [TECU]", fontweight="bold")
+    ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
+    ax.set_title("Prediction Density: Predicted vs Observed STEC", fontweight="bold", pad=25)
 
     # Add colorbar with log scale
     divider = make_axes_locatable(ax)
@@ -363,7 +363,7 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots", max_lim
         plt.Line2D([0], [0], color="none", label=f"Pearson r = {r_value:.3f}"),
         plt.Line2D([0], [0], color="none", label=f"R² = {r2_value:.3f}"),
     ]
-    ax.legend(handles=legend_elements, loc="upper left", fontsize=14, framealpha=0.9)
+    ax.legend(handles=legend_elements, loc="upper left", framealpha=0.9)
     ax.grid(True, alpha=0.3)
     ax.set_aspect("equal")
 

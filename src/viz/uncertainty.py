@@ -13,6 +13,7 @@ from scipy.stats import pearsonr
 from .base import (
     FIGSIZE_SQUARE,
     FIGSIZE_WIDE,
+    FIGSIZE_HISTOGRAM,
     save_plot,
 )
 
@@ -78,10 +79,10 @@ def plot_uncertainty_calibration_binned(
         [0, max_val], [0, max_val], "r--", linewidth=2, label="Perfect Calibration"
     )
 
-    ax1.set_xlabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
-    ax1.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
-    ax1.set_title("Uncertainty Calibration", fontweight="bold", pad=20)
-    ax1.legend()
+    ax.set_xlabel("Mean Predicted Uncertainty [TECU]", fontweight="bold")
+    ax.set_ylabel("Mean Observed Error [TECU]", fontweight="bold")
+    ax.set_title("Uncertainty Calibration Plot", fontweight="bold", pad=20)
+    ax.legend()
     ax1.grid(True, alpha=0.3)
 
     # Calculate calibration metrics
@@ -93,13 +94,12 @@ def plot_uncertainty_calibration_binned(
     ax2.bar(range(len(bin_stats)), bin_stats["count"], alpha=0.7, color="skyblue")
     ax2.set_xlabel("Uncertainty Bin", fontweight="bold")
     ax2.set_ylabel("Sample Count", fontweight="bold")
-    ax2.set_title("Samples per Uncertainty Bin", fontweight="bold", pad=20)
+    ax2.set_title("Sample Count per Uncertainty Bin", fontweight="bold", pad=20)
     ax2.grid(True, alpha=0.3)
 
     # Add correlation text
     fig.suptitle(
-        f"Uncertainty Calibration (r={corr:.3f}, p={p_val:.2e})",
-        fontsize=20,
+        f"Uncertainty Calibration Analysis\n(Correlation: r={corr:.3f}, p={p_val:.2e})",
         fontweight="bold",
     )
 
@@ -142,7 +142,7 @@ def plot_binned_uncertainty_analysis(
     df["true_bin"] = pd.qcut(df["target_stec"], q=n_bins, duplicates="drop")
 
     # 6. Uncertainty distribution
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=FIGSIZE_HISTOGRAM)
     ax.hist(df["pred_total_unc"], bins=50, alpha=0.7, color="skyblue", density=True)
     ax.axvline(
         df["pred_total_unc"].mean(),
@@ -153,7 +153,7 @@ def plot_binned_uncertainty_analysis(
     )
     ax.set_xlabel("Predicted Uncertainty [TECU]", fontweight="bold")
     ax.set_ylabel("Density", fontweight="bold")
-    ax.set_title("Uncertainty Distribution", fontweight="bold", pad=20)
+    ax.set_title("Distribution of Predicted Uncertainty", fontweight="bold", pad=20)
     ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -202,7 +202,7 @@ def plot_uncertainty_calibration(df: pd.DataFrame, output_dir: str = "plots") ->
 
     ax.set_xlabel("Predicted Uncertainty [TECU]", fontweight="bold")
     ax.set_ylabel("Observed Error [TECU]", fontweight="bold")
-    ax.set_title(f"Uncertainty Calibration (r={corr:.3f})", fontweight="bold", pad=20)
+    ax.set_title(f"Uncertainty Calibration Scatter\n(Correlation: r={corr:.3f})", fontweight="bold", pad=20)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -266,8 +266,8 @@ def plot_coverage_probability(df: pd.DataFrame, output_dir: str = "plots") -> No
         "Predicted Uncertainty Interval (Number of Sigmas)", fontweight="bold"
     )
     ax.set_ylabel("Observed Coverage Probability", fontweight="bold")
-    ax.set_title("Uncertainty Coverage Probability", fontweight="bold", pad=20)
-    ax.legend(fontsize=14)
+    ax.set_title("Uncertainty Coverage Probability (Reliability Diagram)", fontweight="bold", pad=20)
+    ax.legend()
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_xlim(0, 3)
     ax.set_ylim(0, 1)
@@ -391,17 +391,16 @@ def plot_sigma_coverage_comparison(df: pd.DataFrame, output_dir: str = "plots") 
             linewidth=1.5,
         )
 
-    ax.set_xlabel("Sigma Levels", fontsize=16, fontweight="bold")
-    ax.set_ylabel("Coverage [%]", fontsize=16, fontweight="bold")
+    ax.set_xlabel("Sigma Levels", fontweight="bold")
+    ax.set_ylabel("Coverage [%]", fontweight="bold")
     ax.set_title(
-        "Uncertainty Coverage Analysis\nCloser to Expected = Better Calibrated",
-        fontsize=20,
+        "Interval Coverage Analysis (1$\sigma$, 2$\sigma$, 3$\sigma$)\n(Closer to Expected = Better Calibrated)",
         fontweight="bold",
         pad=25,
     )
     ax.set_xticks(x + 1.5 * width)
-    ax.set_xticklabels(sigma_levels, fontsize=18, fontweight="bold")
-    ax.legend(fontsize=18, framealpha=0.9)
+    ax.set_xticklabels(sigma_levels, fontweight="bold")
+    ax.legend(framealpha=0.9)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(0, 105)
 
@@ -416,7 +415,6 @@ def plot_sigma_coverage_comparison(df: pd.DataFrame, output_dir: str = "plots") 
                 textcoords="offset points",
                 ha="center",
                 va="bottom",
-                fontsize=16,
                 fontweight="bold",
             )
 
@@ -515,10 +513,10 @@ def plot_uncertainty_distributions(df: pd.DataFrame, output_dir: str = "plots") 
         label=f"Total mean: {total_unc.mean():.3f} TECU",
     )
 
-    ax.set_xlabel("Uncertainty [TECU]", fontsize=16, fontweight="bold")
-    ax.set_ylabel("Frequency", fontsize=16, fontweight="bold")
-    ax.set_title("Uncertainty Distributions", fontsize=20, fontweight="bold", pad=25)
-    ax.legend(fontsize=18, framealpha=0.9)
+    ax.set_xlabel("Uncertainty [TECU]", fontweight="bold")
+    ax.set_ylabel("Frequency", fontweight="bold")
+    ax.set_title("Distribution of Uncertainty Components", fontweight="bold", pad=25)
+    ax.legend(framealpha=0.9)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -685,12 +683,12 @@ def plot_binned_uncertainty_error_analysis(
                 )
 
         # Formatting
-        ax.set_xlabel("Predicted Uncertainty [TECU]", fontweight="bold", fontsize=14)
-        ax.set_ylabel("Absolute Error [TECU]", fontweight="bold", fontsize=14)
+        ax.set_xlabel("Predicted Uncertainty [TECU]", fontweight="bold")
+        ax.set_ylabel("Absolute Error [TECU]", fontweight="bold")
         
-        title = "Binned Uncertainty Analysis" if show_components else "Predicted Uncertainty vs Error"
+        title = "Error Analysis vs Predicted Uncertainty (Binned)" if show_components else "Error Analysis vs Predicted Uncertainty"
         ax.set_title(
-            title, fontweight="bold", pad=20, fontsize=16
+            title, fontweight="bold", pad=20
         )
 
         # Improve x-axis tick formatting
@@ -701,10 +699,10 @@ def plot_binned_uncertainty_error_analysis(
             x_ticks = np.arange(0, int(x_max) + step, step)
             
             ax.set_xticks(x_ticks)
-            ax.set_xticklabels([f"{int(tick)}" for tick in x_ticks], fontsize=12)
-            ax.tick_params(axis="both", labelsize=12)
+            ax.set_xticklabels([f"{int(tick)}" for tick in x_ticks])
+            ax.tick_params(axis="both")
 
-        ax.legend(fontsize=12, framealpha=0.9, loc="upper left")
+        ax.legend(framealpha=0.9, loc="upper left")
         ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
 
         # Set axis limits

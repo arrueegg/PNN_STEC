@@ -3,7 +3,7 @@ project_name: "PNN_STEC"
 output_dir: "experiments/"
 year: 2024
 doy: 183
-mode: finetune # pretrain, finetune
+mode: pretrain # pretrain, finetune
 random_seed: 42
 debug: False
 debug_single_batch: False

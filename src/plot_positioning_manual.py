@@ -45,7 +45,7 @@ def get_robust_limits(data, percentile=99.0):
     """Get robust axis limits excluding extreme outliers."""
     if len(data) == 0:
         return 0, 1
-    return 0, np.percentile(data, percentile) * 1.05
+    return 0, np.percentile(data, percentile) * 1.2
 
 def plot_trends(df, output_dir):
     """Generate paper-ready trend plots."""
@@ -114,6 +114,69 @@ def plot_trends(df, output_dir):
         plt.tight_layout()
         plt.savefig(output_dir / "paper_trend_3d_rms_timeseries.png", dpi=300)
         plt.close()
+
+        # 1.5 Percentage Improvement Time Series
+        # -------------------------------------------------------------------------
+        # Pivot the daily stats to compare methods directly per day
+        # daily_stats is already aggregated by date, so we can pivot it
+        daily_pivot = daily_stats.pivot(index='date', columns='method', values='mean')
+        
+        # Identify Model and GIM columns safely
+        model_col = next((c for c in daily_pivot.columns if 'model' in str(c).lower()), None)
+        gim_col = next((c for c in daily_pivot.columns if 'gim' in str(c).lower()), None)
+        
+        if model_col and gim_col:
+            plt.figure(figsize=(10, 6), dpi=300)
+            
+            # Calculate Improvement: (GIM - Model) / GIM * 100
+            # Positive value means Model is better (lower error)
+            improvement = (daily_pivot[gim_col] - daily_pivot[model_col]) / daily_pivot[gim_col] * 100
+            
+            # Plot connection line (neutral gray) to show continuity
+            plt.plot(improvement.index, improvement.values, linewidth=0.01, color='gray', alpha=0.5, zorder=1)
+            
+            # Scatter dots with conditional coloring (Green=Good, Red=Bad)
+            colors = ['#2ca02c' if v >= 0 else '#d62728' for v in improvement.values]
+            plt.scatter(improvement.index, improvement.values, c=colors, s=20, zorder=2, label='Daily Imp.')
+            
+            # Add a zero line
+            plt.axhline(0, color='black', linestyle='--', alpha=0.5)
+            
+            # Fill area
+            plt.fill_between(improvement.index, improvement.values, 0, 
+                             where=(improvement.values >= 0), color='#2ca02c', alpha=0.5, interpolate=True)
+            plt.fill_between(improvement.index, improvement.values, 0, 
+                             where=(improvement.values < 0), color='#d62728', alpha=0.5, interpolate=True)
+            
+            plt.ylabel('Improvement over IGS GIM [%]', fontweight='bold')
+            plt.xlabel('Date', fontweight='bold')
+            plt.title('Daily Relative Improvement in 3D Accuracy', fontweight='bold', pad=15)
+            
+            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            # Format X-axis
+            ax = plt.gca()
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+            plt.xticks(rotation=45)
+            
+            # Add Stats Annotation
+            mean_imp = improvement.mean()
+            median_imp = improvement.median()
+            positive_days = (improvement > 0).sum()
+            total_days = len(improvement)
+            win_rate = positive_days / total_days * 100
+            
+            stats_text = (f"Mean Imp.: {mean_imp:.1f}%\n"
+                          f"Median Imp.: {median_imp:.1f}%\n"
+                          f"Days Improved: {win_rate:.0f}%")
+            
+            plt.gca().text(0.02, 0.95, stats_text, transform=plt.gca().transAxes, 
+                           verticalalignment='top', horizontalalignment='left', 
+                           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='#cccccc'))
+
+            plt.tight_layout()
+            plt.savefig(output_dir / "paper_trend_improvement_timeseries.png", dpi=300)
+            plt.close()
         
         # 2. Comparative Boxplot Distribution (Aggregated)
         # -------------------------------------------------------------------------
@@ -485,6 +548,8 @@ def main():
     parser.add_argument("--input", default="multiday_results/positioning/multiday_summary.csv", 
                         help="Path to input summary CSV")
     parser.add_argument("--exclude_dates", help="Comma-separated list of dates/DOYs to exclude (e.g. 2024-05-01,130,2024-12-25)")
+    parser.add_argument("--exclude_stations", help="Comma-separated list of station IDs to exclude")
+    parser.add_argument("--exclude_threshold", type=float, help="RMS Error threshold (in meters) above which to exclude data points")
     parser.add_argument("--output_dir", default="multiday_results/positioning/manual_plots", 
                         help="Directory to save new plots")
     
@@ -533,6 +598,39 @@ def main():
         df = df[~mask]
         logger.info(f"Removed {initial_count - len(df)} rows. Remaining: {len(df)}")
         
+    # Filter stations if specified
+    if args.exclude_stations:
+        exclude_stations = [s.strip() for s in args.exclude_stations.split(',')]
+        logger.info(f"Excluding stations: {exclude_stations}")
+        
+        if 'station' in df.columns:
+            # Case insensitive check
+            # Create mask for exclusion
+            mask = df['station'].astype(str).str.upper().isin([s.upper() for s in exclude_stations])
+            
+            # Count rows to be removed
+            rows_to_remove = mask.sum()
+            
+            # Filter
+            df = df[~mask]
+            logger.info(f"Removed {rows_to_remove} rows for excluded stations. Remaining: {len(df)}")
+        else:
+            logger.warning("Station column not found, cannot exclude stations.")
+
+    # Filter by threshold if specified
+    if args.exclude_threshold:
+        threshold = float(args.exclude_threshold)
+        logger.info(f"Excluding data points with 3D RMS error > {threshold} m")
+        
+        error_col = 'error_3d_rms'
+        if error_col in df.columns:
+            mask = df[error_col] > threshold
+            rows_to_remove = mask.sum()
+            df = df[~mask]
+            logger.info(f"Removed {rows_to_remove} rows exceeding error threshold. Remaining: {len(df)}")
+        else:
+            logger.warning(f"Column '{error_col}' not found. Available columns: {df.columns.tolist()}")
+
     if len(df) == 0:
         logger.error("No data remaining after filtering!")
         return 1

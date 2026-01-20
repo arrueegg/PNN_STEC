@@ -15,6 +15,9 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
 from .base import (
+    FIGSIZE_WIDE,
+    FIGSIZE_DOUBLE_WIDE,
+    FIGSIZE_QUAD,
     save_plot,
 )
 
@@ -58,7 +61,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     # 1. MAE map - standalone
     fig1, ax1 = plt.subplots(
-        figsize=(12, 8), subplot_kw={"projection": ccrs.PlateCarree()}
+        figsize=FIGSIZE_WIDE, subplot_kw={"projection": ccrs.PlateCarree()}
     )
     scatter1 = ax1.scatter(
         spatial_stats["lon_center"],
@@ -73,7 +76,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax1.add_feature(cfeature.COASTLINE)
     ax1.add_feature(cfeature.BORDERS)
     ax1.set_global()
-    ax1.set_title("Mean Absolute Error by Location", fontweight="bold", pad=20)
+    ax1.set_title("Spatial Distribution of Mean Absolute Error (MAE)", fontweight="bold", pad=20)
 
     # Add colorbar
     divider1 = make_axes_locatable(ax1)
@@ -87,7 +90,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     # 2. Residual map - standalone
     fig2, ax2 = plt.subplots(
-        figsize=(12, 8), subplot_kw={"projection": ccrs.PlateCarree()}
+        figsize=FIGSIZE_WIDE, subplot_kw={"projection": ccrs.PlateCarree()}
     )
     # Center colormap at zero for residuals
     vmax = max(
@@ -109,7 +112,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax2.add_feature(cfeature.COASTLINE)
     ax2.add_feature(cfeature.BORDERS)
     ax2.set_global()
-    ax2.set_title("Mean Residual by Location", fontweight="bold", pad=20)
+    ax2.set_title("Spatial Distribution of Mean Residuals", fontweight="bold", pad=20)
 
     # Add colorbar
     divider2 = make_axes_locatable(ax2)
@@ -123,7 +126,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     # 3. Sample count map - standalone
     fig3, ax3 = plt.subplots(
-        figsize=(12, 8), subplot_kw={"projection": ccrs.PlateCarree()}
+        figsize=FIGSIZE_WIDE, subplot_kw={"projection": ccrs.PlateCarree()}
     )
     scatter3 = ax3.scatter(
         spatial_stats["lon_center"],
@@ -138,7 +141,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax3.add_feature(cfeature.COASTLINE)
     ax3.add_feature(cfeature.BORDERS)
     ax3.set_global()
-    ax3.set_title("Sample Count by Location", fontweight="bold", pad=20)
+    ax3.set_title("Spatial Distribution of Sample Counts", fontweight="bold", pad=20)
 
     # Add colorbar
     divider3 = make_axes_locatable(ax3)
@@ -193,7 +196,7 @@ def plot_spatial_error_map_by_local_time(
         "Night (20-04h)": [(20, 24), (0, 4)],
     }
 
-    fig = plt.figure(figsize=(20, 16))
+    fig = plt.figure(figsize=FIGSIZE_QUAD)
 
     for i, (period_name, time_range) in enumerate(time_periods.items(), 1):
         # Filter data for time period
@@ -263,7 +266,7 @@ def plot_spatial_error_map_by_local_time(
         cbar.set_label("MAE [TECU]", fontweight="bold")
 
     plt.suptitle(
-        "Spatial Error Distribution by Local Time", fontsize=24, fontweight="bold"
+        "Spatial MAE Distribution by Local Time Sector", fontweight="bold"
     )
     plt.tight_layout()
     save_plot(fig, "spatial_error_by_local_time.png", output_dir)
@@ -313,7 +316,7 @@ def plot_solar_magnetic_ipp_error_map(
     sm_stats["sm_lon_center"] = sm_stats["sm_lon_bin"].apply(lambda x: x.mid)
 
     # Create figure
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=FIGSIZE_DOUBLE_WIDE)
 
     # MAE map
     scatter1 = ax1.scatter(
@@ -326,7 +329,7 @@ def plot_solar_magnetic_ipp_error_map(
     )
     ax1.set_xlabel("Solar Magnetic Longitude [°]", fontweight="bold")
     ax1.set_ylabel("Solar Magnetic Latitude [°]", fontweight="bold")
-    ax1.set_title("MAE in Solar Magnetic Coordinates", fontweight="bold", pad=20)
+    ax1.set_title("Mean Absolute Error (MAE) in Solar Magnetic Coordinates", fontweight="bold", pad=20)
     ax1.grid(True, alpha=0.3)
 
     # Add colorbar
@@ -349,7 +352,7 @@ def plot_solar_magnetic_ipp_error_map(
     )
     ax2.set_xlabel("Solar Magnetic Longitude [°]", fontweight="bold")
     ax2.set_ylabel("Solar Magnetic Latitude [°]", fontweight="bold")
-    ax2.set_title("Residuals in Solar Magnetic Coordinates", fontweight="bold", pad=20)
+    ax2.set_title("Mean Residuals in Solar Magnetic Coordinates", fontweight="bold", pad=20)
     ax2.grid(True, alpha=0.3)
 
     # Add colorbar
@@ -414,7 +417,7 @@ def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
 
     bin_centers = [(interval.left + interval.right) / 2 for interval in grouped.index]
 
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
 
     # 1. Boxplot of residuals (Background)
     ax.axhline(y=0, color="red", linestyle="-", linewidth=2, zorder=1, alpha=0.8)
@@ -446,13 +449,13 @@ def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax.set_xticklabels([f"{b}" for b in bins], rotation=45)
     ax.set_ylim([-30, 30])
     ax.set_xlabel("Solar Magnetic Latitude [°]", fontweight="bold")
-    ax.set_ylabel("Residual / Error (TECU)", fontweight="bold")
+    ax.set_ylabel("Residual (TECU)", fontweight="bold")
     
     # Legend
-    ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
+    ax.legend(loc="upper right", framealpha=0.9)
     ax.grid(True, linestyle='--', alpha=0.5)
     
-    plt.title("Performance by Solar Magnetic Latitude", fontweight="bold", pad=20)
+    plt.title("Model Performance vs Solar Magnetic Latitude", fontweight="bold", pad=20)
     plt.tight_layout()
     save_plot(fig, "mLat_summary.png", output_dir)
     plt.close(fig)
