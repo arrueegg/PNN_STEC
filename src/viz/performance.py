@@ -238,7 +238,7 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
             boxprops=dict(facecolor="lightblue", edgecolor="black", alpha=0.7),
             whiskerprops=dict(color="black"),
             capprops=dict(color="black"),
-            medianpResidual Analysis: Temporal Evolution
+            medianprops=dict(color="red", linewidth=2),
         )
 
     ax1.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
