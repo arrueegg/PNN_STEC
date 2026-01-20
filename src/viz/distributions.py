@@ -131,9 +131,14 @@ def plot_binned_boxplot(
     x_label = get_scientific_label(x_col)
     y_label = get_scientific_label(y_col)
 
+    if y_col == "residual":
+        title = f"Residual Analysis vs {x_label}"
+    else:
+        title = f"{y_label} vs {x_label}"
+
     ax.set_xlabel(x_label, fontweight="bold")
     ax.set_ylabel(y_label, fontweight="bold")
-    ax.set_title(f"{y_label} vs {x_label}", fontweight="bold", pad=20)
+    ax.set_title(title, fontweight="bold", pad=20)
 
     plt.tight_layout()
     filename = f"{y_col}_vs_{x_col}_boxplot.png"
@@ -216,9 +221,14 @@ def plot_binned_boxplot_clipped(
     x_label = get_scientific_label(x_col)
     y_label = get_scientific_label(y_col)
 
+    if y_col == "residual":
+        title = f"Residual Analysis vs {x_label}"
+    else:
+        title = f"{y_label} vs {x_label}"
+
     ax.set_xlabel(x_label, fontweight="bold")
     ax.set_ylabel(y_label, fontweight="bold")
-    ax.set_title(f"{y_label} vs {x_label}", fontweight="bold", pad=20)
+    ax.set_title(title, fontweight="bold", pad=20)
 
     plt.tight_layout()
     filename = f"{y_col}_vs_{x_col}_boxplot{suffix}.png"
@@ -251,7 +261,7 @@ def plot_histogram_of_residuals(df: pd.DataFrame, output_dir: str = "plots") -> 
     # Labels and title
     ax.set_xlabel("Residuals [TECU]", fontweight="bold")
     ax.set_ylabel("Density", fontweight="bold")
-    ax.set_title("Histogram of Prediction Residuals", fontweight="bold", pad=20)
+    ax.set_title("Residual Distribution Analysis", fontweight="bold", pad=20)
     ax.legend(framealpha=0.9)
 
     # Add statistics text box
@@ -406,7 +416,7 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax.legend(loc="upper right", framealpha=0.9)
     ax.grid(True, linestyle='--', alpha=0.5)
 
-    plt.title("Temporal Evolution of Model Performance (Monthly)", fontweight="bold", pad=20)
+    plt.title("Residual Analysis: Monthly Evolution", fontweight="bold", pad=20)
     plt.tight_layout()
     save_plot(fig, "year_month_summary.png", output_dir)
     plt.close(fig)
@@ -545,7 +555,7 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
     ax.set_xlabel("Local Solar Time [hours]", fontweight="bold")
     ax.set_ylabel("Residual [TECU]", fontweight="bold")
     ax.set_title(
-        "Model Performance vs Local Solar Time", fontweight="bold", pad=20
+        "Residual Analysis vs Local Solar Time", fontweight="bold", pad=20
     )
 
     # Add legend
@@ -785,7 +795,7 @@ def plot_residuals_vs_solar_indices(
         ax.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
         ax.set_xlabel(label, fontweight="bold")
         ax.set_ylabel("Residual [TECU]", fontweight="bold")
-        ax.set_title(f"Model Performance vs {label}", fontweight="bold", pad=20)
+        ax.set_title(f"Residual Analysis vs {label}", fontweight="bold", pad=20)
 
         # Add legend
         ax.legend(loc="upper right", framealpha=0.9)

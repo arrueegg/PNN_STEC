@@ -76,7 +76,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax1.add_feature(cfeature.COASTLINE)
     ax1.add_feature(cfeature.BORDERS)
     ax1.set_global()
-    ax1.set_title("Spatial Distribution of Mean Absolute Error (MAE)", fontweight="bold", pad=20)
+    ax1.set_title("Spatial Analysis: Mean Absolute Error (MAE)", fontweight="bold", pad=20)
 
     # Add colorbar
     divider1 = make_axes_locatable(ax1)
@@ -112,7 +112,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax2.add_feature(cfeature.COASTLINE)
     ax2.add_feature(cfeature.BORDERS)
     ax2.set_global()
-    ax2.set_title("Spatial Distribution of Mean Residuals", fontweight="bold", pad=20)
+    ax2.set_title("Spatial Analysis: Mean Residuals", fontweight="bold", pad=20)
 
     # Add colorbar
     divider2 = make_axes_locatable(ax2)
@@ -141,7 +141,7 @@ def plot_spatial_error_map(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax3.add_feature(cfeature.COASTLINE)
     ax3.add_feature(cfeature.BORDERS)
     ax3.set_global()
-    ax3.set_title("Spatial Distribution of Sample Counts", fontweight="bold", pad=20)
+    ax3.set_title("Spatial Analysis: Sample Counts", fontweight="bold", pad=20)
 
     # Add colorbar
     divider3 = make_axes_locatable(ax3)
@@ -266,7 +266,7 @@ def plot_spatial_error_map_by_local_time(
         cbar.set_label("MAE [TECU]", fontweight="bold")
 
     plt.suptitle(
-        "Spatial MAE Distribution by Local Time Sector", fontweight="bold"
+        "Spatial Analysis: MAE by Local Time Sector", fontweight="bold"
     )
     plt.tight_layout()
     save_plot(fig, "spatial_error_by_local_time.png", output_dir)
@@ -329,7 +329,7 @@ def plot_solar_magnetic_ipp_error_map(
     )
     ax1.set_xlabel("Solar Magnetic Longitude [°]", fontweight="bold")
     ax1.set_ylabel("Solar Magnetic Latitude [°]", fontweight="bold")
-    ax1.set_title("Mean Absolute Error (MAE) in Solar Magnetic Coordinates", fontweight="bold", pad=20)
+    ax1.set_title("Spatial Analysis: MAE (Solar Magnetic)", fontweight="bold", pad=20)
     ax1.grid(True, alpha=0.3)
 
     # Add colorbar
@@ -352,7 +352,7 @@ def plot_solar_magnetic_ipp_error_map(
     )
     ax2.set_xlabel("Solar Magnetic Longitude [°]", fontweight="bold")
     ax2.set_ylabel("Solar Magnetic Latitude [°]", fontweight="bold")
-    ax2.set_title("Mean Residuals in Solar Magnetic Coordinates", fontweight="bold", pad=20)
+    ax2.set_title("Spatial Analysis: Mean Residuals (Solar Magnetic)", fontweight="bold", pad=20)
     ax2.grid(True, alpha=0.3)
 
     # Add colorbar
@@ -455,7 +455,7 @@ def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
     ax.legend(loc="upper right", framealpha=0.9)
     ax.grid(True, linestyle='--', alpha=0.5)
     
-    plt.title("Model Performance vs Solar Magnetic Latitude", fontweight="bold", pad=20)
+    plt.title("Residual Analysis vs Solar Magnetic Latitude", fontweight="bold", pad=20)
     plt.tight_layout()
     save_plot(fig, "mLat_summary.png", output_dir)
     plt.close(fig)

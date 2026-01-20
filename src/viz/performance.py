@@ -57,7 +57,7 @@ def plot_prediction_scatter(df: pd.DataFrame, output_dir: str = "plots") -> None
 
     ax.set_xlabel("True STEC [TECU]", fontweight="bold")
     ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
-    ax.set_title("Predicted vs Observed STEC", fontweight="bold", pad=20)
+    ax.set_title("Prediction Analysis: Predicted vs Observed STEC", fontweight="bold", pad=20)
     ax.legend(framealpha=0.9)
 
     # Add colorbar
@@ -142,7 +142,12 @@ def plot_az_el_heatmap(
 
     # Title and colorbar
     metric_label = get_scientific_label(metric)
-    ax.set_title(f"{metric_label} Distribution by Azimuth & Elevation", fontweight="bold", pad=20)
+    if "residual" in metric.lower():
+        title = "Residual Analysis: Azimuth & Elevation"
+    else:
+        title = f"Spatial Analysis: {metric_label} by Azimuth & Elevation"
+        
+    ax.set_title(title, fontweight="bold", pad=20)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label(metric_label, fontweight="bold")
@@ -233,12 +238,12 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
             boxprops=dict(facecolor="lightblue", edgecolor="black", alpha=0.7),
             whiskerprops=dict(color="black"),
             capprops=dict(color="black"),
-            medianprops=dict(color="red", linewidth=2),
+            medianpResidual Analysis: Temporal Evolution
         )
 
     ax1.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
     ax1.set_ylabel("Residual [TECU]", fontweight="bold")
-    ax1.set_title("Temporal Evolution of Model Performance", fontweight="bold", pad=20)
+    ax1.set_title("Residual Analysis: Temporal Evolution", fontweight="bold", pad=20)
     ax1.grid(True, alpha=0.3)
 
     # 2. Combined MAE and RMSE as line plots
@@ -348,7 +353,7 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots", max_lim
 
     ax.set_xlabel("True STEC [TECU]", fontweight="bold")
     ax.set_ylabel("Predicted STEC [TECU]", fontweight="bold")
-    ax.set_title("Prediction Density: Predicted vs Observed STEC", fontweight="bold", pad=25)
+    ax.set_title("Prediction Analysis: Predicted vs Observed STEC (Density)", fontweight="bold", pad=25)
 
     # Add colorbar with log scale
     divider = make_axes_locatable(ax)
