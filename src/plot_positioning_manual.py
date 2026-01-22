@@ -3,7 +3,8 @@
 Manual Plotting Script for Multi-Day Positioning Results
 
 Loads the aggregated summary CSV, filters out specified outlier days/stations,
-and regenerates the paper-ready plots.
+and regenerates the paper-ready plots with advanced visual styling.
+Supports complex comparison between Direct STEC, VTEC, and GIM methods.
 """
 
 import os
@@ -25,6 +26,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Style Definitions
+STEC_COLOR = '#1f77b4'  # Blue
+VTEC_COLOR = '#2ca02c'  # Green
+GIM_COLOR = '#ff7f0e'   # Orange
+
+def get_style(method_name):
+    """Return styling based on normalized method name."""
+    m_lower = str(method_name).lower()
+    if 'stec' in m_lower and 'direct' in m_lower:
+        return STEC_COLOR, "Direct STEC", 'o'
+    elif 'vtec' in m_lower:
+        return VTEC_COLOR, "VTEC + Mapping", 's'
+    elif 'gim' in m_lower:
+        return GIM_COLOR, "IGS GIM + Mapping", '^'
+    
+    # Fallbacks for legacy/other names
+    if 'model' in m_lower: return STEC_COLOR, "Direct STEC", 'o'
+    
+    return 'gray', method_name, 'x'
+
 def prepare_data(df):
     """Normalize columns and units."""
     if 'date' in df.columns:
@@ -38,6 +59,15 @@ def prepare_data(df):
         df['2d_rms'] = df['error_2d_rms'] * 100 # Convert m to cm
     if 'u_rms' in df.columns:
         df['up_rms'] = df['u_rms'] * 100 # Convert m to cm
+
+    # Clean Method Names
+    if 'method' in df.columns:
+        df['method'] = df['method'].replace({
+            'Model': 'Direct STEC', # Legacy
+            'IGS GIM': 'IGS GIM + Mapping',
+            'igs gim': 'IGS GIM + Mapping',
+            'model': 'Direct STEC'
+        })
         
     return df
 
@@ -54,20 +84,16 @@ def plot_trends(df, output_dir):
     
     # Common Style Settings
     plt.rcParams.update({
-        'font.size': 12,
-        'axes.titlesize': 14,
-        'axes.labelsize': 13,
-        'xtick.labelsize': 11,
-        'ytick.labelsize': 11,
-        'legend.fontsize': 11,
-        'font.family': 'sans-serif'
+        'font.size': 14,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'font.family': 'sans-serif',
+        'lines.linewidth': 2
     })
     
-    # Define colors
-    model_color = '#1f77b4'  # Blue
-    gim_color = '#ff7f0e'    # Orange
-    
-    # Ensure standard column names
     if '3d_rms' in df.columns and 'method' in df.columns:
         
         # 1. High-Quality Time Series (Line Plot with Error Bands)
@@ -76,17 +102,21 @@ def plot_trends(df, output_dir):
         
         # Calculate daily stats
         daily_stats = df.groupby(['date', 'method'])['3d_rms'].agg(['mean', 'std', 'count']).reset_index()
-        # Calculate standard error of the mean
         daily_stats['sem'] = daily_stats['std'] / (daily_stats['count'] ** 0.5)
         
-        methods = daily_stats['method'].unique()
+        unique_methods = daily_stats['method'].unique()
+        # Sort methods: STEC, VTEC, GIM
+        ordered_methods = sorted(unique_methods, key=lambda x: (
+            0 if 'stec' in str(x).lower() else 
+            1 if 'vtec' in str(x).lower() else 
+            2
+        ))
         
-        for method in methods:
+        for method in ordered_methods:
             subset = daily_stats[daily_stats['method'] == method]
-            color = model_color if 'model' in str(method).lower() else gim_color
-            label = "Model Correction" if 'model' in str(method).lower() else "IGS GIM"
+            color, label, marker = get_style(method)
             
-            plt.plot(subset['date'], subset['mean'], marker='o', markersize=4, 
+            plt.plot(subset['date'], subset['mean'], marker=marker, markersize=5, 
                      linewidth=2, label=label, color=color)
             
             plt.fill_between(subset['date'], 
@@ -99,177 +129,146 @@ def plot_trends(df, output_dir):
         plt.title('Daily Positioning Performance Trend', fontweight='bold', pad=15)
         
         plt.grid(True, linestyle='--', alpha=0.7)
-        plt.legend(frameon=True, framealpha=0.9, loc='upper right')
+        plt.legend(frameon=True, framealpha=0.9, loc='best')
         
-        # Format X-axis dates
         ax = plt.gca()
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
         plt.xticks(rotation=45)
         
-        # Robust Y-axis limit
-        all_means = daily_stats['mean']
-        _, y_max = get_robust_limits(all_means, 99)
+        _, y_max = get_robust_limits(daily_stats['mean'], 99)
         plt.ylim(0, y_max)
         
         plt.tight_layout()
         plt.savefig(output_dir / "paper_trend_3d_rms_timeseries.png", dpi=300)
         plt.close()
 
-        # 1.5 Percentage Improvement Time Series
+        # 2. Daily Improvement vs GIM
         # -------------------------------------------------------------------------
-        # Pivot the daily stats to compare methods directly per day
-        # daily_stats is already aggregated by date, so we can pivot it
         daily_pivot = daily_stats.pivot(index='date', columns='method', values='mean')
         
-        # Identify Model and GIM columns safely
-        model_col = next((c for c in daily_pivot.columns if 'model' in str(c).lower()), None)
         gim_col = next((c for c in daily_pivot.columns if 'gim' in str(c).lower()), None)
         
-        if model_col and gim_col:
-            plt.figure(figsize=(10, 6), dpi=300)
+        if gim_col:
+            model_cols = [c for c in daily_pivot.columns if c != gim_col]
             
-            # Calculate Improvement: (GIM - Model) / GIM * 100
-            # Positive value means Model is better (lower error)
-            improvement = (daily_pivot[gim_col] - daily_pivot[model_col]) / daily_pivot[gim_col] * 100
-            
-            # Plot connection line (neutral gray) to show continuity
-            plt.plot(improvement.index, improvement.values, linewidth=0.01, color='gray', alpha=0.5, zorder=1)
-            
-            # Scatter dots with conditional coloring (Green=Good, Red=Bad)
-            colors = ['#2ca02c' if v >= 0 else '#d62728' for v in improvement.values]
-            plt.scatter(improvement.index, improvement.values, c=colors, s=20, zorder=2, label='Daily Imp.')
-            
-            # Add a zero line
-            plt.axhline(0, color='black', linestyle='--', alpha=0.5)
-            
-            # Fill area
-            plt.fill_between(improvement.index, improvement.values, 0, 
-                             where=(improvement.values >= 0), color='#2ca02c', alpha=0.5, interpolate=True)
-            plt.fill_between(improvement.index, improvement.values, 0, 
-                             where=(improvement.values < 0), color='#d62728', alpha=0.5, interpolate=True)
-            
-            plt.ylabel('Improvement over IGS GIM [%]', fontweight='bold')
-            plt.xlabel('Date', fontweight='bold')
-            plt.title('Daily Relative Improvement in 3D Accuracy', fontweight='bold', pad=15)
-            
-            plt.grid(True, linestyle='--', alpha=0.7)
-            
-            # Format X-axis
-            ax = plt.gca()
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
-            plt.xticks(rotation=45)
-            
-            # Add Stats Annotation
-            mean_imp = improvement.mean()
-            median_imp = improvement.median()
-            positive_days = (improvement > 0).sum()
-            total_days = len(improvement)
-            win_rate = positive_days / total_days * 100
-            
-            stats_text = (f"Mean Imp.: {mean_imp:.1f}%\n"
-                          f"Median Imp.: {median_imp:.1f}%\n"
-                          f"Days Improved: {win_rate:.0f}%")
-            
-            plt.gca().text(0.02, 0.95, stats_text, transform=plt.gca().transAxes, 
-                           verticalalignment='top', horizontalalignment='left', 
-                           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='#cccccc'))
+            if model_cols:
+                plt.figure(figsize=(10, 6), dpi=300)
+                
+                for m_col in model_cols:
+                    color, label, marker = get_style(m_col)
+                    
+                    # Improvement: (GIM - Model) / GIM * 100
+                    improvement = (daily_pivot[gim_col] - daily_pivot[m_col]) / daily_pivot[gim_col] * 100
+                    
+                    # Plot the line
+                    plt.plot(improvement.index, improvement.values, marker=marker, markersize=4,
+                             linewidth=1.5, label=f"Imp. by {label}", color=color)
+                    
+                    # Add shading for positive (good) and negative (bad) areas
+                    plt.fill_between(improvement.index, improvement.values, 0, 
+                                     where=(improvement.values >= 0), 
+                                     color='green', alpha=0.05, interpolate=True)
+                    plt.fill_between(improvement.index, improvement.values, 0, 
+                                     where=(improvement.values < 0), 
+                                     color='red', alpha=0.05, interpolate=True)
+                    
+                    # Add stats to legend or as text
+                    mean_imp = improvement.mean()
+                    logger.info(f"Mean improvement for {m_col}: {mean_imp:.1f}%")
 
-            plt.tight_layout()
-            plt.savefig(output_dir / "paper_trend_improvement_timeseries.png", dpi=300)
-            plt.close()
+                plt.axhline(0, color='black', linestyle='--', alpha=0.5)
+                
+                plt.ylabel('Improvement over GIM [%]', fontweight='bold')
+                plt.xlabel('Date', fontweight='bold')
+                plt.title('Daily Relative Improvement in 3D Accuracy', fontweight='bold', pad=15)
+                
+                plt.grid(True, linestyle='--', alpha=0.7)
+                plt.legend()
+                
+                ax = plt.gca()
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+                plt.xticks(rotation=45)
+                
+                plt.tight_layout()
+                plt.savefig(output_dir / "paper_trend_improvement_timeseries.png", dpi=300)
+                plt.close()
         
-        # 2. Comparative Boxplot Distribution (Aggregated)
+        # 3. Overall Distribution (Boxplot with Styling)
         # -------------------------------------------------------------------------
         plt.figure(figsize=(8, 6), dpi=300)
         
-        # Filter for relevant methods only if there are many
-        plot_df = df[df['method'].isin(methods)] # Just safety
+        plot_df = df[df['method'].isin(ordered_methods)]
+        palette = {m: get_style(m)[0] for m in ordered_methods}
         
-        # Create boxplot
         sns.boxplot(x='method', y='3d_rms', hue='method', data=plot_df, 
-                    width=0.5, palette=[model_color, gim_color], 
-                    showfliers=False, legend=False) # Hide outliers for cleaner look
-                    
-        # Add swarmplot for data density visibility (optional, good for papers with few points)
-        if len(plot_df) < 500:
-            sns.swarmplot(x='method', y='3d_rms', data=plot_df, 
-                          color=".2", alpha=0.5, size=3)
-            
+                    width=0.5, palette=palette, 
+                    showfliers=False, order=ordered_methods)
+        
         plt.ylabel('3D RMS Error [cm]', fontweight='bold')
         plt.xlabel('Correction Method', fontweight='bold')
         plt.title('Overall Positioning Accuracy Distribution', fontweight='bold', pad=15)
         
-        # Rename x-tick labels for clarity
-        current_labels = [l.get_text() for l in plt.gca().get_xticklabels()]
-        new_labels = ["Model" if 'model' in l.lower() else "IGS GIM" for l in current_labels]
+        _, y_max_bp = get_robust_limits(plot_df['3d_rms'], 98)
+        plt.ylim(0, y_max_bp)
+        
+        new_labels = [get_style(m)[1] for m in ordered_methods]
         ax = plt.gca()
-        ax.set_xticks(ax.get_xticks())
+        ax.set_xticks(range(len(ordered_methods)))
         ax.set_xticklabels(new_labels)
         
-        # Robust Y-axis
-        # For boxplots, let seaborn handle it usually, but we can clamp
-        # Since we use showfliers=False, it is already somewhat robust
-        
         plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+        
         plt.tight_layout()
         plt.savefig(output_dir / "paper_overall_distribution_boxplot.png", dpi=300)
         plt.close()
 
-        # 3. CDF Plot (Cumulative Distribution Function) - Very common in GNSS papers
+        # 4. CDF Plot (Critical for Papers)
         # -------------------------------------------------------------------------
-        plt.figure(figsize=(10, 6), dpi=300)
+        plt.figure(figsize=(8, 6), dpi=300)
         
         robust_max = 0
-        for method in methods:
-            subset = df[df['method'] == method].sort_values('3d_rms')
-            data = subset['3d_rms'].values
+        
+        for method in ordered_methods:
+            subset = df[df['method'] == method]['3d_rms'].dropna().sort_values()
             
-            # Robust max update
-            _, local_max = get_robust_limits(data, 99)
-            robust_max = max(robust_max, local_max)
+            if len(subset) == 0: continue
             
-            y = np.arange(1, len(data) + 1) / len(data) * 100 # Percentage
+            # Compute CDF
+            y_vals = np.arange(1, len(subset) + 1) / len(subset) * 100
             
-            color = model_color if 'model' in str(method).lower() else gim_color
-            label = "Model Correction" if 'model' in str(method).lower() else "IGS GIM"
+            color, label, _ = get_style(method)
+            plt.plot(subset, y_vals, label=label, linewidth=2.5, color=color)
             
-            plt.plot(data, y, linewidth=2.5, label=label, color=color)
+            # Update limits
+            curr_max = np.percentile(subset, 98)
+            robust_max = max(robust_max, curr_max)
             
-            # Add 95th percentile marker
-            p95 = np.percentile(data, 95)
-            plt.plot([0, p95], [95, 95], linestyle=':', color=color, alpha=0.5)
-            plt.plot([p95, p95], [0, 95], linestyle=':', color=color, alpha=0.5)
-            
+            # Print stats
+            rms_95 = np.percentile(subset, 95)
+            logger.info(f"{method} 95%: {rms_95:.2f} cm")
+
         plt.xlabel('3D RMS Error [cm]', fontweight='bold')
         plt.ylabel('Cumulative Probability [%]', fontweight='bold')
         plt.title('Error Cumulative Distribution Function (CDF)', fontweight='bold', pad=15)
         
-        plt.xlim(0, robust_max * 1.1)
-        plt.ylim(0, 105)
+        plt.xlim(0, robust_max * 1.2)
+        plt.ylim(0, 102)
         plt.grid(True, linestyle='--', alpha=0.5)
         plt.legend(loc='lower right')
         
         plt.tight_layout()
         plt.savefig(output_dir / "paper_cdf_3d_rms.png", dpi=300)
         plt.close()
-        
-        logger.info(f"Main trend plots saved to: {output_dir}")
-        
-    else:
-        logger.error(f"Required columns (3d_rms or error_3d_rms, method) not found. Columns: {df.columns.tolist()}")    
 
+        logger.info(f"Main trend plots saved to: {output_dir}")
 
 def plot_extended_analysis(df, output_dir):
     """Generate extended analysis plots for deeper insights."""
     output_dir = Path(output_dir)
     
-    # Define colors
-    model_color = '#1f77b4'  # Blue
-    gim_color = '#ff7f0e'    # Orange
-    
     methods = df['method'].unique() if 'method' in df.columns else []
     
-    # 4. Vertical vs Horizontal Error Scatter
+    # 5. Vertical vs Horizontal Error Scatter
     # -------------------------------------------------------------------------
     if '2d_rms' in df.columns and 'up_rms' in df.columns:
         plt.figure(figsize=(10, 8), dpi=300)
@@ -281,11 +280,10 @@ def plot_extended_analysis(df, output_dir):
         
         for method in methods:
             subset = df[df['method'] == method]
-            color = model_color if 'model' in str(method).lower() else gim_color
-            label = "Model Correction" if 'model' in str(method).lower() else "IGS GIM"
+            color, label, _ = get_style(method)
             
             plt.scatter(subset['2d_rms'], subset['up_rms'], 
-                       alpha=0.5, label=label, color=color, s=30)
+                       alpha=0.4, label=label, color=color, s=25)
             
         plt.xlabel('2D (Horizontal) RMS Error [cm]', fontweight='bold')
         plt.ylabel('Vertical (Up) RMS Error [cm]', fontweight='bold')
@@ -301,40 +299,6 @@ def plot_extended_analysis(df, output_dir):
         plt.tight_layout()
         plt.savefig(output_dir / "analysis_vertical_vs_horizontal.png", dpi=300)
         plt.close()
-    
-    # 5. Error vs Satellite Count
-    # -------------------------------------------------------------------------
-    if 'mean_nsat' in df.columns and '3d_rms' in df.columns:
-        plt.figure(figsize=(10, 6), dpi=300)
-        
-        # Robust Y limit
-        _, y_max = get_robust_limits(df['3d_rms'], 99.5)
-        
-        for method in methods:
-            subset = df[df['method'] == method]
-            color = model_color if 'model' in str(method).lower() else gim_color
-            label = "Model Correction" if 'model' in str(method).lower() else "IGS GIM"
-            
-            plt.scatter(subset['mean_nsat'], subset['3d_rms'], 
-                       alpha=0.5, label=label, color=color, s=30)
-
-            # Fit trend line
-            if len(subset) > 1:
-                z = np.polyfit(subset['mean_nsat'], subset['3d_rms'], 1)
-                p = np.poly1d(z)
-                x_range = np.linspace(subset['mean_nsat'].min(), subset['mean_nsat'].max(), 100)
-                plt.plot(x_range, p(x_range), linestyle='--', color=color, alpha=0.8)
-        
-        plt.xlabel('Mean Number of Satellites', fontweight='bold')
-        plt.ylabel('3D RMS Error [cm]', fontweight='bold')
-        plt.title('Impact of Satellite Availability on Accuracy', fontweight='bold', pad=15)
-        
-        plt.ylim(0, y_max)
-        plt.grid(True, linestyle='--', alpha=0.5)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(output_dir / "analysis_error_vs_satellites.png", dpi=300)
-        plt.close()
 
     # 6. Error Distribution Histogram
     # -------------------------------------------------------------------------
@@ -347,8 +311,7 @@ def plot_extended_analysis(df, output_dir):
         
         for method in methods:
             subset = df[df['method'] == method]
-            color = model_color if 'model' in str(method).lower() else gim_color
-            label = "Model Correction" if 'model' in str(method).lower() else "IGS GIM"
+            color, label, _ = get_style(method)
             
             sns.histplot(subset['3d_rms'], color=color, label=label, 
                         kde=True, alpha=0.3, element="step", bins=bins)
@@ -363,43 +326,8 @@ def plot_extended_analysis(df, output_dir):
         plt.tight_layout()
         plt.savefig(output_dir / "analysis_error_histogram.png", dpi=300)
         plt.close()
-
-    # 7. Error by Station (Top 20 Worst/Best)
-    # -------------------------------------------------------------------------
-    if 'station' in df.columns and '3d_rms' in df.columns:
-        # Group by station and take mean error
-        station_stats = df.groupby(['station', 'method'])['3d_rms'].mean().reset_index()
         
-        # Focus on Model performance for sorting
-        model_stats = station_stats[station_stats['method'].apply(lambda x: 'model' in str(x).lower())]
-        
-        if not model_stats.empty:
-            # Sort by error
-            sorted_stations = model_stats.sort_values('3d_rms', ascending=False)
-            
-            # Helper to plot bar chart
-            def plot_bar_stations(stats, title_suffix, filename):
-                plt.figure(figsize=(12, 6), dpi=300)
-                sns.barplot(x='station', y='3d_rms', data=stats, palette='viridis')
-                plt.xticks(rotation=45, ha='right')
-                plt.ylabel('Mean 3D RMS Error [cm]', fontweight='bold')
-                plt.xlabel('Station', fontweight='bold')
-                plt.title(f'Station Performance: {title_suffix}', fontweight='bold', pad=15)
-                plt.grid(True, axis='y', linestyle='--', alpha=0.5)
-                plt.tight_layout()
-                plt.savefig(output_dir / filename, dpi=300)
-                plt.close()
-
-            # Plot top 20 worst stations
-            if len(sorted_stations) > 0:
-                plot_bar_stations(sorted_stations.head(20), "Highest Error Stations", "analysis_stations_worst.png")
-                
-            # Plot top 20 best stations
-            if len(sorted_stations) > 20:
-                plot_bar_stations(sorted_stations.tail(20), "Lowest Error Stations", "analysis_stations_best.png")
-    
     logger.info(f"Extended analysis plots saved to: {output_dir}")
-
 
 def plot_model_vs_gim_comparison(df, output_dir):
     """Generate direct comparison plots between Model and GIM."""
@@ -410,130 +338,192 @@ def plot_model_vs_gim_comparison(df, output_dir):
         logger.warning("Missing 'method' or '3d_rms' columns, skipping comparison plots")
         return
 
+    # Identify columns to pivot on
     pivot_cols = []
-    if 'station' in df.columns:
-        pivot_cols.append('station')
-    
+    if 'station' in df.columns: pivot_cols.append('station')
     if 'date' in df.columns:
         pivot_cols.append('date')
     elif 'year' in df.columns and 'doy' in df.columns:
-        pivot_cols.append('year')
-        pivot_cols.append('doy')
+        pivot_cols.extend(['year', 'doy'])
     
     if not pivot_cols:
         logger.warning("Could not identify grouping columns (date/station) for pivot.")
         return
         
     try:
-        # Filter for only relevant methods
-        df_filtered = df[df['method'].isin(['model', 'gim'])].copy()
-        if df_filtered.empty:
-            # Try fuzzy matching if exact 'model'/'gim' not found
-            df['method_norm'] = df['method'].apply(lambda x: 'model' if 'model' in str(x).lower() else ('gim' if 'gim' in str(x).lower() else None))
-            df_filtered = df[df['method_norm'].notna()].copy()
-            df_filtered['method'] = df_filtered['method_norm']
-        else:
-            # Normalize method names (e.g. 'model' vs 'Model')
-            df_filtered['method'] = df_filtered['method'].apply(lambda x: 'model' if 'model' in str(x).lower() else 'gim')
+        # Create normalized method column for pivoting: 'stec', 'vtec', 'gim'
+        def normalize_method(m):
+            m = str(m).lower()
+            if 'stec' in m or 'direct' in m: return 'stec'
+            if 'vtec' in m: return 'vtec'
+            if 'gim' in m: return 'gim'
+            return None
+
+        # Work on a copy
+        df_comp = df.copy()
+        df_comp['pivot_method'] = df_comp['method'].apply(normalize_method)
+        df_filtered = df_comp[df_comp['pivot_method'].notna()].copy()
         
-        # Pivot table to put Model and GIM side-by-side
+        # Pivot table
         pivoted = df_filtered.pivot_table(
             index=pivot_cols, 
-            columns='method', 
+            columns='pivot_method', 
             values='3d_rms'
-        ).dropna()
+        ).dropna() # Only keep rows where ALL selected methods exist
         
         if pivoted.empty:
-            logger.warning("No paired Model/GIM data found for comparison plots (after pivoting).")
+            logger.warning("No paired data found for comparison plots.")
             return
 
-        # Calculate differences
-        pivoted['diff'] = pivoted['gim'] - pivoted['model'] # Positive means Model is better (lower error)
-        pivoted['rel_benefit'] = (pivoted['gim'] - pivoted['model']) / pivoted['gim'] * 100
-        
-        # 1. Scatter Plot (Model vs GIM)
-        # -------------------------------------------------------------------------
-        plt.figure(figsize=(8, 8), dpi=300)
-        
-        # Robust Limits
-        _, x_max = get_robust_limits(pivoted['gim'], 99.5)
-        _, y_max = get_robust_limits(pivoted['model'], 99.5)
-        max_val = max(x_max, y_max)
-        
-        plt.scatter(pivoted['gim'], pivoted['model'], alpha=0.4, s=20, color='purple', edgecolors='none')
-        
-        # 1:1 Line
-        plt.plot([0, max_val], [0, max_val], 'k--', alpha=0.8, linewidth=1.5, label='1:1 (Equal Performance)')
-        
-        # Region separation and labels
-        plt.fill_between([0, max_val], [0, max_val], 0, color='green', alpha=0.05)
-        plt.fill_between([0, max_val], [0, max_val], max_val, color='red', alpha=0.05)
-        
-        # Add text annotations for regions
-        plt.text(max_val*0.7, max_val*0.3, "Model Better", color='green', fontweight='bold', ha='center', fontsize=12, alpha=0.6)
-        plt.text(max_val*0.3, max_val*0.7, "GIM Better", color='red', fontweight='bold', ha='center', fontsize=12, alpha=0.6)
-        
-        plt.xlabel('IGS GIM 3D RMS [cm]', fontweight='bold')
-        plt.ylabel('Model 3D RMS [cm]', fontweight='bold')
-        plt.title('Direct Performance Comparison: Model vs GIM', fontweight='bold', pad=15)
-        plt.legend(loc='upper left')
-        plt.grid(True, linestyle='--', alpha=0.5)
-        plt.xlim(0, max_val)
-        plt.ylim(0, max_val)
-        plt.tight_layout()
-        plt.savefig(output_dir / "comparison_scatter_model_vs_gim.png", dpi=300)
-        plt.close()
+        if 'gim' not in pivoted.columns:
+            logger.warning("GIM data missing from pivot. Cannot compare.")
+            return
 
-        # 2. Histogram of Improvement
-        # -------------------------------------------------------------------------
-        plt.figure(figsize=(10, 6), dpi=300)
+        # Iterate over model types (stec, vtec) to compare against GIM
+        model_types = [c for c in pivoted.columns if c != 'gim']
         
-        # Robust bin range
-        diff_data = pivoted['diff'].dropna()
-        p01, p99 = np.percentile(diff_data, [0.5, 99.5])
+        # Define comparisons: Each model vs GIM
+        comparisons = []
+        for m in model_types:
+            comparisons.append({
+                'challenger': m,
+                'baseline': 'gim',
+                'challenger_label': "Direct STEC" if m == 'stec' else "VTEC + Mapping",
+                'baseline_label': "IGS GIM",
+                'type': 'vs_gim'
+            })
+            
+        # Add STEC vs VTEC comparison if both exist
+        if 'stec' in pivoted.columns and 'vtec' in pivoted.columns:
+            comparisons.append({
+                'challenger': 'stec',
+                'baseline': 'vtec',
+                'challenger_label': "Direct STEC",
+                'baseline_label': "VTEC + Mapping",
+                'type': 'stec_vs_vtec'
+            })
         
-        # Clip data for visualization only
-        viz_data = np.clip(diff_data, p01, p99)
-        bins = np.linspace(p01, p99, 50)
-        
-        sns.histplot(viz_data, kde=True, bins=bins, color='teal', alpha=0.6)
-        plt.axvline(0, color='k', linestyle='--', linewidth=2)
-        plt.xlabel('Improvement (GIM Error - Model Error) [cm]\nPositive values = Model is better', fontweight='bold')
-        plt.ylabel('Count', fontweight='bold')
-        plt.title('Distribution of Model Improvement over GIM', fontweight='bold', pad=15)
-        
-        plt.xlim(p01, p99)
-        
-        # Stats annotation
-        mean_imp = pivoted['diff'].mean()
-        median_imp = pivoted['diff'].median()
-        stats_text = f"Mean Imp.: {mean_imp:.2f} cm\nMedian Imp.: {median_imp:.2f} cm"
-        plt.gca().text(0.95, 0.95, stats_text, transform=plt.gca().transAxes, 
-                       verticalalignment='top', horizontalalignment='right', 
-                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
-        plt.grid(True, linestyle='--', alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(output_dir / "comparison_improvement_histogram.png", dpi=300)
-        plt.close()
+        for comp in comparisons:
+            m_type = comp['challenger']
+            baseline = comp['baseline']
+            
+            model_label = comp['challenger_label']
+            baseline_label = comp['baseline_label']
+            
+            color, _, _ = get_style(model_label)
+            safe_name = f"{m_type}_vs_{baseline}"
+            
+            # Differences: Baseline - Challenger (Positive = Challenger is better)
+            diff_col = f'diff_{safe_name}'
+            pivoted[diff_col] = pivoted[baseline] - pivoted[m_type]
+            
+            # 7. Scatter Plot
+            # -------------------------------------------------------------------------
+            plt.figure(figsize=(8, 8), dpi=300)
+            
+            # Robust Limits
+            _, x_max = get_robust_limits(pivoted[baseline], 99.5)
+            _, y_max = get_robust_limits(pivoted[m_type], 99.5)
+            max_val = max(x_max, y_max)
+            
+            plt.scatter(pivoted[baseline], pivoted[m_type], alpha=0.4, s=20, color=color, edgecolors='none')
+            
+            # 1:1 Line
+            plt.plot([0, max_val], [0, max_val], 'k--', alpha=0.8, linewidth=1.5, label='1:1 Line')
+            
+            # Shaded Regions
+            # Green: Model Better (Under the 1:1 line) -> y < x
+            plt.fill_between([0, max_val], [0, max_val], 0, color='green', alpha=0.05, label=f'{model_label} Better')
+            # Red: Baseline Better (Above the 1:1 line) -> y > x
+            plt.fill_between([0, max_val], [0, max_val], max_val, color='red', alpha=0.05, label=f'{baseline_label} Better')
 
-        # 3. Win Rate Pie Chart
-        # -------------------------------------------------------------------------
-        better_count = (pivoted['model'] < pivoted['gim']).sum()
-        total_count = len(pivoted)
-        win_rate = better_count / total_count * 100
-        
-        plt.figure(figsize=(7, 7), dpi=300)
-        plt.pie([better_count, total_count - better_count], 
-               labels=[f'Model Better\n({win_rate:.1f}%)', f'GIM Better\n({100-win_rate:.1f}%)'],
-               colors=['#2ca02c', '#d62728'],
-               autopct='%1.1f%%', startangle=90, 
-               explode=(0.02, 0),
-               textprops={'fontsize': 12, 'weight': 'bold'})
-        plt.title('Global Performance: Win Rate', fontweight='bold', pad=15)
-        plt.tight_layout()
-        plt.savefig(output_dir / "comparison_win_rate_pie.png", dpi=300)
-        plt.close()
+            plt.xlabel(f'{baseline_label} 3D RMS [cm]', fontweight='bold')
+            plt.ylabel(f'{model_label} 3D RMS [cm]', fontweight='bold')
+            plt.title(f'{model_label} vs {baseline_label} Performance', fontweight='bold', pad=15)
+            
+            # Text annotations for regions
+            plt.text(max_val*0.75, max_val*0.25, f"{model_label}\nBetter", 
+                    color='green', fontweight='bold', ha='center', fontsize=12, alpha=0.7)
+            plt.text(max_val*0.25, max_val*0.75, f"{baseline_label}\nBetter", 
+                    color='#d62728', fontweight='bold', ha='center', fontsize=12, alpha=0.7)
+            
+            plt.xlim(0, max_val)
+            plt.ylim(0, max_val)
+            plt.grid(True, linestyle='--', alpha=0.5)
+            plt.tight_layout()
+            
+            plt.savefig(output_dir / f"comparison_scatter_{safe_name}.png", dpi=300)
+            plt.close()
+
+            # 8. Histogram of Improvement
+            # -------------------------------------------------------------------------
+            plt.figure(figsize=(10, 6), dpi=300)
+            
+            diff_data = pivoted[diff_col].dropna()
+            if len(diff_data) > 0:
+                p01, p99 = np.percentile(diff_data, [0.5, 99.5])
+                
+                # Clip data for visualization only
+                viz_data = np.clip(diff_data, p01, p99)
+                bins = np.linspace(p01, p99, 50)
+                
+                # Plot
+                sns.histplot(viz_data, kde=True, bins=bins, color=color, alpha=0.6)
+                
+                # Color background areas
+                y_min, y_max = plt.ylim()
+                plt.axvspan(0, p99, color='green', alpha=0.05, label=f'{model_label} Better')
+                plt.axvspan(p01, 0, color='red', alpha=0.05, label=f'{baseline_label} Better')
+                plt.axvline(0, color='k', linestyle='--', linewidth=2)
+
+                plt.xlabel(f'Improvement ({baseline_label} Error - {model_label} Error) [cm]\nPositive values = {model_label} is better', fontweight='bold')
+                plt.ylabel('Count', fontweight='bold')
+                plt.title(f'Distribution of {model_label} Improvement over {baseline_label}', fontweight='bold', pad=15)
+                
+                plt.xlim(p01, p99)
+                
+                # Stats annotation
+                mean_imp = diff_data.mean()
+                median_imp = diff_data.median()
+                stats_text = f"Mean Imp.: {mean_imp:.2f} cm\nMedian Imp.: {median_imp:.2f} cm"
+                plt.gca().text(0.95, 0.95, stats_text, transform=plt.gca().transAxes, 
+                            verticalalignment='top', horizontalalignment='right', 
+                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))
+                
+                plt.grid(True, linestyle='--', alpha=0.3)
+                plt.tight_layout()
+                plt.savefig(output_dir / f"comparison_improvement_histogram_{safe_name}.png", dpi=300)
+                plt.close()
+
+            # 9. Win Rate Pie Chart
+            # -------------------------------------------------------------------------
+            better_count = (pivoted[m_type] < pivoted[baseline]).sum()
+            total_count = len(pivoted)
+            win_rate = better_count / total_count * 100
+            
+            # Use fixed axes to ensure consistent pie size regardless of title length
+            fig = plt.figure(figsize=(8, 8), dpi=300)
+            ax = fig.add_axes([0.15, 0.1, 0.7, 0.7]) # Left, Bottom, Width, Height (Fixed Square)
+            
+            # Explicit shadow parameter and better colors
+            wedges, texts, autotexts = ax.pie([better_count, total_count - better_count], 
+                labels=[f'{model_label}\nBetter ({win_rate:.1f}%)', f'{baseline_label} Better\n({100-win_rate:.1f}%)'],
+                colors=[color, '#d62728'], # Use model color for "better", red for "gim better"
+                autopct='%1.1f%%', 
+                startangle=90,
+                explode=(0.05, 0), # Explode the winner slice slightly
+                shadow=False, # Ensure shadow is off
+                textprops={'fontsize': 12, 'weight': 'bold'})
+                
+            plt.setp(texts, size=12, weight="bold")
+            plt.setp(autotexts, size=11, weight="bold", color="white")
+            
+            # Title attached to figure or axes, but axes size is fixed now
+            ax.set_title(f'Win Rate: {model_label} vs {baseline_label}\n(Based on 3D RMS)', pad=20, fontweight='bold', fontsize=14)
+            
+            # No tight_layout to preserve fixed axes dimensions
+            plt.savefig(output_dir / f"comparison_win_rate_pie_{safe_name}.png", dpi=300)
+            plt.close()
         
         logger.info(f"Comparison plots saved to: {output_dir}")
         
@@ -542,18 +532,20 @@ def plot_model_vs_gim_comparison(df, output_dir):
         import traceback
         logger.error(traceback.format_exc())
 
-
 def main():
     parser = argparse.ArgumentParser(description="Manual Plotting of Positioning Results")
     parser.add_argument("--input", default="multiday_results/positioning/multiday_summary.csv", 
                         help="Path to input summary CSV")
-    parser.add_argument("--exclude_dates", help="Comma-separated list of dates/DOYs to exclude (e.g. 2024-05-01,130,2024-12-25)")
+    parser.add_argument("--exclude_dates", help="Comma-separated list of dates/DOYs to exclude")
     parser.add_argument("--exclude_stations", help="Comma-separated list of station IDs to exclude")
-    parser.add_argument("--exclude_threshold", type=float, help="RMS Error threshold (in meters) above which to exclude data points")
+    parser.add_argument("--exclude_threshold", type=float, help="RMS Error threshold (in meters) to exclude")
     parser.add_argument("--output_dir", default="multiday_results/positioning/manual_plots", 
                         help="Directory to save new plots")
     
     args = parser.parse_args()
+    
+    # Ensure output directory exists
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     if not os.path.exists(args.input):
         logger.error(f"Input file not found: {args.input}")
@@ -581,12 +573,10 @@ def main():
         mask = pd.Series(False, index=df.index)
         
         for ex in exclude_list:
-            # Check if it looks like a DOY (integer)
             if ex.isdigit():
                 doy = int(ex)
                 if 'doy' in df.columns:
                     mask |= (df['doy'] == doy)
-            # Check if it looks like a date string
             else:
                 try:
                     ts = pd.to_datetime(ex)
@@ -596,52 +586,32 @@ def main():
                     logger.warning(f"Could not parse exclusion date: {ex}")
                     
         df = df[~mask]
-        logger.info(f"Removed {initial_count - len(df)} rows. Remaining: {len(df)}")
         
-    # Filter stations if specified
     if args.exclude_stations:
-        exclude_stations = [s.strip() for s in args.exclude_stations.split(',')]
-        logger.info(f"Excluding stations: {exclude_stations}")
-        
+        stations = [s.strip() for s in args.exclude_stations.split(',')]
+        logger.info(f"Excluding stations: {stations}")
         if 'station' in df.columns:
-            # Case insensitive check
-            # Create mask for exclusion
-            mask = df['station'].astype(str).str.upper().isin([s.upper() for s in exclude_stations])
+            df = df[~df['station'].isin(stations)]
             
-            # Count rows to be removed
-            rows_to_remove = mask.sum()
-            
-            # Filter
-            df = df[~mask]
-            logger.info(f"Removed {rows_to_remove} rows for excluded stations. Remaining: {len(df)}")
-        else:
-            logger.warning("Station column not found, cannot exclude stations.")
-
-    # Filter by threshold if specified
     if args.exclude_threshold:
-        threshold = float(args.exclude_threshold)
-        logger.info(f"Excluding data points with 3D RMS error > {threshold} m")
-        
-        error_col = 'error_3d_rms'
-        if error_col in df.columns:
-            mask = df[error_col] > threshold
-            rows_to_remove = mask.sum()
-            df = df[~mask]
-            logger.info(f"Removed {rows_to_remove} rows exceeding error threshold. Remaining: {len(df)}")
-        else:
-            logger.warning(f"Column '{error_col}' not found. Available columns: {df.columns.tolist()}")
-
-    if len(df) == 0:
-        logger.error("No data remaining after filtering!")
-        return 1
+        logger.info(f"Excluding records with 3D RMS > {args.exclude_threshold} m (before conv to cm)")
+        # Note: Summary usually has 'error_3d_rms' in meters
+        if 'error_3d_rms' in df.columns:
+             df = df[df['error_3d_rms'] <= args.exclude_threshold]
     
-    # Prepare data (normalize units and column names)
+    # Prepare Data
     df = prepare_data(df)
-        
-    # Run plotting
+    
+    if len(df) < initial_count:
+        logger.info(f"Filtered {initial_count - len(df)} rows. Remaining: {len(df)}")
+
+    # Generate Plots
+    logger.info("Generating plots...")
     plot_trends(df, args.output_dir)
     plot_extended_analysis(df, args.output_dir)
     plot_model_vs_gim_comparison(df, args.output_dir)
+    
+    logger.info(f"Done. Plots saved to: {args.output_dir}")
     return 0
 
 if __name__ == "__main__":

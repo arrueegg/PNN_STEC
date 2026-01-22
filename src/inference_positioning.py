@@ -45,6 +45,7 @@ from training.base_trainer import BaseTrainer
 from model.model import get_model
 from data_loader.collation import CollateWithSH
 from torch.utils.data import Dataset, DataLoader
+from evaluation.gim_mapper import MappingFunction # Import for VTEC -> STEC conversion
 
 
 def initialize_output_indices_for_registry(registry, config):
@@ -329,6 +330,7 @@ class PositioningDataset(Dataset):
             'sod': float(row['sod']),
             'lat_ipp': float(row['lat_ipp']),
             'lon_ipp': float(row['lon_ipp']),
+            'satele': float(row['satele']) if 'satele' in row.dtype.names else 0.0, # Capture elevation for VTEC mapping
         }
         
         return feat, label, metadata
@@ -413,6 +415,30 @@ def run_inference_for_day(config, model, feature_registry, year, doy, test_stati
     results_df = pd.DataFrame(metadata_list)
     results_df['pred_stec'] = all_predictions
     results_df['uncertainty'] = all_uncertainties
+    
+    # Check if we need to map VTEC to STEC
+    if config.get('target', '').lower() == 'vtec':
+        logger.info("ℹ️  Detected VTEC model target - applying mapping function to STEC...")
+        
+        # Initialize mapper (defaults to MSLM)
+        # Note: mapping_function arg is not passed, assuming default MSLM which is standard
+        mapper = MappingFunction(mapping_type="MSLM")
+        
+        # Calculate mapping factor
+        # satele is in degrees, convert to radians
+        if 'satele' not in results_df.columns:
+            logger.warning("⚠️  'satele' column missing for mapping function! Using M=1 (Vertical). Errors likely.")
+            mapping_factors = 1.0
+        else:
+            elev_rad = np.radians(results_df['satele'].values)
+            mapping_factors = mapper.get_mapping_factor(elev_rad)
+            
+        # Update predictions: STEC = VTEC * M(z)
+        # Uncertainty also scales: sigma_stec = sigma_vtec * M(z) (approx)
+        results_df['pred_stec'] = results_df['pred_stec'] * mapping_factors
+        results_df['uncertainty'] = results_df['uncertainty'] * mapping_factors
+        
+        logger.info("✅ VTEC -> STEC conversion complete")
     
     logger.info(f"Completed inference: {len(results_df):,} predictions with uncertainties")
     

@@ -88,10 +88,32 @@ def get_scientific_label(column_name: str) -> str:
 def save_plot(
     fig: matplotlib.figure.Figure, filename: str, output_dir: str = "plots"
 ) -> None:
-    """Save plot with standardized settings."""
+    """
+    Save plot with standardized settings.
+    Also saves a version without titles with '_notitle' suffix.
+    """
     ensure_dir(output_dir)
+    
+    # 1. Save original with titles
     full_path = os.path.join(output_dir, filename)
     fig.savefig(full_path, dpi=300, bbox_inches="tight")
+    
+    # 2. Remove titles and save _notitle version
+    # Clear suptitle
+    original_suptitle = fig._suptitle
+    fig.suptitle("")
+    
+    # Clear axes titles
+    for ax in fig.axes:
+        ax.set_title("")
+        
+    # Construct no-title filename
+    name, ext = os.path.splitext(filename)
+    notitle_filename = f"{name}_notitle{ext}"
+    notitle_path = os.path.join(output_dir, notitle_filename)
+    
+    fig.savefig(notitle_path, dpi=300, bbox_inches="tight")
+    
     plt.close(fig)
 
 
