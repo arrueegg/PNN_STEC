@@ -756,8 +756,8 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             color = model_colors.get(model, 'gray')
             plt.plot(pivot_df.index, pivot_df[model], marker='o', label=model, color=color)
         
-        plt.ylabel('RMSE (TECU)')
-        plt.title(f'RMSE by Date ({mapped_name})')
+        plt.ylabel('RMSE [TECU]')
+        # plt.title(f'RMSE by Date ({mapped_name})')
         # Move legend further down
         plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(model_colors), frameon=True)
         
@@ -798,9 +798,12 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             plt.figure(figsize=(8, 6))
             sns.boxplot(data=dataset_df, x='Model', y=metric, palette=model_colors, hue='Model', legend=False)
             
-            plt.title(f'{metric} Distribution ({mapped_name})')
+            # plt.title(f'{metric} Distribution ({mapped_name})')
             plt.xlabel('')
-            plt.ylabel(metric)
+            if metric in ['RMSE', 'MAE']:
+                 plt.ylabel(f'{metric} [TECU]')
+            else:
+                 plt.ylabel(metric)
             plt.tick_params(axis='x', rotation=15)
             plt.grid(True, axis='y', linestyle='--', alpha=0.5)
             plt.tight_layout()
@@ -858,8 +861,8 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             sns.lineplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
                          palette=baseline_colors, alpha=0.9)
             
-            plt.ylabel('RMSE Improvement (%)')
-            plt.title(f'Direct STEC Improvement Over Baselines ({mapped_name})')
+            plt.ylabel('RMSE Improvement [%]')
+            # plt.title(f'Direct STEC Improvement Over Baselines ({mapped_name})')
             plt.axhline(y=0, color='black', linestyle='-', linewidth=1)
             # Move legend further down
             plt.legend(title='Baseline', loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(baseline_colors), frameon=True)
@@ -970,9 +973,9 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                            color=model_colors['IGS GIM + Mapping'],
                            markersize=6, alpha=0.9)
                 
-                plt.xlabel('Elevation Angle (degrees)')
+                plt.xlabel('Elevation Angle [degrees]')
                 plt.ylabel(ylabel)
-                plt.title(f'{metric_name} vs Elevation ({mapped_name})')
+                # plt.title(f'{metric_name} vs Elevation ({mapped_name})')
                 # Move legend closer to plot
                 plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=len(model_colors), frameon=True)
                 plt.grid(True, linestyle='--', alpha=0.5)
@@ -985,10 +988,10 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                 logger.info(f"Saved {metric_name} plot: {fname}")
 
             # Create RMSE Plot
-            plot_elevation_metric('RMSE', 'RMSE (TECU)', 'rmse_vs_elevation')
+            plot_elevation_metric('RMSE', 'RMSE [TECU]', 'rmse_vs_elevation')
             
             # Create MAE Plot
-            plot_elevation_metric('MAE', 'MAE (TECU)', 'mae_vs_elevation')
+            plot_elevation_metric('MAE', 'MAE [TECU]', 'mae_vs_elevation')
     
     logger.info(f"✓ Plots saved to {output_dir}")
 
