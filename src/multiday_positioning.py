@@ -359,7 +359,7 @@ def main():
     parser.add_argument("--parallel", type=int, default=4, help="Parallel stations per day")
     parser.add_argument("--skip_inference", action="store_true", help="Skip STEC generation step")
     parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
-    parser.add_argument("--cleanup", action="store_true", help="Delete downloaded RINEX/Product files after processing")
+    parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -491,8 +491,8 @@ def main():
             if args.skip_downloads:
                 eval_cmd.append("--skip_downloads")
 
-            if args.cleanup:
-                eval_cmd.append("--cleanup")
+            if args.no_cleanup:
+                eval_cmd.append("--no_cleanup")
             
             if run_command(eval_cmd, f"Evaluation for {model_label} on {date_str}", logger):
                 # Track result file for aggregation

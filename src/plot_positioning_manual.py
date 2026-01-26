@@ -117,7 +117,7 @@ def plot_trends(df, output_dir):
             color, label, marker = get_style(method)
             
             plt.plot(subset['date'], subset['mean'], marker=marker, markersize=5, 
-                     linewidth=2, label=label, color=color)
+                     linewidth=2, label=label, color=color, zorder=3-ordered_methods.index(method))
             
             plt.fill_between(subset['date'], 
                              subset['mean'] - subset['sem'], 
@@ -126,7 +126,7 @@ def plot_trends(df, output_dir):
         
         plt.ylabel('3D RMS Error [cm]', fontweight='bold')
         plt.xlabel('Date', fontweight='bold')
-        plt.title('Daily Positioning Performance Trend', fontweight='bold', pad=15)
+        # plt.title('Daily Positioning Performance Trend', fontweight='bold', pad=15)
         
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.legend(frameon=True, framealpha=0.9, loc='best')
@@ -135,8 +135,10 @@ def plot_trends(df, output_dir):
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
         plt.xticks(rotation=45)
         
-        _, y_max = get_robust_limits(daily_stats['mean'], 99)
-        plt.ylim(0, y_max)
+        # Robust Y-axis: Use 95th percentile + 10% padding for better visualization of trends
+        # This avoids compressing the plot due to extreme outliers (e.g., severe storms)
+        #y_max = np.percentile(daily_stats['mean'], 95) * 1.1
+        #plt.ylim(0, y_max)
         
         plt.tight_layout()
         plt.savefig(output_dir / "paper_trend_3d_rms_timeseries.png", dpi=300)
@@ -180,7 +182,7 @@ def plot_trends(df, output_dir):
                 
                 plt.ylabel('Improvement over GIM [%]', fontweight='bold')
                 plt.xlabel('Date', fontweight='bold')
-                plt.title('Daily Relative Improvement in 3D Accuracy', fontweight='bold', pad=15)
+                # plt.title('Daily Relative Improvement in 3D Accuracy', fontweight='bold', pad=15)
                 
                 plt.grid(True, linestyle='--', alpha=0.7)
                 plt.legend()
@@ -206,7 +208,7 @@ def plot_trends(df, output_dir):
         
         plt.ylabel('3D RMS Error [cm]', fontweight='bold')
         plt.xlabel('Correction Method', fontweight='bold')
-        plt.title('Overall Positioning Accuracy Distribution', fontweight='bold', pad=15)
+        # plt.title('Overall Positioning Accuracy Distribution', fontweight='bold', pad=15)
         
         _, y_max_bp = get_robust_limits(plot_df['3d_rms'], 98)
         plt.ylim(0, y_max_bp)
@@ -249,7 +251,7 @@ def plot_trends(df, output_dir):
 
         plt.xlabel('3D RMS Error [cm]', fontweight='bold')
         plt.ylabel('Cumulative Probability [%]', fontweight='bold')
-        plt.title('Error Cumulative Distribution Function (CDF)', fontweight='bold', pad=15)
+        # plt.title('Error Cumulative Distribution Function (CDF)', fontweight='bold', pad=15)
         
         plt.xlim(0, robust_max * 1.2)
         plt.ylim(0, 102)
@@ -287,7 +289,7 @@ def plot_extended_analysis(df, output_dir):
             
         plt.xlabel('2D (Horizontal) RMS Error [cm]', fontweight='bold')
         plt.ylabel('Vertical (Up) RMS Error [cm]', fontweight='bold')
-        plt.title('Vertical vs Horizontal Positioning Error', fontweight='bold', pad=15)
+        # plt.title('Vertical vs Horizontal Positioning Error', fontweight='bold', pad=15)
         
         # Add 1:1 line
         plt.plot([0, max_limit], [0, max_limit], 'k--', alpha=0.3, label='1:1 Ratio')
@@ -318,7 +320,7 @@ def plot_extended_analysis(df, output_dir):
             
         plt.xlabel('3D RMS Error [cm]', fontweight='bold')
         plt.ylabel('Count', fontweight='bold')
-        plt.title('Distribution of 3D Positioning Errors', fontweight='bold', pad=15)
+        # plt.title('Distribution of 3D Positioning Errors', fontweight='bold', pad=15)
         
         plt.xlim(0, robust_max)
         plt.legend()
@@ -439,7 +441,7 @@ def plot_model_vs_gim_comparison(df, output_dir):
 
             plt.xlabel(f'{baseline_label} 3D RMS [cm]', fontweight='bold')
             plt.ylabel(f'{model_label} 3D RMS [cm]', fontweight='bold')
-            plt.title(f'{model_label} vs {baseline_label} Performance', fontweight='bold', pad=15)
+            # plt.title(f'{model_label} vs {baseline_label} Performance', fontweight='bold', pad=15)
             
             # Text annotations for regions
             plt.text(max_val*0.75, max_val*0.25, f"{model_label}\nBetter", 
@@ -478,7 +480,7 @@ def plot_model_vs_gim_comparison(df, output_dir):
 
                 plt.xlabel(f'Improvement ({baseline_label} Error - {model_label} Error) [cm]\nPositive values = {model_label} is better', fontweight='bold')
                 plt.ylabel('Count', fontweight='bold')
-                plt.title(f'Distribution of {model_label} Improvement over {baseline_label}', fontweight='bold', pad=15)
+                # plt.title(f'Distribution of {model_label} Improvement over {baseline_label}', fontweight='bold', pad=15)
                 
                 plt.xlim(p01, p99)
                 
@@ -519,7 +521,7 @@ def plot_model_vs_gim_comparison(df, output_dir):
             plt.setp(autotexts, size=11, weight="bold", color="white")
             
             # Title attached to figure or axes, but axes size is fixed now
-            ax.set_title(f'Win Rate: {model_label} vs {baseline_label}\n(Based on 3D RMS)', pad=20, fontweight='bold', fontsize=14)
+            # ax.set_title(f'Win Rate: {model_label} vs {baseline_label}\n(Based on 3D RMS)', pad=20, fontweight='bold', fontsize=14)
             
             # No tight_layout to preserve fixed axes dimensions
             plt.savefig(output_dir / f"comparison_win_rate_pie_{safe_name}.png", dpi=300)

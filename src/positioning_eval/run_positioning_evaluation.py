@@ -331,9 +331,9 @@ def main():
         help="Skip product/RINEX downloads (use existing files)"
     )
     parser.add_argument(
-        "--cleanup",
+        "--no_cleanup",
         action="store_true",
-        help="Clean up downloaded products and RINEX after processing"
+        help="Do not clean up downloaded products and RINEX after processing (default is to clean up)"
     )
     parser.add_argument(
         "--parallel",
@@ -521,8 +521,8 @@ def main():
             except Exception as e:
                 logger.warning(f"Could not generate plots: {e}")
         
-        # Step 8: Cleanup (optional)
-        if args.cleanup:
+        # Step 8: Cleanup (default)
+        if not args.no_cleanup:
             logger.info("\n🗑️  Step 8: Cleaning up downloaded files...")
             
             # Remove products
