@@ -26,6 +26,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib.ticker import MaxNLocator
 import seaborn as sns
 import torch
 from types import SimpleNamespace
@@ -756,14 +757,14 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             color = model_colors.get(model, 'gray')
             plt.plot(pivot_df.index, pivot_df[model], marker='o', label=model, color=color)
         
-        plt.ylabel('RMSE [TECU]')
+        plt.ylabel('RMSE [TECU]', fontweight='bold')
         # plt.title(f'RMSE by Date ({mapped_name})')
         # Move legend further down
         plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(model_colors), frameon=True)
         
         # Improved date formatting
         if use_date_obj:
-            plt.xlabel('Date')
+            plt.xlabel('Date', fontweight='bold')
             ax = plt.gca()
             locator = mdates.AutoDateLocator()
             formatter = mdates.DateFormatter('%Y-%m-%d')
@@ -771,7 +772,7 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             ax.xaxis.set_major_formatter(formatter)
             plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
         else:
-            plt.xlabel('Date (YYYY-DOY)')
+            plt.xlabel('Date (YYYY-DOY)', fontweight='bold')
             plt.xticks(rotation=45)
             
         plt.grid(True, linestyle='--', alpha=0.5)
@@ -801,9 +802,9 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             # plt.title(f'{metric} Distribution ({mapped_name})')
             plt.xlabel('')
             if metric in ['RMSE', 'MAE']:
-                 plt.ylabel(f'{metric} [TECU]')
+                 plt.ylabel(f'{metric} [TECU]', fontweight='bold')
             else:
-                 plt.ylabel(metric)
+                 plt.ylabel(metric, fontweight='bold')
             plt.tick_params(axis='x', rotation=15)
             plt.grid(True, axis='y', linestyle='--', alpha=0.5)
             plt.tight_layout()
@@ -861,7 +862,7 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             sns.lineplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
                          palette=baseline_colors, alpha=0.9)
             
-            plt.ylabel('RMSE Improvement [%]')
+            plt.ylabel('RMSE Improvement [%]', fontweight='bold')
             # plt.title(f'Direct STEC Improvement Over Baselines ({mapped_name})')
             plt.axhline(y=0, color='black', linestyle='-', linewidth=1)
             # Move legend further down
@@ -869,7 +870,7 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             
              # Improved date formatting
             if use_date_obj:
-                plt.xlabel('Date')
+                plt.xlabel('Date', fontweight='bold')
                 ax = plt.gca()
                 locator = mdates.AutoDateLocator()
                 formatter = mdates.DateFormatter('%Y-%m-%d')
@@ -877,7 +878,7 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                 ax.xaxis.set_major_formatter(formatter)
                 plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
             else:
-                plt.xlabel('Date (YYYY-DOY)')
+                plt.xlabel('Date (YYYY-DOY)', fontweight='bold')
                 plt.xticks(rotation=45)
 
             plt.grid(True, axis='y', linestyle='--', alpha=0.5)
@@ -946,7 +947,8 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                 plt.figure(figsize=(10, 6))
                 
                 # Add jitter to x-axis to prevent overlap
-                x = dataset_elev['elevation_bin'].values.astype(float)
+                # Adjust x by 2.5 to center the points in the 5-degree bin
+                x = dataset_elev['elevation_bin'].values.astype(float) + 2.5
                 offset = 0.8
                 
                 # Direct STEC (Shift Left)
@@ -973,8 +975,8 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                            color=model_colors['IGS GIM + Mapping'],
                            markersize=6, alpha=0.9)
                 
-                plt.xlabel('Elevation Angle [degrees]')
-                plt.ylabel(ylabel)
+                plt.xlabel('Elevation Angle [degrees]', fontweight='bold')
+                plt.ylabel(ylabel, fontweight='bold')
                 # plt.title(f'{metric_name} vs Elevation ({mapped_name})')
                 # Move legend closer to plot
                 plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=len(model_colors), frameon=True)
@@ -992,6 +994,80 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             
             # Create MAE Plot
             plot_elevation_metric('MAE', 'MAE [TECU]', 'mae_vs_elevation')
+
+            # Create Combined RMSE/MAE Plot
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
+            
+            # Adjust x by 2.5 to center the points in the 5-degree bin
+            x = dataset_elev['elevation_bin'].values.astype(float) + 2.5
+            offset = 0.8
+            
+            # --- Top Subplot: RMSE ---
+            ax1.errorbar(x - offset, 
+                       dataset_elev['Direct STEC RMSE_mean'],
+                       yerr=dataset_elev['Direct STEC RMSE_std'],
+                       label='Direct STEC', marker='o', capsize=4, 
+                       color=model_colors['Direct STEC'],
+                       markersize=6, alpha=0.9)
+            
+            ax1.errorbar(x, 
+                       dataset_elev['VTEC + Mapping RMSE_mean'],
+                       yerr=dataset_elev['VTEC + Mapping RMSE_std'],
+                       label='VTEC + Mapping', marker='s', capsize=4, 
+                       color=model_colors['VTEC + Mapping'],
+                       markersize=6, alpha=0.9)
+            
+            ax1.errorbar(x + offset, 
+                       dataset_elev['IGS GIM RMSE_mean'],
+                       yerr=dataset_elev['IGS GIM RMSE_std'],
+                       label='IGS GIM + Mapping', marker='^', capsize=4, 
+                       color=model_colors['IGS GIM + Mapping'],
+                       markersize=6, alpha=0.9)
+            
+            ax1.set_ylabel('RMSE [TECU]', fontweight='bold')
+            ax1.yaxis.set_major_locator(MaxNLocator(integer=True))
+            ax1.grid(True, linestyle='--', alpha=0.5)
+            # Legend moved to bottom of figure
+            # ax1.legend(loc='upper right', frameon=True)
+
+            # --- Bottom Subplot: MAE ---
+            ax2.errorbar(x - offset, 
+                       dataset_elev['Direct STEC MAE_mean'],
+                       yerr=dataset_elev['Direct STEC MAE_std'],
+                       label='Direct STEC', marker='o', capsize=4, 
+                       color=model_colors['Direct STEC'],
+                       markersize=6, alpha=0.9)
+            
+            ax2.errorbar(x, 
+                       dataset_elev['VTEC + Mapping MAE_mean'],
+                       yerr=dataset_elev['VTEC + Mapping MAE_std'],
+                       label='VTEC + Mapping', marker='s', capsize=4, 
+                       color=model_colors['VTEC + Mapping'],
+                       markersize=6, alpha=0.9)
+            
+            ax2.errorbar(x + offset, 
+                       dataset_elev['IGS GIM MAE_mean'],
+                       yerr=dataset_elev['IGS GIM MAE_std'],
+                       label='IGS GIM + Mapping', marker='^', capsize=4, 
+                       color=model_colors['IGS GIM + Mapping'],
+                       markersize=6, alpha=0.9)
+            
+            ax2.set_ylabel('MAE [TECU]', fontweight='bold')
+            ax2.yaxis.set_major_locator(MaxNLocator(integer=True))
+            ax2.set_xlabel('Elevation Angle [degrees]', fontweight='bold')
+            ax2.grid(True, linestyle='--', alpha=0.5)
+            ax2.set_xlim(0, 90)
+            
+            # Common legend below the plot
+            ax2.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), 
+                      ncol=3, frameon=True)
+            
+            plt.tight_layout()
+            
+            combined_fname = output_dir / f'combined_elevation_metrics_{mapped_name}.png'
+            plt.savefig(combined_fname, dpi=300, bbox_inches='tight')
+            plt.close()
+            logger.info(f"Saved combined elevation plot: {combined_fname}")
     
     logger.info(f"✓ Plots saved to {output_dir}")
 
