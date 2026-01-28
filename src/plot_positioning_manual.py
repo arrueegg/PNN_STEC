@@ -156,7 +156,7 @@ def plot_trends(df, output_dir):
             if model_cols:
                 plt.figure(figsize=(10, 6), dpi=300)
                 
-                for m_col in model_cols:
+                for m_col in model_cols[::-1]:
                     color, label, marker = get_style(m_col)
                     
                     # Improvement: (GIM - Model) / GIM * 100
@@ -210,8 +210,8 @@ def plot_trends(df, output_dir):
         plt.xlabel('Correction Method', fontweight='bold')
         # plt.title('Overall Positioning Accuracy Distribution', fontweight='bold', pad=15)
         
-        _, y_max_bp = get_robust_limits(plot_df['3d_rms'], 98)
-        plt.ylim(0, y_max_bp)
+        #_, y_max_bp = get_robust_limits(plot_df['3d_rms'], 98)
+        #plt.ylim(0, y_max_bp)
         
         new_labels = [get_style(m)[1] for m in ordered_methods]
         ax = plt.gca()
@@ -428,7 +428,7 @@ def plot_model_vs_gim_comparison(df, output_dir):
             _, y_max = get_robust_limits(pivoted[m_type], 99.5)
             max_val = max(x_max, y_max)
             
-            plt.scatter(pivoted[baseline], pivoted[m_type], alpha=0.4, s=20, color=color, edgecolors='none')
+            plt.scatter(pivoted[baseline], pivoted[m_type], alpha=0.8, s=20, color=color, edgecolors='none')
             
             # 1:1 Line
             plt.plot([0, max_val], [0, max_val], 'k--', alpha=0.8, linewidth=1.5, label='1:1 Line')
