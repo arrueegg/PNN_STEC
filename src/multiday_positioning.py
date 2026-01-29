@@ -144,8 +144,8 @@ def plot_trends(df, output_dir):
     
     # Define colors
     stec_color = '#1f77b4'  # Blue
-    vtec_color = '#2ca02c'  # Green
-    gim_color = '#ff7f0e'   # Orange
+    vtec_color = '#ff7f0e'  # Orange
+    gim_color = '#2ca02c'   # Green
     
     # Helper to get style
     def get_style(method_name):

@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 # Style Definitions
 STEC_COLOR = '#1f77b4'  # Blue
-VTEC_COLOR = '#2ca02c'  # Green
-GIM_COLOR = '#ff7f0e'   # Orange
+VTEC_COLOR = '#ff7f0e'  # Orange
+GIM_COLOR = '#2ca02c'   # Green
 
 def get_style(method_name):
     """Return styling based on normalized method name."""
