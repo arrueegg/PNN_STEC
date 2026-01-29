@@ -224,12 +224,19 @@ def process_single_station(
     model_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "model" / station
     gim_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "gim" / station
     
-    # Find STEC CSV file
-    stec_csv = experiment_dir / "positioning" / "stec_corrections" / f"{year}{doy:03d}" / f"{station}.csv"
+    # Files to check
+    model_pos_final = model_output_dir / f"{station}_model.pos"
+    gim_pos_final = gim_output_dir / f"{station}_gim.pos"
     
     # 1. Run with model STEC corrections
+    stec_csv = experiment_dir / "positioning" / "stec_corrections" / f"{year}{doy:03d}" / f"{station}.csv"
     if stec_csv.exists():
-        logger.info(f"Processing {station} with model STEC...")
+        if model_pos_final.exists() and not getattr(logger, 'redo', False):
+            logger.info(f"Skipping {station} model (Already exists)")
+            results['model_pos'] = model_pos_final
+            results['model_success'] = True
+        else:
+            logger.info(f"Processing {station} with model STEC...")
         
         ini_file = model_output_dir / "pppx_model.ini"
         generate_pppx_ini(
@@ -263,7 +270,12 @@ def process_single_station(
     
     # 2. Run with IGS GIM
     if igs_gim_path and igs_gim_path.exists():
-        logger.info(f"Processing {station} with IGS GIM...")
+        if gim_pos_final.exists() and not getattr(logger, 'redo', False):
+            logger.info(f"Skipping {station} GIM (Already exists)")
+            results['gim_pos'] = gim_pos_final
+            results['gim_success'] = True
+        else:
+            logger.info(f"Processing {station} with IGS GIM...")
         
         ini_file = gim_output_dir / "pppx_gim.ini"
         generate_pppx_ini(
@@ -353,6 +365,11 @@ def main():
         default="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex",
         help="Base path to IGS GIM directory"
     )
+    parser.add_argument(
+        "--redo",
+        action="store_true",
+        help="Force redo of positioning even if results exist"
+    )
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -395,8 +412,18 @@ def main():
             if not products:
                 logger.error("Failed to download products")
                 return 1
+            
+            # Capture SINEX file path
+            snx_file = products.get('snx')
+            if snx_file and not snx_file.exists():
+                logger.warning(f"SINEX file not found at expected path: {snx_file}")
+                snx_file = None
         else:
             logger.info("\n⏭️  Skipping product download")
+            # Attempt to find existing SINEX
+            snx_file = products_dir / f"IGS0OPSSNX_{year}{doy:03d}0000_01D_01D_CRD.SNX"
+            if not snx_file.exists():
+                snx_file = None
         
         # Step 2: Find IGS GIM
         logger.info("\n🗺️  Step 2: Locating IGS GIM...")
@@ -429,6 +456,13 @@ def main():
         
         # Step 5: Process each station
         logger.info(f"\n🔄 Step 5: Running positioning for {len(stations)} stations...")
+        if args.redo:
+            logger.info("🔥 Redo mode enabled: Overwriting existing results")
+            # Attach redo flag to logger for easy access in process_single_station
+            logger.redo = True
+        else:
+            logger.redo = False
+            
         logger.info("=" * 80)
         
         all_results = []
@@ -482,14 +516,16 @@ def main():
             model_dir = results_base_dir / "model"
             metrics_model = aggregate_daily_metrics(
                 model_dir, year, doy, "model",
-                stations=[r['station'] for r in all_results if r['model_success']]
+                stations=[r['station'] for r in all_results if r['model_success']],
+                snx_file=snx_file
             )
         
         if gim_success > 0:
             gim_dir = results_base_dir / "gim"
             metrics_gim = aggregate_daily_metrics(
                 gim_dir, year, doy, "gim",
-                stations=[r['station'] for r in all_results if r['gim_success']]
+                stations=[r['station'] for r in all_results if r['gim_success']],
+                snx_file=snx_file
             )
         
         # Step 7: Save summary

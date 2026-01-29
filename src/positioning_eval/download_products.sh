@@ -63,7 +63,10 @@ GetProductNames() { # purpose: Get products name of a specific AC
         ion="${ac^^}G${doy}0.${year:2:2}I.Z"
     fi
 
-    echo "sp3=$sp3; clk=$clk; erp=$erp; obx=$obx; bia=$bia; ion=$ion"
+    # SINEX filename (Daily solution from CDDIS)
+    local snx="IGS0OPSSNX_${year}${doy}0000_01D_01D_CRD.SNX.gz"
+
+    echo "sp3=$sp3; clk=$clk; erp=$erp; obx=$obx; bia=$bia; ion=$ion; snx=$snx"
     return 0
 }
 
@@ -89,7 +92,13 @@ PrepareProducts() { # purpose: prepare products in working directory
 
     # GIM
     local ion_no_suffix=${ion%.*}
-    DownloadProduct ${products_dir}/${ion_no_suffix} $HOST/$ion || return 1
+    RobustDownload ${products_dir}/${ion_no_suffix} $HOST/$ion || return 1
+
+    # SINEX (Ground Truth Coordinates)
+    # CDDIS path: https://cddis.nasa.gov/archive/gps/products/<gps_week>/
+    local SNX_HOST="https://cddis.nasa.gov/archive/gps/products/${week}"
+    local snx_no_suffix=${snx%.*}
+    RobustDownload ${products_dir}/${snx_no_suffix} $SNX_HOST/$snx || echo "Warning: SINEX download failed (Ground Truth coords will fallback to mean)"
 
     # BRDC
     # local BRDC_HOST="ftp://gssc.esa.int/gnss/data/daily/${year}/brdc"
@@ -110,7 +119,7 @@ PrepareProducts() { # purpose: prepare products in working directory
     for f in $product_lists
     do
         f_no_suffix=${f%.*}
-        DownloadProduct ${products_dir}/${f_no_suffix} $HOST/$f
+        RobustDownload ${products_dir}/${f_no_suffix} $HOST/$f
     done
     [ ! -f $products_dir/${sp3%.*} ] && echo -e "Download $sp3 failed" && return 1
 
@@ -135,6 +144,35 @@ DownloadProduct() { # purpose: download and uncompress a product
         [ ! "$base_no_suffix" = "$file" ] && mv "$base_no_suffix" "$file"
         return 0
     fi
+}
+
+RobustDownload() { # purpose: download with retries and exponential backoff
+                    # usage  : RobustDownload file_no_suffix url
+    local file="$1"
+    local url="$2"
+    local max_attempts=5
+    local attempt=1
+    local delay=5
+
+    while [ $attempt -le $max_attempts ]; do
+        if DownloadProduct "$file" "$url"; then
+            return 0
+        fi
+        
+        # Cleanup failed download attempts to ensure next try is clean
+        local filename=$(basename "${url}")
+        [ -f "$filename" ] && rm -f "$filename"
+        
+        if [ $attempt -lt $max_attempts ]; then
+            echo "Attempt $attempt of $max_attempts failed for $(basename $url). Retrying in ${delay}s..."
+            sleep $delay
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+        else
+            echo "Failed to download $url after $max_attempts attempts."
+            return 1
+        fi
+    done
 }
 
 WgetDownload() { # purpose: download a file with wget

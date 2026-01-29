@@ -360,6 +360,7 @@ def main():
     parser.add_argument("--skip_inference", action="store_true", help="Skip STEC generation step")
     parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
     parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
+    parser.add_argument("--redo", action="store_true", help="Force redo of positioning evaluation even if results exist")
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -456,12 +457,15 @@ def main():
         for exp_path, model_label in experiments_to_run:
             logger.info(f"\n--- Processing {model_label} Model ---")
             
-            # Check if final result already exists - if so, skip everything for this model/day
+            # Check if final result already exists - skip unless --redo is set
             res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
-            if res_path.exists():
+            if res_path.exists() and not args.redo:
                 logger.info(f"Skipping processing for {model_label} on {date_str} (Results found at {res_path})")
                 daily_summary_paths.append((current_date, res_path, model_label))
                 continue
+            
+            if args.redo and res_path.exists():
+                logger.info(f"Redoing evaluation for {model_label} on {date_str} as requested.")
 
             # 2. Run Inference (Single Day)
             if not args.skip_inference:
@@ -471,7 +475,7 @@ def main():
                      logger.info(f"Skipping inference for {model_label} on {date_str} (Output found at {correction_dir})")
                 else:
                     inf_cmd = [
-                        "python", "src/inference_positioning.py",
+                        sys.executable, "src/inference_positioning.py",
                         "--experiment", exp_path,
                         "--date", date_str
                     ]
@@ -481,7 +485,7 @@ def main():
                     
             # 3. Run Positioning Evaluation
             eval_cmd = [
-                "python", "src/positioning_eval/run_positioning_evaluation.py",
+                sys.executable, "src/positioning_eval/run_positioning_evaluation.py",
                 "--experiment", exp_path,
                 "--date", date_str,
                 "--all_test_stations",
@@ -493,6 +497,9 @@ def main():
 
             if args.no_cleanup:
                 eval_cmd.append("--no_cleanup")
+            
+            if args.redo:
+                eval_cmd.append("--redo")
             
             if run_command(eval_cmd, f"Evaluation for {model_label} on {date_str}", logger):
                 # Track result file for aggregation

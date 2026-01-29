@@ -62,6 +62,55 @@ def xyz2blh(xyz):
     return np.column_stack((lat, lon, h))
 
 
+def load_sinex_coords(snx_file):
+    """
+    Parse IGS SINEX file to extract station coordinates.
+    
+    Args:
+        snx_file: Path to .SNX file
+    
+    Returns:
+        Dictionary: {STATION_NAME: [x, y, z]}
+    """
+    snx_path = Path(snx_file)
+    if not snx_path.exists():
+        print(f"Warning: SINEX file not found: {snx_file}")
+        return {}
+    
+    coords = {}
+    try:
+        with open(snx_path, 'r', errors='ignore') as f:
+            in_estimate = False
+            for line in f:
+                if line.startswith('+SOLUTION/ESTIMATE'):
+                    in_estimate = True
+                    continue
+                if line.startswith('-SOLUTION/ESTIMATE'):
+                    break
+                
+                if in_estimate:
+                    # Example line:
+                    #    1 STAX  ZIMM  A    1  05:159:43200 m    01  2104332.8845 0.0011
+                    parts = line.split()
+                    if len(parts) >= 9:
+                        entry_type = parts[1]
+                        station = parts[2].upper()
+                        value = float(parts[8])
+                        
+                        if entry_type in ['STAX', 'STAY', 'STAZ']:
+                            if station not in coords:
+                                coords[station] = [0.0, 0.0, 0.0]
+                            
+                            if entry_type == 'STAX': coords[station][0] = value
+                            elif entry_type == 'STAY': coords[station][1] = value
+                            elif entry_type == 'STAZ': coords[station][2] = value
+        
+        return coords
+    except Exception as e:
+        print(f"Error parsing SINEX file {snx_file}: {e}")
+        return {}
+
+
 def xyz2enu(xyz, orgxyz):
     """
     Convert ECEF to ENU (East-North-Up) coordinates.
@@ -92,12 +141,14 @@ def xyz2enu(xyz, orgxyz):
     return enu
 
 
-def parse_pos_file(pos_file_path):
+def parse_pos_file(pos_file_path, ref_pos=None):
     """
     Parse PPPx .pos output file.
     
     Args:
         pos_file_path: Path to .pos file
+        ref_pos: Optional 1x3 reference position [x, y, z] (m)
+                 If None, uses mean position of the day.
     
     Returns:
         DataFrame with positioning results
@@ -115,10 +166,16 @@ def parse_pos_file(pos_file_path):
         df['hour'] = df['sod'] / 3600
         df['ztd'] = df['zhd'] + df['zwd'] + df['dzwd']
         
-        # Compute ENU errors (reference = mean position)
-        xyz_mean = df[['x', 'y', 'z']].mean().values.reshape(1, -1)
+        # Determine reference position
+        if ref_pos is not None:
+            xyz_ref = np.array(ref_pos).reshape(1, -1)
+            df['ref_source'] = 'ground_truth'
+        else:
+            xyz_ref = df[['x', 'y', 'z']].mean().values.reshape(1, -1)
+            df['ref_source'] = 'mean'
+            
         xyz_array = df[['x', 'y', 'z']].values
-        enu = xyz2enu(xyz_array, xyz_mean)
+        enu = xyz2enu(xyz_array, xyz_ref)
         
         df['e'] = enu[:, 0]
         df['n'] = enu[:, 1]
@@ -151,6 +208,7 @@ def compute_metrics(df):
     metrics = {
         'n_epochs': len(df),
         'mean_nsat': df['nsat'].mean(),
+        'ref_source': df['ref_source'].iloc[0] if 'ref_source' in df.columns else 'unknown',
         
         # East component
         'e_mean': df['e'].mean(),
@@ -183,7 +241,7 @@ def compute_metrics(df):
     return metrics
 
 
-def aggregate_daily_metrics(results_dir, year, doy, method_name, stations=None):
+def aggregate_daily_metrics(results_dir, year, doy, method_name, stations=None, snx_file=None):
     """
     Aggregate metrics across all stations for a specific day and method.
     
@@ -193,11 +251,17 @@ def aggregate_daily_metrics(results_dir, year, doy, method_name, stations=None):
         doy: Day of year (int)
         method_name: Name of method ("model" or "gim")
         stations: Optional list of station names to process
+        snx_file: Optional path to SINEX file for ground truth coordinates
     
     Returns:
         DataFrame with per-station metrics
     """
     results_path = Path(results_dir)
+    
+    # Load ground truth coordinates if SINEX provided
+    gt_coords = {}
+    if snx_file:
+        gt_coords = load_sinex_coords(snx_file)
     
     # Find all .pos files for this day/method (including hidden files in subdirectories)
     if stations:
@@ -229,8 +293,17 @@ def aggregate_daily_metrics(results_dir, year, doy, method_name, stations=None):
             # Extract from filename (remove hidden file prefix and method suffix)
             station = pos_file.stem.lstrip('.').split('_')[0]
         
+        # Get reference position for this station
+        ref_pos = gt_coords.get(station.upper())
+        
+        if snx_file:
+            if ref_pos:
+                print(f"INFO: Using SINEX ground truth for {station.upper()}")
+            else:
+                print(f"WARNING: Station {station.upper()} not found in SINEX file. Falling back to mean position.")
+        
         # Parse and compute metrics
-        df = parse_pos_file(pos_file)
+        df = parse_pos_file(pos_file, ref_pos=ref_pos)
         metrics = compute_metrics(df)
         
         if metrics:

@@ -65,56 +65,87 @@ download_rinex() {
         # Found the file - download it
         local long_url="${base_url}/${long_filename}"
         
-        # Clean up any previous failed downloads (HTML error pages)
-        [ -f "$long_filename" ] && ! file "$long_filename" | grep -q "gzip compressed" && rm -f "$long_filename"
+        # Download with authentication and retries
+        local max_attempts=5
+        local attempt=1
+        local delay=5
+        local success=0
         
-        # Download with authentication
-        if wget --netrc --auth-no-challenge=on --keep-session-cookies --save-cookies=cookies.txt --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60 "$long_url" 2>&1; then
-            if [ -f "$long_filename" ] && file "$long_filename" | grep -q "gzip compressed"; then
-                gunzip -f "$long_filename" 2>/dev/null
-                local crx_file="${long_filename%.gz}"
-                if [ -f "$crx_file" ]; then
-                    # Convert Hatanaka to RINEX
-                    local converter=""
-                    if command -v CRX2RNX &> /dev/null; then
-                        converter="CRX2RNX"
-                    elif command -v crx2rnx &> /dev/null; then
-                        converter="crx2rnx"
-                    elif [ -f "$HOME/.local/bin/crx2rnx" ]; then
-                        converter="$HOME/.local/bin/crx2rnx"
-                    fi
-                    
-                    if [ -n "$converter" ]; then
-                        $converter "$crx_file" 2>/dev/null
-                        rm -f "$crx_file"
-                        echo "Downloaded and converted: ${station_upper}"
-                        return 0
-                    else
-                        echo "Downloaded: ${station_upper} (Hatanaka .crx format)"
-                        return 0
-                    fi
+        while [ $attempt -le $max_attempts ]; do
+            # Clean up any previous failed attempts
+            [ -f "$long_filename" ] && ! file "$long_filename" | grep -q "gzip compressed" && rm -f "$long_filename"
+            
+            if wget --netrc --auth-no-challenge=on --keep-session-cookies --save-cookies=cookies.txt --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60 "$long_url" 2>&1; then
+                if [ -f "$long_filename" ] && file "$long_filename" | grep -q "gzip compressed"; then
+                    success=1
+                    break
+                else
+                    [ -f "$long_filename" ] && rm -f "$long_filename"
                 fi
-            else
-                [ -f "$long_filename" ] && rm -f "$long_filename"
+            fi
+            
+            echo "Attempt $attempt of $max_attempts failed for $long_filename. Retrying in ${delay}s..."
+            sleep $delay
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+        done
+
+        if [ $success -eq 1 ]; then
+            gunzip -f "$long_filename" 2>/dev/null
+            local crx_file="${long_filename%.gz}"
+            if [ -f "$crx_file" ]; then
+                # Convert Hatanaka to RINEX
+                local converter=""
+                if command -v CRX2RNX &> /dev/null; then
+                    converter="CRX2RNX"
+                elif command -v crx2rnx &> /dev/null; then
+                    converter="crx2rnx"
+                elif [ -f "$HOME/.local/bin/crx2rnx" ]; then
+                    converter="$HOME/.local/bin/crx2rnx"
+                fi
+                
+                if [ -n "$converter" ]; then
+                    $converter "$crx_file" 2>/dev/null
+                    rm -f "$crx_file"
+                    echo "Downloaded and converted: ${station_upper}"
+                    return 0
+                else
+                    echo "Downloaded: ${station_upper} (Hatanaka .crx format)"
+                    return 0
+                fi
             fi
         fi
     fi
     
-    # Clean up any previous failed short format downloads
-    [ -f "$short_filename" ] && ! file "$short_filename" | grep -q "compress'd data" && rm -f "$short_filename"
-    
     # Try short format (use ~/.netrc for authentication with NASA Earthdata)
-    if wget --netrc --auth-no-challenge=on --keep-session-cookies --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60 "$short_url" 2>&1; then
-        if [ -f "$short_filename" ]; then
-            # Check if it's actually compressed (not HTML)
-            if file "$short_filename" | grep -q "compress'd data"; then
-                uncompress "$short_filename" 2>/dev/null
-                echo "Downloaded: ${station_upper}"
-                return 0
+    local max_attempts=5
+    local attempt=1
+    local delay=5
+    local success=0
+
+    while [ $attempt -le $max_attempts ]; do
+        # Clean up any previous failed short format downloads
+        [ -f "$short_filename" ] && ! file "$short_filename" | grep -q "compress'd data" && rm -f "$short_filename"
+
+        if wget --netrc --auth-no-challenge=on --keep-session-cookies --load-cookies=cookies.txt -nv -nc -c -t 3 --connect-timeout=10 --read-timeout=60 "$short_url" 2>&1; then
+            if [ -f "$short_filename" ] && file "$short_filename" | grep -q "compress'd data"; then
+                success=1
+                break
             else
                 rm -f "$short_filename"
             fi
         fi
+        
+        echo "Attempt $attempt of $max_attempts failed for $short_filename. Retrying in ${delay}s..."
+        sleep $delay
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+
+    if [ $success -eq 1 ]; then
+        uncompress "$short_filename" 2>/dev/null
+        echo "Downloaded: ${station_upper}"
+        return 0
     fi
     
     echo "Failed to download RINEX for ${station_upper}"

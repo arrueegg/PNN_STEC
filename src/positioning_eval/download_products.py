@@ -95,13 +95,15 @@ def get_product_paths(year, doy, products_dir):
     erp = f"COD0OPSFIN_{year}{doy:03d}0000_01D_01D_ERP.ERP"
     obx = f"COD0OPSFIN_{year}{doy:03d}0000_01D_30S_ATT.OBX"
     ion = f"COD0OPSFIN_{year}{doy:03d}0000_01D_01H_GIM.INX"
+    snx = f"IGS0OPSSNX_{year}{doy:03d}0000_01D_01D_CRD.SNX"
     
     return {
         'sp3': products_path / sp3,
         'clk': products_path / clk,
         'erp': products_path / erp,
         'obx': products_path / obx,
-        'ion': products_path / ion
+        'ion': products_path / ion,
+        'snx': products_path / snx
     }
 
 
