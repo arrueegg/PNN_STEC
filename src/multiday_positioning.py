@@ -343,6 +343,103 @@ def plot_trends(df, output_dir):
         print(f"Required columns (3d_rms or error_3d_rms, method) not found for plotting. Columns: {df.columns.tolist()}")
 
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+def process_day(current_date, stec_base_config, vtec_base_config, args):
+    """
+    Process a single day: Inference + Evaluation.
+    Returns a list of (date_obj, path, label) tuples for the consolidated report.
+    """
+    date_str = current_date.strftime("%Y-%m-%d")
+    year = current_date.year
+    doy = current_date.timetuple().tm_yday
+    logger = logging.getLogger(f"Day-{doy}")
+    
+    # Deterministic logger for sub-processes
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(f'%(asctime)s - %(levelname)s - [Day {doy}] %(message)s'))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+
+    logger.info(f"Starting processing for {date_str}")
+    
+    # 1. Determine Experiments for this day
+    stec_exp = find_finetune_experiment_by_config(stec_base_config, year, doy)
+    vtec_exp = find_finetune_experiment_by_config(vtec_base_config, year, doy)
+        
+    experiments_to_run = []
+    if stec_exp:
+        experiments_to_run.append((stec_exp, "STEC"))
+    else:
+        logger.warning(f"Skipping STEC for {date_str}: Experiment not found")
+
+    if vtec_exp:
+        experiments_to_run.append((vtec_exp, "VTEC"))
+    else:
+        logger.warning(f"Skipping VTEC for {date_str}: Experiment not found")
+
+    if not experiments_to_run:
+        logger.error(f"No experiments found for {date_str}. Skipping.")
+        return []
+    
+    day_results = []
+    
+    # Run process for each model type
+    for exp_path, model_label in experiments_to_run:
+        logger.info(f"--- Processing {model_label} Model ---")
+        
+        # Check if final result already exists - skip unless --redo is set
+        res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
+        if res_path.exists() and not args.redo:
+            logger.info(f"Skipping processing for {model_label} (Results found at {res_path})")
+            day_results.append((current_date, res_path, model_label))
+            continue
+        
+        if args.redo and res_path.exists():
+            logger.info(f"Redoing evaluation for {model_label} as requested.")
+
+        # 2. Run Inference (Single Day)
+        if not args.skip_inference:
+            # Check if inference output already exists
+            correction_dir = Path(exp_path) / "positioning" / "stec_corrections" / f"{year}{doy:03d}"
+            if correction_dir.exists() and any(correction_dir.iterdir()):
+                 logger.info(f"Skipping inference for {model_label} (Output found at {correction_dir})")
+            else:
+                inf_cmd = [
+                    sys.executable, "src/inference_positioning.py",
+                    "--experiment", exp_path,
+                    "--date", date_str
+                ]
+                if not run_command(inf_cmd, f"Inference for {model_label} on {date_str}", logger):
+                    continue
+                
+        # 3. Run Positioning Evaluation
+        station_parallel = getattr(args, 'station_parallel', 1)
+
+        eval_cmd = [
+            sys.executable, "src/positioning_eval/run_positioning_evaluation.py",
+            "--experiment", exp_path,
+            "--date", date_str,
+            "--all_test_stations",
+            "--parallel", str(station_parallel)
+        ]
+        
+        if args.skip_downloads:
+            eval_cmd.append("--skip_downloads")
+        if args.no_cleanup:
+            eval_cmd.append("--no_cleanup")
+        if args.redo:
+            eval_cmd.append("--redo")
+        
+        if run_command(eval_cmd, f"Evaluation for {model_label} on {date_str}", logger):
+            res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
+            if res_path.exists():
+                day_results.append((current_date, res_path, model_label))
+    
+    return day_results
+
+
 def main():
     parser = argparse.ArgumentParser(description="Multi-Day Positioning Evaluation")
     
@@ -351,12 +448,12 @@ def main():
                         help="Path to base STEC training config (e.g., config/config.yaml)")
     parser.add_argument("--vtec_config", required=True, 
                         help="Path to base VTEC training config (e.g., config/config_vtec_mlp_baseline.yaml)")
-    # Argument for dates is typically string range or list (matching cli.py multiday)
-    # cli.py uses --dates "YYYY-DDD:YYYY-DDD"
     parser.add_argument("--dates", required=True, 
                         help="Date range/list (e.g., 2024-122:2024-130)")
     
-    parser.add_argument("--parallel", type=int, default=4, help="Parallel stations per day")
+    parser.add_argument("--parallel", type=int, default=4, help="Number of DAYS to process in parallel")
+    parser.add_argument("--station_parallel", type=int, default=4, help="Number of STATIONS per day to process in parallel")
+    
     parser.add_argument("--skip_inference", action="store_true", help="Skip STEC generation step")
     parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
     parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
@@ -422,90 +519,25 @@ def main():
     # Tuple format: (date_obj, path, label)
     daily_summary_paths = []
 
-    # Iterate Day-by-Day
-    for current_date in dates:
-        date_str = current_date.strftime("%Y-%m-%d")
-        year = current_date.year
-        doy = current_date.timetuple().tm_yday
+    # Process Days in Parallel
+    logger.info(f"\n🚀 Starting Multiday Processing with {args.parallel} concurrent days...")
+    
+    with ProcessPoolExecutor(max_workers=args.parallel) as executor:
+        futures = {
+            executor.submit(
+                process_day, 
+                current_date, stec_base_config, vtec_base_config, args
+            ): current_date for current_date in dates
+        }
         
-        logger.info("\n" + "="*80)
-        logger.info(f"Processing {date_str} (Day {doy})...")
-        logger.info("="*80)
-        
-        # 1. Determine Experiments for this day
-        stec_exp = find_finetune_experiment_by_config(stec_base_config, year, doy)
-        vtec_exp = find_finetune_experiment_by_config(vtec_base_config, year, doy)
-            
-        experiments_to_run = []
-        if stec_exp:
-            experiments_to_run.append((stec_exp, "STEC"))
-            logger.info(f"Found STEC experiment: {Path(stec_exp).name}")
-        else:
-            logger.warning(f"Skipping STEC for {date_str}: Experiment not found")
-
-        if vtec_exp:
-            experiments_to_run.append((vtec_exp, "VTEC"))
-            logger.info(f"Found VTEC experiment: {Path(vtec_exp).name}")
-        else:
-            logger.warning(f"Skipping VTEC for {date_str}: Experiment not found")
-
-        if not experiments_to_run:
-            logger.error(f"No experiments found for {date_str}. Skipping.")
-            continue
-        
-        # Run process for each model type
-        for exp_path, model_label in experiments_to_run:
-            logger.info(f"\n--- Processing {model_label} Model ---")
-            
-            # Check if final result already exists - skip unless --redo is set
-            res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
-            if res_path.exists() and not args.redo:
-                logger.info(f"Skipping processing for {model_label} on {date_str} (Results found at {res_path})")
-                daily_summary_paths.append((current_date, res_path, model_label))
-                continue
-            
-            if args.redo and res_path.exists():
-                logger.info(f"Redoing evaluation for {model_label} on {date_str} as requested.")
-
-            # 2. Run Inference (Single Day)
-            if not args.skip_inference:
-                # Check if inference output already exists
-                correction_dir = Path(exp_path) / "positioning" / "stec_corrections" / f"{year}{doy:03d}"
-                if correction_dir.exists() and any(correction_dir.iterdir()):
-                     logger.info(f"Skipping inference for {model_label} on {date_str} (Output found at {correction_dir})")
-                else:
-                    inf_cmd = [
-                        sys.executable, "src/inference_positioning.py",
-                        "--experiment", exp_path,
-                        "--date", date_str
-                    ]
-                    # Assuming inference_positioning handles VTEC models correctly if they are configured correctly
-                    if not run_command(inf_cmd, f"Inference for {model_label} on {date_str}", logger):
-                        continue
-                    
-            # 3. Run Positioning Evaluation
-            eval_cmd = [
-                sys.executable, "src/positioning_eval/run_positioning_evaluation.py",
-                "--experiment", exp_path,
-                "--date", date_str,
-                "--all_test_stations",
-                "--parallel", str(args.parallel)
-            ]
-            
-            if args.skip_downloads:
-                eval_cmd.append("--skip_downloads")
-
-            if args.no_cleanup:
-                eval_cmd.append("--no_cleanup")
-            
-            if args.redo:
-                eval_cmd.append("--redo")
-            
-            if run_command(eval_cmd, f"Evaluation for {model_label} on {date_str}", logger):
-                # Track result file for aggregation
-                res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
-                if res_path.exists():
-                    daily_summary_paths.append((current_date, res_path, model_label))
+        for future in tqdm(as_completed(futures), total=len(dates), desc="Multiday Progress"):
+            try:
+                result = future.result()
+                if result:
+                    daily_summary_paths.extend(result)
+            except Exception as e:
+                date_failed = futures[future]
+                logger.error(f"Failed to process {date_failed}: {e}")
         
     # 4. Aggregate Results
     logger.info("\n" + "="*80)
