@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Multi-Day Positioning Evaluation Script
+Multi-Day Positioning Evaluation (Re-Aggregation Only)
 
-Efficiently runs positioning evaluation over a range of dates.
-1. Generates STEC corrections for ALL days in one go (loading model once).
-2. Runs PPPx positioning evaluation day-by-day (can be parallelized internally).
-3. Aggregates results into a single multi-day summary.
+Re-aggregates positioning metrics from existing .pos files using SNX ground-truth references.
+Does NOT re-run positioning - only downloads SNX files and re-computes metrics.
+
+Uses the same config-based and parallel structure as multiday_positioning.py.
 
 Usage:
-    python src/multiday_positioning.py \
-        --config config/config.yaml \
-        --dates 2024-05-01:2024-05-30 \
+    python src/multiday_positioning_eval_only.py \\
+        --stec_config config/config.yaml \\
+        --vtec_config config/config_vtec_mlp_baseline.yaml \\
+        --dates 2024-122:2024-366 \\
         --parallel 4
 """
 
@@ -27,6 +28,8 @@ import yaml
 from pathlib import Path
 from datetime import datetime, timedelta
 from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import matplotlib.dates as mdates
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +42,9 @@ except ImportError:
     sys.path.append(str(Path(__file__).parent.parent))
     from src.utils.config_parser import load_config, compute_exp_name
 
+from positioning_eval.download_products import download_products
+from positioning_eval.metrics import aggregate_daily_metrics
+
 
 def setup_logging():
     logging.basicConfig(
@@ -47,6 +53,7 @@ def setup_logging():
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     return logging.getLogger(__name__)
+
 
 def find_finetune_experiment_by_config(base_config_dict, year, doy):
     """
@@ -57,14 +64,13 @@ def find_finetune_experiment_by_config(base_config_dict, year, doy):
     config['year'] = year
     config['doy'] = doy
     
-    # Ensure finetune section exists (often needed by compute_exp_name indirectly, 
-    # though usually just top-level params matter)
+    # Ensure finetune section exists
     if 'finetune' not in config:
         config['finetune'] = {}
     config['finetune']['year'] = year
     config['finetune']['doy'] = doy
     
-    # Force use_agg_h5 False as in multiday_evaluation
+    # Force use_agg_h5 False
     if 'data' not in config:
         config['data'] = {}
     config['data']['use_agg_h5'] = False
@@ -77,38 +83,12 @@ def find_finetune_experiment_by_config(base_config_dict, year, doy):
     return None
 
 
-def run_command(cmd, description, logger):
-    """Run a shell command and log output."""
-    logger.info(f"Running: {description}")
-    # logger.info(f"Command: {' '.join(cmd)}")
-    
-    try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            text=True,
-            capture_output=True
-        )
-        # Verify if it actually did anything relevant by checking output
-        # (Optional: print output if it was too fast)
-        logger.debug(f"Command stdout: {result.stdout}")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error running command: {' '.join(cmd)}")
-        logger.error(f"Stdout: {e.stdout}")
-        logger.error(f"Stderr: {e.stderr}")
-        return False
-
-
-
-
-import matplotlib.dates as mdates
-
 def get_robust_limits(data, percentile=99.0):
     """Get robust axis limits excluding extreme outliers."""
     if len(data) == 0:
         return 0, 1
     return 0, np.percentile(data, percentile) * 1.2
+
 
 def plot_trends(df, output_dir):
     """Generate paper-ready trend plots."""
@@ -150,7 +130,7 @@ def plot_trends(df, output_dir):
     # Helper to get style
     def get_style(method_name):
         m_lower = str(method_name).lower()
-        if 'stec' in m_lower:
+        if 'stec' in m_lower or 'direct' in m_lower:
             return stec_color, "Direct STEC", 'o'
         elif 'vtec' in m_lower:
             return vtec_color, "VTEC + Mapping", 's'
@@ -247,122 +227,44 @@ def plot_trends(df, output_dir):
         
         plot_df = df[df['method'].isin(methods)] 
         
-        # Manually order palette and define order
-        ordered_methods = sorted(methods, key=lambda x: (
-            0 if 'stec' in str(x).lower() else 
-            1 if 'vtec' in str(x).lower() else 
-            2
-        ))
+        method_colors = {method: get_style(method)[0] for method in methods}
+        order = sorted(methods, key=lambda m: (str(m).lower().find('gim') >= 0, str(m)))
         
-        palette = {m: get_style(m)[0] for m in ordered_methods}
-
-        sns.boxplot(x='method', y='3d_rms', hue='method', data=plot_df, 
-                    order=ordered_methods, palette=palette, 
-                    showfliers=False, legend=False) 
+        sns.boxplot(data=plot_df, x='method', y='3d_rms', order=order,
+                    palette=method_colors, showfliers=True)
         
         plt.ylabel('3D RMS Error [cm]', fontweight='bold')
-        plt.xlabel('Correction Method', fontweight='bold')
-        plt.title('Overall Positioning Accuracy Distribution', fontweight='bold', pad=15)
-        plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+        plt.xlabel('Method', fontweight='bold')
+        plt.title('Error Distribution Across All Days', fontweight='bold', pad=15)
+        plt.grid(True, linestyle='--', alpha=0.3, axis='y')
         
-        # Rename x-ticks
-        current_labels = [l.get_text() for l in plt.gca().get_xticklabels()]
-        new_labels = [get_style(l)[1] for l in current_labels]
+        # Rename x labels
         ax = plt.gca()
-        ax.set_xticklabels(new_labels)
-
-        plt.tight_layout()
-        plt.savefig(output_dir / "paper_overall_distribution_boxplot.png", dpi=300)
-        plt.close()
-
-        # 4. CDF Plot
-        # -------------------------------------------------------------------------
-        plt.figure(figsize=(10, 6), dpi=300)
-        
-        robust_max = 0
-        for method in ordered_methods: 
-            subset = df[df['method'] == method].sort_values('3d_rms')
-            data = subset['3d_rms'].values
-            y = np.arange(1, len(data) + 1) / len(data) * 100 
-            
-            _, local_max = get_robust_limits(data, 99)
-            robust_max = max(robust_max, local_max)
-            
-            color, label, _ = get_style(method)
-            
-            plt.plot(data, y, linewidth=2.5, label=label, color=color)
-            
-            # P95 markers
-            p95 = np.percentile(data, 95)
-            plt.plot([0, p95], [95, 95], linestyle=':', color=color, alpha=0.5)
-            plt.plot([p95, p95], [0, 95], linestyle=':', color=color, alpha=0.5)
-            
-        plt.xlabel('3D RMS Error [cm]', fontweight='bold')
-        plt.ylabel('Cumulative Probability [%]', fontweight='bold')
-        plt.title('Error Cumulative Distribution Function (CDF)', fontweight='bold', pad=15)
-        
-        plt.xlim(0, robust_max * 1.1)
-        plt.ylim(0, 105)
-        plt.grid(True, linestyle='--', alpha=0.5)
-        plt.legend(loc='lower right')
+        labels = [get_style(t.get_text())[1] for t in ax.get_xticklabels()]
+        ax.set_xticklabels(labels, rotation=45)
         
         plt.tight_layout()
-        plt.savefig(output_dir / "paper_cdf_3d_rms.png", dpi=300)
+        plt.savefig(output_dir / "paper_boxplot_3d_rms_distribution.png", dpi=300)
         plt.close()
-        
-        # 5. Scatter Plot (Vertical vs Horizontal)
-        # -------------------------------------------------------------------------
-        if '2d_rms' in df.columns and 'up_rms' in df.columns:
-            plt.figure(figsize=(8, 8), dpi=300)
-            
-            _, x_max = get_robust_limits(df['2d_rms'], 99.5)
-            _, y_max = get_robust_limits(df['up_rms'], 99.5)
-            max_limit = max(x_max, y_max)
-            
-            for method in ordered_methods:
-                subset = df[df['method'] == method]
-                color, label, _ = get_style(method)
-                
-                plt.scatter(subset['2d_rms'], subset['up_rms'], 
-                        alpha=0.4, label=label, color=color, s=20)
-                
-            plt.plot([0, max_limit], [0, max_limit], 'k--', alpha=0.3, label='1:1 Ratio')
-            
-            plt.xlabel('2D (Horizontal) RMS Error [cm]', fontweight='bold')
-            plt.ylabel('Vertical (Up) RMS Error [cm]', fontweight='bold')
-            plt.title('Vertical vs Horizontal Error', fontweight='bold', pad=15)
-            plt.xlim(0, max_limit)
-            plt.ylim(0, max_limit)
-            plt.grid(True, linestyle='--', alpha=0.5)
-            plt.legend()
-            plt.tight_layout()
-            plt.savefig(output_dir / "analysis_vertical_vs_horizontal.png", dpi=300)
-            plt.close()
 
-    else:
-        print(f"Required columns (3d_rms or error_3d_rms, method) not found for plotting. Columns: {df.columns.tolist()}")
-
-
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def process_day(current_date, stec_base_config, vtec_base_config, args):
     """
-    Process a single day: Inference + Evaluation.
-    Returns a list of (date_obj, path, label) tuples for the consolidated report.
+    Re-aggregate metrics for a single day from existing .pos files.
+    Returns list of (date_obj, path, label) tuples for the consolidated report.
     """
     date_str = current_date.strftime("%Y-%m-%d")
     year = current_date.year
     doy = current_date.timetuple().tm_yday
     logger = logging.getLogger(f"Day-{doy}")
     
-    # Deterministic logger for sub-processes
     if not logger.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter(f'%(asctime)s - %(levelname)s - [Day {doy}] %(message)s'))
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
 
-    logger.info(f"Starting processing for {date_str}")
+    logger.info(f"Processing {date_str}")
     
     # 1. Determine Experiments for this day
     stec_exp = find_finetune_experiment_by_config(stec_base_config, year, doy)
@@ -387,76 +289,92 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
     
     # Run process for each model type
     for exp_path, model_label in experiments_to_run:
-        logger.info(f"--- Processing {model_label} Model ---")
+        logger.info(f"--- Re-aggregating {model_label} Model ---")
         
-        # Check if final result already exists - skip unless --redo is set
+        # Check if results exist
         res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
-        if res_path.exists() and not args.redo:
-            logger.info(f"Skipping processing for {model_label} (Results found at {res_path})")
-            day_results.append((current_date, res_path, model_label))
+        
+        if not res_path.parent.exists():
+            logger.warning(f"No results found for {model_label} (No {res_path.parent})")
             continue
         
-        if args.redo and res_path.exists():
-            logger.info(f"Redoing evaluation for {model_label} as requested.")
-
-        # 2. Run Inference (Single Day)
-        if not args.skip_inference:
-            # Check if inference output already exists
-            correction_dir = Path(exp_path) / "positioning" / "stec_corrections" / f"{year}{doy:03d}"
-            if correction_dir.exists() and any(correction_dir.iterdir()):
-                 logger.info(f"Skipping inference for {model_label} (Output found at {correction_dir})")
+        # 1. Download SNX file for this date
+        products_dir = Path(exp_path) / "positioning" / "evaluation" / f"{year}{doy:03d}" / "products"
+        products_dir.mkdir(parents=True, exist_ok=True)
+        
+        snx_file = products_dir / f"IGS0OPSSNX_{year}{doy:03d}0000_01D_01D_CRD.SNX"
+        
+        if not snx_file.exists():
+            try:
+                download_products(year, doy, str(products_dir), logger)
+            except Exception as e:
+                logger.warning(f"Could not download SNX: {e}")
+        
+        # 2. Re-aggregate metrics using SNX reference
+        try:
+            results_dir = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}"
+            
+            # Get model label for method names
+            if model_label == "STEC":
+                model_method = "Direct STEC"
+                gim_method = "IGS GIM + Mapping"
             else:
-                inf_cmd = [
-                    sys.executable, "src/inference_positioning.py",
-                    "--experiment", exp_path,
-                    "--date", date_str
-                ]
-                if not run_command(inf_cmd, f"Inference for {model_label} on {date_str}", logger):
-                    continue
+                model_method = "VTEC + Mapping"
+                gim_method = "IGS GIM + Mapping"
+            
+            # Re-aggregate model metrics from model/ subdirectory
+            logger.debug(f"Re-aggregating {model_method} metrics...")
+            model_dir = results_dir / "model"
+            metrics_model = aggregate_daily_metrics(
+                model_dir, year, doy, "model",
+                snx_file=snx_file if snx_file.exists() else None
+            ) if model_dir.exists() else None
+            
+            # Re-aggregate GIM metrics from gim/ subdirectory
+            logger.debug(f"Re-aggregating {gim_method} metrics...")
+            gim_dir = results_dir / "gim"
+            metrics_gim = aggregate_daily_metrics(
+                gim_dir, year, doy, "gim",
+                snx_file=snx_file if snx_file.exists() else None
+            ) if gim_dir.exists() else None
+            
+            # Combine and save
+            if metrics_model is not None or metrics_gim is not None:
+                metrics_list = []
+                if metrics_model is not None:
+                    metrics_list.append(metrics_model)
+                if metrics_gim is not None:
+                    metrics_list.append(metrics_gim)
                 
-        # 3. Run Positioning Evaluation
-        station_parallel = getattr(args, 'station_parallel', 1)
-
-        eval_cmd = [
-            sys.executable, "src/positioning_eval/run_positioning_evaluation.py",
-            "--experiment", exp_path,
-            "--date", date_str,
-            "--all_test_stations",
-            "--parallel", str(station_parallel),
-            "--no_cleanup"  # Always preserve SNX files for accurate reference coordinates
-        ]
-        
-        if args.skip_downloads:
-            eval_cmd.append("--skip_downloads")
-        if args.redo:
-            eval_cmd.append("--redo")
-        
-        if run_command(eval_cmd, f"Evaluation for {model_label} on {date_str}", logger):
-            res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
-            if res_path.exists():
+                combined = pd.concat(metrics_list, ignore_index=True)
+                
+                # Save updated summary
+                combined.to_csv(res_path, index=False, float_format='%.4f')
+                logger.info(f"✓ Re-aggregated {model_label} metrics for {date_str}")
                 day_results.append((current_date, res_path, model_label))
+            else:
+                logger.warning(f"No metrics aggregated for {model_label}")
+                
+        except Exception as e:
+            logger.error(f"Error re-aggregating {model_label}: {e}")
+            import traceback
+            traceback.print_exc()
     
     return day_results
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Multi-Day Positioning Evaluation")
+    parser = argparse.ArgumentParser(
+        description="Re-aggregate positioning metrics from existing .pos files with SNX ground-truth reference"
+    )
     
-    # Updated arguments to support STEC and VTEC models
     parser.add_argument("--stec_config", required=True, 
                         help="Path to base STEC training config (e.g., config/config.yaml)")
     parser.add_argument("--vtec_config", required=True, 
                         help="Path to base VTEC training config (e.g., config/config_vtec_mlp_baseline.yaml)")
     parser.add_argument("--dates", required=True, 
-                        help="Date range/list (e.g., 2024-122:2024-130)")
-    
+                        help="Date range/list (e.g., 2024-122:2024-366)")
     parser.add_argument("--parallel", type=int, default=4, help="Number of DAYS to process in parallel")
-    parser.add_argument("--station_parallel", type=int, default=4, help="Number of STATIONS per day to process in parallel")
-    
-    parser.add_argument("--skip_inference", action="store_true", help="Skip STEC generation step")
-    parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
-    parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
-    parser.add_argument("--redo", action="store_true", help="Force redo of positioning evaluation even if results exist")
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -482,14 +400,12 @@ def main():
         start_str, end_str = args.dates.split(':')
         
         def parse_d(d):
-            if '-' in d and len(d.split('-')) == 3: 
-                return datetime.strptime(d, "%Y-%m-%d")
-            # Handle YYYY-DDD
-            parts = d.split('-')
-            if len(parts) == 2 and len(parts[0]) == 4:
-                 return datetime(int(parts[0]), 1, 1) + timedelta(days=int(parts[1]) - 1)
-            # Handle just date string potentially?
-            return datetime.strptime(d, "%Y-%m-%d")
+            if '-' in d and len(d.split('-')) == 2:
+                # YYYY-DDD format
+                parts = d.split('-')
+                return datetime(int(parts[0]), 1, 1) + timedelta(days=int(parts[1]) - 1)
+            else:
+                raise ValueError(f"Expected YYYY-DDD format, got {d}")
 
         try:
             current = parse_d(start_str)
@@ -498,29 +414,32 @@ def main():
                 dates.append(current)
                 current += timedelta(days=1)
         except ValueError as e:
-            logger.error(f"Date format error: {e}. Use YYYY-MM-DD or YYYY-DDD")
+            logger.error(f"Date format error: {e}. Use YYYY-DDD format (e.g., 2024-122:2024-366)")
             return 1
     else:
-        # Assuming comma separated YYYY-MM-DD or YYYY-DDD
+        # Comma-separated list
         try:
             for d in args.dates.split(','):
                 d = d.strip()
-                if '-' in d and len(d.split('-')) == 3:
-                    dates.append(datetime.strptime(d, "%Y-%m-%d"))
-                elif '-' in d and len(d.split('-')) == 2:
-                     parts = d.split('-')
-                     dates.append(datetime(int(parts[0]), 1, 1) + timedelta(days=int(parts[1]) - 1))
-        except ValueError:
-            logger.error("Invalid date format in list.")
+                parts = d.split('-')
+                if len(parts) == 2:
+                    year, doy = int(parts[0]), int(parts[1])
+                    dates.append(datetime(year, 1, 1) + timedelta(days=doy - 1))
+                else:
+                    raise ValueError(f"Invalid format: {d}")
+        except ValueError as e:
+            logger.error(f"Date format error: {e}. Use YYYY-DDD format")
             return 1
-            
+    
+    logger.info("=" * 80)
+    logger.info("🚀 POSITIONING EVALUATION RE-AGGREGATION (SNX GROUND-TRUTH)")
+    logger.info("=" * 80)
+    logger.info(f"Processing {len(dates)} dates with {args.parallel} parallel workers")
+    
     # Store results paths for aggregation
-    # Tuple format: (date_obj, path, label)
     daily_summary_paths = []
 
     # Process Days in Parallel
-    logger.info(f"\n🚀 Starting Multiday Processing with {args.parallel} concurrent days...")
-    
     with ProcessPoolExecutor(max_workers=args.parallel) as executor:
         futures = {
             executor.submit(
@@ -529,7 +448,7 @@ def main():
             ): current_date for current_date in dates
         }
         
-        for future in tqdm(as_completed(futures), total=len(dates), desc="Multiday Progress"):
+        for future in tqdm(as_completed(futures), total=len(dates), desc="Re-aggregation Progress"):
             try:
                 result = future.result()
                 if result:
@@ -540,21 +459,10 @@ def main():
         
     # 4. Aggregate Results
     logger.info("\n" + "="*80)
-    logger.info("STEP 3: Aggregating Results...")
+    logger.info("STEP 2: Combining Results...")
     logger.info("="*80)
     
     all_metrics = []
-    
-    # We need to handle GIM comparison. GIM results are generated in BOTH runs (STEC/VTEC vs GIM).
-    # We should deduplicate GIM results or just take them from one source.
-    # The 'method' column in daily_summary.csv likely has "Model" and "IGS GIM".
-    # We will rename "Model" to "STEC Model" or "VTEC Model" depending on source.
-    
-    # Keep track of unique (date, station, method) combinations to avoid GIM duplication if needed,
-    # or simpler: just trust the aggregation plotting logic to handle duplicates or separate them.
-    # Actually, simpler approach: Rename "Model" -> "STEC/VTEC Model", and keep "IGS GIM".
-    # If we concat everything, we'll have duplicate "IGS GIM" entries. Seaborn handles this fine usually (aggregating),
-    # but for trends we might want to be cleaner.
     
     for date_obj, csv_path, label in daily_summary_paths:
         try:
@@ -562,28 +470,26 @@ def main():
             df['date'] = date_obj.strftime("%Y-%m-%d")
             df['doy'] = date_obj.timetuple().tm_yday
             
-            # Rename "Model" to specific model type
+            # Normalize method names
             if 'method' in df.columns:
-                target_name = "Direct STEC" if label == "STEC" else "VTEC + Mapping"
-                
-                # Normalize typical names (handle case variations)
                 df['method'] = df['method'].replace({
+                    'model': 'model',
                     'Model': 'model',
-                    'IGS GIM': 'igs gim', 
-                    'GIM': 'igs gim'
+                    'gim': 'gim',
+                    'GIM': 'gim'
                 })
                 
-                df['method'] = df['method'].replace({
-                    'model': target_name,
-                    'igs gim': 'IGS GIM + Mapping'
-                })
-                
-                # If label is VTEC, drop IGS GIM to avoid duplication (assuming STEC run covers it)
-                # Or keep it to verify consistency. Let's keep it for now but maybe filter later.
-                # Actually, simpler to just rename it to "IGS GIM ({label})" if we really want to check consistency,
-                # but for the plot we want one single "IGS GIM" line.
-                # Let's keep IGS GIM as is.
-                pass
+                # Rename based on model type
+                if label == "STEC":
+                    df['method'] = df['method'].replace({
+                        'model': 'Direct STEC',
+                        'gim': 'IGS GIM + Mapping'
+                    })
+                else:
+                    df['method'] = df['method'].replace({
+                        'model': 'VTEC + Mapping',
+                        'gim': 'IGS GIM + Mapping'
+                    })
             
             all_metrics.append(df)
         except Exception as e:
@@ -592,22 +498,16 @@ def main():
     if all_metrics:
         combined_df = pd.concat(all_metrics, ignore_index=True)
         
-        # Deduplicate entries to correct statistics (especially for IGS GIM which appears in both runs)
-        # Assuming 'station' and 'date' and 'method' uniquely identify a measurement
-        cols_to_check = ['date', 'method']
-        if 'station' in combined_df.columns:
-            cols_to_check.append('station')
-        if 'time' in combined_df.columns: # Sometimes results are hourly/epoch
-            cols_to_check.append('time')
-            
+        # Deduplicate entries (especially for IGS GIM which appears in both STEC and VTEC runs)
+        cols_to_check = ['date', 'station', 'method']
         before_len = len(combined_df)
-        combined_df.drop_duplicates(subset=cols_to_check, inplace=True)
+        combined_df.drop_duplicates(subset=cols_to_check, keep='first', inplace=True)
         dropped_count = before_len - len(combined_df)
         if dropped_count > 0:
             logger.info(f"Dropped {dropped_count} duplicate rows (mostly redundant IGS GIM entries)")
         
-        # Save to a central "multiday_results" folder
-        base_output_dir = Path("multiday_results") / "positioning"
+        # Save to central folder
+        base_output_dir = Path("multiday_results") / "positioning_snx"
         base_output_dir.mkdir(parents=True, exist_ok=True)
         
         output_file = base_output_dir / "multiday_summary.csv"
@@ -618,11 +518,15 @@ def main():
         plot_trends(combined_df, base_output_dir)
         logger.info(f"Plots saved to: {base_output_dir}")
         
+        logger.info("\n" + "="*80)
+        logger.info("✅ RE-AGGREGATION COMPLETED!")
+        logger.info("="*80)
+        
     else:
         logger.warning("No results to aggregate.")
 
-    logger.info("DONE.")
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

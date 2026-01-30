@@ -95,7 +95,17 @@ def load_sinex_coords(snx_file):
                     if len(parts) >= 9:
                         entry_type = parts[1]
                         station = parts[2].upper()
-                        value = float(parts[8])
+                        
+                        # Skip if value is placeholder (e.g., '___ESTIMATED_VALUE___')
+                        value_str = parts[8]
+                        if '_' in value_str:
+                            continue
+                        
+                        try:
+                            value = float(value_str)
+                        except ValueError:
+                            # Skip non-numeric values
+                            continue
                         
                         if entry_type in ['STAX', 'STAY', 'STAZ']:
                             if station not in coords:
@@ -260,8 +270,14 @@ def aggregate_daily_metrics(results_dir, year, doy, method_name, stations=None, 
     
     # Load ground truth coordinates if SINEX provided
     gt_coords = {}
+    require_snx = False
     if snx_file:
+        print(f"✓ Loading SINEX ground truth coordinates from: {snx_file}")
         gt_coords = load_sinex_coords(snx_file)
+        print(f"  Loaded {len(gt_coords)} station coordinates from SINEX")
+        require_snx = True  # Will exclude stations without SINEX coords
+    else:
+        print(f"⚠️  No SINEX file provided - will use day-mean as reference (WARNING: NOT true error!)")
     
     # Find all .pos files for this day/method (including hidden files in subdirectories)
     if stations:
@@ -296,11 +312,13 @@ def aggregate_daily_metrics(results_dir, year, doy, method_name, stations=None, 
         # Get reference position for this station
         ref_pos = gt_coords.get(station.upper())
         
-        if snx_file:
-            if ref_pos:
-                print(f"INFO: Using SINEX ground truth for {station.upper()}")
-            else:
-                print(f"WARNING: Station {station.upper()} not found in SINEX file. Falling back to mean position.")
+        # If SINEX was provided and this station is not in it, skip the station
+        if require_snx and not ref_pos:
+            print(f"SKIPPING: Station {station.upper()} not found in SINEX file (no ground-truth coordinates)")
+            continue
+        
+        if snx_file and ref_pos:
+            print(f"INFO: Using SINEX ground truth for {station.upper()}")
         
         # Parse and compute metrics
         df = parse_pos_file(pos_file, ref_pos=ref_pos)

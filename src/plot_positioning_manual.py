@@ -77,10 +77,30 @@ def get_robust_limits(data, percentile=99.0):
         return 0, 1
     return 0, np.percentile(data, percentile) * 1.2
 
-def plot_trends(df, output_dir):
+def plot_trends(df, output_dir, threshold_cm=None):
     """Generate paper-ready trend plots."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Apply filtering if threshold provided
+    if threshold_cm is not None:
+        logger.info(f"Filtering data with threshold: {threshold_cm} cm")
+        
+        # Get filtered out records before filtering
+        filtered_out = df[df['3d_rms'] > threshold_cm]
+        
+        if len(filtered_out) > 0:
+            logger.info(f"Filtered out {len(filtered_out)} records:")
+            # Print each day-station combination that's filtered
+            for _, row in filtered_out.iterrows():
+                date_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])
+                station = row.get('station', 'N/A')
+                method = row.get('method', 'N/A')
+                rms = row['3d_rms']
+                logger.info(f"  {date_str} | {station} | {method}: {rms:.2f} cm")
+        
+        df = df[df['3d_rms'] <= threshold_cm].copy()
+        logger.info(f"Data after filtering: {len(df)} records remaining")
     
     # Common Style Settings
     plt.rcParams.update({
@@ -210,8 +230,9 @@ def plot_trends(df, output_dir):
         plt.xlabel('Correction Method', fontweight='bold')
         # plt.title('Overall Positioning Accuracy Distribution', fontweight='bold', pad=15)
         
-        #_, y_max_bp = get_robust_limits(plot_df['3d_rms'], 98)
-        #plt.ylim(0, y_max_bp)
+        # Use threshold for axis limit if provided
+        if threshold_cm:
+            plt.ylim(0, threshold_cm)
         
         new_labels = [get_style(m)[1] for m in ordered_methods]
         ax = plt.gca()
@@ -253,7 +274,11 @@ def plot_trends(df, output_dir):
         plt.ylabel('Cumulative Probability [%]', fontweight='bold')
         # plt.title('Error Cumulative Distribution Function (CDF)', fontweight='bold', pad=15)
         
-        plt.xlim(0, robust_max * 1.2)
+        # Use threshold for x-axis limit if provided, otherwise use robust limits
+        if threshold_cm:
+            plt.xlim(0, threshold_cm)
+        else:
+            plt.xlim(0, robust_max * 1.2)
         plt.ylim(0, 102)
         plt.grid(True, linestyle='--', alpha=0.5)
         plt.legend(loc='lower right')
@@ -264,7 +289,7 @@ def plot_trends(df, output_dir):
 
         logger.info(f"Main trend plots saved to: {output_dir}")
 
-def plot_extended_analysis(df, output_dir):
+def plot_extended_analysis(df, output_dir, threshold_cm=None):
     """Generate extended analysis plots for deeper insights."""
     output_dir = Path(output_dir)
     
@@ -279,6 +304,10 @@ def plot_extended_analysis(df, output_dir):
         _, x_max = get_robust_limits(df['2d_rms'], 99.5)
         _, y_max = get_robust_limits(df['up_rms'], 99.5)
         max_limit = max(x_max, y_max)
+        
+        # Use threshold if provided
+        if threshold_cm:
+            max_limit = threshold_cm
         
         for method in methods:
             subset = df[df['method'] == method]
@@ -331,7 +360,7 @@ def plot_extended_analysis(df, output_dir):
         
     logger.info(f"Extended analysis plots saved to: {output_dir}")
 
-def plot_model_vs_gim_comparison(df, output_dir):
+def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
     """Generate direct comparison plots between Model and GIM."""
     output_dir = Path(output_dir)
     
@@ -427,6 +456,10 @@ def plot_model_vs_gim_comparison(df, output_dir):
             _, x_max = get_robust_limits(pivoted[baseline], 99.5)
             _, y_max = get_robust_limits(pivoted[m_type], 99.5)
             max_val = max(x_max, y_max)
+            
+            # Use threshold if provided
+            if threshold_cm:
+                max_val = threshold_cm
             
             plt.scatter(pivoted[baseline], pivoted[m_type], alpha=0.8, s=20, color=color, edgecolors='none')
             
@@ -595,13 +628,12 @@ def main():
         if 'station' in df.columns:
             df = df[~df['station'].isin(stations)]
             
-    if args.exclude_threshold:
-        logger.info(f"Excluding records with 3D RMS > {args.exclude_threshold} m (before conv to cm)")
-        # Note: Summary usually has 'error_3d_rms' in meters
-        if 'error_3d_rms' in df.columns:
-             df = df[df['error_3d_rms'] <= args.exclude_threshold]
-    
     # Prepare Data
+    threshold_cm = None
+    if args.exclude_threshold:
+        logger.info(f"Setting axis limit to {args.exclude_threshold} m for boxplots/CDF/scatter (keeping all data)")
+        threshold_cm = args.exclude_threshold * 100  # Convert to cm for plotting
+    
     df = prepare_data(df)
     
     if len(df) < initial_count:
@@ -609,9 +641,9 @@ def main():
 
     # Generate Plots
     logger.info("Generating plots...")
-    plot_trends(df, args.output_dir)
-    plot_extended_analysis(df, args.output_dir)
-    plot_model_vs_gim_comparison(df, args.output_dir)
+    plot_trends(df, args.output_dir, threshold_cm=threshold_cm)
+    plot_extended_analysis(df, args.output_dir, threshold_cm=threshold_cm)
+    plot_model_vs_gim_comparison(df, args.output_dir, threshold_cm=threshold_cm)
     
     logger.info(f"Done. Plots saved to: {args.output_dir}")
     return 0

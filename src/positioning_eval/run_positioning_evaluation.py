@@ -416,14 +416,20 @@ def main():
             # Capture SINEX file path
             snx_file = products.get('snx')
             if snx_file and not snx_file.exists():
-                logger.warning(f"SINEX file not found at expected path: {snx_file}")
+                logger.error(f"❌ SINEX file not found at expected path: {snx_file}")
+                logger.error(f"   This will cause errors to be computed relative to day-mean instead of ground truth!")
                 snx_file = None
+            elif snx_file:
+                logger.info(f"✓ SINEX file available: {snx_file}")
         else:
             logger.info("\n⏭️  Skipping product download")
             # Attempt to find existing SINEX
             snx_file = products_dir / f"IGS0OPSSNX_{year}{doy:03d}0000_01D_01D_CRD.SNX"
             if not snx_file.exists():
+                logger.error(f"❌ No SINEX file found at {snx_file}")
                 snx_file = None
+            else:
+                logger.info(f"✓ Using existing SINEX: {snx_file}")
         
         # Step 2: Find IGS GIM
         logger.info("\n🗺️  Step 2: Locating IGS GIM...")
