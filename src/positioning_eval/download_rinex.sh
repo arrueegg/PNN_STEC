@@ -6,7 +6,12 @@
 ###############################################################################
 
 # Cache directory listing to avoid repeated requests
-CACHE_DIR="/tmp/rinex_cache_$$"
+if [ -n "$RINEX_CACHE_DIR" ]; then
+    CACHE_DIR="$RINEX_CACHE_DIR"
+else
+    CACHE_DIR="/tmp/rinex_cache_$$"
+    trap 'rm -rf "$CACHE_DIR"' EXIT
+fi
 mkdir -p "$CACHE_DIR"
 
 get_directory_listing() {

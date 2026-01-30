@@ -10,6 +10,7 @@ import os
 import sys
 import subprocess
 import logging
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,7 +30,7 @@ def doy_to_date(year, doy):
     return datetime.strptime(f"{year} {doy}", "%Y %j")
 
 
-def download_rinex_file(station, year, doy, output_dir, logger=None):
+def download_rinex_file(station, year, doy, output_dir, logger=None, cache_dir=None):
     """
     Download a single RINEX observation file from CDDIS.
     Bash script caches directory listing to find correct country codes efficiently.
@@ -40,6 +41,7 @@ def download_rinex_file(station, year, doy, output_dir, logger=None):
         doy: Day of year (int)
         output_dir: Directory to save RINEX files
         logger: Logger instance
+        cache_dir: Optional path to shared temp directory for caching listings
     
     Returns:
         Path to downloaded RINEX file or None if failed
@@ -61,12 +63,18 @@ def download_rinex_file(station, year, doy, output_dir, logger=None):
     logger.info(f"Downloading RINEX for {station_upper}...")
     
     try:
+        # Prepare environment (inject cache dir if provided)
+        env = os.environ.copy()
+        if cache_dir:
+            env["RINEX_CACHE_DIR"] = str(cache_dir)
+
         # Run bash download script (it caches directory listing internally)
         result = subprocess.run(
             ["bash", str(download_script), station_upper, str(year), str(doy), str(output_path)],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=120,
+            env=env
         )
         
         if result.returncode == 0:
@@ -134,11 +142,14 @@ def download_rinex_batch(stations, year, doy, output_dir, logger=None, max_worke
     
     results = {}
     
-    # Use ThreadPoolExecutor for parallel downloads
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    # Use ThreadPoolExecutor for parallel downloads, with a shared temp dir for caching listings
+    with tempfile.TemporaryDirectory(prefix=f"rinex_cache_{year}_{doy:03d}_") as cache_dir, \
+         ThreadPoolExecutor(max_workers=max_workers) as executor:
+        
         # Submit all download tasks
         future_to_station = {
-            executor.submit(download_rinex_file, station, year, doy, output_dir, logger): station
+            # Pass the shared cache_dir to each task
+            executor.submit(download_rinex_file, station, year, doy, output_dir, logger, cache_dir): station
             for station in stations
         }
         
