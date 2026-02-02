@@ -823,71 +823,80 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
         mapped_name = name_map.get(dataset, dataset)
         dataset_df = df[df['dataset'] == dataset]
         
-        improvements = []
-        
-        # Group by date/datetime
-        use_date_obj = 'datetime' in dataset_df.columns
-        x_col = 'datetime' if use_date_obj else 'date'
-        
-        for date_val in dataset_df[x_col].unique():
-            subset = dataset_df[dataset_df[x_col] == date_val]
+        # Iterate over both metrics
+        for metric in ['RMSE', 'MAE']:
+            improvements = []
             
-            # Get values safely
-            direct_stec = subset[subset['Model'] == 'Direct STEC']
-            vtec_map = subset[subset['Model'] == 'VTEC + Mapping']
-            igs_gim = subset[subset['Model'] == 'IGS GIM + Mapping']
+            # Group by date/datetime
+            use_date_obj = 'datetime' in dataset_df.columns
+            x_col = 'datetime' if use_date_obj else 'date'
             
-            if direct_stec.empty: 
-                continue
+            for date_val in dataset_df[x_col].unique():
+                subset = dataset_df[dataset_df[x_col] == date_val]
                 
-            stec_rmse = direct_stec['RMSE'].values[0]
+                # Get values safely
+                direct_stec = subset[subset['Model'] == 'Direct STEC']
+                vtec_map = subset[subset['Model'] == 'VTEC + Mapping']
+                igs_gim = subset[subset['Model'] == 'IGS GIM + Mapping']
+                
+                if direct_stec.empty: 
+                    continue
+                
+                if metric not in direct_stec.columns:
+                     continue
+                     
+                stec_val = direct_stec[metric].values[0]
+                
+                if not vtec_map.empty and metric in vtec_map.columns:
+                    vtec_val = vtec_map[metric].values[0]
+                    if vtec_val != 0:
+                        imp_vtec = (1 - stec_val / vtec_val) * 100
+                        improvements.append({'date_val': date_val, 'baseline': 'VTEC + Mapping', 'improvement': imp_vtec})
+                
+                if not igs_gim.empty and metric in igs_gim.columns:
+                    gim_val = igs_gim[metric].values[0]
+                    if gim_val != 0:
+                        imp_gim = (1 - stec_val / gim_val) * 100
+                        improvements.append({'date_val': date_val, 'baseline': 'IGS GIM + Mapping', 'improvement': imp_gim})
             
-            if not vtec_map.empty:
-                vtec_rmse = vtec_map['RMSE'].values[0]
-                imp_vtec = (1 - stec_rmse / vtec_rmse) * 100
-                improvements.append({'date_val': date_val, 'baseline': 'VTEC + Mapping', 'improvement': imp_vtec})
-            
-            if not igs_gim.empty:
-                gim_rmse = igs_gim['RMSE'].values[0]
-                imp_gim = (1 - stec_rmse / gim_rmse) * 100
-                improvements.append({'date_val': date_val, 'baseline': 'IGS GIM + Mapping', 'improvement': imp_gim})
-        
-        if improvements:
-            plt.figure(figsize=(14, 7))
-            imp_df = pd.DataFrame(improvements)
-            
-            # Use scatter + line for time series with consistent baseline colors
-            sns.scatterplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
-                            palette=baseline_colors, s=80, alpha=0.9, legend=False)
-            sns.lineplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
-                         palette=baseline_colors, alpha=0.9)
-            
-            plt.ylabel('RMSE Improvement [%]', fontweight='bold')
-            # plt.title(f'Direct STEC Improvement Over Baselines ({mapped_name})')
-            plt.axhline(y=0, color='black', linestyle='-', linewidth=1)
-            # Move legend further down
-            plt.legend(title='Baseline', loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(baseline_colors), frameon=True)
-            
-             # Improved date formatting
-            if use_date_obj:
-                plt.xlabel('Date', fontweight='bold')
-                ax = plt.gca()
-                locator = mdates.AutoDateLocator()
-                formatter = mdates.DateFormatter('%Y-%m-%d')
-                ax.xaxis.set_major_locator(locator)
-                ax.xaxis.set_major_formatter(formatter)
-                plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
-            else:
-                plt.xlabel('Date (YYYY-DOY)', fontweight='bold')
-                plt.xticks(rotation=45)
+            if improvements:
+                plt.figure(figsize=(14, 7))
+                imp_df = pd.DataFrame(improvements)
+                
+                # Use scatter + line for time series with consistent baseline colors
+                sns.scatterplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
+                                palette=baseline_colors, s=80, alpha=0.9, legend=False)
+                sns.lineplot(data=imp_df, x='date_val', y='improvement', hue='baseline', 
+                             palette=baseline_colors, alpha=0.9)
+                
+                plt.ylabel(f'{metric} Improvement [%]', fontweight='bold')
+                # plt.title(f'Direct STEC Improvement Over Baselines ({mapped_name})')
+                plt.axhline(y=0, color='black', linestyle='-', linewidth=1)
+                # Move legend further down
+                plt.legend(title='Baseline', loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=len(baseline_colors), frameon=True)
+                
+                 # Improved date formatting
+                if use_date_obj:
+                    plt.xlabel('Date', fontweight='bold')
+                    ax = plt.gca()
+                    locator = mdates.AutoDateLocator()
+                    formatter = mdates.DateFormatter('%Y-%m-%d')
+                    ax.xaxis.set_major_locator(locator)
+                    ax.xaxis.set_major_formatter(formatter)
+                    plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
+                else:
+                    plt.xlabel('Date (YYYY-DOY)', fontweight='bold')
+                    plt.xticks(rotation=45)
 
-            plt.grid(True, axis='y', linestyle='--', alpha=0.5)
-            plt.tight_layout()
-            
-            filename = output_dir / f'improvement_by_date_{mapped_name}.png'
-            plt.savefig(filename, dpi=300, bbox_inches='tight')
-            plt.close()
-            logger.info(f"Saved improvement plot: {filename}")
+                plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+                plt.tight_layout()
+                
+                # Dynamic filename using metric
+                prefix = metric.lower()
+                filename = output_dir / f'{prefix}_improvement_by_date_{mapped_name}.png'
+                plt.savefig(filename, dpi=300, bbox_inches='tight')
+                plt.close()
+                logger.info(f"Saved {metric} improvement plot: {filename}")
 
     # -------------------------------------------------------------------------
     # 4. Elevation-dependent plots

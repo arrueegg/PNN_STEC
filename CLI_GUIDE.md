@@ -164,11 +164,12 @@ python cli.py multiday \
     --stec_config config/config.yaml \
     --vtec_config config/config_vtec_mlp_baseline.yaml
 
-# Specific days
+# Specific days with independent positioning analysis
 python cli.py multiday \
-    --dates "2024-183,2024-184,2024-185" \
+    --dates "2024-183,2024-184" \
     --stec_config config/config.yaml \
-    --vtec_config config/config_vtec_mlp_baseline.yaml
+    --vtec_config config/config_vtec_mlp_baseline.yaml \
+    --positioning
 
 # Monthly evaluation for paper
 python cli.py multiday \
@@ -177,26 +178,62 @@ python cli.py multiday \
     --vtec_config config/config_vtec_mlp_baseline.yaml \
     --output_dir multiday_results/july_2024
 
-# Quick test
+# Quick test with fewer samples (for debugging)
 python cli.py multiday \
     --dates "2024-183,2024-184" \
     --stec_config config/config.yaml \
     --vtec_config config/config_vtec_mlp_baseline.yaml \
-    --num_inference_samples 10
+    --num_inference_samples 10 \
+    --test_size 1000
 ```
+
+**Key Arguments:**
+- `--dates`: Date range (e.g., "2024-183:2024-189") or list ("2024-183,2024-184")
+- `--stec_config`: Path to STEC model config
+- `--vtec_config`: Path to VTEC baseline config
+- `--positioning`: **(NEW)** Run positioning domain analysis for each day
+- `--pretrain_folder`: Use a specific pretrained model instead of training from scratch
+- `--skip_training`: Only run evaluation on existing models
+- `--no_aggregate`: Skip the final aggregation step (useful for parallel runs)
+- `--summary_only`: Skip all processing and only generate reports from existing CSVs
 
 **What it does:**
 For each date:
-1. Finetune STEC model on that day
-2. Finetune VTEC model on that day  
+1. Finetune STEC model on that day (unless `--skip_training`)
+2. Finetune VTEC model on that day (unless `--skip_training`)
 3. Run comprehensive comparison (STEC vs VTEC+Mapping vs GIM)
 4. Evaluate on both own test set and Madrigal independent test
+5. (Optional) Run positioning analysis if `--positioning` is set
 
 Finally generates aggregate statistics, comparison plots, and summary tables.
 
 **Equivalent to:** `python src/multiday_evaluation.py --dates ...`
 
 See [MULTIDAY_EVALUATION_GUIDE.md](docs/MULTIDAY_EVALUATION_GUIDE.md) for complete documentation.
+
+---
+
+### 8. Standalone Utility Scripts
+
+Some advanced analysis tasks have specialized scripts not yet integrated into the main CLI.
+
+#### Positioning Analysis Plotting
+Regenerate high-quality positioning plots from multi-day results with advanced filtering.
+
+```bash
+python src/plot_positioning_manual.py \
+    --input multiday_results/positioning_snx/multiday_summary.csv \
+    --output_dir plots/paper_ready \
+    --exclude_threshold 5
+```
+
+#### Differential STEC (dSTEC) Evaluation
+Evaluate using the dSTEC metric to remove geometry-dependent errors.
+
+```bash
+python src/dstec_evaluation.py "experiments/Finetune_STEC_..."
+```
+
 
 ---
 

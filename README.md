@@ -165,29 +165,51 @@ The framework supports:
 - **Space Weather Indices** (solar and geomagnetic activity)
 - **Spatio-temporal data splitting** for robust evaluation
 
-## Evaluation
+## Running Experiments & Evaluation
 
-### Standard Evaluation
-Run standard model evaluation on the test set:
+The project uses `cli.py` as the main entry point for all operations. See [CLI_GUIDE.md](CLI_GUIDE.md) for full commands and options.
+
+### 1. Training
 ```bash
-python src/inference_testset.py
+python cli.py train --config config/config.yaml
 ```
 
-### dSTEC Evaluation (Differential STEC)
-Evaluate model performance using the differential STEC metric, which removes common-mode errors:
+### 2. Multi-Day Evaluation (Paper Workflow)
+The standard workflow for generating robust results across multiple days:
+```bash
+python cli.py multiday \
+    --dates "2024-183:2024-189" \
+    --stec_config config/config.yaml \
+    --vtec_config config/config_vtec_mlp_baseline.yaml \
+    --positioning
+```
+ This runs training, comparison, and positioning evaluation for each day and aggregates results.
 
+### 3. Comparison & Inference
+Compare your model against VTEC baselines and IGS GIMs:
+```bash
+python cli.py compare --stec_experiment "Finetune_STEC_..."
+```
+
+### 4. Advanced Evaluation Methods
+
+#### Positioning Analysis
+Evaluate the impact of ionospheric corrections on GNSS Positioning (PPP/SPP):
+```bash
+python cli.py positioning --experiment "Finetune_STEC_..."
+```
+For manual plotting of aggregated positioning results:
+```bash
+python src/plot_positioning_manual.py --input multiday_results/positioning_snx/multiday_summary.csv
+```
+
+#### dSTEC Evaluation
+Differential STEC (dSTEC) metric removes geometry-dependent errors for validation:
 ```bash
 python src/dstec_evaluation.py "experiment_folder_name"
 ```
-
-The dSTEC metric compares measurements at different elevations during satellite passes, providing a more robust validation against IGS GIMs. See [docs/dstec_evaluation_guide.md](docs/dstec_evaluation_guide.md) for detailed documentation.
-
-**Key features**:
-- ✅ Removes common-mode biases (DCB, receiver clock)
-- ✅ Compares against geometry-free phase observations
-- ✅ Per-pass statistics and detailed CSV outputs
-- ✅ Automated visualization of results
-- ✅ Configurable elevation thresholds and mapping functions
+The dSTEC metric compares measurements at different elevations during satellite passes, providing a more robust validation against IGS GIMs. **Key features**: removes common-mode biases, compares against geometry-free phase observations.
+See [docs/dstec_evaluation_guide.md](docs/dstec_evaluation_guide.md).
 
 ## License
 
