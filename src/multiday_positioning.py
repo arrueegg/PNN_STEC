@@ -390,7 +390,11 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
         logger.info(f"--- Processing {model_label} Model ---")
         
         # Check if final result already exists - skip unless --redo is set
-        res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
+        summary_filename = "daily_summary.csv"
+        if args.weight_opt != "elev":
+            summary_filename = f"daily_summary_{args.weight_opt}.csv"
+            
+        res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / summary_filename
         if res_path.exists() and not args.redo:
             logger.info(f"Skipping processing for {model_label} (Results found at {res_path})")
             day_results.append((current_date, res_path, model_label))
@@ -423,7 +427,8 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             "--date", date_str,
             "--all_test_stations",
             "--parallel", str(station_parallel),
-            "--no_cleanup"  # Always preserve SNX files for accurate reference coordinates
+            "--no_cleanup",  # Always preserve SNX files for accurate reference coordinates
+            "--weight_opt", args.weight_opt
         ]
         
         if args.skip_downloads:
@@ -432,7 +437,7 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             eval_cmd.append("--redo")
         
         if run_command(eval_cmd, f"Evaluation for {model_label} on {date_str}", logger):
-            res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
+            res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / summary_filename
             if res_path.exists():
                 day_results.append((current_date, res_path, model_label))
     
@@ -457,6 +462,7 @@ def main():
     parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
     parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
     parser.add_argument("--redo", action="store_true", help="Force redo of positioning evaluation even if results exist")
+    parser.add_argument("--weight_opt", type=str, default="elev", help="Weighting option: elev (elevation), snr (SNR), or iono (ionospheric uncertainty)")
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -607,7 +613,11 @@ def main():
             logger.info(f"Dropped {dropped_count} duplicate rows (mostly redundant IGS GIM entries)")
         
         # Save to a central "multiday_results" folder
-        base_output_dir = Path("multiday_results") / "positioning"
+        suffix = ""
+        if args.weight_opt != "elev":
+            suffix = f"_{args.weight_opt}"
+            
+        base_output_dir = Path("multiday_results") / f"positioning{suffix}"
         base_output_dir.mkdir(parents=True, exist_ok=True)
         
         output_file = base_output_dir / "multiday_summary.csv"

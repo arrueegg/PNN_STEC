@@ -24,6 +24,7 @@ def generate_pppx_ini(
     mode="kinematic",
     output_dir="./",
     elev_mask=7,
+    weight_opt="elev",
     use_relative_paths=True,
     output_ini_dir=None
 ):
@@ -41,6 +42,7 @@ def generate_pppx_ini(
         mode: Position mode - "kinematic" or "static"
         output_dir: Output directory for positioning results
         elev_mask: Elevation mask in degrees
+        weight_opt: Weighting option - "elev" (elevation), "snr" (SNR), or "iono" (ionospheric uncertainty)
         use_relative_paths: Use relative paths in INI (for short paths)
         output_ini_dir: Directory where INI will be placed (for computing relative paths)
     
@@ -133,7 +135,7 @@ iono = {iono_model}             ; opt: IF/brdc/IONEX/CSV/none   [ IF ]
 sol_mode   = ppp                ; opt: spp/ppp/rtk/tdp          [ spp ]
 pos_mode   = {mode}             ; opt: kinematic/static/fixed   [ kinematic ]
 solver     = fgo                ; opt: fgo/kalman/lsq           [ kalman ]
-weight_opt = elev               ; opt: elev/snr                 [ elev ]
+weight_opt = {weight_opt}       ; opt: elev/snr/iono            [ elev ]
 elev_mask  = {elev_mask}        ; elevation mask (°)            [ 10 ]
 snr_mask   = 25                 ; SNR mask (dB-Hz)              [ 35 ]
 slip_det   = ALL                ; opt: off GF MW LLI ALL        [ all ]
@@ -184,6 +186,7 @@ if __name__ == "__main__":
     parser.add_argument("--ion_source", type=str, default="IONEX", choices=["IONEX", "CSV"])
     parser.add_argument("--ion_path", type=str, default=None)
     parser.add_argument("--station", type=str, default=None)
+    parser.add_argument("--weight_opt", type=str, default="elev", help="Weighting option (elev, snr, iono)")
     
     args = parser.parse_args()
     
@@ -194,7 +197,8 @@ if __name__ == "__main__":
         args.products_dir,
         ion_source=args.ion_source,
         ion_path=args.ion_path,
-        station_name=args.station
+        station_name=args.station,
+        weight_opt=args.weight_opt
     )
     
     print(f"Generated: {ini_path}")

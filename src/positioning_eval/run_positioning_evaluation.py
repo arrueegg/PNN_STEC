@@ -179,7 +179,8 @@ def process_single_station(
     rinex_dir,
     pppx_executable,
     igs_gim_path,
-    logger
+    logger,
+    weight_opt="elev"
 ):
     """
     Process positioning for a single station with both model and GIM.
@@ -221,22 +222,26 @@ def process_single_station(
         return results
     
     # Setup output directories
-    model_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "model" / station
+    model_subdir = "model"
+    if weight_opt != "elev":
+        model_subdir = f"model_{weight_opt}"
+        
+    model_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / model_subdir / station
     gim_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "gim" / station
     
     # Files to check
-    model_pos_final = model_output_dir / f"{station}_model.pos"
+    model_pos_final = model_output_dir / f"{station}_{model_subdir}.pos"
     gim_pos_final = gim_output_dir / f"{station}_gim.pos"
     
     # 1. Run with model STEC corrections
     stec_csv = experiment_dir / "positioning" / "stec_corrections" / f"{year}{doy:03d}" / f"{station}.csv"
     if stec_csv.exists():
         if model_pos_final.exists() and not getattr(logger, 'redo', False):
-            logger.info(f"Skipping {station} model (Already exists)")
+            logger.info(f"Skipping {station} model ({weight_opt}) (Already exists)")
             results['model_pos'] = model_pos_final
             results['model_success'] = True
         else:
-            logger.info(f"Processing {station} with model STEC...")
+            logger.info(f"Processing {station} with model STEC ({weight_opt})...")
         
         ini_file = model_output_dir / "pppx_model.ini"
         generate_pppx_ini(
@@ -248,6 +253,7 @@ def process_single_station(
             ion_path=stec_csv,
             station_name=station,
             output_dir="./",  # PPPx runs from output directory
+            weight_opt=weight_opt,
             output_ini_dir=model_output_dir
         )
         
@@ -261,7 +267,7 @@ def process_single_station(
         
         if pos_file:
             # Rename for clarity
-            final_pos = model_output_dir / f"{station}_model.pos"
+            final_pos = model_output_dir / f"{station}_{model_subdir}.pos"
             pos_file.rename(final_pos)
             results['model_pos'] = final_pos
             results['model_success'] = True
@@ -369,6 +375,13 @@ def main():
         "--redo",
         action="store_true",
         help="Force redo of positioning even if results exist"
+    )
+    parser.add_argument(
+        "--weight_opt",
+        type=str,
+        default="elev",
+        choices=["elev", "snr", "iono"],
+        help="Weighting option: elev (elevation), snr (SNR), or iono (ionospheric uncertainty)"
     )
     
     args = parser.parse_args()
@@ -481,7 +494,7 @@ def main():
                         process_single_station,
                         station, year, doy, experiment_dir,
                         products_dir, rinex_dir, pppx_path,
-                        igs_gim_path, logger
+                        igs_gim_path, logger, args.weight_opt
                     ): station
                     for station in stations
                 }
@@ -499,7 +512,7 @@ def main():
                 result = process_single_station(
                     station, year, doy, experiment_dir,
                     products_dir, rinex_dir, pppx_path,
-                    igs_gim_path, logger
+                    igs_gim_path, logger, args.weight_opt
                 )
                 all_results.append(result)
         
@@ -518,10 +531,14 @@ def main():
         metrics_model = None
         metrics_gim = None
         
+        model_subdir = "model"
+        if args.weight_opt != "elev":
+            model_subdir = f"model_{args.weight_opt}"
+        
         if model_success > 0:
-            model_dir = results_base_dir / "model"
+            model_dir = results_base_dir / model_subdir
             metrics_model = aggregate_daily_metrics(
-                model_dir, year, doy, "model",
+                model_dir, year, doy, model_subdir,
                 stations=[r['station'] for r in all_results if r['model_success']],
                 snx_file=snx_file
             )
@@ -536,7 +553,11 @@ def main():
         
         # Step 7: Save summary
         if metrics_model is not None or metrics_gim is not None:
-            summary_file = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "daily_summary.csv"
+            summary_filename = "daily_summary.csv"
+            if args.weight_opt != "elev":
+                summary_filename = f"daily_summary_{args.weight_opt}.csv"
+                
+            summary_file = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / summary_filename
             
             # Combine metrics
             metrics_list = []
