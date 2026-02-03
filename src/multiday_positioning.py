@@ -389,10 +389,17 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
     for exp_path, model_label in experiments_to_run:
         logger.info(f"--- Processing {model_label} Model ---")
         
+        # Determine weighting for this model
+        # Force elevation weighting for VTEC models (which have 0 uncertainty)
+        current_weight_opt = args.weight_opt
+        if model_label == "VTEC" and args.weight_opt == "iono":
+            logger.info("Forcing weight_opt='elev' for VTEC model (uncertainties are 0)")
+            current_weight_opt = "elev"
+        
         # Check if final result already exists - skip unless --redo is set
         summary_filename = "daily_summary.csv"
-        if args.weight_opt != "elev":
-            summary_filename = f"daily_summary_{args.weight_opt}.csv"
+        if current_weight_opt != "elev":
+            summary_filename = f"daily_summary_{current_weight_opt}.csv"
             
         res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / summary_filename
         if res_path.exists() and not args.redo:
@@ -428,7 +435,7 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             "--all_test_stations",
             "--parallel", str(station_parallel),
             "--no_cleanup",  # Always preserve SNX files for accurate reference coordinates
-            "--weight_opt", args.weight_opt
+            "--weight_opt", current_weight_opt
         ]
         
         if args.skip_downloads:
@@ -571,24 +578,19 @@ def main():
             # Rename "Model" to specific model type
             if 'method' in df.columns:
                 target_name = "Direct STEC" if label == "STEC" else "VTEC + Mapping"
-                
+                if args.weight_opt != 'elev':
+                     target_name += f" ({args.weight_opt})"
+
                 # Normalize typical names (handle case variations)
-                df['method'] = df['method'].replace({
-                    'Model': 'model',
-                    'IGS GIM': 'igs gim', 
-                    'GIM': 'igs gim'
-                })
+                # First lower case everything
+                df['method'] = df['method'].str.lower()
                 
-                df['method'] = df['method'].replace({
-                    'model': target_name,
-                    'igs gim': 'IGS GIM + Mapping'
-                })
+                # Replace known patterns
+                # Handle model* pattern (model, model_iono, etc.)
+                df.loc[df['method'].str.startswith('model'), 'method'] = target_name
                 
-                # If label is VTEC, drop IGS GIM to avoid duplication (assuming STEC run covers it)
-                # Or keep it to verify consistency. Let's keep it for now but maybe filter later.
-                # Actually, simpler to just rename it to "IGS GIM ({label})" if we really want to check consistency,
-                # but for the plot we want one single "IGS GIM" line.
-                # Let's keep IGS GIM as is.
+                # Handle GIM
+                df.loc[df['method'].str.contains('gim'), 'method'] = 'IGS GIM + Mapping'
                 pass
             
             all_metrics.append(df)
