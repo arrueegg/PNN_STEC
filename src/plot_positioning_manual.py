@@ -54,11 +54,11 @@ def prepare_data(df):
     
     # Renaming known columns if they differ
     if 'error_3d_rms' in df.columns:
-        df['3d_rms'] = df['error_3d_rms'] * 100 # Convert m to cm
+        df['3d_rms'] = df['error_3d_rms'] # Keep in meters
     if 'error_2d_rms' in df.columns:
-        df['2d_rms'] = df['error_2d_rms'] * 100 # Convert m to cm
+        df['2d_rms'] = df['error_2d_rms'] # Keep in meters
     if 'u_rms' in df.columns:
-        df['up_rms'] = df['u_rms'] * 100 # Convert m to cm
+        df['up_rms'] = df['u_rms'] # Keep in meters
 
     # Clean Method Names
     if 'method' in df.columns:
@@ -84,7 +84,7 @@ def plot_trends(df, output_dir, threshold_cm=None):
     
     # Apply filtering if threshold provided
     if threshold_cm is not None:
-        logger.info(f"Filtering data with threshold: {threshold_cm} cm")
+        logger.info(f"Filtering data with threshold: {threshold_cm} m")
         
         # Get filtered out records before filtering
         filtered_out = df[df['3d_rms'] > threshold_cm]
@@ -97,7 +97,7 @@ def plot_trends(df, output_dir, threshold_cm=None):
                 station = row.get('station', 'N/A')
                 method = row.get('method', 'N/A')
                 rms = row['3d_rms']
-                logger.info(f"  {date_str} | {station} | {method}: {rms:.2f} cm")
+                logger.info(f"  {date_str} | {station} | {method}: {rms:.2f} m")
         
         df = df[df['3d_rms'] <= threshold_cm].copy()
         logger.info(f"Data after filtering: {len(df)} records remaining")
@@ -144,7 +144,7 @@ def plot_trends(df, output_dir, threshold_cm=None):
                              subset['mean'] + subset['sem'], 
                              color=color, alpha=0.2)
         
-        plt.ylabel('3D RMS Error [cm]', fontweight='bold')
+        plt.ylabel('3D RMS Error [m]', fontweight='bold')
         plt.xlabel('Date', fontweight='bold')
         # plt.title('Daily Positioning Performance Trend', fontweight='bold', pad=15)
         
@@ -214,10 +214,26 @@ def plot_trends(df, output_dir, threshold_cm=None):
                 plt.tight_layout()
                 plt.savefig(output_dir / "paper_trend_improvement_timeseries.png", dpi=300)
                 plt.close()
-        
-        # 3. Overall Distribution (Boxplot with Styling)
-        # -------------------------------------------------------------------------
+
+        logger.info(f"Main trend plots saved to: {output_dir}")
+
+def plot_extended_analysis(df, output_dir, threshold_cm=None):
+    """Generate extended analysis plots for deeper insights."""
+    output_dir = Path(output_dir)
+    
+    methods = df['method'].unique() if 'method' in df.columns else []
+    
+    # 1. Overall Distribution (Boxplot with Styling) - Uses FULL data
+    # -------------------------------------------------------------------------
+    if '3d_rms' in df.columns and 'method' in df.columns:
         plt.figure(figsize=(8, 6), dpi=300)
+        
+        # Sort methods: STEC, VTEC, GIM
+        ordered_methods = sorted(methods, key=lambda x: (
+            0 if 'stec' in str(x).lower() else 
+            1 if 'vtec' in str(x).lower() else 
+            2
+        ))
         
         plot_df = df[df['method'].isin(ordered_methods)]
         palette = {m: get_style(m)[0] for m in ordered_methods}
@@ -226,13 +242,9 @@ def plot_trends(df, output_dir, threshold_cm=None):
                     width=0.5, palette=palette, 
                     showfliers=False, order=ordered_methods)
         
-        plt.ylabel('3D RMS Error [cm]', fontweight='bold')
+        plt.ylabel('3D RMS Error [m]', fontweight='bold')
         plt.xlabel('Correction Method', fontweight='bold')
         # plt.title('Overall Positioning Accuracy Distribution', fontweight='bold', pad=15)
-        
-        # Use threshold for axis limit if provided
-        if threshold_cm:
-            plt.ylim(0, threshold_cm)
         
         new_labels = [get_style(m)[1] for m in ordered_methods]
         ax = plt.gca()
@@ -245,7 +257,7 @@ def plot_trends(df, output_dir, threshold_cm=None):
         plt.savefig(output_dir / "paper_overall_distribution_boxplot.png", dpi=300)
         plt.close()
 
-        # 4. CDF Plot (Critical for Papers)
+        # 2. CDF Plot (Critical for Papers) - Uses FULL data
         # -------------------------------------------------------------------------
         plt.figure(figsize=(8, 6), dpi=300)
         
@@ -268,9 +280,9 @@ def plot_trends(df, output_dir, threshold_cm=None):
             
             # Print stats
             rms_95 = np.percentile(subset, 95)
-            logger.info(f"{method} 95%: {rms_95:.2f} cm")
+            logger.info(f"{method} 95%: {rms_95:.2f} m")
 
-        plt.xlabel('3D RMS Error [cm]', fontweight='bold')
+        plt.xlabel('3D RMS Error [m]', fontweight='bold')
         plt.ylabel('Cumulative Probability [%]', fontweight='bold')
         # plt.title('Error Cumulative Distribution Function (CDF)', fontweight='bold', pad=15)
         
@@ -286,16 +298,8 @@ def plot_trends(df, output_dir, threshold_cm=None):
         plt.tight_layout()
         plt.savefig(output_dir / "paper_cdf_3d_rms.png", dpi=300)
         plt.close()
-
-        logger.info(f"Main trend plots saved to: {output_dir}")
-
-def plot_extended_analysis(df, output_dir, threshold_cm=None):
-    """Generate extended analysis plots for deeper insights."""
-    output_dir = Path(output_dir)
     
-    methods = df['method'].unique() if 'method' in df.columns else []
-    
-    # 5. Vertical vs Horizontal Error Scatter
+    # 3. Vertical vs Horizontal Error Scatter - Uses FULL data
     # -------------------------------------------------------------------------
     if '2d_rms' in df.columns and 'up_rms' in df.columns:
         plt.figure(figsize=(10, 8), dpi=300)
@@ -316,8 +320,8 @@ def plot_extended_analysis(df, output_dir, threshold_cm=None):
             plt.scatter(subset['2d_rms'], subset['up_rms'], 
                        alpha=0.4, label=label, color=color, s=25)
             
-        plt.xlabel('2D (Horizontal) RMS Error [cm]', fontweight='bold')
-        plt.ylabel('Vertical (Up) RMS Error [cm]', fontweight='bold')
+        plt.xlabel('2D (Horizontal) RMS Error [m]', fontweight='bold')
+        plt.ylabel('Vertical (Up) RMS Error [m]', fontweight='bold')
         # plt.title('Vertical vs Horizontal Positioning Error', fontweight='bold', pad=15)
         
         # Add 1:1 line
@@ -347,7 +351,7 @@ def plot_extended_analysis(df, output_dir, threshold_cm=None):
             sns.histplot(subset['3d_rms'], color=color, label=label, 
                         kde=True, alpha=0.3, element="step", bins=bins)
             
-        plt.xlabel('3D RMS Error [cm]', fontweight='bold')
+        plt.xlabel('3D RMS Error [m]', fontweight='bold')
         plt.ylabel('Count', fontweight='bold')
         # plt.title('Distribution of 3D Positioning Errors', fontweight='bold', pad=15)
         
@@ -472,8 +476,8 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
             # Red: Baseline Better (Above the 1:1 line) -> y > x
             plt.fill_between([0, max_val], [0, max_val], max_val, color='red', alpha=0.05, label=f'{baseline_label} Better')
 
-            plt.xlabel(f'{baseline_label} 3D RMS [cm]', fontweight='bold')
-            plt.ylabel(f'{model_label} 3D RMS [cm]', fontweight='bold')
+            plt.xlabel(f'{baseline_label} 3D RMS [m]', fontweight='bold')
+            plt.ylabel(f'{model_label} 3D RMS [m]', fontweight='bold')
             # plt.title(f'{model_label} vs {baseline_label} Performance', fontweight='bold', pad=15)
             
             # Text annotations for regions
@@ -511,7 +515,7 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
                 plt.axvspan(p01, 0, color='red', alpha=0.05, label=f'{baseline_label} Better')
                 plt.axvline(0, color='k', linestyle='--', linewidth=2)
 
-                plt.xlabel(f'Improvement ({baseline_label} Error - {model_label} Error) [cm]\nPositive values = {model_label} is better', fontweight='bold')
+                plt.xlabel(f'Improvement ({baseline_label} Error - {model_label} Error) [m]\nPositive values = {model_label} is better', fontweight='bold')
                 plt.ylabel('Count', fontweight='bold')
                 # plt.title(f'Distribution of {model_label} Improvement over {baseline_label}', fontweight='bold', pad=15)
                 
@@ -520,7 +524,7 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
                 # Stats annotation
                 mean_imp = diff_data.mean()
                 median_imp = diff_data.median()
-                stats_text = f"Mean Imp.: {mean_imp:.2f} cm\nMedian Imp.: {median_imp:.2f} cm"
+                stats_text = f"Mean Imp.: {mean_imp:.2f} m\nMedian Imp.: {median_imp:.2f} m"
                 plt.gca().text(0.95, 0.95, stats_text, transform=plt.gca().transAxes, 
                             verticalalignment='top', horizontalalignment='right', 
                             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))
@@ -629,10 +633,10 @@ def main():
             df = df[~df['station'].isin(stations)]
             
     # Prepare Data
-    threshold_cm = None
+    threshold_m = None
     if args.exclude_threshold:
-        logger.info(f"Setting axis limit to {args.exclude_threshold} m for boxplots/CDF/scatter (keeping all data)")
-        threshold_cm = args.exclude_threshold * 100  # Convert to cm for plotting
+        logger.info(f"Filtering data with threshold: {args.exclude_threshold} m")
+        threshold_m = args.exclude_threshold  # Keep in meters
     
     df = prepare_data(df)
     
@@ -641,9 +645,11 @@ def main():
 
     # Generate Plots
     logger.info("Generating plots...")
-    plot_trends(df, args.output_dir, threshold_cm=threshold_cm)
-    plot_extended_analysis(df, args.output_dir, threshold_cm=threshold_cm)
-    plot_model_vs_gim_comparison(df, args.output_dir, threshold_cm=threshold_cm)
+    # Apply threshold only to trend plots (for clearer visualization)
+    plot_trends(df, args.output_dir, threshold_cm=threshold_m)
+    # Use all data for other plots (axis limits may use threshold if provided)
+    plot_extended_analysis(df, args.output_dir, threshold_cm=threshold_m)
+    plot_model_vs_gim_comparison(df, args.output_dir, threshold_cm=threshold_m)
     
     logger.info(f"Done. Plots saved to: {args.output_dir}")
     return 0
