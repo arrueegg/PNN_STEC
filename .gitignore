@@ -60,3 +60,5 @@ hp_search/wandb_slurm_scripts/
 multiday_parallel/
 comparisons*/
 ionex_plots/
+slurm_logs/
+sbatch_scripts/
