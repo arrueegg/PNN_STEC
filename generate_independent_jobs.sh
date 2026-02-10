@@ -98,6 +98,7 @@ export CUDA_LAUNCH_BLOCKING=1
 export CUBLAS_WORKSPACE_CONFIG=:16:8
 export OMP_NUM_THREADS=8
 export PYTHONUNBUFFERED=1
+export CLUSTER_MODE=true                # Enable cluster mode detection
 
 # =====================================================================
 # Training
