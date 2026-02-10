@@ -7,7 +7,7 @@
 #SBATCH --time=24:00:00               # Long timeout (positioning is intensive)
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1             # One GPU per node
-#SBATCH --mem-per-cpu=8G              # Memory per CPU
+#SBATCH --mem-per-cpu=16G             # Memory per CPU
 #SBATCH --output=slurm_logs/positioning_%j.log
 #SBATCH --error=slurm_logs/positioning_%j.err
 

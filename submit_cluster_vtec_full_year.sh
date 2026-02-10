@@ -8,9 +8,8 @@
 #SBATCH --time=08:00:00                # Max 8 hours per DOY (enough for 10 members)
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1              # GPU per node (not per task)
-#SBATCH --mem-per-cpu=8G               # Memory per CPU core
+#SBATCH --mem-per-cpu=16G              # Increased from 8G to 16G (10 ensemble members need more RAM)
 #SBATCH --output=slurm_logs/vtec_doy_%a.log
-#SBATCH --error=slurm_logs/vtec_doy_%a.err
 
 # =====================================================================
 # Configuration
@@ -105,15 +104,17 @@ export PYTHONUNBUFFERED=1
 
 echo ""
 echo "Starting training for DOY $DOY with 10 ensemble members..."
+echo "Using config: $CONFIG_FILE"
+echo "Python version: $(python --version)"
 echo ""
 
-# Run training
-python src/main.py \
+# Run training with verbose output
+python -u src/main.py \
   --config "$CONFIG_FILE" \
   --year "$YEAR" \
   --doy "$DOY" \
   --output_dir "experiments/" \
-  --cluster true
+  --cluster true 2>&1 | tee -a slurm_logs/vtec_doy_${DOY}_verbose.log
 
 TRAIN_EXIT_CODE=$?
 
