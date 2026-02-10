@@ -103,6 +103,8 @@ class ValidationManager:
                     # Use same loss calculation logic as training
                     if self.loss_function == "GaussianNLLLoss":
                         loss = nll_loss + current_kl_weight * kld_loss
+                    elif self.loss_function == "LaplacianNLLLoss":  # [PAPER] Mao et al. 2025
+                        loss = nll_loss
                     elif self.loss_function == "MSELoss":
                         loss = mse_loss
                     else:
@@ -222,6 +224,8 @@ class ValidationManager:
                     )  # No KL loss for MLP ensembles
 
                     if self.loss_function == "GaussianNLLLoss":
+                        loss = nll_loss
+                    elif self.loss_function == "LaplacianNLLLoss":  # [PAPER] Mao et al. 2025
                         loss = nll_loss
                     elif self.loss_function == "MSELoss":
                         loss = mse_loss

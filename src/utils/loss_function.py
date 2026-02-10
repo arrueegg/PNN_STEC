@@ -3,6 +3,59 @@ import torch.nn as nn
 import torchbnn as bnn
 
 
+class LaplacianNLLLoss(nn.Module):
+    """
+    [PAPER] Mao et al. 2025: Negative Log-Likelihood for Laplacian distribution.
+    
+    The Laplacian distribution is more robust to outliers than Gaussian.
+    
+    PDF: p(y | μ, b) = (1 / (2*b)) * exp(-|y - μ| / b)
+    NLL: L = log(2*b) + |y - μ| / b
+    
+    Args:
+        mu: Predicted location (mean) [batch_size, 1] or [batch_size]
+        target: Target values [batch_size] or [batch_size, 1]
+        scale: Predicted scale parameter (b), must be > 0 [batch_size, 1] or [batch_size]
+    
+    Returns:
+        Scalar loss (mean over batch)
+    """
+    
+    def __init__(self, eps=1e-3):
+        super().__init__()
+        self.eps = eps  # Minimum scale to avoid numerical issues
+    
+    def forward(self, mu, target, scale):
+        """
+        Compute Laplacian NLL loss.
+        
+        Args:
+            mu: Predicted location [batch_size] or [batch_size, 1]
+            target: Target tensor [batch_size] or [batch_size, 1]
+            scale: Predicted scale [batch_size] or [batch_size, 1]
+        
+        Returns:
+            Scalar loss
+        """
+        # Ensure all are [batch_size]
+        if mu.dim() == 2:
+            mu = mu.squeeze(-1)
+        if target.dim() == 2:
+            target = target.squeeze(-1)
+        if scale.dim() == 2:
+            scale = scale.squeeze(-1)
+        
+        # Ensure scale is positive
+        scale = torch.clamp(scale, min=self.eps)
+        
+        # Laplacian NLL: log(2*scale) + |y - mu| / scale
+        abs_error = torch.abs(target - mu)
+        loss = torch.log(2 * scale) + abs_error / scale
+        
+        return loss.mean()
+
+
+
 class FairCRPSLoss(nn.Module):
     """
     Fair CRPS (Continuous Ranked Probability Score) loss for probabilistic regression.
@@ -162,6 +215,8 @@ def get_criterion(config, loss_fn=None):
             criterion = WeightedGaussianNLLLoss(weight_function=weight_function)
         else:
             criterion = nn.GaussianNLLLoss()
+    elif loss_type == "LaplacianNLLLoss":  # [PAPER] Mao et al. 2025
+        criterion = LaplacianNLLLoss()
     elif loss_type == "BKLLoss":
         criterion = bnn.BKLLoss(reduction="mean", last_layer_only=False)
     else:

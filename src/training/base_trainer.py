@@ -192,7 +192,8 @@ class BaseTrainer:
     # ---------- Main training orchestration ----------
 
     def run_training(
-        self, train_loader, val_loader, test_loader, init_model_fn, training_key
+        self, train_loader, val_loader, test_loader, init_model_fn, training_key,
+        ensemble_member=None, ensemble_size=None
     ):
         """
         Main training orchestration method.
@@ -207,6 +208,8 @@ class BaseTrainer:
           - train_loader, val_loader, test_loader: Dataloaders for training/validation/testing.
           - init_model_fn: Function that takes (seed) and returns an initialized model.
           - training_key: String key to choose the training configuration, e.g. "finetune" or "pretrain".
+          - ensemble_member: [PAPER] Mao et al.: Current ensemble member index (0-indexed)
+          - ensemble_size: [PAPER] Mao et al.: Total ensemble size
         """
         seed = self.config["random_seed"]
         model_dir = os.path.join(self.config["output_dir"], "model")
@@ -219,6 +222,9 @@ class BaseTrainer:
             from utils.wandb_sweep_integration import setup_wandb_for_sweep
 
             experiment_name = os.path.basename(self.config["output_dir"])
+            # [PAPER] Mao et al.: Append ensemble member info to experiment name
+            if ensemble_member is not None and ensemble_size is not None:
+                experiment_name = f"{experiment_name}_ensemble_{ensemble_member+1}_{ensemble_size}"
             setup_wandb_for_sweep(self.config, experiment_name)
 
         model = init_model_fn(seed)

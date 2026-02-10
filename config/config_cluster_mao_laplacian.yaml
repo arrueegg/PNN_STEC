@@ -1,0 +1,203 @@
+# =====================================================================
+# Mao et al. 2025: Daily VTEC MLP with Laplacian NLL - CLUSTER VERSION
+# =====================================================================
+# Cluster configuration for Mao et al. 2025 daily VTEC training
+# This configuration implements the daily VTEC neural network from:
+# Mao et al., 2025: "Daily VTEC Learning with Neural Networks"
+# (Space Weather, 10.1029/2025SW004446)
+#
+# Key characteristics:
+# - MLP with 3 hidden layers × 90 neurons, tanh activation
+# - Laplacian distribution loss (robust to outliers)
+# - Spherical harmonics degree 15 (256 basis functions) for spatial encoding
+# - No space weather indices (captures from observations)
+# - Daily model (per-day training)
+#
+# Usage on cluster:
+#   python src/main.py --config config/config_cluster_mao_laplacian.yaml --year 2024 --doy 122
+# =====================================================================
+
+# General configuration
+project_name: "PNN_Mao_LaplacianNLL_Cluster"
+output_dir: "experiments/"
+year: 2024
+doy: 183
+mode: finetune                  # Single day training
+finetune_from_scratch: true
+random_seed: 42
+debug: False
+debug_single_batch: false
+cluster: true                   # CLUSTER MODE ENABLED
+enable_timing: false
+
+# Feature Control - [PAPER] Mao et al. 2025 specification
+feature_control:
+  # Temporal features - [PAPER] ONLY SOD (3 features: norm, sin, cos)
+  year: false          # [PAPER] Daily training only - all samples same year
+  doy: false           # [PAPER] Daily training only - all samples same DOY
+  sod: true            # [PAPER] ONLY THIS - seconds of day (normalized, sin, cos)
+  local_time_hours: false  # [PAPER] Subsumed by longitude (sun-fixed) + SOD
+
+  # Station features - DISABLED for VTEC (no station-specific)
+  sm_lat_sta: false
+  sm_lon_sta: false
+  lat_sta: false
+  lon_sta: false
+
+  # IPP (Ionospheric Pierce Point) features - GEOMAGNETIC ONLY
+  # [PAPER] Mao uses only geomagnetic IPP coordinates for SH computation
+  lat_ipp: false        
+  lon_ipp: false        
+  sm_lat_ipp: true      # [PAPER] Geomagnetic latitude for SH computation
+  sm_lon_ipp: true      # [PAPER] Geomagnetic longitude for SH computation
+
+  # Direction features - DISABLED for VTEC
+  satazi: false
+  satele: false
+
+  # Space Weather Indices - DISABLED [PAPER] Mao specification
+  Kp_index: false
+  R_Sunspot_No: false
+  Dst-index,_nT: false
+  AE-index,_nT: false
+  ap_index,_nT: false
+  f107_index: false
+
+# Wandb configuration
+wandb:
+  offline: false
+
+# Evaluation configuration
+evaluation:
+  enable_scenarios: false
+
+# =====================================================================
+# TARGET: VTEC
+# =====================================================================
+target: "vtec"
+
+# =====================================================================
+# Data Configuration - CLUSTER PATHS
+# =====================================================================
+data:
+  # Cluster paths - adjust based on your cluster's actual paths
+  # These are examples - verify with your cluster admin
+  GNSS_data_path: "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB"
+  use_agg_h5: false
+  scratch_dir: "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/"
+  SWI_data_path: "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/"
+  move_to_scratch: true          # Copy data to compute node's local scratch for speed
+  every_x_doy: 1
+  use_SWI: false                 # [PAPER] Mao: No space weather indices
+  SH_degree: 15                  # [PAPER] Degree 15 = (15+1)² = 256 basis functions
+  min_elevation: 15.0            # [PAPER] Mao et al. 15° cutoff (not 5°)
+  max_elevation: 90.0
+  shuffle: true
+  train_subset_size: 500_000
+  val_size: 1_000_000
+  test_size: 10_000_000
+
+# =====================================================================
+# Model Configuration - [PAPER] Mao et al. 2025
+# =====================================================================
+model:
+  model_type: MLP_LaplacianNLL  # [PAPER] MLP with Laplacian distribution
+  
+  # [PAPER] Network dimensions per Mao et al.
+  hidden_dim: 90                # [PAPER] 3 hidden layers × 90 neurons
+  num_layers: 3                 # [PAPER] Exactly 3 layers
+  
+  # Dropout - minimal (Mao uses ensemble for uncertainty)
+  dropout_rate: 0.0
+  
+  # Bayesian parameters - not used for this model
+  prior_sigma: 0.1
+
+# =====================================================================
+# Training Configuration
+# =====================================================================
+training:
+  loss_function: "LaplacianNLLLoss"  # [PAPER] Laplacian loss (robust to outliers)
+  loss_weight: 1.0
+  
+  # KL annealing - not used
+  kl_annealing:
+    enabled: false
+  
+  # Target weighting - disabled for Laplacian loss
+  target_weighting:
+    enabled: false
+  
+  # Optimizer
+  optimizer: "Adam"
+  learning_rate: 0.001
+  weight_decay: 0.0
+  
+  # Target transformations
+  standardize_targets: false
+  log_target: false
+  log_space_point: "mean"
+  
+  # Checkpointing
+  save_best_only: true
+  checkpoint_every: 1
+  
+  # Mixed precision training
+  use_amp: true
+
+# Pretrain configuration (not used for daily model)
+pretrain:
+  epochs: 150
+  batchsize: 2048
+  num_workers: 4
+  prefetch_factor: 4
+  learning_rate: 0.001
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 100
+  early_stopping: true
+  patience: 10
+  save_model_every_epoch: false
+
+# Finetune configuration - daily training
+finetune:
+  epochs: 50
+  batchsize: 2048
+  num_workers: 8
+  prefetch_factor: 4
+  freeze_body: false
+  learning_rate: 0.001
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 100
+  early_stopping: true
+  patience: 5
+  save_model_every_epoch: false
+  
+  # [PAPER] Mao et al. 2025: Deep Ensemble
+  ensemble_size: 10                 # [PAPER] Train 10 independent models
+  train_ensemble: true              # Enable ensemble training for full Mao specification
+  parallel_ensemble: false          # Set to true if cluster node has multiple GPUs
+
+# =====================================================================
+# Notes - [PAPER] Mao et al., 2025
+# =====================================================================
+#
+# This configuration implements:
+# 1. Daily interpolator NN (not temporal forecaster)
+# 2. Input: 259 features (temporal from sod + 256 SH spatial basis)
+# 3. Output: Laplacian distribution (location, scale)
+# 4. Model: 3×90 tanh MLP (89 + 1 biases per layer ≈ 16K parameters)
+# 5. Training: Per-day on full daily observations (finetune mode)
+# 6. Uncertainty: 10-member deep ensemble (combine aleatoric + epistemic)
+#
+# Cluster-specific changes:
+# - cluster: true (enables cluster logging/monitoring)
+# - Paths point to /cluster/work/igp_psr/ shared storage
+# - move_to_scratch: true for faster I/O on compute nodes
+#
+# Expected improvements:
+# - Laplacian loss handles outliers better than MSE/GaussianNLL
+# - SH basis captures spatial patterns naturally
+# - Ensemble provides robust uncertainty quantification
+# - Direct VTEC (not STEC) avoids mapping errors
+#
+# =====================================================================

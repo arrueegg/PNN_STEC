@@ -626,6 +626,35 @@ class MLP_NLL(torch.nn.Module):
         return mean, variance
 
 
+class MLP_LaplacianNLL(torch.nn.Module):
+    """
+    [PAPER] Mao et al. 2025: MLP for daily VTEC with Laplacian distribution.
+    
+    Architecture: 3 hidden layers × 90 neurons with tanh activation
+    Output: (location, scale) for Laplacian distribution
+    Uses existing repo collate function and feature pipeline.
+    """
+    def __init__(self, n_in=259, hidden_dim=90, num_layers=3):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        self.layers.append(Linear(n_in, hidden_dim))
+        for _ in range(num_layers - 1):
+            self.layers.append(Linear(hidden_dim, hidden_dim))
+        self.output_layer = Linear(hidden_dim, 2)
+
+    def forward(self, x):
+        # [PAPER] tanh activation in hidden layers
+        for layer in self.layers:
+            x = torch.tanh(layer(x))
+        x = self.output_layer(x)
+        location, log_scale = torch.split(x, 1, dim=1)
+        # [PAPER] Ensure scale > 0 using softplus
+        scale = F.softplus(log_scale) + 1e-3
+
+        return location, scale
+
+
+
 class MLP_MCDropout_mse(torch.nn.Module):
     def __init__(self, n_in=3, n_out=1, hidden_dim=256, num_layers=4, dropout_rate=0.1):
         super().__init__()
@@ -1671,27 +1700,32 @@ def get_model(config):
 
     # SH embeddings (if enabled)
     sh_degree = config["data"]["SH_degree"]
-    sh_dim_per_location = sh_degree ** 2  # Each location gets degree² features
+    # SphericalHarmonics(legendre_polys=L) produces (L+1)² basis functions
+    # So if sh_degree=15 (meaning up to degree 15), use (sh_degree+1)² = 256
+    sh_dim_per_location = (sh_degree + 1) ** 2 if sh_degree > 0 else 0
     
-    # Calculate total SH dimension based on available features
-    # For each location (station geo, station SM, IPP geo, IPP SM), we add SH embeddings
+    # Calculate total SH dimension by counting which coordinate systems are enabled
     total_sh_dim = 0
     if sh_degree > 0:
-        # Check if station features are available
-        has_station_features = len(station_features) > 0
-        # Check if IPP features are available
-        has_ipp_features = len(ipp_features) > 0
+        num_sh_locations = 0
         
-        if has_station_features and has_ipp_features:
-            # STEC with IPP: Station geo + Station SM + IPP geo + IPP SM = 4 locations
-            total_sh_dim = 4 * sh_dim_per_location
-        elif has_station_features:
-            # STEC without IPP: Station geo + Station SM = 2 locations
-            total_sh_dim = 2 * sh_dim_per_location
-        elif has_ipp_features:
-            # VTEC: IPP geo + IPP SM = 2 locations
-            total_sh_dim = 2 * sh_dim_per_location
-        # else: no SH embeddings at all
+        # Check for station geographic coordinates
+        if "lat_sta" in station_features and "lon_sta" in station_features:
+            num_sh_locations += 1
+        
+        # Check for station SM coordinates
+        if "sm_lat_sta" in station_features and "sm_lon_sta" in station_features:
+            num_sh_locations += 1
+        
+        # Check for IPP geographic coordinates
+        if "lat_ipp" in ipp_features and "lon_ipp" in ipp_features:
+            num_sh_locations += 1
+        
+        # Check for IPP SM coordinates
+        if "sm_lat_ipp" in ipp_features and "sm_lon_ipp" in ipp_features:
+            num_sh_locations += 1
+        
+        total_sh_dim = num_sh_locations * sh_dim_per_location
 
     # Total input features after all transformations
     in_features = (
@@ -1709,6 +1743,9 @@ def get_model(config):
         )
     elif model_type == "MLP_NLL":
         model = MLP_NLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
+        return model
+    elif model_type == "MLP_LaplacianNLL":  # [PAPER] Mao et al. 2025
+        model = MLP_LaplacianNLL(n_in=in_features, hidden_dim=hidden_dim, num_layers=num_layers)
         return model
     elif model_type == "DE_MLP":
         model = DeepEnsemble_MLP(

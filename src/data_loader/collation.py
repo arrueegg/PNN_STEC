@@ -30,8 +30,9 @@ class CollateWithSH:
         self.sh_degree = config["data"].get("SH_degree", 0) or 0
         self.sh_enabled = self.sh_degree > 0
         if self.sh_enabled:
-            # SphericalHarmonics produces degree² features for each location
-            self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree)
+            # SphericalHarmonics(legendre_polys=L) produces (L+1)² basis functions
+            # For sh_degree=15 (up to degree 15), use legendre_polys=16 to get 256 basis
+            self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree + 1)
 
         # Pre-compute feature slices for efficiency
         self.slices = {
@@ -133,8 +134,9 @@ class CollateWithSH:
 
         # SH embeddings if enabled
         if self.sh_enabled:
-            # Each location gets degree² SH features
-            sh_dim = self.sh_degree * self.sh_degree
+            # SphericalHarmonics(legendre_polys=L) produces L² features
+            # We use legendre_polys = sh_degree + 1, so we get (sh_degree+1)² features
+            sh_dim = (self.sh_degree + 1) * (self.sh_degree + 1)
 
             # Check if station features are available (they're excluded for VTEC)
             has_station_features = (
@@ -318,6 +320,7 @@ class CollateWithSH:
             transformed_features.append(feature_norm)
 
         return torch.cat(transformed_features, dim=1)
+
 
     def compute_sh_embeddings(self, features):
         """Compute spherical harmonic embeddings for station and IPP"""
