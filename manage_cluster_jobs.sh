@@ -3,7 +3,10 @@
 # Helper script to submit, monitor, and aggregate results
 # =====================================================================
 
-PROJECT_DIR="/scratch2/arrueegg/WP4/PNN_STEC"
+PROJECT_DIR=$(pwd)
+
+# Alternatively, hardcode cluster path:
+# PROJECT_DIR="/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC"
 
 # Colors for output
 RED='\033[0;31m'

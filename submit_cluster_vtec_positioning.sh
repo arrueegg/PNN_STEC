@@ -11,7 +11,7 @@
 #SBATCH --output=slurm_logs/positioning_%j.log
 #SBATCH --error=slurm_logs/positioning_%j.err
 
-PROJECT_DIR="/scratch2/arrueegg/WP4/PNN_STEC"
+PROJECT_DIR=$(pwd)
 
 echo "=========================================="
 echo "VTEC Positioning Evaluation"

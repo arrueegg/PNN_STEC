@@ -16,8 +16,11 @@
 # Configuration
 # =====================================================================
 
-# Project directory (adjust if different)
-PROJECT_DIR="/scratch2/arrueegg/WP4/PNN_STEC"
+# Project directory - use current working directory
+PROJECT_DIR=$(pwd)
+
+# Alternatively, hardcode cluster path:
+# PROJECT_DIR="/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC"
 
 # DOY from job array index
 DOY=$SLURM_ARRAY_TASK_ID
