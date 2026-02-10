@@ -6,8 +6,8 @@
 #SBATCH --job-name=VTEC_Positioning_2024
 #SBATCH --time=24:00:00               # Long timeout (positioning is intensive)
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-task=2
-#SBATCH --mem=128G
+#SBATCH --gpus-per-node=1             # One GPU per node
+#SBATCH --mem-per-cpu=8G              # Memory per CPU
 #SBATCH --output=slurm_logs/positioning_%j.log
 #SBATCH --error=slurm_logs/positioning_%j.err
 

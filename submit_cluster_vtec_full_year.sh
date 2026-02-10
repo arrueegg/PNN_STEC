@@ -7,8 +7,8 @@
 #SBATCH --array=122-366                  # One job per DOY (122-366)
 #SBATCH --time=08:00:00                # Max 8 hours per DOY (enough for 10 members)
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-task=1
-#SBATCH --mem=64G
+#SBATCH --gpus-per-node=1              # GPU per node (not per task)
+#SBATCH --mem-per-cpu=8G               # Memory per CPU core
 #SBATCH --output=slurm_logs/vtec_doy_%a.log
 #SBATCH --error=slurm_logs/vtec_doy_%a.err
 
