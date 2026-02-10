@@ -91,7 +91,7 @@ data:
   max_elevation: 90.0
   shuffle: true
   train_subset_size: 500_000
-  val_size: 1_000_000
+  val_size: 100_000
   test_size: 10_000_000
 
 # =====================================================================
