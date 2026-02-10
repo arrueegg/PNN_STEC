@@ -1,6 +1,32 @@
 #!/bin/bash
 # =====================================================================
-# Helper script to submit, monitor, and aggregate results
+# DEPRECATED - Use independent job submission scripts instead
+# =====================================================================
+#
+# This management script was for the old job array approach.
+# Use the new independent job approach:
+#
+# 1. Generate independent scripts:
+#    bash generate_independent_jobs.sh
+#
+# 2. Submit all jobs:
+#    bash submit_all_jobs.sh
+#
+# 3. Monitor:
+#    squeue -u $USER
+#
+# =====================================================================
+
+echo "❌ DEPRECATED: Use the new independent job approach"
+echo ""
+echo "Steps:"
+echo "1. bash generate_independent_jobs.sh"
+echo "2. bash submit_all_jobs.sh"
+echo "3. squeue -u \$USER (to monitor)"
+echo ""
+exit 1
+
+# OLD CODE BELOW (DO NOT USE)
 # =====================================================================
 
 PROJECT_DIR=$(pwd)

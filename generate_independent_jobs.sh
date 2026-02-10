@@ -1,45 +1,45 @@
 #!/bin/bash
 # =====================================================================
-# DEPRECATED - Use independent job submission instead
-# =====================================================================
-#
-# This file is DEPRECATED. Job arrays were causing all jobs to run on 
-# the same node. Use the new independent job approach instead:
-#
-# STEPS:
-# 1. Generate independent scripts:
-#    bash generate_independent_jobs.sh
-#
-# 2. Submit all jobs:
-#    bash submit_all_jobs.sh
-#
-# Each DOY will now run as a completely independent job on different nodes.
-#
-# =====================================================================
-
-echo "❌ DEPRECATED: Use the new independent job approach"
-echo ""
-echo "Steps:"
-echo "1. bash generate_independent_jobs.sh"
-echo "2. bash submit_all_jobs.sh"
-echo ""
-exit 1
-
-# OLD CODE BELOW (DO NOT USE)
+# Generate and submit individual SBATCH scripts for each DOY
+# One completely independent job per DOY (122-366)
 # =====================================================================
 
 PROJECT_DIR=$(pwd)
+SCRIPTS_DIR="$PROJECT_DIR/sbatch_scripts"
 
-# Alternatively, hardcode cluster path:
-# PROJECT_DIR="/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC"
+# Create directory for individual scripts
+mkdir -p "$SCRIPTS_DIR"
 
-# DOY from job array index
-DOY=$SLURM_ARRAY_TASK_ID
+echo "Generating 245 independent SBATCH scripts..."
+echo "Output directory: $SCRIPTS_DIR"
+echo ""
 
-# Year to train
+# Loop through DOYs 122-366
+for DOY in $(seq 122 366); do
+    SCRIPT_FILE="$SCRIPTS_DIR/vtec_doy_${DOY}.sh"
+    
+    # Create individual sbatch script
+    cat > "$SCRIPT_FILE" << 'EOF'
+#!/bin/bash
+# =====================================================================
+# Single VTEC Training Job - DOY specific
+# This is a completely independent job (no job arrays)
+# =====================================================================
+#SBATCH --job-name=VTEC_DOY_INDIVIDUAL
+#SBATCH --time=08:00:00                # Max 8 hours per DOY
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-node=1              # One GPU
+#SBATCH --mem-per-cpu=16G              # Memory per CPU core
+#SBATCH --output=slurm_logs/vtec_doy_%j.log
+#SBATCH --mail-type=FAIL               # Email on job failure
+
+# =====================================================================
+# Configuration
+# =====================================================================
+
+PROJECT_DIR=$(pwd)
+DOY=PLACEHOLDER_DOY
 YEAR=2024
-
-# Configuration file
 CONFIG_FILE="config/config_cluster_mao_laplacian.yaml"
 
 # =====================================================================
@@ -47,10 +47,9 @@ CONFIG_FILE="config/config_cluster_mao_laplacian.yaml"
 # =====================================================================
 
 echo "=========================================="
-echo "VTEC Training: DOY $DOY / 245 total"
+echo "VTEC Training: DOY $DOY"
 echo "=========================================="
 echo "Job ID: $SLURM_JOB_ID"
-echo "Array Index: $SLURM_ARRAY_TASK_ID"
 echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "Start Time: $(date)"
 echo "=========================================="
@@ -88,25 +87,15 @@ if [ ! -f "src/main.py" ]; then
     exit 1
 fi
 
-# Check data files exist
-if [ ! -f "data/train.h5" ]; then
-    echo "⚠️  Warning: data/train.h5 not found - data may be on scratch"
-fi
-
 echo "✅ Configuration verified"
 
 # =====================================================================
 # GPU Setup
 # =====================================================================
 
-# Set GPU device (if multiple GPUs, use first one)
 export CUDA_VISIBLE_DEVICES=0
-
-# CUDA settings for stability
 export CUDA_LAUNCH_BLOCKING=1
 export CUBLAS_WORKSPACE_CONFIG=:16:8
-
-# PyTorch optimizations
 export OMP_NUM_THREADS=8
 export PYTHONUNBUFFERED=1
 
@@ -148,3 +137,27 @@ echo "=========================================="
 python -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
 
 exit $TRAIN_EXIT_CODE
+EOF
+
+    # Replace placeholder with actual DOY
+    sed -i "s/PLACEHOLDER_DOY/$DOY/g" "$SCRIPT_FILE"
+    
+    # Make executable
+    chmod +x "$SCRIPT_FILE"
+    
+    echo "✅ Generated: $SCRIPT_FILE"
+done
+
+echo ""
+echo "=========================================="
+echo "✅ Generated 245 independent SBATCH scripts"
+echo "=========================================="
+echo ""
+echo "To submit all jobs:"
+echo "  bash submit_all_jobs.sh"
+echo ""
+echo "To submit specific DOYs:"
+echo "  sbatch sbatch_scripts/vtec_doy_122.sh"
+echo "  sbatch sbatch_scripts/vtec_doy_123.sh"
+echo "  ..."
+echo ""

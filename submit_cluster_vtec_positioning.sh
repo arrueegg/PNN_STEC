@@ -1,15 +1,19 @@
 #!/bin/bash
 # =====================================================================
-# SLURM Job: Run Positioning Evaluation after VTEC training
-# Run this AFTER main training completes (365 jobs done)
+# DEPRECATED - Updated approach uses independent jobs
 # =====================================================================
+#
+# After running the new independent job training approach:
+# 1. bash generate_independent_jobs.sh
+# 2. bash submit_all_jobs.sh
+#
+# Once those complete, you can run this positioning script:
 #SBATCH --job-name=VTEC_Positioning_2024
 #SBATCH --time=24:00:00               # Long timeout (positioning is intensive)
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1             # One GPU per node
 #SBATCH --mem-per-cpu=16G             # Memory per CPU
 #SBATCH --output=slurm_logs/positioning_%j.log
-#SBATCH --error=slurm_logs/positioning_%j.err
 
 PROJECT_DIR=$(pwd)
 
