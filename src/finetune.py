@@ -96,8 +96,15 @@ class Finetuner(BaseTrainer):
             import random
             torch.manual_seed(ensemble_seed)
             torch.cuda.manual_seed_all(ensemble_seed)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
+            
+            # Use cluster speed optimizations unless in debug mode
+            if not self.config.get("debug", False):
+                torch.backends.cudnn.deterministic = False
+                torch.backends.cudnn.benchmark = True
+            else:
+                torch.backends.cudnn.deterministic = True
+                torch.backends.cudnn.benchmark = False
+                
             np.random.seed(ensemble_seed)
             random.seed(ensemble_seed)
             
@@ -144,8 +151,11 @@ class Finetuner(BaseTrainer):
             ensemble_seed = base_seed_val + member_idx
             torch.manual_seed(ensemble_seed)
             torch.cuda.manual_seed_all(ensemble_seed)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
+            
+            # Use cluster speed optimizations
+            torch.backends.cudnn.deterministic = False
+            torch.backends.cudnn.benchmark = True
+            
             np.random.seed(ensemble_seed)
             random.seed(ensemble_seed)
             

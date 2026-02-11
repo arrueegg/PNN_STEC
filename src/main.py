@@ -7,8 +7,8 @@ import gc
 
 from utils.config_parser import parse_config
 from data_processing.add_split_indices import add_split_indices
-from pretrain import Pretrainer
-from finetune import Finetuner
+# DEFERRED: from pretrain import Pretrainer
+# DEFERRED: from finetune import Finetuner
 from utils.feature_registry import initialize_feature_registry, FeatureType, print_feature_summary
 from utils.wandb_sweep_integration import integrate_wandb_sweep_config
 
@@ -78,10 +78,12 @@ def main(config_path=None):
     data_path = config["data"]["GNSS_data_path"]
 
     if config["mode"] == "pretrain":
+        from pretrain import Pretrainer
         print("")
         logger.info("Starting pretraining...")
         Pretrainer(config, logger)
     elif config["mode"] == "finetune":
+        from finetune import Finetuner
         # Check if we should finetune from scratch (no pretrained weights)
         finetune_from_scratch = config.get("finetune_from_scratch", False)
         
