@@ -16,6 +16,7 @@ Usage:
 
 import os
 import sys
+import shutil
 import argparse
 import logging
 import subprocess
@@ -150,13 +151,36 @@ def plot_trends(df, output_dir):
     # Helper to get style
     def get_style(method_name):
         m_lower = str(method_name).lower()
+        
+        # Determine base label and color
         if 'stec' in m_lower:
-            return stec_color, "Direct STEC", 'o'
+            color = stec_color
+            base_label = "Direct STEC"
+            marker = 'o'
         elif 'vtec' in m_lower:
-            return vtec_color, "VTEC + Mapping", 's'
+            color = vtec_color
+            base_label = "VTEC + Mapping"
+            marker = 's'
         elif 'gim' in m_lower:
-            return gim_color, "IGS GIM + Mapping", '^'
-        return 'gray', method_name, 'x'
+            color = gim_color
+            base_label = "IGS GIM + Mapping"
+            marker = '^'
+        else:
+            return 'gray', method_name, 'x'
+            
+        # Append weight option to label if present
+        if "_iono" in m_lower:
+            label = f"{base_label} (Unc-Weighted)"
+            # Slightly vary marker/color for distinction if needed, 
+            # or just use color for "STEC" vs "VTEC"
+        elif "_elev" in m_lower:
+             label = f"{base_label} (Elev-Weighted)"
+        elif "_snr" in m_lower:
+             label = f"{base_label} (SNR-Weighted)"
+        else:
+            label = base_label
+            
+        return color, label, marker
 
     # Pre-process Data
     if 'date' in df.columns:
@@ -389,31 +413,24 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
     for exp_path, model_label in experiments_to_run:
         logger.info(f"--- Processing {model_label} Model ---")
         
-        # Determine weighting for this model
-        # Force elevation weighting for VTEC models (which have 0 uncertainty)
-        current_weight_opt = args.weight_opt
-        if model_label == "VTEC" and args.weight_opt == "iono":
-            logger.info("Forcing weight_opt='elev' for VTEC model (uncertainties are 0)")
-            current_weight_opt = "elev"
-        
-        # Check if final result already exists - skip unless --redo is set
-        summary_filename = "daily_summary.csv"
-        if current_weight_opt != "elev":
-            summary_filename = f"daily_summary_{current_weight_opt}.csv"
-            
-        res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / summary_filename
-        if res_path.exists() and not args.redo:
-            logger.info(f"Skipping processing for {model_label} (Results found at {res_path})")
-            day_results.append((current_date, res_path, model_label))
-            continue
-        
-        if args.redo and res_path.exists():
-            logger.info(f"Redoing evaluation for {model_label} as requested.")
+        # 1. Run Inference (Single Day)
+        run_inf = not args.skip_inference
+        if args.only_vtec_inference and model_label == "STEC":
+            run_inf = False
+            logger.info(f"Skipping STEC inference as --only_vtec_inference is set")
+        if args.only_stec_inference and model_label == "VTEC":
+            run_inf = False
+            logger.info(f"Skipping VTEC inference as --only_stec_inference is set")
 
-        # 2. Run Inference (Single Day)
-        if not args.skip_inference:
+        if run_inf:
             # Check if inference output already exists
             correction_dir = Path(exp_path) / "positioning" / "stec_corrections" / f"{year}{doy:03d}"
+            # REDO logic: delete and regenerate if redo is set
+            if args.redo and correction_dir.exists():
+                logger.info(f"Redoing inference for {model_label} on {date_str}")
+                import shutil
+                shutil.rmtree(correction_dir)
+
             if correction_dir.exists() and any(correction_dir.iterdir()):
                  logger.info(f"Skipping inference for {model_label} (Output found at {correction_dir})")
             else:
@@ -424,29 +441,60 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
                 ]
                 if not run_command(inf_cmd, f"Inference for {model_label} on {date_str}", logger):
                     continue
-                
-        # 3. Run Positioning Evaluation
-        station_parallel = getattr(args, 'station_parallel', 1)
 
-        eval_cmd = [
-            sys.executable, "src/positioning_eval/run_positioning_evaluation.py",
-            "--experiment", exp_path,
-            "--date", date_str,
-            "--all_test_stations",
-            "--parallel", str(station_parallel),
-            "--no_cleanup",  # Always preserve SNX files for accurate reference coordinates
-            "--weight_opt", current_weight_opt
-        ]
-        
-        if args.skip_downloads:
-            eval_cmd.append("--skip_downloads")
-        if args.redo:
-            eval_cmd.append("--redo")
-        
-        if run_command(eval_cmd, f"Evaluation for {model_label} on {date_str}", logger):
+        # 2. Run Positioning Evaluation for each weighting option
+        for w_opt in args.weight_opts:
+            current_weight_opt = w_opt
+            
+            # Implementation of user requirement: 
+            # "if the model only returns predictions (MLP), use elevation weighting even if 'iono' is specified"
+            # For this script, we assume "VTEC" (baseline MLP) fits this category unless it's an ensemble.
+            # However, to be safe and avoid duplicate runs, if 'iono' is requested for VTEC and 'elev' is also in the list,
+            # we can skip the 'iono' run for VTEC or just map it to 'elev'.
+            
+            is_mlp_vtec = (model_label == "VTEC" and "ensemble" not in str(vtec_base_config.get('model', {}).get('model_type', '')).lower())
+            
+            if current_weight_opt == "iono" and is_mlp_vtec:
+                logger.info(f"VTEC model is MLP (no uncertainty). Mapping 'iono' weighting to 'elev' for {model_label}.")
+                current_weight_opt = "elev"
+                # If 'elev' weighting was already processed, we can skip this to avoid duplicates
+                if "elev" in args.weight_opts and args.weight_opts.index("elev") < args.weight_opts.index("iono"):
+                    logger.info(f"Skipping redundant 'iono' (mapped to 'elev') for {model_label}")
+                    continue
+
+            logger.info(f"Running evaluation with weight_opt: {current_weight_opt}")
+            
+            # Custom results path for different weightings
+            summary_filename = "daily_summary.csv"
+            if current_weight_opt != "elev":
+                summary_filename = f"daily_summary_{current_weight_opt}.csv"
+            
             res_path = Path(exp_path) / "positioning" / "results" / f"{year}{doy:03d}" / summary_filename
-            if res_path.exists():
-                day_results.append((current_date, res_path, model_label))
+            if res_path.exists() and not args.redo:
+                logger.info(f"Skipping evaluation for {model_label} ({current_weight_opt}) (Results found at {res_path})")
+                day_results.append((current_date, res_path, f"{model_label}_{current_weight_opt}"))
+                continue
+            
+            station_parallel = getattr(args, 'station_parallel', 1)
+            eval_cmd = [
+                sys.executable, "src/positioning_eval/run_positioning_evaluation.py",
+                "--experiment", exp_path,
+                "--date", date_str,
+                "--all_test_stations",
+                "--parallel", str(station_parallel),
+                "--no_cleanup",
+                "--weight_opt", current_weight_opt
+            ]
+            
+            if args.skip_downloads:
+                eval_cmd.append("--skip_downloads")
+            if args.redo:
+                eval_cmd.append("--redo")
+            
+            description = f"Evaluation for {model_label} ({current_weight_opt}) on {date_str}"
+            if run_command(eval_cmd, description, logger):
+                if res_path.exists():
+                    day_results.append((current_date, res_path, f"{model_label}_{current_weight_opt}"))
     
     return day_results
 
@@ -465,14 +513,20 @@ def main():
     parser.add_argument("--parallel", type=int, default=4, help="Number of DAYS to process in parallel")
     parser.add_argument("--station_parallel", type=int, default=4, help="Number of STATIONS per day to process in parallel")
     
-    parser.add_argument("--skip_inference", action="store_true", help="Skip STEC generation step")
+    parser.add_argument("--skip_inference", action="store_true", help="Skip STEC/VTEC generation step")
+    parser.add_argument("--only_vtec_inference", action="store_true", help="Only generate corrections for VTEC models (skip STEC inference)")
+    parser.add_argument("--only_stec_inference", action="store_true", help="Only generate corrections for STEC models (skip VTEC inference)")
     parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
     parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
     parser.add_argument("--redo", action="store_true", help="Force redo of positioning evaluation even if results exist")
-    parser.add_argument("--weight_opt", type=str, default="elev", help="Weighting option: elev (elevation), snr (SNR), or iono (ionospheric uncertainty)")
+    parser.add_argument("--weight_opt", type=str, default="elev", help="Weighting option: elev (elevation), snr (SNR), or iono (ionospheric uncertainty). Can be comma-separated list.")
     
     args = parser.parse_args()
     logger = setup_logging()
+
+    # Parse Weighting Options
+    weight_opts = [w.strip() for w in args.weight_opt.split(",")]
+    args.weight_opts = weight_opts  # Store list in args
     
     # Load Base Configs
     logger.info(f"Loading base STEC config: {args.stec_config}")
@@ -575,23 +629,17 @@ def main():
             df['date'] = date_obj.strftime("%Y-%m-%d")
             df['doy'] = date_obj.timetuple().tm_yday
             
-            # Rename "Model" to specific model type
+            # Normalize method names using our label (which contains model + weight)
             if 'method' in df.columns:
-                target_name = "Direct STEC" if label == "STEC" else "VTEC + Mapping"
-                if args.weight_opt != 'elev':
-                     target_name += f" ({args.weight_opt})"
-
                 # Normalize typical names (handle case variations)
-                # First lower case everything
                 df['method'] = df['method'].str.lower()
                 
-                # Replace known patterns
-                # Handle model* pattern (model, model_iono, etc.)
-                df.loc[df['method'].str.startswith('model'), 'method'] = target_name
+                # Replace 'model' with the descriptive label we stored in day_results
+                # label is e.g. "STEC_iono" or "VTEC_elev"
+                df.loc[df['method'].str.startswith('model'), 'method'] = label
                 
                 # Handle GIM
                 df.loc[df['method'].str.contains('gim'), 'method'] = 'IGS GIM + Mapping'
-                pass
             
             all_metrics.append(df)
         except Exception as e:
@@ -601,11 +649,10 @@ def main():
         combined_df = pd.concat(all_metrics, ignore_index=True)
         
         # Deduplicate entries to correct statistics (especially for IGS GIM which appears in both runs)
-        # Assuming 'station' and 'date' and 'method' uniquely identify a measurement
         cols_to_check = ['date', 'method']
         if 'station' in combined_df.columns:
             cols_to_check.append('station')
-        if 'time' in combined_df.columns: # Sometimes results are hourly/epoch
+        if 'time' in combined_df.columns:
             cols_to_check.append('time')
             
         before_len = len(combined_df)
@@ -615,11 +662,9 @@ def main():
             logger.info(f"Dropped {dropped_count} duplicate rows (mostly redundant IGS GIM entries)")
         
         # Save to a central "multiday_results" folder
-        suffix = ""
-        if args.weight_opt != "elev":
-            suffix = f"_{args.weight_opt}"
-            
-        base_output_dir = Path("multiday_results") / f"positioning{suffix}"
+        # Use a unique name based on the current run configuration
+        run_identifier = datetime.now().strftime("%Y%m%d_%H%M")
+        base_output_dir = Path("multiday_results") / f"positioning_{run_identifier}"
         base_output_dir.mkdir(parents=True, exist_ok=True)
         
         output_file = base_output_dir / "multiday_summary.csv"
