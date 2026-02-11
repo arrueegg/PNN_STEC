@@ -231,10 +231,14 @@ def apply_mapping_function(
     # Note: Column is named 'pred_stec' from inference output, but values are VTEC
     if 'pred_stec' in vtec_df.columns:
         vtec_pred = vtec_df['pred_stec'].values
-        var_col = 'pred_aleatoric_unc'
+        # Prefer total uncertainty if available (e.g. for ensembles)
+        if 'pred_total_unc' in vtec_df.columns:
+            var_cols = ['pred_aleatoric_unc', 'pred_epistemic_unc', 'pred_total_unc']
+        else:
+            var_cols = ['pred_aleatoric_unc']
     elif 'pred_mean' in vtec_df.columns:
         vtec_pred = vtec_df['pred_mean'].values
-        var_col = 'pred_var'
+        var_cols = ['pred_var']
     else:
         raise KeyError(f"Could not find prediction column. Available: {vtec_df.columns.tolist()}")
     
@@ -246,13 +250,22 @@ def apply_mapping_function(
     stec_mapped = vtec_pred * mapping_factors
     
     # Also propagate uncertainty (variance scales with mapping factor squared)
-    if var_col in vtec_df.columns:
-        vtec_var = vtec_df[var_col].values
-        # If uncertainty is std, square it first
-        if 'unc' in var_col:
-            vtec_var = vtec_var ** 2
-        stec_var_mapped = vtec_var * (mapping_factors ** 2)
-        vtec_df[f'{column_prefix}_stec_var'] = stec_var_mapped
+    for v_col in var_cols:
+        if v_col in vtec_df.columns:
+            vtec_val = vtec_df[v_col].values
+            
+            # If uncertainty is std, square it first to get variance
+            if 'unc' in v_col:
+                vtec_var = vtec_val ** 2
+                suffix = v_col.replace('pred_', '')
+            else:
+                vtec_var = vtec_val
+                suffix = 'var'
+                
+            stec_var_mapped = vtec_var * (mapping_factors ** 2)
+            # Store both variance and original uncertainty (std)
+            vtec_df[f'{column_prefix}_stec_{suffix}'] = np.sqrt(stec_var_mapped)
+            vtec_df[f'{column_prefix}_stec_{suffix}_var'] = stec_var_mapped
     
     vtec_df[f'{column_prefix}_stec'] = stec_mapped
     vtec_df[f'{column_prefix}_mapping_factor'] = mapping_factors
@@ -923,7 +936,9 @@ def main(args=None):
                                "Ensure both models use the same test data.")
             
             # Merge VTEC results into test_df (assumes same order from same data loader)
-            test_df['vtec_model_stec'] = vtec_df['vtec_model_stec'].values
+            vtec_cols_to_merge = [c for c in vtec_df.columns if c.startswith('vtec_model_stec')]
+            for col in vtec_cols_to_merge:
+                test_df[col] = vtec_df[col].values
             vtec_col = 'vtec_model_stec'
         
         # Add GIM comparison if requested

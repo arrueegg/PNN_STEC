@@ -20,11 +20,43 @@ echo ""
 # Array to store job IDs
 JOB_IDS=()
 SUBMITTED=0
+SKIPPED=0
 FAILED=0
 
 # Submit each DOY script
 for SCRIPT in "$SCRIPTS_DIR"/vtec_doy_*.sh; do
     DOY=$(basename "$SCRIPT" | sed 's/vtec_doy_//g' | sed 's/.sh//g')
+    
+    # Prepare padded DOY for folder matching (ensure 3 digits as in experiment names)
+    DOY_PADDED=$(printf "%03d" "$DOY")
+
+    # Check if experiment already has all 10 ensemble members
+    ALREADY_DONE=false
+    if [ -d "experiments" ]; then
+        # Look for folders matching the current DOY (supports any target and any year)
+        for EXP_DIR in experiments/Finetune_VTEC_*"${DOY_PADDED}"*LaplacianNLL*; do
+            if [ -d "$EXP_DIR" ]; then
+                # Check both 'model' and 'models' as per user comment
+                MEMBER_COUNT=0
+                if [ -d "$EXP_DIR/model" ]; then
+                    MEMBER_COUNT=$(ls -1 "$EXP_DIR/model"/*.pth 2>/dev/null | wc -l)
+                elif [ -d "$EXP_DIR/models" ]; then
+                    MEMBER_COUNT=$(ls -1 "$EXP_DIR/models"/*.pth 2>/dev/null | wc -l)
+                fi
+
+                if [ "$MEMBER_COUNT" -ge 10 ]; then
+                    echo "⏭️  Skipping DOY $DOY: $MEMBER_COUNT ensemble members already exist in $(basename "$EXP_DIR")"
+                    ALREADY_DONE=true
+                    break
+                fi
+            fi
+        done
+    fi
+
+    if [ "$ALREADY_DONE" = true ]; then
+        SKIPPED=$((SKIPPED + 1))
+        continue
+    fi
     
     # Submit job
     JOB_ID=$(sbatch "$SCRIPT" 2>&1 | grep -oP 'Submitted batch job \K[0-9]+')
@@ -47,7 +79,8 @@ echo "========================================"
 echo "Submission Summary"
 echo "========================================"
 echo "Submitted: $SUBMITTED jobs"
-echo "Failed: $FAILED jobs"
+echo "Skipped:   $SKIPPED jobs (already completed)"
+echo "Failed:    $FAILED jobs"
 echo ""
 
 if [ $SUBMITTED -gt 0 ]; then
