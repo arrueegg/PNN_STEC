@@ -126,15 +126,11 @@ def load_model_from_checkpoint(config: Dict, checkpoint_path: Path, logger) -> t
     from data_loader.collation import CollateWithSH
     collate_fn = CollateWithSH(config)
     
-    # Create model
-    model = get_model(config).to(config["device"])
+    # Load model (handles single or ensemble)
+    from model.model import load_model_for_inference
+    experiment_dir = Path(checkpoint_path).parent.parent
+    model = load_model_for_inference(config, experiment_dir, logger)
     
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=config["device"], weights_only=True)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    
-    logger.info(f"✅ Loaded {config['model']['model_type']} from {checkpoint_path.name}")
     return model, feature_registry
 
 

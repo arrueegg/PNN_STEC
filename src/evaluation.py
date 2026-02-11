@@ -90,12 +90,9 @@ def run_model_inference(config, experiment_dir, model_path, logger):
     # Create trainer (same as inference_testset.py)
     trainer = BaseTrainer(config, logger)
     
-    # Load model (same as inference_testset.py)
-    model = get_model(config).to(config["device"])
-    checkpoint = torch.load(model_path, map_location=config["device"], weights_only=True)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    logger.info(f"✅ Model loaded: {config['model']['model_type']}")
+    # Load the model (handles single or ensemble)
+    from model.model import load_model_for_inference
+    model = load_model_for_inference(config, experiment_dir, logger)
     
     # Run Bayesian inference (same as inference_testset.py)
     logger.info("🧠 Running Bayesian inference...")

@@ -92,18 +92,9 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
     # Create trainer which includes all managers
     trainer = BaseTrainer(config, logger)
 
-    # Load and initialize the model manually
-    model = get_model(config).to(config["device"])
-
-    # Load the trained model weights
-    checkpoint = torch.load(
-        model_path, map_location=config["device"], weights_only=True
-    )
-    model.load_state_dict(checkpoint["model_state_dict"])
-    logger.info(f"✅ Loaded model weights from: {model_path}")
-
-    # Set the model in evaluation mode
-    model.eval()
+    # Load the model (handles single or ensemble)
+    from model.model import load_model_for_inference
+    model = load_model_for_inference(config, experiment_dir, logger)
 
     # Run inference
     print("")

@@ -119,7 +119,8 @@ class InferenceManager:
 
                 # Check if this is an ensemble model
                 model_type = self.config["model"]["model_type"]
-                if model_type == "DE_MLP":
+                from model.model import DeepEnsemble, DeepEnsemble_MLP
+                if isinstance(model, (DeepEnsemble, DeepEnsemble_MLP)) or model_type == "DE_MLP":
                     # For ensemble models, use the decomposed uncertainty method
                     ensemble_mean, aleatoric_var, epistemic_var, total_var = (
                         model.get_uncertainties(inputs)
@@ -142,6 +143,10 @@ class InferenceManager:
                             mean_raw, var_raw = self.data_transforms.compute_mean_var(
                                 outputs
                             )
+                            
+                            # [PAPER] Mao et al. 2025: Laplacian variance is 2 * scale^2
+                            if "Laplacian" in model_type:
+                                var_raw = 2.0 * (var_raw ** 2)
 
                             if self.use_log_target:
                                 # Log-normal moments for this pass

@@ -581,15 +581,9 @@ def main():
             test_stations = load_test_stations()
             logger.info(f"📍 Test stations: {len(test_stations)}")
             
-            # Find and load model
-            model_path = find_model_checkpoint(experiment_dir)
-            logger.info(f"🎯 Model: {model_path.name}")
-            
-            model = get_model(config).to(config["device"])
-            checkpoint = torch.load(model_path, map_location=config["device"], weights_only=True)
-            model.load_state_dict(checkpoint["model_state_dict"])
-            model.eval()
-            logger.info(f"✅ Model loaded: {config['model']['model_type']}")
+            # Load model (handles single or ensemble)
+            from model.model import load_model_for_inference
+            model = load_model_for_inference(config, experiment_dir, logger)
             
             # Iterate through date range
             current_date = start_date
@@ -635,15 +629,9 @@ def main():
         test_stations = load_test_stations()
         logger.info(f"📍 Test stations: {len(test_stations)}")
         
-        # Find and load model
-        model_path = find_model_checkpoint(experiment_dir)
-        logger.info(f"🎯 Model: {model_path.name}")
-        
-        model = get_model(config).to(config["device"])
-        checkpoint = torch.load(model_path, map_location=config["device"], weights_only=True)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        model.eval()
-        logger.info(f"✅ Model loaded: {config['model']['model_type']}")
+        # Load model (handles single or ensemble)
+        from model.model import load_model_for_inference
+        model = load_model_for_inference(config, experiment_dir, logger)
         
         # Process date(s)
         process_date(args, config, model, feature_registry, test_stations, logger)

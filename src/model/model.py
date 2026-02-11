@@ -1140,6 +1140,86 @@ class Branch3Way_BNN_NLL(nn.Module):
         return mean, variance
 
 
+class DeepEnsemble(torch.nn.Module):
+    """
+    General Deep Ensemble wrapper that aggregates predictions from multiple models.
+    Supports both Gaussian and Laplacian uncertainty models.
+    """
+    def __init__(self, models, model_type="Gaussian"):
+        super().__init__()
+        self.ensemble_models = nn.ModuleList(models)
+        self.model_type = model_type  # "Gaussian" or "Laplacian"
+
+    def forward(self, x):
+        """
+        Forward pass through ensemble.
+        Returns:
+            ensemble_mean: Mean of all member predictions
+            total_uncertainty: Sum of aleatoric (avg per-model var) and epistemic (variance of means)
+        """
+        predictions = []
+        variances_or_scales = []
+
+        # Get outputs from all ensemble members
+        for model in self.ensemble_models:
+            mean, v = model(x)
+            predictions.append(mean)
+            variances_or_scales.append(v)
+
+        # Stack: [ensemble_size, batch_size, 1]
+        mu_stack = torch.stack(predictions, dim=0)
+        v_stack = torch.stack(variances_or_scales, dim=0)
+
+        # 1. Ensemble Mean (Aggregated Prediction)
+        ensemble_mean = torch.mean(mu_stack, dim=0)
+
+        # 2. Aleatoric Uncertainty (Expected variance across models)
+        if "Laplacian" in self.model_type:
+            # For Laplacian: Var = 2 * b^2
+            aleatoric_var = torch.mean(2.0 * (v_stack**2), dim=0)
+        else:
+            # For Gaussian: Var = sigma^2
+            aleatoric_var = torch.mean(v_stack, dim=0)
+
+        # 3. Epistemic Uncertainty (Variance of means across ensemble)
+        epistemic_var = torch.var(mu_stack, dim=0, unbiased=True)
+
+        # 4. Total Uncertainty
+        total_uncertainty = aleatoric_var + epistemic_var
+
+        return ensemble_mean, total_uncertainty
+
+    def get_uncertainties(self, x):
+        """Decomposed uncertainties for analysis."""
+        predictions = []
+        variances_or_scales = []
+
+        for model in self.ensemble_models:
+            mean, v = model(x)
+            predictions.append(mean)
+            variances_or_scales.append(v)
+
+        mu_stack = torch.stack(predictions, dim=0)
+        v_stack = torch.stack(variances_or_scales, dim=0)
+
+        ensemble_mean = torch.mean(mu_stack, dim=0)
+        
+        if "Laplacian" in self.model_type:
+            aleatoric_var = torch.mean(2.0 * (v_stack**2), dim=0)
+        else:
+            aleatoric_var = torch.mean(v_stack, dim=0)
+            
+        epistemic_var = torch.var(mu_stack, dim=0, unbiased=True)
+        total_uncertainty = aleatoric_var + epistemic_var
+
+        return (
+            ensemble_mean,
+            aleatoric_var,
+            epistemic_var,
+            total_uncertainty,
+        )
+
+
 class DeepEnsemble_MLP(torch.nn.Module):
     def __init__(self, n_in=3, hidden_dim=256, num_layers=4, ensemble_size=5):
         super().__init__()
@@ -1912,3 +1992,54 @@ def get_model(config):
         return model
     else:
         raise ValueError(f"Model type {model_type} is not recognized.")
+
+
+def load_model_for_inference(config, experiment_dir, logger=None):
+    """
+    Unified loader for both single and ensemble models.
+    Detects multiple checkpoints in model/ folder and aggregates them if found.
+    """
+    import os
+    from pathlib import Path
+
+    device = config.get("device", torch.device("cpu"))
+    model_dir = Path(experiment_dir) / "model"
+    if not model_dir.exists():
+        raise FileNotFoundError(f"Model directory not found: {model_dir}")
+
+    # Find all .pth files
+    pth_files = sorted(list(model_dir.glob("*.pth")))
+    if not pth_files:
+        raise FileNotFoundError(f"No model checkpoints found in {model_dir}")
+
+    # If multiple checkpoints found, create an ensemble
+    if len(pth_files) > 1:
+        if logger:
+            logger.info(f"👥 Detected {len(pth_files)} ensemble members. Loading ensemble...")
+        
+        models = []
+        for pth_path in pth_files:
+            model = get_model(config).to(device)
+            # Use weights_only=True for security (PyTorch 2.4+)
+            checkpoint = torch.load(pth_path, map_location=device, weights_only=True)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            model.eval()
+            models.append(model)
+        
+        # Determine model distribution type for ensemble wrapper
+        model_type = config["model"]["model_type"]
+        dist_type = "Laplacian" if "Laplacian" in model_type else "Gaussian"
+        
+        ensemble = DeepEnsemble(models, model_type=dist_type)
+        return ensemble.to(device)
+    
+    # Otherwise, load single model
+    else:
+        if logger:
+            logger.info(f"🎯 Loading single model: {pth_files[0].name}")
+        
+        model = get_model(config).to(device)
+        checkpoint = torch.load(pth_files[0], map_location=device, weights_only=True)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.eval()
+        return model
