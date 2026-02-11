@@ -45,7 +45,7 @@ for SCRIPT in "$SCRIPTS_DIR"/vtec_doy_*.sh; do
                 fi
 
                 if [ "$MEMBER_COUNT" -ge 10 ]; then
-                    echo "⏭️  Skipping DOY $DOY: $MEMBER_COUNT ensemble members already exist in $(basename "$EXP_DIR")"
+                    #echo "⏭️  Skipping DOY $DOY: $MEMBER_COUNT ensemble members already exist in $(basename "$EXP_DIR")"
                     ALREADY_DONE=true
                     break
                 fi
@@ -54,12 +54,12 @@ for SCRIPT in "$SCRIPTS_DIR"/vtec_doy_*.sh; do
     fi
 
     if [ "$ALREADY_DONE" = true ]; then
-        SKIPPED=$((SKIPPED + 1))
+        #SKIPPED=$((SKIPPED + 1))
         continue
     fi
     
     # Submit job
-    JOB_ID=$(sbatch "$SCRIPT" 2>&1 | grep -oP 'Submitted batch job \K[0-9]+')
+    #JOB_ID=$(sbatch "$SCRIPT" 2>&1 | grep -oP 'Submitted batch job \K[0-9]+')
     
     if [ -z "$JOB_ID" ]; then
         echo "❌ Failed to submit DOY $DOY"

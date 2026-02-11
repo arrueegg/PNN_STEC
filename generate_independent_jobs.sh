@@ -30,7 +30,7 @@ for DOY in $(seq 122 366); do
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8              # Allocate 8 CPU cores
 #SBATCH --gpus-per-node=1              # One GPU
-#SBATCH --mem-per-cpu=1G              # Memory per CPU core
+#SBATCH --mem-per-cpu=2G              # Memory per CPU core
 #SBATCH --output=slurm_logs/vtec_doy_${DOY}_%j.log
 #SBATCH --mail-type=FAIL               # Email on job failure
 
