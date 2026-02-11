@@ -16,11 +16,15 @@ from utils.wandb_sweep_integration import integrate_wandb_sweep_config
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger(__name__)
 
-def setup_seed(seed):
+def setup_seed(seed, deterministic=True):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    else:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
     np.random.seed(seed)
     random.seed(seed)
 
@@ -40,7 +44,9 @@ def main(config_path=None):
     # Integrate wandb sweep parameters if active
     config = integrate_wandb_sweep_config(config)
 
-    setup_seed(config["random_seed"])
+    # Enable benchmarking for speed unless in debug mode or explicit deterministic mode
+    is_deterministic = config.get("deterministic", config.get("debug", False))
+    setup_seed(config["random_seed"], deterministic=is_deterministic)
 
     gc.collect()
     torch.cuda.empty_cache()

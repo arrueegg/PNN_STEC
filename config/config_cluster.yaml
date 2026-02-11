@@ -57,9 +57,9 @@ target: "stec" # stec or vtec
 data:
   GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
   use_agg_h5: True
-  scratch_dir: "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/"
+  scratch_dir: "/scratch/"
   SWI_data_path: "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/"
-  move_to_scratch: True # Whether to move data to scratch for faster access
+  move_to_scratch: False # REDUNDANT: Data is loaded to RAM anyway. Setting to false avoids slow network copy.
   every_x_doy: 1 # Use every x day of year (1 = all, 2 = every second day, etc.)
   use_SWI: True # Whether to use Space Weather Indices as input data
   SH_degree: 5
@@ -116,7 +116,7 @@ training:
 pretrain:
   epochs: 150
   batchsize: 1024
-  num_workers: 12
+  num_workers: 8
   prefetch_factor: 4
   learning_rate: 0.001
   scheduler: ReduceLROnPlateau       # none, StepLR, CosineAnnealingLR
@@ -129,7 +129,7 @@ finetune:
   freeze_body: False                  # Whether to freeze the body of the network during finetuning
   epochs: 50
   batchsize: 512                     # Batch size for finetuning (can be different from pretrain)
-  num_workers: 4
+  num_workers: 8
   learning_rate: 0.0002
   scheduler: ReduceLROnPlateau       # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100           # Step size for scheduler (reduces lr every X epochs)

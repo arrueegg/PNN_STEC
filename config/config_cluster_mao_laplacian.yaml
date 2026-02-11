@@ -83,9 +83,9 @@ data:
   # Cluster paths
   GNSS_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/STEC_DB_CASDCB
   use_agg_h5: false              # False for finetuning (single day per DOY)
-  scratch_dir: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
+  scratch_dir: /scratch/
   SWI_data_path: /cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data/
-  move_to_scratch: true          # Filesystem caching on shared storage
+  move_to_scratch: false         # REDUNDANT: Data is loaded to RAM anyway. Setting to false avoids slow network copy.
   every_x_doy: 1
   use_SWI: false                 # [PAPER] Mao: No space weather indices
   SH_degree: 15                  # [PAPER] Degree 15 = (15+1)² = 256 basis functions
@@ -148,7 +148,7 @@ training:
 pretrain:
   epochs: 150
   batchsize: 2048
-  num_workers: 4
+  num_workers: 8
   prefetch_factor: 4
   learning_rate: 0.001
   scheduler: ReduceLROnPlateau
@@ -161,8 +161,8 @@ pretrain:
 finetune:
   epochs: 50
   batchsize: 2048
-  num_workers: 12              # Increased from 8 (parallel data loading)
-  prefetch_factor: 8            # Increased from 4 (buffer more batches)
+  num_workers: 8              # Matched to allocated CPUs
+  prefetch_factor: 4            # Balanced for memory
   freeze_body: false
   learning_rate: 0.001
   scheduler: ReduceLROnPlateau

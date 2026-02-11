@@ -28,6 +28,7 @@ for DOY in $(seq 122 366); do
 #SBATCH --job-name=VTEC_DOY_INDIVIDUAL
 #SBATCH --time=08:00:00                # Max 8 hours per DOY
 #SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8              # Allocate 8 CPU cores
 #SBATCH --gpus-per-node=1              # One GPU
 #SBATCH --mem-per-cpu=16G              # Memory per CPU core
 #SBATCH --output=slurm_logs/vtec_doy_%j.log
@@ -94,7 +95,6 @@ echo "✅ Configuration verified"
 # =====================================================================
 
 export CUDA_VISIBLE_DEVICES=0
-export CUDA_LAUNCH_BLOCKING=1
 export CUBLAS_WORKSPACE_CONFIG=:16:8
 export OMP_NUM_THREADS=8
 export PYTHONUNBUFFERED=1

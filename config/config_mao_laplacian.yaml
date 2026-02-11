@@ -162,7 +162,7 @@ finetune:
   num_workers: 8
   prefetch_factor: 4
   freeze_body: false
-  learning_rate: 0.001
+  learning_rate: 0.002
   scheduler: ReduceLROnPlateau
   scheduler_step_size: 100
   early_stopping: true
