@@ -339,6 +339,10 @@ Date formats:
                        help="Pretrain experiment folder to use for STEC model (optional)")
     parser.add_argument("--skip_training", action="store_true",
                        help="Skip training, only run evaluation (experiments must exist)")
+    parser.add_argument("--update_vtec_only", action="store_true",
+                       help="Reuse existing STEC and GIM results and only update VTEC evaluation")
+    parser.add_argument("--skip_plots", action="store_true",
+                       help="Skip plot generation to save time")
     parser.add_argument("--skip_existing", action="store_true",
                        help="Skip training if experiment already exists")
     parser.add_argument("--no_aggregate", action="store_true",
@@ -483,6 +487,12 @@ def run_multiday(args):
         
         if args.skip_existing:
             sys.argv.extend(["--skip_existing"])
+
+        if args.update_vtec_only:
+            sys.argv.extend(["--update_vtec_only"])
+        
+        if args.skip_plots:
+            sys.argv.extend(["--skip_plots"])
         
         if args.no_aggregate:
             sys.argv.extend(["--no_aggregate"])

@@ -464,7 +464,8 @@ def run_positioning_pipeline(experiment_name: str, year: int, doy: int) -> bool:
 
 
 def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path, 
-                  num_samples: int = 100) -> bool:
+                  num_samples: int = 100, reuse_results: bool = False,
+                  skip_plots: bool = False) -> bool:
     """Run comprehensive comparison evaluation.
     
     Returns success status.
@@ -502,7 +503,9 @@ def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path,
                 no_gim=False, # Default
                 gim_path="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex", # Default
                 mapping_function="MSLM", # Default
-                output_dir=str(output_dir)
+                output_dir=str(output_dir),
+                reuse_results=reuse_results,
+                skip_plots=skip_plots
             )
             
             run_main_comparison(args=args)
@@ -600,7 +603,7 @@ def extract_elevation_metrics_from_experiment(evaluation_dir: Path) -> Dict[str,
     return elevation_metrics
 
 
-def generate_aggregate_report(batch_results: List[Dict], output_dir: Path):
+def generate_aggregate_report(batch_results: List[Dict], output_dir: Path, skip_plots: bool = False):
     """Generate aggregate statistics and plots across all days."""
     
     logger.info("="*70)
@@ -684,7 +687,10 @@ def generate_aggregate_report(batch_results: List[Dict], output_dir: Path):
     logger.info(summary_df.to_string(index=False))
     
     # Generate plots
-    generate_aggregate_plots(df, batch_results, summary_dir)
+    if not skip_plots:
+        generate_aggregate_plots(df, batch_results, summary_dir)
+    else:
+        logger.info("⏭️ Skipping aggregate plot generation")
     
     logger.info(f"\n✅ Aggregate report saved to: {summary_dir}")
 
@@ -1193,6 +1199,10 @@ Date formats supported:
                        help="Test set size (default: full)")
     parser.add_argument("--skip_training", action="store_true",
                        help="Skip training, only run evaluation (experiments must exist)")
+    parser.add_argument("--update_vtec_only", action="store_true",
+                       help="Reuse existing STEC and GIM results and only update VTEC evaluation")
+    parser.add_argument("--skip_plots", action="store_true",
+                       help="Skip plot generation to save time")
     parser.add_argument("--skip_comparison", action="store_true",
                        help="Skip comparison evaluation (Step 3)")
     parser.add_argument("--skip_existing", action="store_true",
@@ -1207,6 +1217,8 @@ Date formats supported:
                        help="Run positioning evaluation for each day")
     
     args = parser.parse_args()
+    logger.info(f"DEBUG: sys.argv: {sys.argv}")
+    logger.info(f"DEBUG: parsed args.update_vtec_only: {args.update_vtec_only}")
     
     if not args.summary_only and (not args.dates or not args.stec_config or not args.vtec_config):
         parser.error("--dates, --stec_config, and --vtec_config are required unless --summary_only is used")
@@ -1447,12 +1459,14 @@ Date formats supported:
         # Step 3: Run comparison evaluation
         comp_success = False
         if not args.skip_comparison:
-            logger.info(f"\n[3/3] Running comparison evaluation for {date_str}")
+            logger.info(f"\n[3/3] Running comparison evaluation for {date_str} (update_vtec_only: {args.update_vtec_only})")
             comp_success = run_comparison(
                 result['stec_experiment'],
                 result['vtec_experiment'],
                 date_dir / "evaluation",
-                args.num_inference_samples
+                args.num_inference_samples,
+                reuse_results=args.update_vtec_only,
+                skip_plots=args.skip_plots
             )
         else:
             logger.info(f"\n[3/3] Skipping comparison evaluation for {date_str}")
@@ -1491,7 +1505,7 @@ Date formats supported:
     logger.info(f"Successful: {success_count}/{len(batch_results)} days")
     
     if success_count > 0 and not args.no_aggregate:
-        generate_aggregate_report(batch_results, output_base)
+        generate_aggregate_report(batch_results, output_base, skip_plots=args.skip_plots)
     
     logger.info(f"\n✅ All results saved to: {output_base}")
 

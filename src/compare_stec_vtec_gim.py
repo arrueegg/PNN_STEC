@@ -88,6 +88,24 @@ def load_experiment_config(experiment_folder: str) -> Tuple[Dict, Path]:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
+    # Fix paths if they were saved on the cluster but are being evaluated locally
+    if 'data' in config:
+        cluster_base = "/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC/data"
+        local_base = "/home/space/data/iono"
+        
+        if config['data'].get('GNSS_data_path', '').startswith(cluster_base):
+             config['data']['GNSS_data_path'] = config['data']['GNSS_data_path'].replace(cluster_base, local_base)
+        
+        if config['data'].get('SWI_data_path', '').startswith(cluster_base):
+             config['data']['SWI_data_path'] = config['data']['SWI_data_path'].replace(cluster_base, f"{local_base}/SWI")
+             
+        # Also fix scratch_dir if it's pointing to /scratch/ (cluster default)
+        if config['data'].get('scratch_dir') == "/scratch/":
+            config['data']['scratch_dir'] = "/scratch2/arrueegg/WP4/PNN_STEC/data/"
+            
+    # Always disable cluster mode when evaluating locally
+    config['cluster'] = False
+    
     return config, experiment_dir
 
 
@@ -493,7 +511,8 @@ def save_results(
     logger.info(f"   - comparison_summary.txt")
     logger.info(f"   - metrics_summary.csv")
     logger.info(f"   - detailed_predictions.csv")
-    logger.info(f"   - 5 publication-ready plots")
+    if not args.skip_plots:
+        logger.info(f"   - 5 publication-ready plots")
 
 
 def run_comparison(
@@ -617,6 +636,10 @@ def main(args=None):
                         help="Mapping function for VTEC→STEC conversion (default: MSLM)")
         parser.add_argument("--output_dir", type=str, default=None,
                         help="Additional output directory (results always saved to experiment folder)")
+        parser.add_argument("--reuse_results", action="store_true",
+                        help="Reuse existing STEC and GIM results from output_dir if available")
+        parser.add_argument("--skip_plots", action="store_true",
+                        help="Skip plot generation")
         
         args = parser.parse_args()
 
@@ -686,6 +709,58 @@ def main(args=None):
         logger.info(f"Evaluating on: {dataset_name}")
         logger.info("="*70)
         
+        # Determine output sub-directory names (for checking existing results)
+        comparison_parts = [dataset_type]
+        if args.vtec_experiment: comparison_parts.append("vtec")
+        if not args.no_gim: comparison_parts.append("gim")
+        comparison_name = "_".join(comparison_parts)
+        
+        # Check if we can reuse results from a previous run
+        reusable_df = None
+        if getattr(args, 'reuse_results', False):
+            check_paths = []
+            
+            # 1. Try the root multiday structure (multiday_results/{year}_DOY_{doy}/evaluation/...)
+            # This is preferred for reusing results across different output directories
+            if stec_config.get('year') and stec_config.get('doy'):
+                # Extract year and doy, ensuring they are strings or ints as needed
+                y, d = stec_config.get('year'), stec_config.get('doy')
+                date_folder = f"{y}_DOY_{d}"
+                
+                # Try with full comparison name
+                check_paths.append(Path("multiday_results") / date_folder / "evaluation" / comparison_name / 'detailed_predictions.csv')
+                
+                # Also check standard multiday naming conventions 'own_vtec_gim' or 'madrigal_vtec_gim'
+                check_paths.append(Path("multiday_results") / date_folder / "evaluation" / f"{dataset_type}_vtec_gim" / 'detailed_predictions.csv')
+                check_paths.append(Path("multiday_results") / date_folder / "evaluation" / f"{dataset_type}_vtec" / 'detailed_predictions.csv')
+
+            # 2. Try provided output directory as fallback
+            if args.output_dir:
+                check_paths.append(Path(args.output_dir) / comparison_name / 'detailed_predictions.csv')
+                check_paths.append(Path(args.output_dir) / f"{dataset_type}_vtec_gim" / 'detailed_predictions.csv')
+
+            # 3. Try relative paths if nested
+            check_paths.append(Path("..") / ".." / "evaluation" / f"{dataset_type}_vtec_gim" / 'detailed_predictions.csv')
+
+            for check_path in check_paths:
+                if check_path.exists():
+                    try:
+                        reusable_df = pd.read_csv(check_path)
+                        logger.info(f"♻️  Found existing results to reuse: {check_path} ({len(reusable_df):,} samples)")
+                        # Ensure it has the required columns
+                        required = ['true_stec', 'stec_pred', 'elevation']
+                        if not all(col in reusable_df.columns for col in required):
+                            logger.warning(f"⚠️  Existing results missing required columns {required}, will re-evaluate.")
+                            reusable_df = None
+                            continue
+                        else:
+                            # Rename 'elevation' back to 'satele' for consistency 
+                            reusable_df.rename(columns={'elevation': 'satele'}, inplace=True)
+                            break
+                    except Exception as e:
+                        logger.warning(f"⚠️  Could not read existing results at {check_path}: {e}")
+                        reusable_df = None
+
         # Prepare test data based on dataset type
         if dataset_type == 'madrigal':
             # Get year and doy from config
@@ -705,7 +780,7 @@ def main(args=None):
             # Create Madrigal data loader for direct inference
             from data_loader.madrigal_dataset import get_madrigal_data_loader
             
-            madrigal_loader, madrigal_dataset = get_madrigal_data_loader(
+            vtec_madrigal_loader, madrigal_dataset = get_madrigal_data_loader(
                 madrigal_path=args.madrigal_path,
                 year=year,
                 doy=doy,
@@ -718,24 +793,29 @@ def main(args=None):
                 logger=logger
             )
             
-            # Run inference on Madrigal data
-            logger.info("🧠 Running STEC model inference on Madrigal observations...")
-            test_df = run_inference(stec_model, madrigal_loader, stec_config, "STEC Model (Madrigal)", logger, args.num_inference_samples)
-            
-            # Rename columns for consistency
-            test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
-            
-            # Add metadata from Madrigal dataset
-            logger.info("📋 Adding Madrigal metadata to results...")
-            metadata_list = []
-            for idx in range(len(madrigal_dataset)):
-                metadata_list.append(madrigal_dataset.get_metadata(idx))
-            metadata_df = pd.DataFrame(metadata_list)
-            
-            # Merge metadata with predictions
-            for col in metadata_df.columns:
-                if col not in test_df.columns:
-                    test_df[col] = metadata_df[col].values
+            # Check if we can skip STEC inference
+            if reusable_df is not None and len(reusable_df) == len(madrigal_dataset):
+                logger.info("⏭️  Skipping STEC model inference (Madrigal), reusing results")
+                test_df = reusable_df.copy()
+            else:
+                # Run inference on Madrigal data
+                logger.info("🧠 Running STEC model inference on Madrigal observations...")
+                test_df = run_inference(stec_model, vtec_madrigal_loader, stec_config, "STEC Model (Madrigal)", logger, args.num_inference_samples)
+                
+                # Rename columns for consistency
+                test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
+                
+                # Add metadata from Madrigal dataset
+                logger.info("📋 Adding Madrigal metadata to results...")
+                metadata_list = []
+                for idx in range(len(madrigal_dataset)):
+                    metadata_list.append(madrigal_dataset.get_metadata(idx))
+                metadata_df = pd.DataFrame(metadata_list)
+                
+                # Merge metadata with predictions
+                for col in metadata_df.columns:
+                    if col not in test_df.columns:
+                        test_df[col] = metadata_df[col].values
             
             logger.info(f"✅ Madrigal inference completed: {len(test_df):,} observations")
         
@@ -754,11 +834,16 @@ def main(args=None):
             set_test_size(stec_config, args.test_size)
             stec_test_loader = get_test_data_loader(stec_config, logger)
             
-            # Run STEC inference
-            test_df = run_inference(stec_model, stec_test_loader, stec_config, "STEC Model", logger, args.num_inference_samples)
-            
-            # Rename columns for consistency (pred_stec -> stec_pred, target_stec -> true_stec)
-            test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
+            # Check if we can skip STEC inference
+            if reusable_df is not None and len(reusable_df) == len(stec_test_loader.dataset):
+                logger.info("⏭️  Skipping STEC model inference (Own Test Set), reusing results")
+                test_df = reusable_df.copy()
+            else:
+                # Run STEC inference
+                test_df = run_inference(stec_model, stec_test_loader, stec_config, "STEC Model", logger, args.num_inference_samples)
+                
+                # Rename columns for consistency (pred_stec -> stec_pred, target_stec -> true_stec)
+                test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
         
         # Load and run VTEC model if provided
         vtec_col = None
@@ -844,12 +929,16 @@ def main(args=None):
         # Add GIM comparison if requested
         gim_col = None
         if not args.no_gim:
-            logger.info("\n" + "="*70)
-            logger.info("Processing IGS GIM Data")
-            logger.info("="*70)
-            
-            test_df = add_gim_comparison(test_df, args.gim_path, args.mapping_function, logger)
-            gim_col = 'gim_stec'
+            if 'gim_stec' in test_df.columns:
+                logger.info("⏭️  Skipping IGS GIM calculation, reusing results")
+                gim_col = 'gim_stec'
+            else:
+                logger.info("\n" + "="*70)
+                logger.info("Processing IGS GIM Data")
+                logger.info("="*70)
+                
+                test_df = add_gim_comparison(test_df, args.gim_path, args.mapping_function, logger)
+                gim_col = 'gim_stec'
         
         # Compare all models for this dataset
         logger.info("\n" + "="*70)
@@ -879,22 +968,26 @@ def main(args=None):
             output_dirs.append(custom_output_dir)
         
         # Create publication-ready visualizations
-        logger.info("\n" + "="*70)
-        logger.info("📊 Generating Publication-Ready Plots")
-        logger.info("="*70)
+        if not args.skip_plots:
+            logger.info("\n" + "="*70)
+            logger.info("📊 Generating Publication-Ready Plots")
+            logger.info("="*70)
+            
+            for output_dir in output_dirs:
+                generate_all_plots(
+                    test_df=test_df,
+                    stec_col='stec_pred',
+                    vtec_col=vtec_col,
+                    gim_col=gim_col,
+                    metrics=metrics,
+                    output_dir=output_dir,
+                    logger=logger
+                )
+        else:
+            logger.info("\n⏭️ Skipping plot generation (--skip_plots)")
         
         for output_dir in output_dirs:
-            generate_all_plots(
-                test_df=test_df,
-                stec_col='stec_pred',
-                vtec_col=vtec_col,
-                gim_col=gim_col,
-                metrics=metrics,
-                output_dir=output_dir,
-                logger=logger
-            )
-            
-            # Save results
+            # Save results (CSV files, etc.)
             save_results(metrics, test_df, output_dir, args, logger)
         
         logger.info(f"📁 Results saved to: {experiment_output_dir.absolute()}")

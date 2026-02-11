@@ -162,7 +162,7 @@ finetune:
   num_workers: 8
   prefetch_factor: 4
   freeze_body: false
-  learning_rate: 0.002
+  learning_rate: 0.001
   scheduler: ReduceLROnPlateau
   scheduler_step_size: 100
   early_stopping: true
@@ -171,7 +171,7 @@ finetune:
   
   # [PAPER] Mao et al. 2025: Deep Ensemble
   ensemble_size: 10                 # [PAPER] Train 10 independent models
-  train_ensemble: false              # Enable ensemble training for full Mao specification
+  train_ensemble: true              # Enable ensemble training for full Mao specification
 
 # =====================================================================
 # Notes - [PAPER] Mao et al., 2025
