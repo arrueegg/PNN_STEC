@@ -179,7 +179,10 @@ class InferenceManager:
                             pred_stack[0]
                         )  # No epistemic uncertainty
                     else:
-                        epistemic_var = pred_stack.var(dim=0)  # Var over means
+                        # [PAPER] Mao et al. 2025: Population variance for Laplacian Ensemble
+                        # Otherwise use standard unbiased sample variance for BNNs/Gaussian Ensembles
+                        is_laplacian = "Laplacian" in model_type
+                        epistemic_var = pred_stack.var(dim=0, unbiased=not is_laplacian)
                     aleatoric_var = alea_var_stack.mean(dim=0)  # Mean aleatoric var
 
                 # OPTIMIZATION 2: Move to CPU immediately and store as CPU tensors (not numpy)

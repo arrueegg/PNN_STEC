@@ -1182,7 +1182,10 @@ class DeepEnsemble(torch.nn.Module):
             aleatoric_var = torch.mean(v_stack, dim=0)
 
         # 3. Epistemic Uncertainty (Variance of means across ensemble)
-        epistemic_var = torch.var(mu_stack, dim=0, unbiased=True)
+        # [PAPER] Mao et al. 2025: Uses population variance for Laplacian ensemble
+        # For Gaussian STEC models, we maintain standard unbiased sample variance
+        is_laplacian = "Laplacian" in self.model_type
+        epistemic_var = torch.var(mu_stack, dim=0, unbiased=not is_laplacian)
 
         # 4. Total Uncertainty
         total_uncertainty = aleatoric_var + epistemic_var
@@ -1209,7 +1212,9 @@ class DeepEnsemble(torch.nn.Module):
         else:
             aleatoric_var = torch.mean(v_stack, dim=0)
             
-        epistemic_var = torch.var(mu_stack, dim=0, unbiased=True)
+        # [PAPER] Mao et al. 2025: Population variance for Laplacian, Unbiased for others
+        is_laplacian = "Laplacian" in self.model_type
+        epistemic_var = torch.var(mu_stack, dim=0, unbiased=not is_laplacian)
         total_uncertainty = aleatoric_var + epistemic_var
 
         return (
@@ -1277,6 +1282,7 @@ class DeepEnsemble_MLP(torch.nn.Module):
         aleatoric_uncertainty = torch.mean(variances, dim=0)
 
         # Epistemic uncertainty (variance of predictions across ensemble)
+        # Using unbiased=True (Bessel correction) for standard Gaussian MLP Ensembles
         epistemic_uncertainty = torch.var(predictions, dim=0, unbiased=True)
 
         # Total uncertainty = aleatoric + epistemic
@@ -1302,6 +1308,7 @@ class DeepEnsemble_MLP(torch.nn.Module):
 
         ensemble_mean = torch.mean(predictions, dim=0)
         aleatoric_uncertainty = torch.mean(variances, dim=0)
+        # Using unbiased=True (Bessel correction) for standard Gaussian MLP Ensembles
         epistemic_uncertainty = torch.var(predictions, dim=0, unbiased=True)
         total_uncertainty = aleatoric_uncertainty + epistemic_uncertainty
 
@@ -1780,9 +1787,13 @@ def get_model(config):
 
     # SH embeddings (if enabled)
     sh_degree = config["data"]["SH_degree"]
-    # SphericalHarmonics(legendre_polys=L) produces (L+1)² basis functions
-    # So if sh_degree=15 (meaning up to degree 15), use (sh_degree+1)² = 256
-    sh_dim_per_location = (sh_degree + 1) ** 2 if sh_degree > 0 else 0
+    
+    # [LEGACY] For existing STEC ResNet models, SH dimension was calculated as sh_degree²
+    # [PAPER] For Mao et al. 2025 VTEC alignment, SH dim is (sh_degree + 1)²
+    if config.get("target") == "vtec" or "Laplacian" in model_type:
+        sh_dim_per_location = (sh_degree + 1) ** 2 if sh_degree > 0 else 0
+    else:
+        sh_dim_per_location = sh_degree ** 2 if sh_degree > 0 else 0
     
     # Calculate total SH dimension by counting which coordinate systems are enabled
     total_sh_dim = 0

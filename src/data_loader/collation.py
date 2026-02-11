@@ -29,10 +29,16 @@ class CollateWithSH:
         # SH degree and flag
         self.sh_degree = config["data"].get("SH_degree", 0) or 0
         self.sh_enabled = self.sh_degree > 0
+        self.target = config.get("target", "stec")
+        self.model_type = config.get("model", {}).get("model_type", "")
+
         if self.sh_enabled:
-            # SphericalHarmonics(legendre_polys=L) produces (L+1)² basis functions
-            # For sh_degree=15 (up to degree 15), use legendre_polys=16 to get 256 basis
-            self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree + 1)
+            # [LEGACY] For STEC ResNet models: legendre_polys = sh_degree (gives sh_degree² features)
+            # [PAPER] For Mao et al. 2025 VTEC: legendre_polys = sh_degree + 1 (gives (sh_degree+1)² features)
+            if self.target == "vtec" or "Laplacian" in self.model_type:
+                self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree + 1)
+            else:
+                self.sh_encoder = SphericalHarmonics(legendre_polys=self.sh_degree)
 
         # Pre-compute feature slices for efficiency
         self.slices = {
@@ -134,9 +140,11 @@ class CollateWithSH:
 
         # SH embeddings if enabled
         if self.sh_enabled:
-            # SphericalHarmonics(legendre_polys=L) produces L² features
-            # We use legendre_polys = sh_degree + 1, so we get (sh_degree+1)² features
-            sh_dim = (self.sh_degree + 1) * (self.sh_degree + 1)
+            # Determine sh_dim based on model target/type to match initialization
+            if self.target == "vtec" or "Laplacian" in self.model_type:
+                sh_dim = (self.sh_degree + 1) * (self.sh_degree + 1)
+            else:
+                sh_dim = self.sh_degree * self.sh_degree
 
             # Check if station features are available (they're excluded for VTEC)
             has_station_features = (
