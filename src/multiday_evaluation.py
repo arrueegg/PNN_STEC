@@ -639,7 +639,7 @@ def generate_aggregate_report(batch_results: List[Dict], output_dir: Path, skip_
         
         # Extract elevation metrics
         # Note: output_dir is typically multiday_results, so day folders are inside it
-        evaluation_dir = output_dir / f"{result['year']}_DOY_{result['doy']}" / "evaluation"
+        evaluation_dir = output_dir / f"{result['year']}_DOY_{result['doy']:03d}" / "evaluation"
         elevation_metrics = extract_elevation_metrics_from_experiment(evaluation_dir)
         result['elevation_metrics'] = elevation_metrics
     
@@ -685,7 +685,57 @@ def generate_aggregate_report(batch_results: List[Dict], output_dir: Path, skip_
     logger.info("SUMMARY STATISTICS (across all days)")
     logger.info("="*70)
     logger.info(summary_df.to_string(index=False))
-    
+
+    # Calculate and print improvement statistics
+    logger.info("\n" + "="*70)
+    logger.info("IMPROVEMENT ANALYSIS (Direct STEC vs Baselines)")
+    logger.info("="*70)
+
+    # Normalize model names in df to ensure consistency for calculation
+    df_calc = df.copy()
+    df_calc['Model'] = df_calc['Model'].replace({
+        'Direct STEC Model': 'Direct STEC',
+        'IGS GIM': 'IGS GIM + Mapping'
+    })
+
+    for dataset in df_calc['dataset'].unique():
+        dataset_df = df_calc[df_calc['dataset'] == dataset]
+        logger.info(f"\nDataset: {dataset}")
+        
+        for metric in ['RMSE', 'MAE']:
+            logger.info(f"  Metric: {metric}")
+            
+            # Pivot to have models as columns for each date
+            pivot_df = dataset_df.pivot(index='date', columns='Model', values=metric)
+            
+            if 'Direct STEC' not in pivot_df.columns:
+                continue
+                
+            for baseline in ['VTEC + Mapping', 'IGS GIM + Mapping']:
+                if baseline in pivot_df.columns:
+                    # Calculate percentage improvement
+                    # Positive means Direct STEC is better (lower RMSE/MAE)
+                    diff = pivot_df[baseline] - pivot_df['Direct STEC']
+                    improvement = (diff / pivot_df[baseline]) * 100
+                    
+                    # Remove NaNs
+                    improvement = improvement.dropna()
+                    
+                    if not improvement.empty:
+                        logger.info(f"    vs {baseline}:")
+                        logger.info(f"      Mean:    {improvement.mean():.2f}%")
+                        logger.info(f"      Median:  {improvement.median():.2f}%")
+                        logger.info(f"      Std:     {improvement.std():.2f}%")
+                        logger.info(f"      Min:     {improvement.min():.2f}%")
+                        logger.info(f"      Max:     {improvement.max():.2f}%")
+                        logger.info(f"      Q1 (25%): {improvement.quantile(0.25):.2f}%")
+                        logger.info(f"      Q3 (75%): {improvement.quantile(0.75):.2f}%")
+                        
+                        # Count how many days Direct STEC was better
+                        better_count = (improvement > 0).sum()
+                        total_count = len(improvement)
+                        logger.info(f"      Direct STEC better on: {better_count}/{total_count} days ({better_count/total_count*100:.1f}%)")
+
     # Generate plots
     if not skip_plots:
         generate_aggregate_plots(df, batch_results, summary_dir)
@@ -1295,6 +1345,33 @@ Date formats supported:
             'metrics': {}
         }
         
+        # --- PRE-CHECK: Is this day already fully processed? ---
+        # Skip this check if we are forced to update VTEC only
+        if not args.update_vtec_only:
+            try:
+                # Check for evaluation results
+                eval_dir = date_dir / "evaluation"
+                # Check primarily for the result file of the first dataset (own_vtec_gim)
+                # We check this specific path because extract_metrics_from_experiment looks here
+                metrics_file = eval_dir / "own_vtec_gim" / "metrics_summary.csv"
+                
+                if metrics_file.exists():
+                    # Attempt to load metrics
+                    metrics = extract_metrics_from_experiment(eval_dir)
+                    if metrics:
+                        logger.info(f"✓ Results already found in {date_dir}, skipping day.")
+                        result['success'] = True
+                        # We don't necessarily know the experiment names here without more effort,
+                        # but for aggregation we only need the metrics which we just loaded.
+                        result['metrics'] = metrics
+                        # Try to recovered exp names if possible, but not critical for aggregate report
+                        result['stec_experiment'] = f"recovered_{date_str}"
+                        batch_results.append(result)
+                        continue
+            except Exception as e:
+                logger.debug(f"Pre-check failed for {date_str}: {e}")
+                pass
+
         if not args.skip_training:
             # Step 0: Ensure pretrain exists for STEC (only check once, first day)
             pretrain_folder = args.pretrain_folder
@@ -1308,46 +1385,6 @@ Date formats supported:
                 args.pretrain_folder = pretrain_folder
                 pretrain_folder = args.pretrain_folder
             
-            # Check if all output processing is already done for this day
-            try:
-                # Create temporary configs to check for existence
-                temp_stec_config = create_modified_config(args.stec_config, year, doy, 
-                                                    date_dir, is_vtec=False,
-                                                    pretrain_folder=pretrain_folder)
-                temp_vtec_config = create_modified_config(args.vtec_config, year, doy,
-                                                    date_dir, is_vtec=True)
-                
-                stec_exists, stec_name = check_experiment_exists(temp_stec_config)
-                vtec_exists, vtec_name = check_experiment_exists(temp_vtec_config)
-                
-                # Check for evaluation results
-                eval_dir = date_dir / "evaluation"
-                comparison_log = eval_dir / "comparison.log"
-                # Check primarily for the result file of the first dataset (own_vtec_gim)
-                # We check this specific path because extract_metrics_from_experiment looks here
-                metrics_file = eval_dir / "own_vtec_gim" / "metrics_summary.csv"
-                
-                eval_exists = comparison_log.exists() and metrics_file.exists()
-                
-                if stec_exists and vtec_exists and eval_exists:
-                    # Attempt to load metrics to ensure the run was actually successful/readable where we expect it
-                    metrics = extract_metrics_from_experiment(eval_dir)
-                    if not metrics:
-                         # If metrics dict is empty, the run was incomplete
-                         raise ValueError("Empty metrics extracted")
-
-                    logger.info(f"✓ All steps completed for {date_str}, skipping day.")
-                    result['success'] = True
-                    result['stec_experiment'] = stec_name
-                    result['vtec_experiment'] = vtec_name
-                    result['metrics'] = metrics
-                    batch_results.append(result)
-                    continue
-            except Exception as e:
-                # Fallback to re-running if check fails
-                # logger.debug(f"Day {date_str} not skipped due to: {e}")
-                pass
-
             # Step 1: Train STEC model
             logger.info(f"\n[1/3] Training STEC model for {date_str}")
             stec_config = create_modified_config(args.stec_config, year, doy, 
