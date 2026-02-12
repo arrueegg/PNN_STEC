@@ -366,7 +366,8 @@ def save_daily_summary(metrics_model, metrics_gim, output_path):
     print(f"DAILY SUMMARY: {metrics_model['year'].iloc[0]}/{metrics_model['doy'].iloc[0]:03d}")
     print("="*80)
     
-    for method in ['model', 'gim']:
+    unique_methods = combined['method'].unique()
+    for method in unique_methods:
         method_data = combined[combined['method'] == method]
         if len(method_data) > 0:
             print(f"\n{method.upper()} ({len(method_data)} stations):")

@@ -223,15 +223,17 @@ def process_single_station(
     
     # Setup output directories
     model_subdir = "model"
+    gim_subdir = "gim"
     if weight_opt != "elev":
         model_subdir = f"model_{weight_opt}"
+        gim_subdir = f"gim_{weight_opt}"
         
     model_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / model_subdir / station
-    gim_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / "gim" / station
+    gim_output_dir = experiment_dir / "positioning" / "results" / f"{year}{doy:03d}" / gim_subdir / station
     
     # Files to check
     model_pos_final = model_output_dir / f"{station}_{model_subdir}.pos"
-    gim_pos_final = gim_output_dir / f"{station}_gim.pos"
+    gim_pos_final = gim_output_dir / f"{station}_{gim_subdir}.pos"
     
     # 1. Run with model STEC corrections
     stec_csv = experiment_dir / "positioning" / "stec_corrections" / f"{year}{doy:03d}" / f"{station}.csv"
@@ -277,13 +279,13 @@ def process_single_station(
     # 2. Run with IGS GIM
     if igs_gim_path and igs_gim_path.exists():
         if gim_pos_final.exists() and not getattr(logger, 'redo', False):
-            logger.info(f"Skipping {station} GIM (Already exists)")
+            logger.info(f"Skipping {station} GIM ({weight_opt}) (Already exists)")
             results['gim_pos'] = gim_pos_final
             results['gim_success'] = True
         else:
-            logger.info(f"Processing {station} with IGS GIM...")
+            logger.info(f"Processing {station} with IGS GIM ({weight_opt})...")
         
-        ini_file = gim_output_dir / "pppx_gim.ini"
+        ini_file = gim_output_dir / f"pppx_gim_{weight_opt}.ini"
         generate_pppx_ini(
             year=year,
             doy=doy,
@@ -293,6 +295,7 @@ def process_single_station(
             ion_path=igs_gim_path,
             station_name=station,
             output_dir="./",  # PPPx runs from output directory
+            weight_opt=weight_opt,
             output_ini_dir=gim_output_dir
         )
         
@@ -306,7 +309,7 @@ def process_single_station(
         
         if pos_file:
             # Rename for clarity
-            final_pos = gim_output_dir / f"{station}_gim.pos"
+            final_pos = gim_output_dir / f"{station}_{gim_subdir}.pos"
             pos_file.rename(final_pos)
             results['gim_pos'] = final_pos
             results['gim_success'] = True
@@ -532,8 +535,10 @@ def main():
         metrics_gim = None
         
         model_subdir = "model"
+        gim_subdir = "gim"
         if args.weight_opt != "elev":
             model_subdir = f"model_{args.weight_opt}"
+            gim_subdir = f"gim_{args.weight_opt}"
         
         if model_success > 0:
             model_dir = results_base_dir / model_subdir
@@ -544,9 +549,9 @@ def main():
             )
         
         if gim_success > 0:
-            gim_dir = results_base_dir / "gim"
+            gim_dir = results_base_dir / gim_subdir
             metrics_gim = aggregate_daily_metrics(
-                gim_dir, year, doy, "gim",
+                gim_dir, year, doy, gim_subdir,
                 stations=[r['station'] for r in all_results if r['gim_success']],
                 snx_file=snx_file
             )

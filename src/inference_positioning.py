@@ -539,6 +539,11 @@ def main():
         type=int,
         help="Day of year (alternative to --date)"
     )
+    parser.add_argument(
+        "--gnss_path",
+        type=str,
+        help="Override GNSS_data_path from config"
+    )
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -568,6 +573,20 @@ def main():
             config = load_experiment_config(experiment_dir)
             config["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             logger.info(f"💻 Device: {config['device']}")
+            
+            # [FIX] Path consistency for local machine vs cluster
+            if args.gnss_path:
+                config["data"]["GNSS_data_path"] = args.gnss_path
+                logger.info(f"📍 Overriding GNSS path: {args.gnss_path}")
+            else:
+                orig_path = config["data"].get("GNSS_data_path", "")
+                if orig_path and not os.path.exists(orig_path):
+                    # Try local alternative
+                    alt_path = "/home/space/data/iono/STEC_DB_CASDCB"
+                    if os.path.exists(alt_path):
+                        config["data"]["GNSS_data_path"] = alt_path
+                        logger.warning(f"⚠️ GNSS path not found at {orig_path}")
+                        logger.info(f"📍 Using local alternative: {alt_path}")
             
             # Initialize feature registry
             feature_registry = initialize_feature_registry(config)
@@ -616,6 +635,20 @@ def main():
         config = load_experiment_config(experiment_dir)
         config["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"💻 Device: {config['device']}")
+        
+        # [FIX] Path consistency for local machine vs cluster
+        if args.gnss_path:
+            config["data"]["GNSS_data_path"] = args.gnss_path
+            logger.info(f"📍 Overriding GNSS path: {args.gnss_path}")
+        else:
+            orig_path = config["data"].get("GNSS_data_path", "")
+            if orig_path and not os.path.exists(orig_path):
+                # Try local alternative
+                alt_path = "/home/space/data/iono/STEC_DB_CASDCB"
+                if os.path.exists(alt_path):
+                    config["data"]["GNSS_data_path"] = alt_path
+                    logger.warning(f"⚠️ GNSS path not found at {orig_path}")
+                    logger.info(f"📍 Using local alternative: {alt_path}")
         
         # Initialize feature registry
         feature_registry = initialize_feature_registry(config)

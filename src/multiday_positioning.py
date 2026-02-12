@@ -439,6 +439,9 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
                     "--experiment", exp_path,
                     "--date", date_str
                 ]
+                if getattr(args, 'gnss_path', None):
+                    inf_cmd.extend(["--gnss_path", args.gnss_path])
+                    
                 if not run_command(inf_cmd, f"Inference for {model_label} on {date_str}", logger):
                     continue
 
@@ -447,15 +450,21 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             current_weight_opt = w_opt
             
             # Implementation of user requirement: 
+            # Determine if model supports uncertainty weighting
             # "if the model only returns predictions (MLP), use elevation weighting even if 'iono' is specified"
-            # For this script, we assume "VTEC" (baseline MLP) fits this category unless it's an ensemble.
-            # However, to be safe and avoid duplicate runs, if 'iono' is requested for VTEC and 'elev' is also in the list,
-            # we can skip the 'iono' run for VTEC or just map it to 'elev'.
+            model_type = str(vtec_base_config.get('model', {}).get('model_type', '')).lower()
+            loss_func = str(vtec_base_config.get('training', {}).get('loss_function', '')).lower()
             
-            is_mlp_vtec = (model_label == "VTEC" and "ensemble" not in str(vtec_base_config.get('model', {}).get('model_type', '')).lower())
+            has_uncertainty = (
+                "nll" in loss_func or 
+                "nll" in model_type or 
+                "bnn" in model_type or 
+                "ensemble" in model_type or
+                "mcdropout" in model_type
+            )
             
-            if current_weight_opt == "iono" and is_mlp_vtec:
-                logger.info(f"VTEC model is MLP (no uncertainty). Mapping 'iono' weighting to 'elev' for {model_label}.")
+            if current_weight_opt == "iono" and not has_uncertainty and model_label == "VTEC":
+                logger.info(f"VTEC model is deterministic (no uncertainty). Mapping 'iono' weighting to 'elev' for {model_label}.")
                 current_weight_opt = "elev"
                 # If 'elev' weighting was already processed, we can skip this to avoid duplicates
                 if "elev" in args.weight_opts and args.weight_opts.index("elev") < args.weight_opts.index("iono"):
@@ -520,6 +529,7 @@ def main():
     parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
     parser.add_argument("--redo", action="store_true", help="Force redo of positioning evaluation even if results exist")
     parser.add_argument("--weight_opt", type=str, default="elev", help="Weighting option: elev (elevation), snr (SNR), or iono (ionospheric uncertainty). Can be comma-separated list.")
+    parser.add_argument("--gnss_path", type=str, help="Custom path to GNSS data (STEC_DB_CASDCB folder)")
     
     args = parser.parse_args()
     logger = setup_logging()
@@ -635,11 +645,14 @@ def main():
                 df['method'] = df['method'].str.lower()
                 
                 # Replace 'model' with the descriptive label we stored in day_results
-                # label is e.g. "STEC_iono" or "VTEC_elev"
+                # label is e.g. "STEC_iono", "VTEC_elev", etc.
                 df.loc[df['method'].str.startswith('model'), 'method'] = label
                 
-                # Handle GIM
-                df.loc[df['method'].str.contains('gim'), 'method'] = 'IGS GIM + Mapping'
+                # Handle GIM - preserve weighting suffix from the current run
+                weight_suffix = label.split('_')[-1]
+                gim_mask = df['method'].str.contains('gim')
+                if gim_mask.any():
+                    df.loc[gim_mask, 'method'] = f"gim_{weight_suffix}"
             
             all_metrics.append(df)
         except Exception as e:
