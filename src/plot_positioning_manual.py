@@ -60,13 +60,38 @@ def prepare_data(df):
     if 'u_rms' in df.columns:
         df['up_rms'] = df['u_rms'] # Keep in meters
 
-    # Clean Method Names
+    # Clean Method Names and Extract Weighting
     if 'method' in df.columns:
+        # Extract weighting if it exists (e.g. STEC_elev -> weighting=elev)
+        def extract_weighting(m):
+            m_str = str(m)
+            if '_' in m_str:
+                return m_str.split('_')[-1]
+            return 'default'
+        
+        def extract_base_method(m):
+            m_str = str(m)
+            if '_' in m_str:
+                base = '_'.join(m_str.split('_')[:-1])
+                return base
+            return m_str
+
+        # Add weighting column
+        df['weighting'] = df['method'].apply(extract_weighting)
+        # Normalize base method name
+        df['method'] = df['method'].apply(extract_base_method)
+        
         df['method'] = df['method'].replace({
             'Model': 'Direct STEC', # Legacy
+            'STEC': 'Direct STEC',
+            'stec': 'Direct STEC',
             'IGS GIM': 'IGS GIM + Mapping',
             'igs gim': 'IGS GIM + Mapping',
-            'model': 'Direct STEC'
+            'GIM': 'IGS GIM + Mapping',
+            'gim': 'IGS GIM + Mapping',
+            'model': 'Direct STEC',
+            'VTEC': 'VTEC + Mapping',
+            'vtec': 'VTEC + Mapping'
         })
         
     return df
@@ -643,15 +668,28 @@ def main():
     if len(df) < initial_count:
         logger.info(f"Filtered {initial_count - len(df)} rows. Remaining: {len(df)}")
 
-    # Generate Plots
-    logger.info("Generating plots...")
-    # Apply threshold only to trend plots (for clearer visualization)
-    plot_trends(df, args.output_dir, threshold_cm=threshold_m)
-    # Use all data for other plots (axis limits may use threshold if provided)
-    plot_extended_analysis(df, args.output_dir, threshold_cm=threshold_m)
-    plot_model_vs_gim_comparison(df, args.output_dir, threshold_cm=threshold_m)
+    # Generate Plots by Weighting Approach
+    weightings = df['weighting'].unique()
+    logger.info(f"Detected weightings: {weightings}")
     
-    logger.info(f"Done. Plots saved to: {args.output_dir}")
+    for weighting in weightings:
+        logger.info(f"\n--- Generating plots for weighting: {weighting} ---")
+        w_df = df[df['weighting'] == weighting].copy()
+        
+        # Create specialized output directory for this weighting
+        if weighting != 'default':
+            w_output_dir = Path(args.output_dir) / weighting
+        else:
+            w_output_dir = Path(args.output_dir)
+            
+        w_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate the standard suite of plots for this weighting group
+        plot_trends(w_df, w_output_dir, threshold_cm=threshold_m)
+        plot_extended_analysis(w_df, w_output_dir, threshold_cm=threshold_m)
+        plot_model_vs_gim_comparison(w_df, w_output_dir, threshold_cm=threshold_m)
+    
+    logger.info(f"\nDone. All plots saved to: {args.output_dir}")
     return 0
 
 if __name__ == "__main__":

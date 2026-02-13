@@ -394,10 +394,28 @@ def run_inference_for_day(config, model, feature_registry, year, doy, test_stati
             
             # Extract prediction and uncertainty (handle different model output formats)
             if isinstance(outputs, tuple):
-                # BNN models return (mean, variance)
+                # Extract mean and the uncertainty parameter
                 pred_stec = outputs[0]
-                pred_variance = outputs[1]
-                pred_uncertainty = torch.sqrt(pred_variance)  # Convert variance to std deviation
+                uncertainty_param = outputs[1]
+                
+                # Check model type for uncertainty parameterization
+                # DeepEnsemble always returns variance (sigma^2) regardless of base distribution
+                # Single MLP_LaplacianNLL returns scale (b), while BNN models return variance (sigma^2)
+                from model.model import DeepEnsemble
+                
+                if isinstance(model, DeepEnsemble):
+                    # Ensemble returns variance
+                    pred_uncertainty = torch.sqrt(uncertainty_param)
+                else:
+                    # Single model
+                    model_type = config.get("model", {}).get("model_type", "")
+                    if "Laplacian" in model_type:
+                        # For Laplacian distribution, standard deviation = sqrt(2) * scale (b)
+                        # We report the standard deviation to maintain consistency across models
+                        pred_uncertainty = uncertainty_param * 1.41421356237
+                    else:
+                        # Standard BNN/Gaussian models return (mean, variance)
+                        pred_uncertainty = torch.sqrt(uncertainty_param)  # Convert variance to std deviation
             else:
                 # Deterministic models (MLP) - zero uncertainty
                 pred_stec = outputs
