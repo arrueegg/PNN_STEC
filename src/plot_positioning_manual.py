@@ -596,6 +596,152 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
         import traceback
         logger.error(traceback.format_exc())
 
+def generate_comparative_table(df, output_dir, threshold_m=None):
+    """Generate a summary table comparing methods and weightings."""
+    output_dir = Path(output_dir)
+    
+    # Filter by threshold if provided (to match plot logic)
+    df_clean = df.copy()
+    if threshold_m is not None:
+        df_clean = df_clean[df_clean['3d_rms'] <= threshold_m]
+
+    # Metrics to calculate
+    metrics = {
+        '3d_rms': ['mean', 'median', lambda x: np.percentile(x, 95)],
+    }
+    # Add 2D and Up if they exist
+    if '2d_rms' in df_clean.columns: 
+        metrics['2d_rms'] = ['mean']
+    if 'up_rms' in df_clean.columns: 
+        metrics['up_rms'] = ['mean']
+
+    # Group and aggregate
+    stats = df_clean.groupby(['method', 'weighting']).agg(metrics)
+    
+    # Flatten multi-index columns
+    stats.columns = [
+        f"{col}_{func if isinstance(func, str) else '95th'}" 
+        for col, func in stats.columns
+    ]
+    stats = stats.reset_index()
+
+    # Rename columns for clarity
+    rename_map = {
+        '3d_rms_mean': '3D Mean [m]',
+        '3d_rms_median': '3D Med [m]',
+        '3d_rms_95th': '3D 95% [m]',
+        '2d_rms_mean': '2D Mean [m]',
+        'up_rms_mean': 'Up Mean [m]'
+    }
+    stats = stats.rename(columns=rename_map)
+
+    # Calculate Improvement vs GIM baseline within each weighting group
+    stats['Imp. [%]'] = 0.0
+    for w in stats['weighting'].unique():
+        mask_w = stats['weighting'] == w
+        gim_mask = stats['method'].str.contains('GIM', case=False) & mask_w
+        if gim_mask.any():
+            gim_val = stats.loc[gim_mask, '3D Mean [m]'].values[0]
+            # Calculate for non-GIM models in this weighting
+            model_mask = mask_w & ~gim_mask
+            stats.loc[model_mask, 'Imp. [%]'] = (gim_val - stats.loc[model_mask, '3D Mean [m]']) / gim_val * 100
+
+    # Sort by Weighting, then Method (Standard order: STEC, VTEC, GIM)
+    def method_priority(m):
+        m = str(m).lower()
+        if 'stec' in m: return 0
+        if 'vtec' in m: return 1
+        if 'gim' in m: return 2
+        return 3
+    
+    stats['prio'] = stats['method'].apply(method_priority)
+    stats = stats.sort_values(['weighting', 'prio']).drop('prio', axis=1)
+
+    # Round numerical columns
+    num_cols = [c for c in stats.columns if '[m]' in c or '[%]' in c]
+    stats[num_cols] = stats[num_cols].round(4)
+
+    # Save to CSV
+    table_path = output_dir / "overall_metrics_comparison.csv"
+    stats.to_csv(table_path, index=False)
+    logger.info(f"Comparative table saved to: {table_path}")
+    
+    # Print a summary to the console
+    print("\n" + "="*90)
+    print("KEY PERFORMANCE METRICS (COMPARING WEIGHTINGS AND METHODS)")
+    print("="*90)
+    print(stats.to_string(index=False))
+    print("="*90 + "\n")
+    
+    # NEW: Generate visual comparison of the table data
+    plot_comparative_metrics(stats, output_dir)
+
+def plot_comparative_metrics(stats_df, output_dir):
+    """Generate grouped bar charts comparing metrics across methods and weightings."""
+    output_dir = Path(output_dir)
+    
+    # 1. 3D Mean Error Comparison (Grouped Bar Chart)
+    # -------------------------------------------------------------------------
+    plt.figure(figsize=(10, 6), dpi=300)
+    
+    # Methods on X, Weighting as Hue
+    # Use seaborn for easy grouped bars
+    ax = sns.barplot(
+        data=stats_df, 
+        x='method', 
+        y='3D Mean [m]', 
+        hue='weighting',
+        palette='viridis'
+    )
+    
+    plt.ylabel('Mean 3D RMS Error [m]', fontweight='bold')
+    plt.xlabel('Method', fontweight='bold')
+    plt.title('Accuracy Comparison: Methods vs. Weighting Strategies', fontweight='bold', pad=15)
+    
+    plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+    plt.legend(title='Weighting', frameon=True)
+    
+    # Add value labels on top of bars
+    for container in ax.containers:
+        ax.bar_label(container, fmt='%.3f', padding=3, fontsize=10)
+        
+    plt.tight_layout()
+    plt.savefig(output_dir / "comparison_bar_3d_mean.png", dpi=300)
+    plt.close()
+
+    # 2. Improvement over GIM (Grouped Bar Chart)
+    # -------------------------------------------------------------------------
+    # Only plot for methods that aren't GIM
+    imp_df = stats_df[~stats_df['method'].str.contains('GIM', case=False)].copy()
+    
+    if not imp_df.empty:
+        plt.figure(figsize=(10, 6), dpi=300)
+        
+        ax = sns.barplot(
+            data=imp_df, 
+            x='method', 
+            y='Imp. [%]', 
+            hue='weighting',
+            palette='magma'
+        )
+        
+        plt.ylabel('Improvement over GIM [%]', fontweight='bold')
+        plt.xlabel('Method', fontweight='bold')
+        plt.title('Relative Improvement Score vs. IGS Baseline', fontweight='bold', pad=15)
+        
+        plt.axhline(0, color='black', linestyle='-', linewidth=0.8)
+        plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+        plt.legend(title='Weighting', frameon=True)
+        
+        for container in ax.containers:
+            ax.bar_label(container, fmt='%.1f%%', padding=3, fontsize=10)
+            
+        plt.tight_layout()
+        plt.savefig(output_dir / "comparison_bar_improvement.png", dpi=300)
+        plt.close()
+
+    logger.info(f"Visual table comparisons saved to: {output_dir}")
+
 def main():
     parser = argparse.ArgumentParser(description="Manual Plotting of Positioning Results")
     parser.add_argument("--input", default="multiday_results/positioning/multiday_summary.csv", 
@@ -667,6 +813,9 @@ def main():
     
     if len(df) < initial_count:
         logger.info(f"Filtered {initial_count - len(df)} rows. Remaining: {len(df)}")
+
+    # Generate Comparative Table (New: compares all weightings in one place)
+    generate_comparative_table(df, args.output_dir, threshold_m=threshold_m)
 
     # Generate Plots by Weighting Approach
     weightings = df['weighting'].unique()
