@@ -137,10 +137,10 @@ def print_and_save_statistics(results_df: pd.DataFrame, output_dir: Path) -> Non
         logger.info(f"📄 Statistics saved to: {stats_file_path}")
     except Exception as e:
         logger.warning(f"Failed to save statistics file: {e}")
-        
+
 def get_solar_cycle_stats(test_df: pd.DataFrame, logger=None) -> Dict[str, Any]:
     """
-    Computes solar cycle specific metrics for Active (2014, 2023) 
+    Computes solar cycle specific metrics for Active (2014, 2024) 
     and Quiet (2019, 2020) periods.
     """
     results = {}
@@ -150,10 +150,10 @@ def get_solar_cycle_stats(test_df: pd.DataFrame, logger=None) -> Dict[str, Any]:
         return {}
 
     # Define periods
-    active_mask = test_df['year'].isin([2014, 2023])
+    active_mask = test_df['year'].isin([2014, 2024])
     quiet_mask = test_df['year'].isin([2019, 2020])
 
-    for period, mask, label in [('ACTIVE', active_mask, "(2014, 2023)"), 
+    for period, mask, label in [('ACTIVE', active_mask, "(2014, 2024)"), 
                                 ('QUIET', quiet_mask, "(2019, 2020)")]:
         sub_df = test_df[mask]
         if len(sub_df) > 0:
