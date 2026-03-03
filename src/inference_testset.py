@@ -136,10 +136,23 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
         test_df
     )
 
-    # Save temporal analysis (skip txt summary files as requested)
-    # trainer.save_temporal_split_metrics(
-    #    interpolation_df, extrapolation_df, split_info, experiment_dir
-    # )
+    # SOLAR CYCLE ANALYSIS BLOCK (RESTORING)
+    from evaluation.utils import get_solar_cycle_stats
+    print("\n" + "="*80)
+    print("      SOLAR CYCLE PERFORMANCE (TESTSET)")
+    print("="*80)
+    
+    # Check if we have year information (requires essential_features in InferenceManager)
+    if 'year' in test_df.columns:
+        sc_metrics = get_solar_cycle_stats(test_df, logger)
+        # Detailed logging
+        if 'ACTIVE' in sc_metrics:
+            logger.info(f"📊 ACTIVE (2014, 2023): RMSE={sc_metrics['ACTIVE']['rmse']:.3f}, MAE={sc_metrics['ACTIVE']['mae']:.3f}")
+        if 'QUIET' in sc_metrics:
+            logger.info(f"📊 QUIET (2019, 2020):  RMSE={sc_metrics['QUIET']['rmse']:.3f}, MAE={sc_metrics['QUIET']['mae']:.3f}")
+    else:
+        logger.warning("⚠️ Year column missing in test_df, skipping solar cycle stats.")
+    print("="*80 + "\n")
 
     # Generate plots for interpolation and extrapolation if sufficient data
     # Disable scenario evaluation for these temporal splits

@@ -137,3 +137,39 @@ def print_and_save_statistics(results_df: pd.DataFrame, output_dir: Path) -> Non
         logger.info(f"📄 Statistics saved to: {stats_file_path}")
     except Exception as e:
         logger.warning(f"Failed to save statistics file: {e}")
+        
+def get_solar_cycle_stats(test_df: pd.DataFrame, logger=None) -> Dict[str, Any]:
+    """
+    Computes solar cycle specific metrics for Active (2014, 2023) 
+    and Quiet (2019, 2020) periods.
+    """
+    results = {}
+    
+    if 'year' not in test_df.columns:
+        if logger: logger.warning("Year column missing. Cannot compute solar stats.")
+        return {}
+
+    # Define periods
+    active_mask = test_df['year'].isin([2014, 2023])
+    quiet_mask = test_df['year'].isin([2019, 2020])
+
+    for period, mask, label in [('ACTIVE', active_mask, "(2014, 2023)"), 
+                                ('QUIET', quiet_mask, "(2019, 2020)")]:
+        sub_df = test_df[mask]
+        if len(sub_df) > 0:
+            y_true = sub_df['target_stec'].values
+            y_pred = sub_df['pred_stec'].values
+            
+            mse = np.mean((y_true - y_pred)**2)
+            rmse = np.sqrt(mse)
+            mae = np.mean(np.abs(y_true - y_pred))
+            
+            results[period] = {
+                'rmse': rmse,
+                'mae': mae,
+                'count': len(sub_df)
+            }
+        else:
+            if logger: logger.info(f"No data found for {period} {label}")
+
+    return results
