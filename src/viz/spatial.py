@@ -434,11 +434,13 @@ def plot_box_by_lat(df: pd.DataFrame, output_dir: str = "plots") -> None:
     for patch in bp["boxes"]:
         patch.set_facecolor("lightblue")
         patch.set_alpha(0.7)
-    for element in ["whiskers", "caps", "medians"]:
+    for element in ["whiskers", "caps"]:
         for item in bp[element]:
             item.set_linewidth(2)
-            if element == 'medians':
-                item.set_color('red')
+            item.set_color("black")
+    for item in bp["medians"]:
+        item.set_linewidth(2)
+        item.set_color("midnightblue")
 
     # 2. RMSE and MAE Lines (Foreground)
     ax.plot(bin_centers, mae_lat["ae"], marker="o", label="MAE", color="green", linewidth=3, markersize=8, zorder=3)

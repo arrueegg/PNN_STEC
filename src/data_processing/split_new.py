@@ -213,11 +213,6 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
         alpha=alpha,
     )
 
-    # Add simplified title
-    ax.set_title(
-        "IGS Station Distribution for STEC Database", fontweight="bold", pad=20
-    )
-
     # Create legend with integrated statistics
     total_stations = len(train_stations) + len(val_stations) + len(test_stations)
 
@@ -251,6 +246,14 @@ def plot_station_distribution(train_stations, val_stations, test_stations, outpu
 
     # Set global extent
     ax.set_global()
+
+    # save plot without title
+    plt.savefig(output_file.replace(".png", "_no_title.png"), bbox_inches="tight", dpi=300, transparent=True)
+
+    # Add simplified title
+    ax.set_title(
+        "IGS Station Distribution for STEC Database", fontweight="bold", pad=20
+    )
 
     # Save with high quality and transparent background
     plt.savefig(output_file, bbox_inches="tight", dpi=300, transparent=True)

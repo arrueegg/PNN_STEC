@@ -238,7 +238,7 @@ def plot_residuals_vs_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
             boxprops=dict(facecolor="lightblue", edgecolor="black", alpha=0.7),
             whiskerprops=dict(color="black"),
             capprops=dict(color="black"),
-            medianprops=dict(color="red", linewidth=2),
+            medianprops=dict(color="midnightblue", linewidth=2),
         )
 
     ax1.axhline(y=0, color="red", linestyle="--", alpha=0.7, linewidth=2)
@@ -359,7 +359,7 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots", max_lim
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.1)
     cbar = plt.colorbar(hb, cax=cax)
-    cbar.set_label("Count (log scale)", fontweight="bold", rotation=270, labelpad=35)
+    cbar.set_label("Count", fontweight="bold", rotation=270, labelpad=35)
     cbar.ax.tick_params(labelsize=16)
 
     # Add legend with metrics
@@ -375,3 +375,11 @@ def plot_prediction_density(df: pd.DataFrame, output_dir: str = "plots", max_lim
     plt.tight_layout()
     filename = "prediction_density_limited.png" if max_limit is not None else "prediction_density.png"
     save_plot(fig, filename, output_dir)
+
+    # Save a version without the legend
+    if ax.get_legend():
+        ax.get_legend().remove()
+    filename_no_legend = filename.replace(".png", "_no_legend.png")
+    save_plot(fig, filename_no_legend, output_dir)
+
+    plt.close(fig)

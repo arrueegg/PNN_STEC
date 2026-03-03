@@ -115,7 +115,6 @@ def create_timeline_heatmap(
     # Labels and title
     ax.set_xlabel("Month", fontweight="bold")
     ax.set_ylabel("Year", fontweight="bold")
-    ax.set_title("Temporal Dataset Split", fontweight="bold", pad=10)
 
     # Add grid for better visibility
     ax.set_xticks(np.arange(-0.5, len(months), 1), minor=True)
@@ -156,6 +155,10 @@ def create_timeline_heatmap(
         shadow=False,
     )
 
+    # save plot without title
+    plt.savefig(str(save_path).replace(".png", "_no_title.png"), bbox_inches="tight", dpi=300)
+
+    ax.set_title("Temporal Dataset Split", fontweight="bold", pad=10)
     plt.tight_layout()
 
     # Save if path provided

@@ -88,9 +88,13 @@ def plot_binned_boxplot(
     for patch in bp["boxes"]:
         patch.set_facecolor("lightblue")
         patch.set_alpha(0.7)
-    for element in ["whiskers", "caps", "medians"]:
+    for element in ["whiskers", "caps"]:
         for item in bp[element]:
             item.set_linewidth(2)
+            item.set_color("black")
+    for item in bp["medians"]:
+        item.set_linewidth(2)
+        item.set_color("midnightblue")
 
     # Add MAE and RMSE lines if available (on same y-axis as boxplots)
     if bin_stats:
@@ -205,9 +209,13 @@ def plot_binned_boxplot_clipped(
     for patch in bp["boxes"]:
         patch.set_facecolor("lightblue")
         patch.set_alpha(0.7)
-    for element in ["whiskers", "caps", "medians"]:
+    for element in ["whiskers", "caps"]:
         for item in bp[element]:
             item.set_linewidth(2)
+            item.set_color("black")
+    for item in bp["medians"]:
+        item.set_linewidth(2)
+        item.set_color("midnightblue")
 
     ax.tick_params(axis="x", rotation=45)
 
@@ -395,11 +403,13 @@ def plot_box_by_date(df: pd.DataFrame, output_dir: str = "plots") -> None:
     for patch in bp["boxes"]:
         patch.set_facecolor("lightblue")
         patch.set_alpha(0.7)
-    for element in ["whiskers", "caps", "medians"]:
+    for element in ["whiskers", "caps"]:
         for item in bp[element]:
             item.set_linewidth(2)
-            if element == 'medians':
-                item.set_color('red')
+            item.set_color("black")
+    for item in bp["medians"]:
+        item.set_linewidth(2)
+        item.set_color("midnightblue")
 
     # 2. RMSE and MAE Lines (Foreground)
     ax.plot(pos, mae_lat["ae"], marker="o", label="MAE", color="green", linewidth=3, markersize=8, zorder=3)
@@ -522,7 +532,7 @@ def plot_residuals_vs_local_time(df: pd.DataFrame, output_dir: str = "plots") ->
             boxprops=dict(facecolor="lightblue", edgecolor="black", alpha=0.7),
             whiskerprops=dict(color="black"),
             capprops=dict(color="black"),
-            medianprops=dict(color="red", linewidth=2),
+            medianprops=dict(color="midnightblue", linewidth=2),
         )
 
     # Plot MAE and RMSE lines for all 24 hours
