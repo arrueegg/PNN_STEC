@@ -139,17 +139,69 @@ def run_inference_analysis(config, experiment_dir, model_path, logger):
     # SOLAR CYCLE ANALYSIS BLOCK (RESTORING)
     from evaluation.utils import get_solar_cycle_stats
     print("\n" + "="*80)
-    print("      SOLAR CYCLE PERFORMANCE (TESTSET)")
+    print("      TEMPORAL & SOLAR CYCLE PERFORMANCE (ALL YEARS)")
     print("="*80)
     
     # Check if we have year information (requires essential_features in InferenceManager)
     if 'year' in test_df.columns:
         sc_metrics = get_solar_cycle_stats(test_df, logger)
-        # Detailed logging
-        if 'ACTIVE' in sc_metrics:
-            logger.info(f"📊 ACTIVE (2014, 2023): RMSE={sc_metrics['ACTIVE']['rmse']:.3f}, MAE={sc_metrics['ACTIVE']['mae']:.3f}")
-        if 'QUIET' in sc_metrics:
-            logger.info(f"📊 QUIET (2019, 2020):  RMSE={sc_metrics['QUIET']['rmse']:.3f}, MAE={sc_metrics['QUIET']['mae']:.3f}")
+        
+        # Save metrics to a text file for yearly/temporal analysis
+        metrics_file = os.path.join(experiment_dir, "yearly_temporal_analysis.txt")
+        try:
+            with open(metrics_file, "w") as f:
+                f.write("="*80 + "\n")
+                f.write("      DETAILED TEMPORAL ANALYSIS (YEAR-BY-YEAR)\n")
+                f.write("="*80 + "\n\n")
+                
+                # 1. Grouped summaries
+                f.write("📊 GROUPED PERFORMANCE:\n")
+                if 'ACTIVE_GROUP' in sc_metrics:
+                    m = sc_metrics['ACTIVE_GROUP']
+                    line = f"ACTIVE (2014, 2024): RMSE={m['rmse']:.3f}, MAE={m['mae']:.3f}, R²={m['r2']:.4f}, count={m['count']:,}"
+                    f.write(line + "\n")
+                    logger.info(f"📊 {line}")
+                    
+                if 'QUIET_GROUP' in sc_metrics:
+                    m = sc_metrics['QUIET_GROUP']
+                    line = f"QUIET  (2019, 2020): RMSE={m['rmse']:.3f}, MAE={m['mae']:.3f}, R²={m['r2']:.4f}, count={m['count']:,}"
+                    f.write(line + "\n")
+                    logger.info(f"📊 {line}")
+                
+                # 2. Individual years
+                f.write("\n📅 INDIVIDUAL YEARLY BREAKDOWN:\n")
+                f.write(f"{'-'*52}\n")
+                f.write(f"{'Year':<6} | {'RMSE':<8} | {'MAE':<8} | {'R²':<8} | {'Samples':<12}\n")
+                f.write(f"{'-'*52}\n")
+                
+                # Extract year-like keys reliably (both string digits and actual years)
+                # We handle potential mixed types from sc_metrics keys
+                all_keys = list(sc_metrics.keys())
+                year_keys = []
+                for k in all_keys:
+                    # Filter for keys that represent years (e.g., '2014' or 2014)
+                    if str(k).isdigit() and len(str(k)) == 4:
+                        year_keys.append(k)
+                
+                # Sort years numerically
+                year_keys.sort(key=lambda x: int(x))
+                
+                for year in year_keys:
+                    m = sc_metrics[year]
+                    row = f"{str(year):<6} | {m['rmse']:<8.3f} | {m['mae']:<8.3f} | {m.get('r2', 0.0):<8.4f} | {m['count']:,}"
+                    f.write(row + "\n")
+                    # Log representative years to console
+                    if str(year) in ['2014', '2019', '2023', '2024']:
+                         logger.info(f"📅 Year {year}: RMSE={m['rmse']:.3f}, MAE={m['mae']:.3f}, R²={m.get('r2', 0):.4f}")
+                
+                if not year_keys:
+                    f.write("No individual years found in metrics.\n")
+                    logger.warning("⚠️ No individual years found in sc_metrics dictionary!")
+                
+                f.write("\n" + "="*80 + "\n")
+            logger.info(f"✅ Full yearly temporal analysis saved to: {metrics_file}")
+        except Exception as e:
+            logger.error(f"❌ Failed to write yearly analysis file: {e}")
     else:
         logger.warning("⚠️ Year column missing in test_df, skipping solar cycle stats.")
     print("="*80 + "\n")

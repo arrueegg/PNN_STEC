@@ -140,8 +140,8 @@ def print_and_save_statistics(results_df: pd.DataFrame, output_dir: Path) -> Non
 
 def get_solar_cycle_stats(test_df: pd.DataFrame, logger=None) -> Dict[str, Any]:
     """
-    Computes solar cycle specific metrics for Active (2014, 2024) 
-    and Quiet (2019, 2020) periods.
+    Computes solar cycle specific metrics for ALL years in the testset individually,
+    plus grouping Active (2014, 2024) and Quiet (2019, 2020) periods.
     """
     results = {}
     
@@ -149,27 +149,51 @@ def get_solar_cycle_stats(test_df: pd.DataFrame, logger=None) -> Dict[str, Any]:
         if logger: logger.warning("Year column missing. Cannot compute solar stats.")
         return {}
 
-    # Define periods
+    # 1. GROUPED ANALYSIS (ACTIVE/QUIET)
     active_mask = test_df['year'].isin([2014, 2024])
     quiet_mask = test_df['year'].isin([2019, 2020])
 
-    for period, mask, label in [('ACTIVE', active_mask, "(2014, 2024)"), 
-                                ('QUIET', quiet_mask, "(2019, 2020)")]:
+    for period, mask, label in [('ACTIVE_GROUP', active_mask, "(2014, 2024)"), 
+                                ('QUIET_GROUP', quiet_mask, "(2019, 2020)")]:
         sub_df = test_df[mask]
-        if len(sub_df) > 0:
+        if len(sub_df) > 1:
             y_true = sub_df['target_stec'].values
             y_pred = sub_df['pred_stec'].values
             
-            mse = np.mean((y_true - y_pred)**2)
-            rmse = np.sqrt(mse)
-            mae = np.mean(np.abs(y_true - y_pred))
-            
+            # Formal R2 definition: 1 - SS_res / SS_tot
+            ss_res = np.sum((y_true - y_pred)**2)
+            ss_tot = np.sum((y_true - np.mean(y_true))**2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
             results[period] = {
-                'rmse': rmse,
-                'mae': mae,
+                'rmse': np.sqrt(ss_res / len(sub_df)),
+                'mae': np.mean(np.abs(y_true - y_pred)),
+                'r2': r2,
+                'count': len(sub_df),
+                'label': label
+            }
+
+    # 2. INDIVIDUAL YEARLY ANALYSIS (ALL YEARS)
+    unique_years = sorted(test_df['year'].unique())
+    for year in unique_years:
+        year_mask = test_df['year'] == year
+        sub_df = test_df[year_mask]
+        
+        if len(sub_df) > 1:
+            y_true = sub_df['target_stec'].values
+            y_pred = sub_df['pred_stec'].values
+            
+            ss_res = np.sum((y_true - y_pred)**2)
+            ss_tot = np.sum((y_true - np.mean(y_true))**2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+            
+            # Ensure key is a clean year string (e.g., '2014' not '2014.0')
+            year_key = str(int(float(year)))
+            results[year_key] = {
+                'rmse': np.sqrt(ss_res / len(sub_df)),
+                'mae': np.mean(np.abs(y_true - y_pred)),
+                'r2': r2,
                 'count': len(sub_df)
             }
-        else:
-            if logger: logger.info(f"No data found for {period} {label}")
 
     return results

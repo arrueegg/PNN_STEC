@@ -507,8 +507,8 @@ def plot_test_metrics(
                 f.write(f"{key}: {value:.6f}\n")
 
     # Create temporal metrics summaries
-    logger.info("Skipping temporal metrics summaries (txt files)...")
-    # create_temporal_metrics_summaries(df, test_metrics_dir)
+    logger.info("Creating temporal metrics summaries (txt files)...")
+    create_temporal_metrics_summaries(df, output_dir)
 
     if uncertainty_cols:
         logger.info(
