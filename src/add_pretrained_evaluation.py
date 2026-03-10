@@ -27,15 +27,16 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import gc
+from tqdm import tqdm
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.config_parser import parse_config
 from utils.feature_registry import initialize_feature_registry
 from training.base_trainer import BaseTrainer
 from data_loader import get_test_data_loader
 from data_loader.collation import CollateWithSH
+from data_loader.madrigal_dataset import get_madrigal_data_loader
 from compare_stec_vtec_gim import (
     load_experiment_config,
     find_best_checkpoint,
@@ -65,15 +66,16 @@ def setup_logging():
 def run_pretrained_inference(
     model: torch.nn.Module,
     test_loader,
-    config: Dict,
+    trainer: BaseTrainer,
     logger,
     num_samples: int = 100,
-) -> pd.DataFrame:
-    """Run inference with the pretrained model."""
+) -> np.ndarray:
+    """Run lightweight pretrained inference and return only predicted means."""
     logger.info("Running Pretrained STEC Baseline inference...")
 
-    trainer = BaseTrainer(config, logger)
-
+    config = trainer.config
+    data_transforms = trainer.data_transforms
+    device = trainer.device
     model_type = config["model"]["model_type"]
     is_bayesian = "BNN" in model_type or "Bayesian" in model_type or "FactorizedSTEC" in model_type
     samples = num_samples if is_bayesian else 1
@@ -81,12 +83,63 @@ def run_pretrained_inference(
     if not is_bayesian and num_samples > 1:
         logger.info(f"  {model_type} is deterministic — using 1 sample instead of {num_samples}")
 
-    _, test_df = trainer.bayesian_inference_total_uncertainty(
-        model, test_loader, num_samples=samples
-    )
+    preds = []
+    total_batches = len(test_loader)
+    disable_tqdm = config.get("cluster", False)
 
-    logger.info(f"  Pretrained inference done: {len(test_df):,} predictions")
-    return test_df
+    model.eval()
+    with torch.inference_mode():
+        for batch_idx, batch in enumerate(tqdm(
+            test_loader,
+            desc="Pretrained Inference",
+            disable=disable_tqdm,
+        )):
+            inputs = batch[0].to(device, non_blocking=True)
+
+            if samples == 1:
+                outputs = model(inputs)
+                mean_raw, var_raw = data_transforms.compute_mean_var(outputs)
+                if "Laplacian" in model_type:
+                    var_raw = 2.0 * (var_raw ** 2)
+
+                if data_transforms.use_log_target:
+                    mean_y = torch.exp(mean_raw + 0.5 * var_raw) - data_transforms.eps
+                else:
+                    mean_y = mean_raw
+
+                batch_mean = mean_y.detach().cpu().flatten().numpy()
+                preds.append(batch_mean)
+                del outputs, mean_raw, var_raw, mean_y, batch_mean
+            else:
+                sample_means = []
+                for _ in range(samples):
+                    outputs = model(inputs)
+                    mean_raw, var_raw = data_transforms.compute_mean_var(outputs)
+
+                    if "Laplacian" in model_type:
+                        var_raw = 2.0 * (var_raw ** 2)
+
+                    if data_transforms.use_log_target:
+                        mean_y = torch.exp(mean_raw + 0.5 * var_raw) - data_transforms.eps
+                    else:
+                        mean_y = mean_raw
+
+                    sample_means.append(mean_y.detach())
+                    del outputs, mean_raw, var_raw, mean_y
+
+                pred_stack = torch.stack(sample_means, dim=0)
+                batch_mean = pred_stack.mean(dim=0).detach().cpu().flatten().numpy()
+                preds.append(batch_mean)
+                del sample_means, pred_stack, batch_mean
+
+            del inputs
+
+            if torch.cuda.is_available() and (batch_idx + 1) % 20 == 0:
+                torch.cuda.empty_cache()
+
+    pred_array = np.concatenate(preds)
+    logger.info(f"  Pretrained inference done: {len(pred_array):,} predictions")
+    return pred_array
 
 
 def compare_all_models_from_df(df: pd.DataFrame, logger) -> Dict[str, Dict[str, float]]:
@@ -121,6 +174,68 @@ def compare_all_models_from_df(df: pd.DataFrame, logger) -> Dict[str, Dict[str, 
     logger.info("=" * 70)
 
     return results
+
+
+def load_test_stations() -> Optional[List[str]]:
+    """Load test station list used by Madrigal evaluation."""
+    test_station_file = Path("src/data_processing/test_station.list")
+    if not test_station_file.exists():
+        return None
+
+    with open(test_station_file, "r") as f:
+        return [line.strip().upper() for line in f if line.strip()]
+
+
+def build_day_config(base_config: Dict, year: int, doy: int) -> Dict:
+    """Create a day-specific config copy for data loading."""
+    day_config = {**base_config}
+    day_config["year"] = year
+    day_config["doy"] = doy
+
+    if "data" in base_config:
+        day_config["data"] = {**base_config["data"]}
+    if "finetune" in base_config:
+        day_config["finetune"] = {**base_config["finetune"], "year": year, "doy": doy}
+    if "pretrain" in base_config:
+        day_config["pretrain"] = {**base_config["pretrain"]}
+
+    # Reuse initialized registry object so the collate function sees the same feature ordering.
+    day_config["feature_registry"] = base_config["feature_registry"]
+    return day_config
+
+
+def get_day_loader(
+    dataset_type: str,
+    config: Dict,
+    year: int,
+    doy: int,
+    madrigal_path: str,
+    test_size: Optional[int],
+    madrigal_batch_size: int,
+    madrigal_num_workers: int,
+    logger,
+):
+    """Build the correct data loader for either own or Madrigal evaluation."""
+    if dataset_type == "own_vtec_gim":
+        return get_test_data_loader(config, logger)
+
+    if dataset_type == "madrigal_vtec_gim":
+        test_stations = load_test_stations()
+        loader, _ = get_madrigal_data_loader(
+            madrigal_path=madrigal_path,
+            year=year,
+            doy=doy,
+            config=config,
+            batch_size=madrigal_batch_size,
+            num_workers=madrigal_num_workers,
+            elevation_threshold=5.0,
+            max_samples=test_size,
+            station_list=test_stations,
+            logger=logger,
+        )
+        return loader
+
+    raise ValueError(f"Unsupported dataset_type: {dataset_type}")
 
 
 def save_extended_results(
@@ -191,8 +306,14 @@ def main():
                         help="MC samples for Bayesian inference (default: 100)")
     parser.add_argument("--skip_plots", action="store_true",
                         help="Skip plot generation")
-    parser.add_argument("--dataset_type", type=str, default="own_vtec_gim",
-                        help="Dataset subfolder to read from source (default: own_vtec_gim)")
+    parser.add_argument("--dataset_types", type=str, default="own_vtec_gim,madrigal_vtec_gim",
+                        help="Comma-separated dataset subfolders to read from source (default: own_vtec_gim,madrigal_vtec_gim)")
+    parser.add_argument("--madrigal_path", type=str, default="/home/space/data/iono/Madrigal_STEC",
+                        help="Path to Madrigal STEC data directory")
+    parser.add_argument("--madrigal_batch_size", type=int, default=16384,
+                        help="Batch size for Madrigal loader (default: 16384)")
+    parser.add_argument("--madrigal_num_workers", type=int, default=8,
+                        help="Number of workers for Madrigal loader (default: 8)")
     parser.add_argument("--skip_existing", action="store_true",
                         help="Skip days that already have pretrained results in output_dir")
 
@@ -202,9 +323,11 @@ def main():
     source_dir = Path(args.source_dir)
     output_base = Path(args.output_dir)
     output_base.mkdir(parents=True, exist_ok=True)
+    dataset_types = [item.strip() for item in args.dataset_types.split(",") if item.strip()]
 
     dates = generate_date_list(args.dates)
     logger.info(f"Processing {len(dates)} day(s): {dates}")
+    logger.info(f"Datasets: {dataset_types}")
 
     # --- Load pretrained model ONCE ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -223,6 +346,7 @@ def main():
 
     pre_checkpoint = find_best_checkpoint(pre_dir)
     pre_model, _ = load_model_from_checkpoint(pre_config, pre_checkpoint, logger)
+    pre_trainer = BaseTrainer(pre_config, logger)
     logger.info("Pretrained model loaded.\n")
 
     # --- Prepare base STEC config for daily data loaders ---
@@ -255,97 +379,88 @@ def main():
         logger.info(f"Processing {date_str}")
         logger.info("=" * 70)
 
-        # Check source CSV
-        source_csv = source_dir / f"{year}_DOY_{doy:03d}" / "evaluation" / args.dataset_type / "detailed_predictions.csv"
-        if not source_csv.exists():
-            logger.warning(f"  Source CSV not found: {source_csv}, skipping.")
-            batch_results.append({"year": year, "doy": doy, "date": date_str, "success": False, "metrics": {}})
-            continue
+        day_success = False
+        for dataset_type in dataset_types:
+            logger.info(f"  Dataset: {dataset_type}")
 
-        # Check if already done
-        out_eval_dir = output_base / f"{year}_DOY_{doy:03d}" / "evaluation" / args.dataset_type
-        if args.skip_existing and (out_eval_dir / "detailed_predictions.csv").exists():
-            existing_df = pd.read_csv(out_eval_dir / "detailed_predictions.csv")
-            if "pretrained_stec_pred" in existing_df.columns:
-                logger.info(f"  Already has pretrained results, skipping.")
-                metrics = extract_metrics_from_experiment(output_base / f"{year}_DOY_{doy:03d}" / "evaluation")
-                batch_results.append({
-                    "year": year, "doy": doy, "date": date_str, "success": True,
-                    "stec_experiment": f"recovered_{date_str}", "vtec_experiment": None,
-                    "metrics": metrics,
-                })
+            source_csv = source_dir / f"{year}_DOY_{doy:03d}" / "evaluation" / dataset_type / "detailed_predictions.csv"
+            if not source_csv.exists():
+                logger.warning(f"    Source CSV not found: {source_csv}, skipping dataset.")
                 continue
 
-        # Read existing predictions
-        existing_df = pd.read_csv(source_csv)
-        logger.info(f"  Loaded {len(existing_df):,} samples from source CSV")
+            out_eval_dir = output_base / f"{year}_DOY_{doy:03d}" / "evaluation" / dataset_type
+            if args.skip_existing and (out_eval_dir / "detailed_predictions.csv").exists():
+                existing_output_df = pd.read_csv(out_eval_dir / "detailed_predictions.csv")
+                if "pretrained_stec_pred" in existing_output_df.columns:
+                    logger.info("    Already has pretrained results, skipping dataset.")
+                    day_success = True
+                    continue
 
-        # Set day in config and create test data loader
-        day_config = {**base_stec_config}
-        day_config["year"] = year
-        day_config["doy"] = doy
-        if "finetune" in day_config:
-            day_config["finetune"] = {**base_stec_config["finetune"], "year": year, "doy": doy}
-        if "pretrain" in day_config:
-            day_config["pretrain"] = {**base_stec_config["pretrain"]}
+            existing_df = pd.read_csv(source_csv)
+            logger.info(f"    Loaded {len(existing_df):,} samples from source CSV")
 
-        test_loader = get_test_data_loader(day_config, logger)
-
-        # Run pretrained inference
-        pre_df = run_pretrained_inference(
-            pre_model, test_loader, pre_config, logger,
-            num_samples=args.num_inference_samples,
-        )
-
-        if len(pre_df) != len(existing_df):
-            logger.warning(
-                f"  Size mismatch: pretrained={len(pre_df)}, existing={len(existing_df)}. "
-                f"Skipping {date_str}."
-            )
-            batch_results.append({"year": year, "doy": doy, "date": date_str, "success": False, "metrics": {}})
-            continue
-
-        # Merge pretrained predictions into existing dataframe
-        existing_df["pretrained_stec_pred"] = pre_df["pred_stec"].values
-
-        # Rename elevation to match internal convention if needed
-        if "elevation" in existing_df.columns and "satele" not in existing_df.columns:
-            existing_df.rename(columns={"elevation": "satele"}, inplace=True)
-
-        # Compute metrics
-        metrics = compare_all_models_from_df(
-            existing_df.rename(columns={"satele": "elevation"} if "satele" in existing_df.columns else {}),
-            logger,
-        )
-
-        # Save extended results
-        # Ensure columns use 'elevation' for output
-        save_df = existing_df.copy()
-        if "satele" in save_df.columns:
-            save_df.rename(columns={"satele": "elevation"}, inplace=True)
-
-        save_extended_results(metrics, save_df, out_eval_dir, logger)
-
-        # Generate plots
-        if not args.skip_plots:
-            logger.info("  Generating plots...")
-            # generate_all_plots expects 'satele' column
-            plot_df = existing_df.copy()
-            if "elevation" in plot_df.columns and "satele" not in plot_df.columns:
-                plot_df.rename(columns={"elevation": "satele"}, inplace=True)
-
-            generate_all_plots(
-                test_df=plot_df,
-                stec_col="stec_pred",
-                vtec_col="vtec_model_stec" if "vtec_model_stec" in plot_df.columns else None,
-                gim_col="gim_stec" if "gim_stec" in plot_df.columns else None,
-                metrics=metrics,
-                output_dir=out_eval_dir,
+            day_config = build_day_config(base_stec_config, year, doy)
+            test_loader = get_day_loader(
+                dataset_type=dataset_type,
+                config=day_config,
+                year=year,
+                doy=doy,
+                madrigal_path=args.madrigal_path,
+                test_size=None,
+                madrigal_batch_size=args.madrigal_batch_size,
+                madrigal_num_workers=args.madrigal_num_workers,
                 logger=logger,
-                pretrain_col="pretrained_stec_pred",
             )
 
-        # Record result for aggregate (read back from saved CSV for consistent format)
+            pre_preds = run_pretrained_inference(
+                pre_model,
+                test_loader,
+                pre_trainer,
+                logger,
+                num_samples=args.num_inference_samples,
+            )
+
+            if len(pre_preds) != len(existing_df):
+                logger.warning(
+                    f"    Size mismatch for {dataset_type}: pretrained={len(pre_preds)}, existing={len(existing_df)}. Skipping dataset."
+                )
+                continue
+
+            existing_df["pretrained_stec_pred"] = pre_preds
+
+            if "elevation" in existing_df.columns and "satele" not in existing_df.columns:
+                existing_df.rename(columns={"elevation": "satele"}, inplace=True)
+
+            metrics = compare_all_models_from_df(
+                existing_df.rename(columns={"satele": "elevation"} if "satele" in existing_df.columns else {}),
+                logger,
+            )
+
+            save_df = existing_df.copy()
+            if "satele" in save_df.columns:
+                save_df.rename(columns={"satele": "elevation"}, inplace=True)
+
+            save_extended_results(metrics, save_df, out_eval_dir, logger)
+
+            if not args.skip_plots:
+                logger.info("    Generating plots...")
+                plot_df = existing_df.copy()
+                if "elevation" in plot_df.columns and "satele" not in plot_df.columns:
+                    plot_df.rename(columns={"elevation": "satele"}, inplace=True)
+
+                generate_all_plots(
+                    test_df=plot_df,
+                    stec_col="stec_pred",
+                    vtec_col="vtec_model_stec" if "vtec_model_stec" in plot_df.columns else None,
+                    gim_col="gim_stec" if "gim_stec" in plot_df.columns else None,
+                    metrics=metrics,
+                    output_dir=out_eval_dir,
+                    logger=logger,
+                    pretrain_col="pretrained_stec_pred",
+                )
+
+            day_success = True
+
         saved_metrics = extract_metrics_from_experiment(
             output_base / f"{year}_DOY_{doy:03d}" / "evaluation"
         )
@@ -353,7 +468,7 @@ def main():
             "year": year,
             "doy": doy,
             "date": date_str,
-            "success": True,
+            "success": bool(saved_metrics) and day_success,
             "stec_experiment": f"recovered_{date_str}",
             "vtec_experiment": None,
             "metrics": saved_metrics,
