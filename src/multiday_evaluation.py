@@ -465,12 +465,14 @@ def run_positioning_pipeline(experiment_name: str, year: int, doy: int) -> bool:
 
 def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path, 
                   num_samples: int = 100, reuse_results: bool = False,
-                  skip_plots: bool = False) -> bool:
+                  skip_plots: bool = False, pretrained_baseline: str = None) -> bool:
     """Run comprehensive comparison evaluation.
     
     Returns success status.
     """
     logger.info(f"Running comparison: {stec_exp} vs {vtec_exp}")
+    if pretrained_baseline:
+        logger.info(f"Using pretrained baseline: {pretrained_baseline}")
 
     # Ensure output directory exists for logging
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -505,7 +507,8 @@ def run_comparison(stec_exp: str, vtec_exp: str, output_dir: Path,
                 mapping_function="MSLM", # Default
                 output_dir=str(output_dir),
                 reuse_results=reuse_results,
-                skip_plots=skip_plots
+                skip_plots=skip_plots,
+                pretrained_stec_experiment=pretrained_baseline
             )
             
             run_main_comparison(args=args)
@@ -579,6 +582,13 @@ def extract_elevation_metrics_from_experiment(evaluation_dir: Path) -> Dict[str,
                     vtec_mae = np.mean(np.abs(group['true_stec'] - group['vtec_model_stec']))
                     vtec_bias = np.mean(group['vtec_model_stec'] - group['true_stec'])
                     
+                    # Pretrained STEC metrics (if available)
+                    pre_rmse, pre_mae, pre_bias = np.nan, np.nan, np.nan
+                    if 'pretrained_stec_pred' in group.columns:
+                        pre_rmse = np.sqrt(np.mean((group['true_stec'] - group['pretrained_stec_pred'])**2))
+                        pre_mae = np.mean(np.abs(group['true_stec'] - group['pretrained_stec_pred']))
+                        pre_bias = np.mean(group['pretrained_stec_pred'] - group['true_stec'])
+                    
                     # GIM metrics
                     gim_rmse = np.sqrt(np.mean((group['true_stec'] - group['gim_stec'])**2))
                     gim_mae = np.mean(np.abs(group['true_stec'] - group['gim_stec']))
@@ -590,6 +600,9 @@ def extract_elevation_metrics_from_experiment(evaluation_dir: Path) -> Dict[str,
                         'Direct STEC RMSE': stec_rmse,
                         'Direct STEC MAE': stec_mae,
                         'Direct STEC Bias': stec_bias,
+                        'Pretrained STEC RMSE': pre_rmse,
+                        'Pretrained STEC MAE': pre_mae,
+                        'Pretrained STEC Bias': pre_bias,
                         'VTEC + Mapping RMSE': vtec_rmse,
                         'VTEC + Mapping MAE': vtec_mae,
                         'VTEC + Mapping Bias': vtec_bias,
@@ -695,7 +708,8 @@ def generate_aggregate_report(batch_results: List[Dict], output_dir: Path, skip_
     df_calc = df.copy()
     df_calc['Model'] = df_calc['Model'].replace({
         'Direct STEC Model': 'Direct STEC',
-        'IGS GIM': 'IGS GIM + Mapping'
+        'IGS GIM': 'IGS GIM + Mapping',
+        'Pretrained STEC Model': 'Pretrained STEC'
     })
 
     for dataset in df_calc['dataset'].unique():
@@ -711,7 +725,7 @@ def generate_aggregate_report(batch_results: List[Dict], output_dir: Path, skip_
             if 'Direct STEC' not in pivot_df.columns:
                 continue
                 
-            for baseline in ['VTEC + Mapping', 'IGS GIM + Mapping']:
+            for baseline in ['Pretrained STEC', 'VTEC + Mapping', 'IGS GIM + Mapping']:
                 if baseline in pivot_df.columns:
                     # Calculate percentage improvement
                     # Positive means Direct STEC is better (lower RMSE/MAE)
@@ -768,12 +782,14 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
     colors = sns.color_palette("colorblind")
     model_colors = {
         'Direct STEC': colors[0],
+        'Pretrained STEC': colors[4], # Purple-ish color from colorblind palette
         'VTEC + Mapping': colors[1],
         'IGS GIM + Mapping': colors[2]
     }
     
     # Define baseline colors (subset of model_colors for consistency in improvement plots)
     baseline_colors = {
+        'Pretrained STEC': model_colors['Pretrained STEC'],
         'VTEC + Mapping': model_colors['VTEC + Mapping'],
         'IGS GIM + Mapping': model_colors['IGS GIM + Mapping']
     }
@@ -790,7 +806,8 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
     # Normalize model names in df to ensure consistency
     df['Model'] = df['Model'].replace({
         'Direct STEC Model': 'Direct STEC',
-        'IGS GIM': 'IGS GIM + Mapping'
+        'IGS GIM': 'IGS GIM + Mapping',
+        'Pretrained STEC Model': 'Pretrained STEC'
     })
     
     # -------------------------------------------------------------------------
@@ -977,7 +994,7 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
     if all_elevation_data:
         elevation_df = pd.concat(all_elevation_data, ignore_index=True)
         # Aggregate across all days
-        elevation_agg = elevation_df.groupby(['elevation_bin', 'dataset']).agg({
+        agg_dict = {
             'Direct STEC RMSE': ['mean', 'std'],
             'Direct STEC MAE': ['mean', 'std'],
             'VTEC + Mapping RMSE': ['mean', 'std'],
@@ -985,7 +1002,16 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             'IGS GIM RMSE': ['mean', 'std'],
             'IGS GIM MAE': ['mean', 'std'],
             'count': 'sum'
-        }).round(3)
+        }
+        
+        # Add Pretrained STEC if available
+        if 'Pretrained STEC RMSE' in elevation_df.columns:
+            agg_dict.update({
+                'Pretrained STEC RMSE': ['mean', 'std'],
+                'Pretrained STEC MAE': ['mean', 'std']
+            })
+            
+        elevation_agg = elevation_df.groupby(['elevation_bin', 'dataset']).agg(agg_dict).round(3)
         
         # Flatten columns
         elevation_agg.columns = ['_'.join(col).strip() for col in elevation_agg.columns.values]
@@ -1016,24 +1042,33 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                 x = dataset_elev['elevation_bin'].values.astype(float) + 2.5
                 offset = 0.8
                 
-                # Direct STEC (Shift Left)
-                plt.errorbar(x - offset, 
+                # Direct STEC (Shift Far Left)
+                plt.errorbar(x - 1.5*offset, 
                            dataset_elev[f'Direct STEC {metric_name}_mean'],
                            yerr=dataset_elev[f'Direct STEC {metric_name}_std'],
                            label='Direct STEC', marker='o', capsize=4, 
                            color=model_colors['Direct STEC'],
                            markersize=6, alpha=0.9)
                 
-                # VTEC + Mapping (Center)
-                plt.errorbar(x, 
+                # Pretrained STEC (Shift Left)
+                if f'Pretrained STEC {metric_name}_mean' in dataset_elev.columns:
+                     plt.errorbar(x - 0.5*offset, 
+                               dataset_elev[f'Pretrained STEC {metric_name}_mean'],
+                               yerr=dataset_elev[f'Pretrained STEC {metric_name}_std'],
+                               label='Pretrained STEC', marker='D', capsize=4, 
+                               color=model_colors['Pretrained STEC'],
+                               markersize=5, alpha=0.9)
+
+                # VTEC + Mapping (Shift Right)
+                plt.errorbar(x + 0.5*offset, 
                            dataset_elev[f'VTEC + Mapping {metric_name}_mean'],
                            yerr=dataset_elev[f'VTEC + Mapping {metric_name}_std'],
                            label='VTEC + Mapping', marker='s', capsize=4, 
                            color=model_colors['VTEC + Mapping'],
                            markersize=6, alpha=0.9)
                 
-                # IGS GIM using simplified columns but new label (Shift Right)
-                plt.errorbar(x + offset, 
+                # IGS GIM using simplified columns but new label (Shift Far Right)
+                plt.errorbar(x + 1.5*offset, 
                            dataset_elev[f'IGS GIM {metric_name}_mean'],
                            yerr=dataset_elev[f'IGS GIM {metric_name}_std'],
                            label='IGS GIM + Mapping', marker='^', capsize=4, 
@@ -1259,6 +1294,8 @@ Date formats supported:
                        help="Skip training if experiment already exists")
     parser.add_argument("--pretrain_folder", type=str, default=None,
                        help="Pretrain experiment folder to use for STEC model (optional, auto-runs pretrain if needed)")
+    parser.add_argument("--pretrained_baseline", type=str, default=None,
+                       help="Pretrained model folder to use as a FIXED baseline in all plots")
     parser.add_argument("--no_aggregate", action="store_true",
                        help="Skip aggregate report generation (for parallel execution)")
     parser.add_argument("--summary_only", action="store_true",
@@ -1352,19 +1389,33 @@ Date formats supported:
                 # Check for evaluation results
                 eval_dir = date_dir / "evaluation"
                 # Check primarily for the result file of the first dataset (own_vtec_gim)
-                # We check this specific path because extract_metrics_from_experiment looks here
                 metrics_file = eval_dir / "own_vtec_gim" / "metrics_summary.csv"
                 
                 if metrics_file.exists():
                     # Attempt to load metrics
-                    metrics = extract_metrics_from_experiment(eval_dir)
-                    if metrics:
+                    metrics = extract_metrics_from_experiment(date_dir / "evaluation")
+                    
+                    # Logic: if we have metrics, check if we need a pretrained baseline that's missing
+                    skip_day = True
+                    if metrics and args.pretrained_baseline:
+                        # Check if 'Pretrained STEC' exists in any of the metrics datasets
+                        has_pretrain = False
+                        for dataset_type in metrics:
+                            for row in metrics[dataset_type]:
+                                if 'Pretrained STEC' in row.get('Model', ''):
+                                    has_pretrain = True
+                                    break
+                            if has_pretrain:
+                                break
+                        
+                        if not has_pretrain:
+                            logger.info(f"⚠️  Existing results found in {date_dir}, but 'Pretrained STEC' is missing. Re-running comparison.")
+                            skip_day = False
+                    
+                    if skip_day and metrics:
                         logger.info(f"✓ Results already found in {date_dir}, skipping day.")
                         result['success'] = True
-                        # We don't necessarily know the experiment names here without more effort,
-                        # but for aggregation we only need the metrics which we just loaded.
                         result['metrics'] = metrics
-                        # Try to recovered exp names if possible, but not critical for aggregate report
                         result['stec_experiment'] = f"recovered_{date_str}"
                         batch_results.append(result)
                         continue
@@ -1416,17 +1467,6 @@ Date formats supported:
             # Check if VTEC experiment already exists to skip redundant training
             vtec_exists, vtec_exp_name = check_experiment_exists(vtec_config)
             
-            if (args.skip_existing or True) and vtec_exists: # existing logic always skipped VTEC if existed, keeping that but making it explicit or ensuring skip_existing covers it?
-                # The original code unconditionally skipped VTEC if it existed.
-                # "if vtec_exists:" was the original check.
-                # So I should probably keep it as is, or maybe apply skip_existing to it too?
-                # The user only asked for STEC. But usually skip_existing implies both.
-                # The original code for VTEC was:
-                # if vtec_exists: ...
-                # So it was ALWAYS skipping existing VTEC.
-                # I will touch STEC logic only as requested, but maybe it's better to use the flag for STEC.
-                pass
-
             if vtec_exists: # Original behavior: always skip existing VTEC
                 logger.info(f"✓ Found existing VTEC experiment: {vtec_exp_name}, skipping training")
                 vtec_success = True
@@ -1459,16 +1499,29 @@ Date formats supported:
                         cfg['finetune']['finetune_from_scratch'] = True
                         if 'target' not in cfg: cfg['target'] = 'vtec'
                     else:
+                        # Extract critical parameters from config_BayesianResNetSTEC.yaml instead of assuming defaults
+                        # This ensures the computed name matches the existing folders
+                        cfg['mode'] = 'finetune'
                         cfg['finetune']['finetune_from_scratch'] = False
                         if 'target' not in cfg: cfg['target'] = 'stec'
-
+                    
                     exp_name = compute_exp_name(cfg)
                     exp_path = Path("experiments") / exp_name
                     
                     if exp_path.exists():
                          return True, exp_name
-                    else:
-                         return False, exp_name
+                    
+                    # Fallback search: if exact match fails, look for folders matching DOY and model type
+                    experiments_dir = Path("experiments")
+                    pattern = f"*STEC_{year}_{str(doy).zfill(3)}*" if not is_vtec else f"*VTEC_{year}_{str(doy).zfill(3)}*"
+                    matches = list(experiments_dir.glob(pattern))
+                    if matches:
+                        # Pick the most recent one
+                        best_match = max(matches, key=lambda x: x.stat().st_mtime)
+                        logger.info(f"Using fallback experiment match: {best_match.name}")
+                        return True, best_match.name
+
+                    return False, exp_name
                 except Exception as e:
                     logger.error(f"Error computing experiment name: {e}")
                     return False, None
@@ -1502,8 +1555,9 @@ Date formats supported:
                 result['vtec_experiment'],
                 date_dir / "evaluation",
                 args.num_inference_samples,
-                reuse_results=args.update_vtec_only,
-                skip_plots=args.skip_plots
+                reuse_results=args.update_vtec_only or bool(args.pretrained_baseline),
+                skip_plots=args.skip_plots,
+                pretrained_baseline=args.pretrained_baseline
             )
         else:
             logger.info(f"\n[3/3] Skipping comparison evaluation for {date_str}")

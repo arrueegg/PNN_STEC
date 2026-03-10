@@ -377,13 +377,19 @@ def create_comparison_summary(test_df: pd.DataFrame, models: Dict, metrics: Dict
 
 
 def generate_all_plots(test_df: pd.DataFrame, stec_col: str, vtec_col: Optional[str], 
-                       gim_col: Optional[str], metrics: Dict, output_dir: Path, logger):
+                       gim_col: Optional[str], metrics: Dict, output_dir: Path, logger,
+                       pretrain_col: Optional[str] = None):
     """Generate all publication-ready plots."""
     set_publication_style()
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Prepare model dictionary
     models = {'Direct STEC Model': test_df[stec_col].values}
+    
+    # Add pretrained model if available (as the second item for consistent plotting order)
+    if pretrain_col and pretrain_col in test_df.columns:
+        models['Pretrained STEC'] = test_df[pretrain_col].values
+        
     if vtec_col and vtec_col in test_df.columns:
         models['VTEC + Mapping'] = test_df[vtec_col].values
     if gim_col and gim_col in test_df.columns:

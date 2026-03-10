@@ -337,6 +337,8 @@ Date formats:
                        help="Test set size (default: full)")
     parser.add_argument("--pretrain_folder", type=str, default=None,
                        help="Pretrain experiment folder to use for STEC model (optional)")
+    parser.add_argument("--pretrained_baseline", type=str, default=None,
+                       help="Pretrained model folder to use as a FIXED baseline in all plots")
     parser.add_argument("--skip_training", action="store_true",
                        help="Skip training, only run evaluation (experiments must exist)")
     parser.add_argument("--update_vtec_only", action="store_true",
@@ -478,6 +480,9 @@ def run_multiday(args):
         
         if args.pretrain_folder:
             sys.argv.extend(["--pretrain_folder", args.pretrain_folder])
+
+        if args.pretrained_baseline:
+            sys.argv.extend(["--pretrained_baseline", args.pretrained_baseline])
         
         if args.skip_training:
             sys.argv.extend(["--skip_training"])

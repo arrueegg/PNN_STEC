@@ -388,7 +388,8 @@ def compare_all_models(
     stec_col: str,
     vtec_col: Optional[str],
     gim_col: Optional[str],
-    logger
+    logger,
+    pretrain_col: Optional[str] = None
 ) -> Dict[str, Dict[str, float]]:
     """
     Compare all available models.
@@ -399,6 +400,7 @@ def compare_all_models(
         vtec_col: Column name for VTEC+mapping predictions (or None)
         gim_col: Column name for GIM STEC (or None)
         logger: Logger instance
+        pretrain_col: Column name for pretrained STEC predictions (or None)
     """
     logger.info("📊 Computing comparison metrics...")
     
@@ -410,6 +412,11 @@ def compare_all_models(
     # Direct STEC model
     stec_pred = test_df[stec_col].values
     results['Direct STEC Model'] = compute_metrics(stec_pred, ground_truth)
+
+    # Pretrained STEC baseline (if available)
+    if pretrain_col and pretrain_col in test_df.columns:
+        pre_pred = test_df[pretrain_col].values
+        results['Pretrained STEC'] = compute_metrics(pre_pred, ground_truth)
     
     # VTEC + Mapping model (if available)
     if vtec_col and vtec_col in test_df.columns:
@@ -508,6 +515,8 @@ def save_results(
     csv_cols = ['true_stec', 'stec_pred', 'satele']
     rename_dict = {'satele': 'elevation'}
     
+    if 'pretrained_stec_pred' in test_df.columns:
+        csv_cols.append('pretrained_stec_pred')
     if 'vtec_model_stec' in test_df.columns:
         csv_cols.append('vtec_model_stec')
     if 'gim_stec' in test_df.columns:
@@ -654,6 +663,10 @@ def main(args=None):
         parser.add_argument("--skip_plots", action="store_true",
                         help="Skip plot generation")
         
+        # Pretrained model baseline
+        parser.add_argument("--pretrained_stec_experiment", type=str, default=None,
+                        help="Path to PRETRAINED STEC model folder (baseline comparison)")
+        
         args = parser.parse_args()
 
     # CRITICAL: Reset static cache attributes to ensure no cross-contamination between runs
@@ -694,9 +707,9 @@ def main(args=None):
     if args.test_size:
         stec_config['data']['test_size'] = int(args.test_size)
     
-    # Load STEC model
-    stec_checkpoint = find_best_checkpoint(stec_dir)
-    stec_model, stec_registry = load_model_from_checkpoint(stec_config, stec_checkpoint, logger)
+    # Defer loading the STEC model until we know if we need it
+    stec_model = None
+    stec_registry = None
     
     # Determine which datasets to evaluate on
     datasets_to_evaluate = []
@@ -775,6 +788,7 @@ def main(args=None):
                         reusable_df = None
 
         # Prepare test data based on dataset type
+        _skip_vtec_gim = False  # Will be set to True in 'own' branch if fast-path applies
         if dataset_type == 'madrigal':
             # Get year and doy from config
             year = int(stec_config.get('year', 2024))
@@ -811,6 +825,11 @@ def main(args=None):
                 logger.info("⏭️  Skipping STEC model inference (Madrigal), reusing results")
                 test_df = reusable_df.copy()
             else:
+                # Need to load STEC model for inference
+                if stec_model is None:
+                    stec_checkpoint = find_best_checkpoint(stec_dir)
+                    stec_model, stec_registry = load_model_from_checkpoint(stec_config, stec_checkpoint, logger)
+                
                 # Run inference on Madrigal data
                 logger.info("🧠 Running STEC model inference on Madrigal observations...")
                 test_df = run_inference(stec_model, vtec_madrigal_loader, stec_config, "STEC Model (Madrigal)", logger, args.num_inference_samples)
@@ -843,24 +862,126 @@ def main(args=None):
             else:
                 logger.info(f"   Using general test.h5 for pretrained model")
             
-            # Set test size (use full test set if not specified)
-            set_test_size(stec_config, args.test_size)
-            stec_test_loader = get_test_data_loader(stec_config, logger)
+            # Check if we can fully reuse existing results (STEC + VTEC + GIM all present)
+            # and only need to add pretrained baseline
+            has_all_existing = (
+                reusable_df is not None 
+                and 'stec_pred' in reusable_df.columns
+                and 'true_stec' in reusable_df.columns
+            )
+            needs_pretrained_only = (
+                has_all_existing
+                and args.pretrained_stec_experiment
+                and 'pretrained_stec_pred' not in reusable_df.columns
+            )
             
-            # Check if we can skip STEC inference
-            if reusable_df is not None and len(reusable_df) == len(stec_test_loader.dataset):
-                logger.info("⏭️  Skipping STEC model inference (Own Test Set), reusing results")
+            if needs_pretrained_only:
+                # Fast path: reuse all existing results, only run pretrained inference
+                logger.info("⏭️  Reusing existing STEC/VTEC/GIM results, only running Pretrained STEC inference")
                 test_df = reusable_df.copy()
-            else:
-                # Run STEC inference
-                test_df = run_inference(stec_model, stec_test_loader, stec_config, "STEC Model", logger, args.num_inference_samples)
                 
-                # Rename columns for consistency (pred_stec -> stec_pred, target_stec -> true_stec)
-                test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
+                # We still need data loader for pretrained model
+                set_test_size(stec_config, args.test_size)
+                
+                # Also mark VTEC and GIM as already present so we skip them later
+                vtec_col = 'vtec_model_stec' if 'vtec_model_stec' in test_df.columns else None
+                gim_col = 'gim_stec' if 'gim_stec' in test_df.columns else None
+                _skip_vtec_gim = True
+            else:
+                _skip_vtec_gim = False
+                
+                # Set test size (use full test set if not specified)
+                set_test_size(stec_config, args.test_size)
+                
+                if has_all_existing:
+                    logger.info("⏭️  Skipping STEC model inference (Own Test Set), reusing results")
+                    test_df = reusable_df.copy()
+                else:
+                    # Need to load STEC model for inference
+                    if stec_model is None:
+                        stec_checkpoint = find_best_checkpoint(stec_dir)
+                        stec_model, stec_registry = load_model_from_checkpoint(stec_config, stec_checkpoint, logger)
+                    
+                    stec_test_loader = get_test_data_loader(stec_config, logger)
+                    
+                    # Run STEC inference
+                    test_df = run_inference(stec_model, stec_test_loader, stec_config, "STEC Model", logger, args.num_inference_samples)
+                    
+                    # Rename columns for consistency (pred_stec -> stec_pred, target_stec -> true_stec)
+                    test_df.rename(columns={'pred_stec': 'stec_pred', 'target_stec': 'true_stec'}, inplace=True)
+            
+            # Load and run PRETRAINED STEC model if provided
+            pretrain_stec_col = None
+            if 'pretrained_stec_pred' in test_df.columns:
+                # Already have pretrained results from reused CSV
+                logger.info("⏭️  Pretrained STEC predictions found in reused results, skipping inference")
+                pretrain_stec_col = 'pretrained_stec_pred'
+            elif args.pretrained_stec_experiment:
+                logger.info("\n" + "="*70)
+                logger.info("Processing Pretrained STEC Baseline")
+                logger.info("="*70)
+                
+                # Use same logic as VTEC for loading model once
+                if not hasattr(main, '_pretrain_stec_model_loaded'):
+                    pre_config, pre_dir = load_experiment_config(args.pretrained_stec_experiment)
+                    
+                    # Pretrained models usually have use_agg_h5=True, which we want to disable
+                    # to use the daily test data for fair comparison
+                    if 'data' in pre_config:
+                        pre_config['data']['use_agg_h5'] = False
+                        # Ensure we don't try to use training/validation splits from the pretrain run
+                        if 'renew_splits' in pre_config['data']:
+                            pre_config['data']['renew_splits'] = False
+                    
+                    pre_config["device"] = device
+                    
+                    # Increase batch size for faster inference
+                    if 'finetune' in pre_config:
+                        pre_config['finetune']['batchsize'] = max(pre_config['finetune'].get('batchsize', 2048), 4096)
+                    if 'pretrain' in pre_config:
+                        pre_config['pretrain']['batchsize'] = max(pre_config['pretrain'].get('batchsize', 2048), 4096)
+                    
+                    # Load pretrained model
+                    pre_checkpoint = find_best_checkpoint(pre_dir)
+                    pre_model, _ = load_model_from_checkpoint(pre_config, pre_checkpoint, logger)
+                    
+                    main._pretrain_stec_model_loaded = True
+                    main._pretrain_stec_config = pre_config
+                    main._pretrain_stec_model = pre_model
+                else:
+                    pre_config = main._pretrain_stec_config
+                    pre_model = main._pretrain_stec_model
+                
+                # Create data loader for pretrained model using CURRENT day's data
+                # Increase batch size for faster pretrained inference
+                # Ensure stec_config has feature_registry initialized (needed for data loading)
+                if 'feature_registry' not in stec_config:
+                    stec_registry = initialize_feature_registry(stec_config)
+                    stec_config['feature_registry'] = stec_registry
+                    from data_loader.collation import CollateWithSH
+                    CollateWithSH(stec_config)  # Sets output_indices in registry
+                
+                pre_stec_config = {**stec_config}
+                if 'finetune' in pre_stec_config:
+                    pre_stec_config['finetune'] = {**stec_config['finetune'], 'batchsize': max(stec_config['finetune'].get('batchsize', 2048), 4096)}
+                if 'pretrain' in pre_stec_config:
+                    pre_stec_config['pretrain'] = {**stec_config['pretrain'], 'batchsize': max(stec_config['pretrain'].get('batchsize', 2048), 4096)}
+                pre_test_loader = get_test_data_loader(pre_stec_config, logger)
+                
+                # Run inference
+                pre_df = run_inference(pre_model, pre_test_loader, pre_config, "Pretrained STEC Baseline", logger, args.num_inference_samples)
+                
+                # Verify match
+                if len(pre_df) != len(test_df):
+                    logger.warning(f"⚠️ Pretrained predictions ({len(pre_df)}) don't match STEC model ({len(test_df)}).")
+                else:
+                    test_df['pretrained_stec_pred'] = pre_df['pred_stec'].values
+                    pretrain_stec_col = 'pretrained_stec_pred'
         
         # Load and run VTEC model if provided
-        vtec_col = None
-        if args.vtec_experiment:
+        if not locals().get('vtec_col'):
+            vtec_col = None
+        if args.vtec_experiment and not _skip_vtec_gim:
             logger.info("\n" + "="*70)
             logger.info("Processing VTEC Model")
             logger.info("="*70)
@@ -942,8 +1063,9 @@ def main(args=None):
             vtec_col = 'vtec_model_stec'
         
         # Add GIM comparison if requested
-        gim_col = None
-        if not args.no_gim:
+        if not locals().get('gim_col'):
+            gim_col = None
+        if not args.no_gim and not _skip_vtec_gim:
             if 'gim_stec' in test_df.columns:
                 logger.info("⏭️  Skipping IGS GIM calculation, reusing results")
                 gim_col = 'gim_stec'
@@ -960,7 +1082,7 @@ def main(args=None):
         logger.info(f"Final Comparison - {dataset_name}")
         logger.info("="*70)
         
-        metrics = compare_all_models(test_df, 'stec_pred', vtec_col, gim_col, logger)
+        metrics = compare_all_models(test_df, 'stec_pred', vtec_col, gim_col, logger, pretrain_stec_col)
         
         # Determine output directory
         comparison_parts = [dataset_type]  # 'own' or 'madrigal'
@@ -996,7 +1118,8 @@ def main(args=None):
                     gim_col=gim_col,
                     metrics=metrics,
                     output_dir=output_dir,
-                    logger=logger
+                    logger=logger,
+                    pretrain_col=pretrain_stec_col
                 )
         else:
             logger.info("\n⏭️ Skipping plot generation (--skip_plots)")
