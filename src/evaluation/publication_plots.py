@@ -13,6 +13,19 @@ from typing import Dict, Optional
 from scipy import stats
 
 
+MODEL_COLORS = {
+    'Direct STEC Model': '#1f77b4',
+    'Pretrained STEC': '#9467bd',
+    'VTEC + Mapping': '#ff7f0e',
+    'IGS GIM': '#2ca02c',
+}
+
+
+def get_model_color(model_name: str) -> str:
+    """Return a stable color for each model name."""
+    return MODEL_COLORS.get(model_name, '#7f7f7f')
+
+
 def set_publication_style():
     """Set matplotlib style for publication-ready figures."""
     plt.style.use('seaborn-v0_8-darkgrid')
@@ -146,11 +159,10 @@ def create_error_distribution(test_df: pd.DataFrame, models: Dict, output_dir: P
     ground_truth = test_df['true_stec'].values
     
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
     
     # Histogram
     ax = axes[0]
-    for i, (model_name, predictions) in enumerate(models.items()):
+    for model_name, predictions in models.items():
         if 'GIM' in model_name and predictions is not None:
             mask = ~np.isnan(predictions)
             errors = predictions[mask] - ground_truth[mask]
@@ -158,7 +170,7 @@ def create_error_distribution(test_df: pd.DataFrame, models: Dict, output_dir: P
             errors = predictions - ground_truth
         
         ax.hist(errors, bins=100, alpha=0.6, label=model_name, density=True, 
-               color=colors[i % len(colors)], edgecolor='black', linewidth=0.5)
+               color=get_model_color(model_name), edgecolor='black', linewidth=0.5)
     
     ax.axvline(0, color='red', linestyle='--', lw=3, alpha=0.8, label='Zero error')
     ax.set_xlabel('Prediction Error (TECU)', fontweight='bold')
@@ -169,7 +181,7 @@ def create_error_distribution(test_df: pd.DataFrame, models: Dict, output_dir: P
     
     # Cumulative distribution
     ax = axes[1]
-    for i, (model_name, predictions) in enumerate(models.items()):
+    for model_name, predictions in models.items():
         if 'GIM' in model_name and predictions is not None:
             mask = ~np.isnan(predictions)
             errors = np.abs(predictions[mask] - ground_truth[mask])
@@ -178,7 +190,7 @@ def create_error_distribution(test_df: pd.DataFrame, models: Dict, output_dir: P
         
         sorted_errors = np.sort(errors)
         cumulative = np.arange(1, len(sorted_errors) + 1) / len(sorted_errors) * 100
-        ax.plot(sorted_errors, cumulative, lw=3, label=model_name, color=colors[i % len(colors)])
+        ax.plot(sorted_errors, cumulative, lw=3, label=model_name, color=get_model_color(model_name))
     
     ax.set_xlabel('Absolute Error (TECU)', fontweight='bold')
     ax.set_ylabel('Cumulative Percentage (%)', fontweight='bold')
@@ -198,14 +210,13 @@ def create_elevation_analysis(test_df: pd.DataFrame, models: Dict, output_dir: P
     elevations = test_df['satele'].values
     
     fig, axes = plt.subplots(2, 2, figsize=(16, 14))
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
     
     elev_bins = np.arange(5, 91, 5)
     bin_centers = (elev_bins[:-1] + elev_bins[1:]) / 2
     
     # RMSE vs Elevation
     ax = axes[0, 0]
-    for i, (model_name, predictions) in enumerate(models.items()):
+    for model_name, predictions in models.items():
         rmse_bins = []
         for j in range(len(elev_bins) - 1):
             if 'GIM' in model_name and predictions is not None:
@@ -220,7 +231,7 @@ def create_elevation_analysis(test_df: pd.DataFrame, models: Dict, output_dir: P
                 rmse_bins.append(np.nan)
         
         ax.plot(bin_centers, rmse_bins, 'o-', label=model_name, lw=2.5, 
-               markersize=8, color=colors[i % len(colors)])
+                   markersize=8, color=get_model_color(model_name))
     
     ax.set_xlabel('Elevation Angle (°)', fontweight='bold')
     ax.set_ylabel('RMSE (TECU)', fontweight='bold')
@@ -230,7 +241,7 @@ def create_elevation_analysis(test_df: pd.DataFrame, models: Dict, output_dir: P
     
     # MAE vs Elevation
     ax = axes[0, 1]
-    for i, (model_name, predictions) in enumerate(models.items()):
+    for model_name, predictions in models.items():
         mae_bins = []
         for j in range(len(elev_bins) - 1):
             if 'GIM' in model_name and predictions is not None:
@@ -245,7 +256,7 @@ def create_elevation_analysis(test_df: pd.DataFrame, models: Dict, output_dir: P
                 mae_bins.append(np.nan)
         
         ax.plot(bin_centers, mae_bins, 'o-', label=model_name, lw=2.5, 
-               markersize=8, color=colors[i % len(colors)])
+                   markersize=8, color=get_model_color(model_name))
     
     ax.set_xlabel('Elevation Angle (°)', fontweight='bold')
     ax.set_ylabel('MAE (TECU)', fontweight='bold')
@@ -271,7 +282,7 @@ def create_elevation_analysis(test_df: pd.DataFrame, models: Dict, output_dir: P
     if len(models) >= 2:
         model_names = list(models.keys())
         baseline_name = [m for m in model_names if 'GIM' in m or 'VTEC' in m][0] if any('GIM' in m or 'VTEC' in m for m in model_names) else model_names[1]
-        stec_name = [m for m in model_names if 'STEC' in m and 'GIM' not in m][0]
+        stec_name = 'Direct STEC Model' if 'Direct STEC Model' in model_names else [m for m in model_names if 'STEC' in m and 'GIM' not in m][0]
         
         baseline_rmse = []
         stec_rmse = []
@@ -314,7 +325,7 @@ def create_comparison_summary(test_df: pd.DataFrame, models: Dict, metrics: Dict
     fig, axes = plt.subplots(1, 3, figsize=(20, 6))
     
     model_names = list(models.keys())
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+    colors = [get_model_color(name) for name in model_names]
     
     # RMSE comparison
     ax = axes[0]
