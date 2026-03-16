@@ -30,12 +30,15 @@ logger = logging.getLogger(__name__)
 STEC_COLOR = '#1f77b4'  # Blue
 VTEC_COLOR = '#ff7f0e'  # Orange
 GIM_COLOR = '#2ca02c'   # Green
+PRETRAINED_COLOR = '#9467bd'  # Purple
 
 def get_style(method_name):
     """Return styling based on normalized method name."""
     m_lower = str(method_name).lower()
-    if 'stec' in m_lower and 'direct' in m_lower:
-        return STEC_COLOR, "Direct STEC", 'o'
+    if 'pretrained' in m_lower:
+        return PRETRAINED_COLOR, "Pretrained STEC", 'd'
+    elif 'stec' in m_lower and 'direct' in m_lower:
+        return STEC_COLOR, "Finetuned STEC", 'o'
     elif 'vtec' in m_lower:
         return VTEC_COLOR, "VTEC + Mapping", 's'
     elif 'gim' in m_lower:
@@ -85,6 +88,9 @@ def prepare_data(df):
             'Model': 'Direct STEC', # Legacy
             'STEC': 'Direct STEC',
             'stec': 'Direct STEC',
+            'Finetuned STEC': 'Direct STEC', # Support new pipeline naming
+            'Pretrained_STEC': 'Pretrained STEC',
+            'Pretrained STEC': 'Pretrained STEC',
             'IGS GIM': 'IGS GIM + Mapping',
             'igs gim': 'IGS GIM + Mapping',
             'GIM': 'IGS GIM + Mapping',
@@ -150,11 +156,12 @@ def plot_trends(df, output_dir, threshold_cm=None):
         daily_stats['sem'] = daily_stats['std'] / (daily_stats['count'] ** 0.5)
         
         unique_methods = daily_stats['method'].unique()
-        # Sort methods: STEC, VTEC, GIM
+        # Sort methods: Pretrained STEC, Finetuned STEC, VTEC, GIM
         ordered_methods = sorted(unique_methods, key=lambda x: (
-            0 if 'stec' in str(x).lower() else 
-            1 if 'vtec' in str(x).lower() else 
-            2
+            0 if 'pretrained' in str(x).lower() else
+            1 if 'stec' in str(x).lower() else 
+            2 if 'vtec' in str(x).lower() else 
+            3
         ))
         
         for method in ordered_methods:
@@ -253,11 +260,12 @@ def plot_extended_analysis(df, output_dir, threshold_cm=None):
     if '3d_rms' in df.columns and 'method' in df.columns:
         plt.figure(figsize=(8, 6), dpi=300)
         
-        # Sort methods: STEC, VTEC, GIM
+        # Sort methods: Pretrained STEC, Finetuned STEC, VTEC, GIM
         ordered_methods = sorted(methods, key=lambda x: (
-            0 if 'stec' in str(x).lower() else 
-            1 if 'vtec' in str(x).lower() else 
-            2
+            0 if 'pretrained' in str(x).lower() else
+            1 if 'stec' in str(x).lower() else 
+            2 if 'vtec' in str(x).lower() else 
+            3
         ))
         
         plot_df = df[df['method'].isin(ordered_methods)]
@@ -411,9 +419,10 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
         return
         
     try:
-        # Create normalized method column for pivoting: 'stec', 'vtec', 'gim'
+        # Create normalized method column for pivoting: 'stec', 'vtec', 'gim', 'pretrained'
         def normalize_method(m):
             m = str(m).lower()
+            if 'pretrained' in m: return 'pretrained'
             if 'stec' in m or 'direct' in m: return 'stec'
             if 'vtec' in m: return 'vtec'
             if 'gim' in m: return 'gim'
@@ -445,10 +454,15 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
         # Define comparisons: Each model vs GIM
         comparisons = []
         for m in model_types:
+            if m == 'stec': challenger_label = "Direct STEC"
+            elif m == 'vtec': challenger_label = "VTEC + Mapping"
+            elif m == 'pretrained': challenger_label = "Pretrained STEC"
+            else: challenger_label = str(m)
+            
             comparisons.append({
                 'challenger': m,
                 'baseline': 'gim',
-                'challenger_label': "Direct STEC" if m == 'stec' else "VTEC + Mapping",
+                'challenger_label': challenger_label,
                 'baseline_label': "IGS GIM",
                 'type': 'vs_gim'
             })
@@ -461,6 +475,16 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
                 'challenger_label': "Direct STEC",
                 'baseline_label': "VTEC + Mapping",
                 'type': 'stec_vs_vtec'
+            })
+            
+        # Add STEC vs Pretrained comparison if both exist
+        if 'stec' in pivoted.columns and 'pretrained' in pivoted.columns:
+            comparisons.append({
+                'challenger': 'stec',
+                'baseline': 'pretrained',
+                'challenger_label': "Direct STEC",
+                'baseline_label': "Pretrained STEC",
+                'type': 'stec_vs_pretrained'
             })
         
         for comp in comparisons:
@@ -646,13 +670,14 @@ def generate_comparative_table(df, output_dir, threshold_m=None):
             model_mask = mask_w & ~gim_mask
             stats.loc[model_mask, 'Imp. [%]'] = (gim_val - stats.loc[model_mask, '3D Mean [m]']) / gim_val * 100
 
-    # Sort by Weighting, then Method (Standard order: STEC, VTEC, GIM)
+    # Sort by Weighting, then Method (Standard order: Pretrained STEC, STEC, VTEC, GIM)
     def method_priority(m):
         m = str(m).lower()
-        if 'stec' in m: return 0
-        if 'vtec' in m: return 1
-        if 'gim' in m: return 2
-        return 3
+        if 'pretrained' in m: return 0
+        if 'stec' in m or 'direct' in m: return 1
+        if 'vtec' in m: return 2
+        if 'gim' in m: return 3
+        return 4
     
     stats['prio'] = stats['method'].apply(method_priority)
     stats = stats.sort_values(['weighting', 'prio']).drop('prio', axis=1)
