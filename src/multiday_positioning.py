@@ -153,9 +153,13 @@ def plot_trends(df, output_dir):
         m_lower = str(method_name).lower()
         
         # Determine base label and color
-        if 'stec' in m_lower:
+        if 'pretrained' in m_lower:
+            color = '#9467bd'  # Purple
+            base_label = "Pretrained STEC"
+            marker = 'd'
+        elif 'stec' in m_lower:
             color = stec_color
-            base_label = "Direct STEC"
+            base_label = "Finetuned STEC"
             marker = 'o'
         elif 'vtec' in m_lower:
             color = vtec_color
@@ -403,6 +407,13 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
     else:
         logger.warning(f"Skipping VTEC for {date_str}: Experiment not found")
 
+    if hasattr(args, 'pretrained_baseline') and args.pretrained_baseline:
+        pt_path = Path("experiments") / args.pretrained_baseline if not Path(args.pretrained_baseline).is_absolute() else Path(args.pretrained_baseline)
+        if pt_path.exists():
+            experiments_to_run.append((str(pt_path), "Pretrained_STEC"))
+        else:
+            logger.warning(f"Skipping Pretrained STEC for {date_str}: Directory {pt_path} not found")
+
     if not experiments_to_run:
         logger.error(f"No experiments found for {date_str}. Skipping.")
         return []
@@ -415,7 +426,7 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
         
         # 1. Run Inference (Single Day)
         run_inf = not args.skip_inference
-        if args.only_vtec_inference and model_label == "STEC":
+        if args.only_vtec_inference and "STEC" in model_label:
             run_inf = False
             logger.info(f"Skipping STEC inference as --only_vtec_inference is set")
         if args.only_stec_inference and model_label == "VTEC":
@@ -516,9 +527,13 @@ def main():
                         help="Path to base STEC training config (e.g., config/config.yaml)")
     parser.add_argument("--vtec_config", required=True, 
                         help="Path to base VTEC training config (e.g., config/config_vtec_mlp_baseline.yaml)")
+    parser.add_argument("--pretrained_baseline", type=str, default=None,
+                        help="Path or name of the pretrained STEC model folder (e.g., Pretrain_STEC_...)")
     parser.add_argument("--dates", required=True, 
                         help="Date range/list (e.g., 2024-122:2024-130)")
     
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Explicit folder to save aggregated results to (e.g., multiday_results/my_custom_run). If not set, generates a timestamped folder.")
     parser.add_argument("--parallel", type=int, default=4, help="Number of DAYS to process in parallel")
     parser.add_argument("--station_parallel", type=int, default=4, help="Number of STATIONS per day to process in parallel")
     
@@ -528,7 +543,7 @@ def main():
     parser.add_argument("--skip_downloads", action="store_true", help="Skip GNSS product/RINEX downloads")
     parser.add_argument("--no_cleanup", action="store_true", help="Do not delete downloaded RINEX/Product files after processing (default is to delete)")
     parser.add_argument("--redo", action="store_true", help="Force redo of positioning evaluation even if results exist")
-    parser.add_argument("--weight_opt", type=str, default="elev", help="Weighting option: elev (elevation), snr (SNR), or iono (ionospheric uncertainty). Can be comma-separated list.")
+    parser.add_argument("--weight_opt", type=str, default="iono", help="Weighting option: elev (elevation) or iono (ionospheric uncertainty). Can be comma-separated list.")
     parser.add_argument("--gnss_path", type=str, help="Custom path to GNSS data (STEC_DB_CASDCB folder)")
     
     args = parser.parse_args()
@@ -675,9 +690,14 @@ def main():
             logger.info(f"Dropped {dropped_count} duplicate rows (mostly redundant IGS GIM entries)")
         
         # Save to a central "multiday_results" folder
-        # Use a unique name based on the current run configuration
-        run_identifier = datetime.now().strftime("%Y%m%d_%H%M")
-        base_output_dir = Path("multiday_results") / f"positioning_{run_identifier}"
+        # Use a unique name based on the current run configuration or provided output directory
+        if hasattr(args, 'output_dir') and args.output_dir:
+            base_output_dir = Path(args.output_dir)
+        else:
+            run_identifier = datetime.now().strftime("%Y%m%d_%H%M")
+            pos_folder_name = "positioning_with_pretrain_" if hasattr(args, 'pretrained_baseline') and args.pretrained_baseline else "positioning_"
+            base_output_dir = Path("multiday_results") / f"{pos_folder_name}{run_identifier}"
+            
         base_output_dir.mkdir(parents=True, exist_ok=True)
         
         output_file = base_output_dir / "multiday_summary.csv"
