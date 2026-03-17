@@ -1055,7 +1055,7 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
                      plt.errorbar(x - 0.5*offset, 
                                dataset_elev[f'Pretrained STEC {metric_name}_mean'],
                                yerr=dataset_elev[f'Pretrained STEC {metric_name}_std'],
-                               label='Pretrained STEC', marker='D', capsize=4, 
+                               label='Pretrained Direct STEC', marker='D', capsize=4,
                                color=model_colors['Pretrained STEC'],
                                markersize=5, alpha=0.9)
 
@@ -1102,28 +1102,38 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             x = dataset_elev['elevation_bin'].values.astype(float) + 2.5
             offset = 0.8
             
+            has_pretrained = f'Pretrained STEC RMSE_mean' in dataset_elev.columns
+
             # --- Top Subplot: RMSE ---
-            ax1.errorbar(x - offset, 
+            ax1.errorbar(x - 1.5*offset,
                        dataset_elev['Direct STEC RMSE_mean'],
                        yerr=dataset_elev['Direct STEC RMSE_std'],
-                       label='Direct STEC', marker='o', capsize=4, 
+                       label='Direct STEC', marker='o', capsize=4,
                        color=model_colors['Direct STEC'],
                        markersize=6, alpha=0.9)
-            
-            ax1.errorbar(x, 
+
+            if has_pretrained:
+                ax1.errorbar(x - 0.5*offset,
+                           dataset_elev['Pretrained STEC RMSE_mean'],
+                           yerr=dataset_elev['Pretrained STEC RMSE_std'],
+                           label='Pretrained Direct STEC', marker='D', capsize=4,
+                           color=model_colors['Pretrained STEC'],
+                           markersize=5, alpha=0.9)
+
+            ax1.errorbar(x + 0.5*offset,
                        dataset_elev['VTEC + Mapping RMSE_mean'],
                        yerr=dataset_elev['VTEC + Mapping RMSE_std'],
-                       label='VTEC + Mapping', marker='s', capsize=4, 
+                       label='VTEC + Mapping', marker='s', capsize=4,
                        color=model_colors['VTEC + Mapping'],
                        markersize=6, alpha=0.9)
-            
-            ax1.errorbar(x + offset, 
+
+            ax1.errorbar(x + 1.5*offset,
                        dataset_elev['IGS GIM RMSE_mean'],
                        yerr=dataset_elev['IGS GIM RMSE_std'],
-                       label='IGS GIM + Mapping', marker='^', capsize=4, 
+                       label='IGS GIM + Mapping', marker='^', capsize=4,
                        color=model_colors['IGS GIM + Mapping'],
                        markersize=6, alpha=0.9)
-            
+
             ax1.set_ylabel('RMSE [TECU]', fontweight='bold')
             ax1.yaxis.set_major_locator(MaxNLocator(integer=True))
             ax1.grid(True, linestyle='--', alpha=0.5)
@@ -1131,36 +1141,45 @@ def generate_aggregate_plots(df: pd.DataFrame, batch_results: List[Dict], output
             # ax1.legend(loc='upper right', frameon=True)
 
             # --- Bottom Subplot: MAE ---
-            ax2.errorbar(x - offset, 
+            ax2.errorbar(x - 1.5*offset,
                        dataset_elev['Direct STEC MAE_mean'],
                        yerr=dataset_elev['Direct STEC MAE_std'],
-                       label='Direct STEC', marker='o', capsize=4, 
+                       label='Direct STEC', marker='o', capsize=4,
                        color=model_colors['Direct STEC'],
                        markersize=6, alpha=0.9)
-            
-            ax2.errorbar(x, 
+
+            if has_pretrained:
+                ax2.errorbar(x - 0.5*offset,
+                           dataset_elev['Pretrained STEC MAE_mean'],
+                           yerr=dataset_elev['Pretrained STEC MAE_std'],
+                           label='Pretrained Direct STEC', marker='D', capsize=4,
+                           color=model_colors['Pretrained STEC'],
+                           markersize=5, alpha=0.9)
+
+            ax2.errorbar(x + 0.5*offset,
                        dataset_elev['VTEC + Mapping MAE_mean'],
                        yerr=dataset_elev['VTEC + Mapping MAE_std'],
-                       label='VTEC + Mapping', marker='s', capsize=4, 
+                       label='VTEC + Mapping', marker='s', capsize=4,
                        color=model_colors['VTEC + Mapping'],
                        markersize=6, alpha=0.9)
-            
-            ax2.errorbar(x + offset, 
+
+            ax2.errorbar(x + 1.5*offset,
                        dataset_elev['IGS GIM MAE_mean'],
                        yerr=dataset_elev['IGS GIM MAE_std'],
-                       label='IGS GIM + Mapping', marker='^', capsize=4, 
+                       label='IGS GIM + Mapping', marker='^', capsize=4,
                        color=model_colors['IGS GIM + Mapping'],
                        markersize=6, alpha=0.9)
-            
+
             ax2.set_ylabel('MAE [TECU]', fontweight='bold')
             ax2.yaxis.set_major_locator(MaxNLocator(integer=True))
             ax2.set_xlabel('Elevation Angle [degrees]', fontweight='bold')
             ax2.grid(True, linestyle='--', alpha=0.5)
             ax2.set_xlim(0, 90)
-            
+
             # Common legend below the plot
-            ax2.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), 
-                      ncol=3, frameon=True)
+            ncol = 4 if has_pretrained else 3
+            ax2.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15),
+                      ncol=ncol, frameon=True)
             
             plt.tight_layout()
             

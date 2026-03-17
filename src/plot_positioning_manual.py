@@ -36,9 +36,9 @@ def get_style(method_name):
     """Return styling based on normalized method name."""
     m_lower = str(method_name).lower()
     if 'pretrained' in m_lower:
-        return PRETRAINED_COLOR, "Pretrained STEC", 'd'
+        return PRETRAINED_COLOR, "Pretrained Direct STEC", 'd'
     elif 'stec' in m_lower and 'direct' in m_lower:
-        return STEC_COLOR, "Finetuned STEC", 'o'
+        return STEC_COLOR, "Direct STEC", 'o'
     elif 'vtec' in m_lower:
         return VTEC_COLOR, "VTEC + Mapping", 's'
     elif 'gim' in m_lower:
@@ -89,8 +89,8 @@ def prepare_data(df):
             'STEC': 'Direct STEC',
             'stec': 'Direct STEC',
             'Finetuned STEC': 'Direct STEC', # Support new pipeline naming
-            'Pretrained_STEC': 'Pretrained STEC',
-            'Pretrained STEC': 'Pretrained STEC',
+            'Pretrained_STEC': 'Pretrained Direct STEC',
+            'Pretrained STEC': 'Pretrained Direct STEC',
             'IGS GIM': 'IGS GIM + Mapping',
             'igs gim': 'IGS GIM + Mapping',
             'GIM': 'IGS GIM + Mapping',
@@ -187,10 +187,7 @@ def plot_trends(df, output_dir, threshold_cm=None):
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
         plt.xticks(rotation=45)
         
-        # Robust Y-axis: Use 95th percentile + 10% padding for better visualization of trends
-        # This avoids compressing the plot due to extreme outliers (e.g., severe storms)
-        #y_max = np.percentile(daily_stats['mean'], 95) * 1.1
-        #plt.ylim(0, y_max)
+        plt.ylim(0, 3.5)
         
         plt.tight_layout()
         plt.savefig(output_dir / "paper_trend_3d_rms_timeseries.png", dpi=300)
@@ -218,13 +215,6 @@ def plot_trends(df, output_dir, threshold_cm=None):
                     plt.plot(improvement.index, improvement.values, marker=marker, markersize=4,
                              linewidth=1.5, label=f"Imp. by {label}", color=color)
                     
-                    # Add shading for positive (good) and negative (bad) areas
-                    plt.fill_between(improvement.index, improvement.values, 0, 
-                                     where=(improvement.values >= 0), 
-                                     color='green', alpha=0.05, interpolate=True)
-                    plt.fill_between(improvement.index, improvement.values, 0, 
-                                     where=(improvement.values < 0), 
-                                     color='red', alpha=0.05, interpolate=True)
                     
                     # Add stats to legend or as text
                     mean_imp = improvement.mean()
@@ -456,7 +446,7 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
         for m in model_types:
             if m == 'stec': challenger_label = "Direct STEC"
             elif m == 'vtec': challenger_label = "VTEC + Mapping"
-            elif m == 'pretrained': challenger_label = "Pretrained STEC"
+            elif m == 'pretrained': challenger_label = "Pretrained Direct STEC"
             else: challenger_label = str(m)
             
             comparisons.append({
@@ -483,7 +473,7 @@ def plot_model_vs_gim_comparison(df, output_dir, threshold_cm=None):
                 'challenger': 'stec',
                 'baseline': 'pretrained',
                 'challenger_label': "Direct STEC",
-                'baseline_label': "Pretrained STEC",
+                'baseline_label': "Pretrained Direct STEC",
                 'type': 'stec_vs_pretrained'
             })
         
