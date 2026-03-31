@@ -20,6 +20,7 @@ wandb/
 ./data/
 products/
 table/
+plotsPoland/
 
 
 # Ignore logs and temp files

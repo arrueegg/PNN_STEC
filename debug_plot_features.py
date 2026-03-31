@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""
-Diagnostic feature plots for infer_from_log.py pipeline verification.
-DELETE after testing.
+"""Diagnostic feature plots for infer_from_log.py pipeline verification.
 
 Usage:
     python debug_plot_features.py \
         --config config/config.yaml \
         --data_file data/Poland_positioning/WROC00POL_R_20201370000_01D_30S_MO_101000_ss5g_RAW_F_Pnn.log \
-        [--output_dir plots_debug]
+        [--output_dir plots_debug] \
+        [--stec_file predictions.stec]
 """
 
 import os

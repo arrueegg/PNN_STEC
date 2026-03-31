@@ -19,6 +19,13 @@ Usage:
         [--gim_path /path/to/ionex/dir] \
         [--gim_type IGS] \
         [--mapping_function SLM]
+
+example: python infer_from_log.py \
+    --config config/config.yaml \
+    --checkpoint experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/model/pretrain_BayesianResNetSTEC_seed42.pth \
+    --data_file data/Poland_positioning/STATION***_.log \
+    --gim_path "/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex" \
+
 """
 
 import os
