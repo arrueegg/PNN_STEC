@@ -34,6 +34,7 @@ import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -45,6 +46,7 @@ from tqdm import tqdm
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 from utils.config_parser import load_config
+from utils.config_parser import compute_exp_name
 from utils.feature_registry import initialize_feature_registry, FeatureType
 from model.model import get_model
 from data_loader.collation import CollateWithSH
@@ -69,16 +71,68 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", required=True, type=str, help="Path to config YAML")
     parser.add_argument(
-        "--checkpoint", required=True, type=str, help="Path to .pth model checkpoint"
+        "--checkpoint", type=str, default=None, help="Path to .pth model checkpoint"
     )
     parser.add_argument(
-        "--data_file", required=True, type=str, help="Path to input .log file"
+        "--data_file", type=str, default=None, help="Path to input .log file"
+    )
+    parser.add_argument(
+        "--input_dir",
+        type=str,
+        default=None,
+        help="Directory containing .log files for batch processing",
+    )
+    parser.add_argument(
+        "--glob_pattern",
+        type=str,
+        default="*_Pnn.log",
+        help="Glob pattern used with --input_dir (default: *_Pnn.log)",
     )
     parser.add_argument(
         "--output",
         type=str,
         default=None,
         help="Output .stec file path (default: auto-derived from data_file)",
+    )
+    parser.add_argument(
+        "--output_root",
+        type=str,
+        default=None,
+        help=(
+            "Root directory for batch outputs. Results are written to "
+            "<output_root>/pretrained/ and <output_root>/finetuned/"
+        ),
+    )
+    parser.add_argument(
+        "--pretrained_checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint path used for the long-term pretrained pass",
+    )
+    parser.add_argument(
+        "--pretrained_config",
+        type=str,
+        default=None,
+        help="Config YAML used with --pretrained_checkpoint (defaults to --config)",
+    )
+    parser.add_argument(
+        "--finetune_base_config",
+        type=str,
+        default=None,
+        help=(
+            "Base config YAML used to resolve daily fine-tuned STEC experiments by "
+            "year/DOY parsed from each filename"
+        ),
+    )
+    parser.add_argument(
+        "--skip_pretrained",
+        action="store_true",
+        help="Skip the pretrained pass in batch mode",
+    )
+    parser.add_argument(
+        "--skip_finetuned",
+        action="store_true",
+        help="Skip the daily fine-tuned pass in batch mode",
     )
     parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument(
@@ -111,6 +165,43 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def validate_args(args: argparse.Namespace, logger: logging.Logger) -> bool:
+    """Validate CLI arguments for single-file or batch processing."""
+    if args.input_dir:
+        if args.data_file:
+            logger.error("Use either --data_file or --input_dir, not both.")
+            return False
+        if args.output:
+            logger.error("--output is only valid with --data_file.")
+            return False
+        if args.skip_pretrained and args.skip_finetuned:
+            logger.error("Both batch passes are disabled.")
+            return False
+        if not args.skip_pretrained and not args.pretrained_checkpoint:
+            logger.error(
+                "--pretrained_checkpoint is required in batch mode unless --skip_pretrained is set."
+            )
+            return False
+        if not args.skip_finetuned and not args.finetune_base_config:
+            logger.error(
+                "--finetune_base_config is required in batch mode unless --skip_finetuned is set."
+            )
+            return False
+        return True
+
+    if not args.data_file:
+        logger.error("Either --data_file or --input_dir must be provided.")
+        return False
+
+    if not args.checkpoint and not args.pretrained_checkpoint:
+        logger.error(
+            "Single-file mode requires --checkpoint (or --pretrained_checkpoint as an alias)."
+        )
+        return False
+
+    return True
+
+
 def derive_output_path(data_file: str) -> str:
     """Derive .stec output path from the input .log file path."""
     p = Path(data_file)
@@ -119,6 +210,65 @@ def derive_output_path(data_file: str) -> str:
     if stem.endswith("_Pnn"):
         stem = stem[:-4]
     return str(p.parent / (stem + ".stec"))
+
+
+def derive_batch_output_path(output_root: str, run_name: str, data_file: str) -> str:
+    """Derive batch output path under output_root/run_name/."""
+    p = Path(data_file)
+    stem = p.stem[:-4] if p.stem.endswith("_Pnn") else p.stem
+    return str(Path(output_root) / run_name / f"{stem}.stec")
+
+
+def find_log_files(input_dir: str, pattern: str) -> list[Path]:
+    """Return sorted matching log files for batch processing."""
+    return sorted(Path(input_dir).glob(pattern))
+
+
+def parse_year_doy_from_log_filename(path: str) -> tuple[int, int]:
+    """Parse YYYY and DOY from a filename containing _YYYYDDD...."""
+    name = Path(path).name
+    parts = name.split("_")
+    for part in parts:
+        if len(part) >= 7 and part[:7].isdigit():
+            return int(part[:4]), int(part[4:7])
+    raise ValueError(f"Could not parse year/DOY from filename: {name}")
+
+
+def find_model_checkpoint(experiment_dir: str | Path) -> Path:
+    """Find a checkpoint inside an experiment directory."""
+    model_dir = Path(experiment_dir) / "model"
+    if not model_dir.exists():
+        raise FileNotFoundError(f"Model directory not found: {model_dir}")
+
+    pth_files = sorted(model_dir.glob("*.pth"))
+    if not pth_files:
+        raise FileNotFoundError(f"No .pth checkpoints found in {model_dir}")
+
+    preferred = [p for p in pth_files if "pretrain" in p.name.lower()]
+    if preferred:
+        return preferred[0]
+    return pth_files[0]
+
+
+def resolve_finetune_experiment(base_config_path: str, year: int, doy: int) -> Path:
+    """Resolve the experiment directory for a daily fine-tuned model."""
+    config = load_config(base_config_path)
+    cfg = deepcopy(config)
+    cfg["mode"] = "finetune"
+    cfg["year"] = year
+    cfg["doy"] = doy
+    cfg.setdefault("finetune", {})
+    cfg["finetune"]["year"] = year
+    cfg["finetune"]["doy"] = doy
+    cfg.setdefault("data", {})
+    cfg["data"]["use_agg_h5"] = False
+
+    exp_dir = Path("experiments") / compute_exp_name(cfg)
+    if not exp_dir.exists():
+        raise FileNotFoundError(
+            f"No fine-tuned experiment found for {year}-{doy:03d}: {exp_dir}"
+        )
+    return exp_dir
 
 
 def read_log_file(path: str) -> pd.DataFrame:
@@ -620,29 +770,20 @@ def write_stec_file(
     logger.info(f"Output written to: {output_path} ({len(lines)} observations)")
 
 
-def main():
-    logger = setup_logging()
-    args = parse_args()
-
-    # ---- Validate inputs ----
-    for path, name in [
-        (args.config, "config"),
-        (args.checkpoint, "checkpoint"),
-        (args.data_file, "data_file"),
-    ]:
-        if not os.path.exists(path):
-            logger.error(f"{name} not found: {path}")
-            return 1
-
-    output_path = args.output or derive_output_path(args.data_file)
-
-    # ---- Setup ----
+def run_single_inference(
+    config_path: str,
+    checkpoint_path: str,
+    data_file: str,
+    output_path: str,
+    args: argparse.Namespace,
+    logger: logging.Logger,
+):
+    """Run the existing inference pipeline for one file/model pair."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
 
-    config = load_config(args.config)
+    config = load_config(config_path)
     config["device"] = device
-    # Ensure target is set (needed for feature registry)
     if "target" not in config:
         config["target"] = "stec"
 
@@ -651,12 +792,10 @@ def main():
         f"Feature registry initialized: {config['feature_registry'].get_total_features()} features"
     )
 
-    # ---- Load and prepare data ----
-    logger.info(f"Reading: {args.data_file}")
-    df_raw = read_log_file(args.data_file)
+    logger.info(f"Reading: {data_file}")
+    df_raw = read_log_file(data_file)
     df = prepare_features(df_raw, config, args.ele_cutoff, logger)
 
-    # ---- Build DataLoader ----
     dataset = LogFileDataset(df, config)
     collate_fn = CollateWithSH(config)
     dataloader = DataLoader(
@@ -667,10 +806,7 @@ def main():
         collate_fn=collate_fn,
     )
 
-    # ---- Load model ----
-    model = load_model(config, args.checkpoint, device, logger)
-
-    # ---- Inference ----
+    model = load_model(config, checkpoint_path, device, logger)
     data_transforms = DataTransforms(config, config["feature_registry"], logger, device)
     pred_mean, pred_std = run_inference(
         model,
@@ -682,20 +818,130 @@ def main():
         logger=logger,
     )
 
-    # ---- GIM STEC (optional) ----
     gim_stec = None
     if args.gim_path:
         gim_stec = compute_gim_stec(
             df, args.gim_path, args.gim_type, args.mapping_function, logger
         )
 
-    # ---- Write output ----
     write_stec_file(df, pred_mean, pred_std, output_path, logger, gim_stec=gim_stec)
-
     logger.info(
         f"Done. STEC range: [{pred_mean.min():.2f}, {pred_mean.max():.2f}] TECU"
     )
+
+
+def run_batch_mode(args: argparse.Namespace, logger: logging.Logger) -> int:
+    """Process all matching log files with pretrained and/or fine-tuned models."""
+    log_files = find_log_files(args.input_dir, args.glob_pattern)
+    if not log_files:
+        logger.error(
+            f"No files matched pattern '{args.glob_pattern}' in directory: {args.input_dir}"
+        )
+        return 1
+
+    output_root = args.output_root or str(Path(args.input_dir) / "inference_outputs")
+    pretrained_config = args.pretrained_config or args.config
+    pretrained_checkpoint = args.pretrained_checkpoint or args.checkpoint
+
+    logger.info(
+        f"Batch mode: {len(log_files)} files found in {args.input_dir} using pattern {args.glob_pattern}"
+    )
+    logger.info(f"Batch outputs will be written under: {output_root}")
+
+    failed = []
+
+    for idx, log_file in enumerate(log_files, start=1):
+        logger.info(f"[{idx}/{len(log_files)}] Processing {log_file.name}")
+
+        try:
+            if not args.skip_pretrained:
+                out_pre = derive_batch_output_path(output_root, "pretrained", str(log_file))
+                logger.info(
+                    f"[{idx}/{len(log_files)}] Pretrained pass -> {Path(out_pre).name}"
+                )
+                run_single_inference(
+                    config_path=pretrained_config,
+                    checkpoint_path=pretrained_checkpoint,
+                    data_file=str(log_file),
+                    output_path=out_pre,
+                    args=args,
+                    logger=logger,
+                )
+
+            if not args.skip_finetuned:
+                year, doy = parse_year_doy_from_log_filename(str(log_file))
+                finetune_exp_dir = resolve_finetune_experiment(
+                    args.finetune_base_config, year, doy
+                )
+                finetune_checkpoint = find_model_checkpoint(finetune_exp_dir)
+                finetune_config = finetune_exp_dir / "config.yaml"
+                out_ft = derive_batch_output_path(output_root, "finetuned", str(log_file))
+                logger.info(
+                    f"[{idx}/{len(log_files)}] Finetuned pass ({year}-{doy:03d}) -> {Path(out_ft).name}"
+                )
+                run_single_inference(
+                    config_path=str(finetune_config),
+                    checkpoint_path=str(finetune_checkpoint),
+                    data_file=str(log_file),
+                    output_path=out_ft,
+                    args=args,
+                    logger=logger,
+                )
+
+        except Exception as exc:
+            logger.exception(f"Failed to process {log_file}: {exc}")
+            failed.append((str(log_file), str(exc)))
+
+    if failed:
+        logger.error(f"Batch finished with {len(failed)} failures.")
+        for path, err in failed:
+            logger.error(f"FAILED: {path} -> {err}")
+        return 1
+
+    logger.info("Batch processing completed successfully.")
     return 0
+
+
+def main():
+    logger = setup_logging()
+    args = parse_args()
+    if not validate_args(args, logger):
+        return 1
+
+    paths_to_check = [args.config]
+    if args.input_dir:
+        paths_to_check.append(args.input_dir)
+        if args.pretrained_checkpoint:
+            paths_to_check.append(args.pretrained_checkpoint)
+        if args.pretrained_config:
+            paths_to_check.append(args.pretrained_config)
+        if args.finetune_base_config:
+            paths_to_check.append(args.finetune_base_config)
+    else:
+        paths_to_check.extend(
+            [
+                args.checkpoint or args.pretrained_checkpoint,
+                args.data_file,
+            ]
+        )
+
+    for path in paths_to_check:
+        if path and not os.path.exists(path):
+            logger.error(f"Path not found: {path}")
+            return 1
+
+    if args.input_dir:
+        return run_batch_mode(args, logger)
+
+    output_path = args.output or derive_output_path(args.data_file)
+    return run_single_inference(
+        config_path=args.config,
+        checkpoint_path=args.checkpoint or args.pretrained_checkpoint,
+        data_file=args.data_file,
+        output_path=output_path,
+        args=args,
+        logger=logger,
+    ) or 0
 
 
 if __name__ == "__main__":
