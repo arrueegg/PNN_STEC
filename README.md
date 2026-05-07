@@ -1,219 +1,172 @@
 # PNN_STEC
 
-A machine learning framework for modeling **Slant Total Electron Content (STEC)** using **Bayesian Neural Networks (BNNs)** and other deep learning approaches. This project aims to improve ionospheric modeling by incorporating uncertainty quantification and space weather indices.
-
-## Overview
-
-The project focuses on STEC modeling with multiple neural network architectures including:
-- **Bayesian Neural Networks (BNN)** with Negative Log-Likelihood loss
-- **Multi-Layer Perceptrons (MLP)** with various configurations
-- **Branch Networks** for specialized feature processing
-- **MC Dropout** for uncertainty estimation
-
-The models incorporate GNSS observations and Space Weather Indices (SWI) to predict ionospheric electron content with uncertainty estimates.
-
-## Features
-
-- 🌌 **Multi-modal input**: GNSS data + Space Weather Indices
-- 🎯 **Multiple model architectures**: BNN, MLP, Branch networks
-- 📊 **Uncertainty quantification**: Bayesian approaches and MC Dropout
-- ⚡ **Efficient training**: Support for different sampling strategies
-- 🔧 **Flexible configuration**: YAML-based experiment setup
-- 🎛️ **Feature control**: Easy enable/disable of individual input features
-- 📈 **Comprehensive logging**: Weights & Biases integration
-- 🚀 **GPU acceleration**: CUDA support
+A machine learning framework for **Slant Total Electron Content (STEC)** prediction using probabilistic neural networks. The framework provides uncertainty-quantified ionospheric corrections for GNSS applications, supporting a range of architectures from Bayesian Neural Networks to Deep Ensembles.
 
 ## Repository Structure
 
 ```
-├── config/                     # Configuration files
-│   └── config.yaml            # Main configuration file
-├── data/                      # Training/validation/test datasets
-├── experiments/              # Trained models and results
-├── plots/                    # Visualization outputs
-├── scripts/                  # Utility scripts for analysis
-├── src/                      # Source code
-│   ├── data_processing/      # Data preprocessing and splitting
-│   ├── model/               # Neural network architectures
-│   ├── utils/               # Utility functions and helpers
-│   ├── main.py             # Main training script
-│   ├── pretrain.py         # Pretraining logic
-│   └── finetune.py         # Fine-tuning logic
-├── temp_data/               # Temporary data files
-└── wandb/                   # Experiment tracking logs
+PNN_STEC/
+├── cli.py                  # Unified entry point for all workflows
+├── config/                 # YAML configuration files (one per model/experiment variant)
+├── data/                   # Training, validation, and test datasets (not tracked)
+├── docs/                   # Guides and documentation
+├── hp_search/              # Hyperparameter search infrastructure
+├── positioning/            # GNSS positioning correction experiment (self-contained)
+│   ├── positioning_eval/   # PPPx evaluation library
+│   ├── scripts/            # Positioning-specific scripts
+│   ├── data/               # GNSS observations and reference corrections (not tracked)
+│   └── outputs/            # Results and plots (not tracked)
+├── scripts/                # General utility and cluster submission scripts
+└── src/                    # Core library
+    ├── data_loader/        # Dataset classes and data loading
+    ├── data_processing/    # Preprocessing and data splitting
+    ├── model/              # Neural network architectures
+    ├── training/           # Training loop, inference, utilities
+    ├── utils/              # Config parsing, metrics, feature registry
+    ├── viz/                # Visualization helpers
+    ├── main.py             # Training entry point
+    ├── pretrain.py         # Pretraining logic
+    └── finetune.py         # Fine-tuning logic
 ```
 
 ## Installation
 
-### Prerequisites
-- Python 3.8+
-- CUDA-compatible GPU (recommended)
-- 16GB+ RAM for large datasets
-
-### Setup
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/arrueegg/PNN_STEC.git
-    cd PNN_STEC
-    ```
-
-2. Create and activate virtual environment:
-    ```bash
-    python -m venv env
-    source env/bin/activate  # Linux/Mac
-    # or
-    env\Scripts\activate     # Windows
-    ```
-
-3. Install dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-## Usage
-
-### Quick Start with CLI (Recommended)
-
-The project now includes a unified CLI for all workflows:
+**Prerequisites**: Python 3.8+, CUDA-compatible GPU (recommended), 16 GB+ RAM.
 
 ```bash
-# Get help
+git clone https://github.com/arrueegg/PNN_STEC.git
+cd PNN_STEC
+python -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+```
+
+## Quick Start
+
+All workflows are available through the unified CLI:
+
+```bash
 python cli.py --help
 python cli.py <command> --help
-
-# Train a model
-python cli.py train --config config/config.yaml
-
-# Compare STEC model against baselines
-python cli.py compare \
-    --stec_experiment "Finetune_STEC_..." \
-    --vtec_experiment "Finetune_VTEC_..."
-
-# Evaluate model
-python cli.py evaluate --experiment "Finetune_STEC_..."
 ```
 
-See [CLI_GUIDE.md](CLI_GUIDE.md) for complete documentation.
+### Training
 
-### Traditional Method
-
-1. **Configure your experiment** by editing `config/config.yaml`:
-   ```yaml
-   mode: pretrain  # or finetune
-   model:
-     model_type: BNN_NLL  # BNN_NLL, MLP, Branch_BNN_NLL, etc.
-   ```
-
-2. **Run training**:
-   ```bash
-   python src/main.py --config config/config.yaml
-   # or
-   python cli.py train --config config/config.yaml
-   ```
-
-### Configuration Options
-
-Key configuration parameters in `config/config.yaml`:
-
-- **Model Types**: `BNN_NLL`, `BNN_mse`, `MLP`, `Branch_BNN_NLL`, `MLP_MCDropout_NLL`
-- **Training Modes**: `pretrain`, `finetune`
-- **Loss Functions**: `MSELoss`, `GaussianNLLLoss`
-- **Feature Control**: Enable/disable individual input features (see [Feature Control Guide](docs/feature_control_guide.md))
-
-### Feature Control (NEW!)
-
-You can now easily control which features are used as inputs for experiments. Edit the `feature_control` section in `config/config.yaml`:
-
-```yaml
-feature_control:
-  # Temporal features
-  year: true
-  doy: true
-  sod: true
-  local_time_hours: true
-  
-  # Station features
-  lat_sta: true
-  lon_sta: true
-  # ... etc
-  
-  # Space Weather Indices
-  Kp_index: true
-  f107_index: true
-  # ... etc
-```
-
-This is ideal for:
-- 🧪 **Ablation studies** - Test impact of removing features
-- 📊 **Feature importance analysis** - Find most critical features
-- 🎯 **Model simplification** - Reduce complexity while maintaining performance
-
-See the [Feature Control Guide](docs/feature_control_guide.md) for detailed documentation and examples.
-
-### Model Architectures
-
-| Model Type | Description | Uncertainty |
-|------------|-------------|-------------|
-| `BNN_NLL` | Bayesian NN with Negative Log-Likelihood | ✅ Bayesian |
-| `BNN_mse` | Bayesian NN with MSE loss | ✅ Bayesian |
-| `MLP` | Standard Multi-Layer Perceptron | ❌ No Bayesian |
-
-## Data Processing
-
-The framework supports:
-- **GNSS STEC observations** from global networks
-- **Space Weather Indices** (solar and geomagnetic activity)
-- **Spatio-temporal data splitting** for robust evaluation
-
-## Running Experiments & Evaluation
-
-The project uses `cli.py` as the main entry point for all operations. See [CLI_GUIDE.md](CLI_GUIDE.md) for full commands and options.
-
-### 1. Training
 ```bash
-python cli.py train --config config/config.yaml
+# Pretrain a model
+python cli.py train --config config/config_BNN.yaml
+
+# Finetune from pretrained weights
+python cli.py train --config config/config_BNN.yaml --mode finetune
 ```
 
-### 2. Multi-Day Evaluation (Paper Workflow)
-The standard workflow for generating robust results across multiple days:
+### Evaluation
+
+```bash
+# Evaluate on test set
+python cli.py evaluate --experiment "Finetune_STEC_BNN_NLL_2024_183"
+
+# Compare model STEC against VTEC baseline and IGS GIM
+python cli.py compare --stec_experiment "Finetune_STEC_..." --vtec_experiment "Finetune_VTEC_..."
+```
+
+### Multi-Day Paper Workflow
+
+Run training and evaluation across a date range for statistically robust results:
+
 ```bash
 python cli.py multiday \
     --dates "2024-183:2024-189" \
-    --stec_config config/config.yaml \
-    --vtec_config config/config_vtec_mlp_baseline.yaml \
-    --positioning
-```
- This runs training, comparison, and positioning evaluation for each day and aggregates results.
-
-### 3. Comparison & Inference
-Compare your model against VTEC baselines and IGS GIMs:
-```bash
-python cli.py compare --stec_experiment "Finetune_STEC_..."
+    --stec_config config/config_BNN.yaml \
+    --vtec_config config/config_vtec_mlp_baseline.yaml
 ```
 
-### 4. Advanced Evaluation Methods
+See [docs/MULTIDAY_EVALUATION_GUIDE.md](docs/MULTIDAY_EVALUATION_GUIDE.md) for the full workflow.
 
-#### Positioning Analysis
-Evaluate the impact of ionospheric corrections on GNSS Positioning (PPP/SPP):
-```bash
-python cli.py positioning --experiment "Finetune_STEC_..."
-```
-For manual plotting of aggregated positioning results:
-```bash
-python src/plot_positioning_manual.py --input multiday_results/positioning_snx/multiday_summary.csv
+## Model Architectures
+
+| Model type | Uncertainty | Loss |
+|---|---|---|
+| `BNN_NLL` | Bayesian (weight posteriors) | Gaussian NLL |
+| `BayesianResNetSTEC` | Bayesian ResNet | Gaussian NLL |
+| `Branch_BNN_NLL` | Bayesian, branched inputs | Gaussian NLL |
+| `MLP_MCDropout_NLL` | MC Dropout | Gaussian NLL |
+| `DE_MLP` | Deep Ensemble | Gaussian NLL |
+| `MLP_Laplacian_NLL` | Deterministic | Laplacian NLL |
+| `BNN_mse` / `ResNet_MSE` | Bayesian / deterministic | MSE |
+
+All probabilistic models output a predictive mean and uncertainty (epistemic + aleatoric decomposition).
+
+## Configuration
+
+Each model has a corresponding config file in `config/`. Key parameters:
+
+```yaml
+mode: pretrain          # pretrain | finetune
+model:
+  model_type: BNN_NLL
+training:
+  epochs: 100
+  learning_rate: 1e-3
+  log_target: true      # predict log(STEC) for positive-definite outputs
+feature_control:        # enable/disable individual input features
+  Kp_index: true
+  f107_index: true
+  lat_ipp: true
+  # ...
 ```
 
-#### dSTEC Evaluation
-Differential STEC (dSTEC) metric removes geometry-dependent errors for validation:
+See [docs/hyperparameter_guide.md](docs/hyperparameter_guide.md) and [docs/CLI_GUIDE.md](docs/CLI_GUIDE.md) for full parameter documentation.
+
+## Positioning Correction Experiment
+
+The `positioning/` directory contains a self-contained experiment evaluating the impact of PNN-derived STEC corrections on GNSS Precise Point Positioning (PPP). It reuses the core `src/` library but manages its own data and outputs independently.
+
 ```bash
-python src/dstec_evaluation.py "experiment_folder_name"
+# Generate STEC correction files for a given experiment and date
+python positioning/scripts/generate_stec_corrections.py \
+    --experiment "Finetune_STEC_BNN_NLL_2024_183" \
+    --date 2024-07-01
+
+# Run the full positioning pipeline (STEC generation + PPPx evaluation)
+bash positioning/scripts/run_pipeline.sh "Finetune_STEC_BNN_NLL_2024_183" 2024-07-01
+
+# Evaluate differential STEC (dSTEC) metric
+python positioning/scripts/evaluate_dstec.py \
+    --config config/config_BNN.yaml \
+    --experiment "Finetune_STEC_BNN_NLL_2024_183"
+
+# Re-aggregate metrics from existing .pos files (no re-run needed)
+python positioning/scripts/recompute_metrics.py --experiment "..."
+
+# Regenerate paper plots from aggregated CSV
+python positioning/scripts/plot_results.py \
+    --input positioning/outputs/multiday_summary.csv
 ```
-The dSTEC metric compares measurements at different elevations during satellite passes, providing a more robust validation against IGS GIMs. **Key features**: removes common-mode biases, compares against geometry-free phase observations.
-See [docs/dstec_evaluation_guide.md](docs/dstec_evaluation_guide.md).
+
+See [docs/positioning_evaluation_guide.md](docs/positioning_evaluation_guide.md) and [docs/POSITIONING_QUICK_START.md](docs/POSITIONING_QUICK_START.md) for setup and usage.
+
+## Cluster Usage
+
+Cluster submission scripts live in `scripts/cluster/` (general training) and `positioning/scripts/cluster/` (positioning). All scripts resolve paths relative to their own location and can be submitted from any working directory.
+
+```bash
+# Submit a full-year training run
+bash scripts/cluster/generate_independent_jobs.sh
+bash scripts/cluster/submit_all_jobs.sh
+
+# Submit parallel multi-day positioning evaluation
+bash positioning/scripts/submit_parallel.sh \
+    --dates "2024-183:2024-220" \
+    --stec_config config/config_BNN.yaml
+```
+
+See [docs/cluster_hyperparameter_guide.md](docs/cluster_hyperparameter_guide.md) for cluster-specific setup.
 
 ## License
 
-This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
+[LICENSE](LICENSE)
 
+---
 
-**Keywords**: Ionosphere, STEC, Bayesian Neural Networks, Uncertainty Quantification, Space Weather, GNSS
+**Keywords**: Ionosphere, STEC, Bayesian Neural Networks, Uncertainty Quantification, Space Weather, GNSS, PPP
