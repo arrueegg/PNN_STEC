@@ -9,7 +9,6 @@ Usage:
         [--stec_file predictions.stec]
 """
 
-import os
 import sys
 import argparse
 from pathlib import Path
@@ -23,7 +22,9 @@ import matplotlib.cm as cm
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+_scripts_dir = str(Path(__file__).parent)
+sys.path.insert(0, _scripts_dir)
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Re-use feature preparation from the inference script
 from infer_from_log import read_log_file, prepare_features  # noqa: E402

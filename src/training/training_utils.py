@@ -68,10 +68,7 @@ class TrainingUtils:
         self.logger.info(
             f"Validation loss improved from {best_loss:.2f} to {val_loss:.2f}. Saving checkpoint."
         )
-        if self.config["mode"] == "finetune":
-            filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{model_seed:02}.pth"
-        elif self.config["mode"] == "pretrain":
-            filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{model_seed:02}.pth"
+        filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{model_seed:02}.pth"
 
         filepath = os.path.join(checkpoint_dir, filename)
         torch.save(

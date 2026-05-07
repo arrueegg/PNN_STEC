@@ -4,7 +4,7 @@
 # One completely independent job per DOY (122-366)
 # =====================================================================
 
-PROJECT_DIR=$(pwd)
+PROJECT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPTS_DIR="$PROJECT_DIR/sbatch_scripts"
 
 # Create directory for individual scripts
@@ -38,7 +38,7 @@ for DOY in $(seq 122 366); do
 # Configuration
 # =====================================================================
 
-PROJECT_DIR=$(pwd)
+PROJECT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 DOY=PLACEHOLDER_DOY
 YEAR=2024
 CONFIG_FILE="config/config_cluster_mao_laplacian.yaml"

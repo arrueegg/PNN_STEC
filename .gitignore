@@ -52,7 +52,7 @@ experiments/
 src/data_processing/plots/
 Shuyins_code/
 */old/
-#**/plots/
+plots/
 **/dSTEC/
 hp_search/logs/
 hp_search/config_*.yaml

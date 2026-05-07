@@ -93,10 +93,18 @@ class InferenceManager:
         # Memory management
         gc.collect()
         torch.cuda.empty_cache()
-        
+
         # Check if dataset returns metadata
         return_metadata = self.config.get("return_metadata", False)
         batch_metadata = [] if return_metadata else None
+
+        # Hoist loop-invariant lookups outside the batch loop
+        from model.model import DeepEnsemble, DeepEnsemble_MLP
+
+        is_ensemble = (
+            isinstance(model, (DeepEnsemble, DeepEnsemble_MLP))
+            or model_type == "DE_MLP"
+        )
 
         with torch.no_grad():
             for batch_idx, batch_data in enumerate(
@@ -107,20 +115,16 @@ class InferenceManager:
                     disable=disable_tqdm,
                 )
             ):
-                # Unpack batch data (handles both 2-tuple and 3-tuple)
                 if return_metadata:
                     inputs, targets, metadata = batch_data
                     batch_metadata.append(metadata)
                 else:
                     inputs, targets = batch_data
-                
+
                 bs = inputs.size(0)
                 inputs = inputs.to(self.device, non_blocking=True)
 
-                # Check if this is an ensemble model
-                model_type = self.config["model"]["model_type"]
-                from model.model import DeepEnsemble, DeepEnsemble_MLP
-                if isinstance(model, (DeepEnsemble, DeepEnsemble_MLP)) or model_type == "DE_MLP":
+                if is_ensemble:
                     # For ensemble models, use the decomposed uncertainty method
                     ensemble_mean, aleatoric_var, epistemic_var, total_var = (
                         model.get_uncertainties(inputs)
@@ -138,15 +142,14 @@ class InferenceManager:
                     per_sample_alea_vars = []
 
                     for sample_idx in range(num_samples):
-                        with torch.no_grad():  # Extra safety
-                            outputs = model(inputs)
+                        outputs = model(inputs)
                             mean_raw, var_raw = self.data_transforms.compute_mean_var(
                                 outputs
                             )
-                            
+
                             # [PAPER] Mao et al. 2025: Laplacian variance is 2 * scale^2
                             if "Laplacian" in model_type:
-                                var_raw = 2.0 * (var_raw ** 2)
+                                var_raw = 2.0 * (var_raw**2)
 
                             if self.use_log_target:
                                 # Log-normal moments for this pass
@@ -228,14 +231,16 @@ class InferenceManager:
                             "pred_total_unc",
                         ],
                     )
-                    
+
                     # Add metadata if available
                     if return_metadata and batch_metadata:
                         # Get metadata for this batch (last added entry)
                         batch_meta = batch_metadata[batch_idx]
                         for field in batch_meta[0].keys():
-                            batch_df[field] = [sample_meta[field] for sample_meta in batch_meta]
-                    
+                            batch_df[field] = [
+                                sample_meta[field] for sample_meta in batch_meta
+                            ]
+
                     batch_dataframes.append(batch_df)
                 else:
                     # Large dataset: Extract only essential features for plotting
@@ -246,33 +251,69 @@ class InferenceManager:
                     # Dynamically build essential features list from the feature registry
                     fr = self.data_transforms.feature_registry
                     # Spatial essentials (IPP and station coordinates)
-                    spatial_essentials = [f for f in ["lon_ipp", "lat_ipp", "sm_lat_ipp", "lat_sta", "lon_sta"] if f in feature_order]
+                    spatial_essentials = [
+                        f
+                        for f in [
+                            "lon_ipp",
+                            "lat_ipp",
+                            "sm_lat_ipp",
+                            "lat_sta",
+                            "lon_sta",
+                        ]
+                        if f in feature_order
+                    ]
                     # Temporal essentials: prefer 'sod' or 'local_time_hours' if available, always include 'year' and 'doy' if present
-                    temporal_essentials = [f for f in ["year", "doy"] if f in feature_order]
+                    temporal_essentials = [
+                        f for f in ["year", "doy"] if f in feature_order
+                    ]
                     if "sod" in feature_order:
                         temporal_essentials.append("sod")
                     elif "local_time_hours" in feature_order:
                         temporal_essentials.append("local_time_hours")
 
                     # Direction essentials
-                    direction_essentials = [f for f in ["satazi", "satele"] if f in feature_order]
+                    direction_essentials = [
+                        f for f in ["satazi", "satele"] if f in feature_order
+                    ]
 
                     # SWI essentials: pick a small, useful subset if available
                     try:
-                        swi_list = fr.get_features_by_type(__import__("utils.feature_registry", fromlist=["FeatureType"]).FeatureType.SWI)
+                        swi_list = fr.get_features_by_type(
+                            __import__(
+                                "utils.feature_registry", fromlist=["FeatureType"]
+                            ).FeatureType.SWI
+                        )
                     except Exception:
                         swi_list = []
                     # Pick common SWI features if present (using actual feature names from feature_registry)
-                    swi_candidates = [c for c in ["f107_index", "Dst-index,_nT", "Kp_index", "R_Sunspot_No", "AE-index,_nT", "ap_index,_nT"] if c in feature_order]
+                    swi_candidates = [
+                        c
+                        for c in [
+                            "f107_index",
+                            "Dst-index,_nT",
+                            "Kp_index",
+                            "R_Sunspot_No",
+                            "AE-index,_nT",
+                            "ap_index,_nT",
+                        ]
+                        if c in feature_order
+                    ]
 
-                    essential_feature_names = spatial_essentials + temporal_essentials + direction_essentials + swi_candidates
+                    essential_feature_names = (
+                        spatial_essentials
+                        + temporal_essentials
+                        + direction_essentials
+                        + swi_candidates
+                    )
 
                     # Extract essential features that exist in the feature order
                     batch_essential = {}
                     for i, feature_name in enumerate(feature_order):
                         if feature_name in essential_feature_names:
                             # Use .clone() to create independent copies and break memory references
-                            batch_essential[feature_name] = inputs_original[:, i].clone()
+                            batch_essential[feature_name] = inputs_original[
+                                :, i
+                            ].clone()
 
                     batch_essential_features.append(batch_essential)
 
@@ -306,66 +347,10 @@ class InferenceManager:
                 if "ensemble_mean" in locals():
                     del ensemble_mean, total_var
 
-                # Force CUDA cache cleanup every batch to prevent accumulation
-                torch.cuda.empty_cache()
-
                 processed_samples += bs
 
-                # Additional cleanup every 10 batches
-                if (batch_idx + 1) % 10 == 0:
-                    gc.collect()
-                    torch.cuda.empty_cache()
-
-        # MEMORY OPTIMIZATION: For very large datasets, create DataFrame with essential features only
-        # to avoid OOM errors during concatenation while preserving key plotting capabilities
-        dataset_size = len(dataloader.dataset)
-        use_minimal_features = (
-            dataset_size >= 5_000_000
-        )  # Only use minimal features for ≥5M samples
-
-        if use_minimal_features:
-            self.logger.info(
-                f"💾 Using essential features only for large dataset ({dataset_size:,} samples) to prevent OOM"
-            )
-
-        # OPTIMIZATION 1: Use iterative concatenation to avoid memory spikes
         if batch_dataframes:
-            # Combining results
-
-            # Iterative concatenation in chunks to avoid memory spikes
-            chunk_size = 50  # Process 50 DataFrames at a time
-            final_df = None
-
-            for i in range(0, len(batch_dataframes), chunk_size):
-                chunk_end = min(i + chunk_size, len(batch_dataframes))
-                chunk_dfs = batch_dataframes[i:chunk_end]
-
-                # Concatenate this chunk
-                if len(chunk_dfs) == 1:
-                    chunk_df = chunk_dfs[0]
-                else:
-                    chunk_df = pd.concat(chunk_dfs, ignore_index=True)
-
-                # Add to final result
-                if final_df is None:
-                    final_df = chunk_df
-                else:
-                    final_df = pd.concat([final_df, chunk_df], ignore_index=True)
-
-                # Free memory immediately
-                del chunk_dfs, chunk_df
-
-                # Progress update
-                if i + chunk_size < len(batch_dataframes):
-                    self.logger.info(
-                        f"   Processed {chunk_end}/{len(batch_dataframes)} batch DataFrames..."
-                    )
-
-                # Periodic garbage collection
-                if (i // chunk_size) % 10 == 0:  # Every 10 chunks (500 DataFrames)
-                    gc.collect()
-
-            # Final cleanup of batch list
+            final_df = pd.concat(batch_dataframes, ignore_index=True)
             del batch_dataframes
             gc.collect()
 
@@ -418,11 +403,13 @@ class InferenceManager:
                     "pred_total_unc": total_std_tensor.cpu().numpy().flatten(),
                     **essential_features,
                 }
-                
+
                 # Add metadata if available
                 if batch_metadata:
                     # Flatten list of batch metadata dicts into single dict with lists
-                    metadata_fields = batch_metadata[0][0].keys()  # Get field names from first sample
+                    metadata_fields = batch_metadata[0][
+                        0
+                    ].keys()  # Get field names from first sample
                     for field in metadata_fields:
                         # Collect all values for this field across all batches
                         field_values = []
@@ -430,7 +417,7 @@ class InferenceManager:
                             for sample_meta in batch_meta:
                                 field_values.append(sample_meta[field])
                         df_dict[field] = field_values
-                
+
                 final_df = pd.DataFrame(df_dict)
             else:
                 final_df = pd.DataFrame()  # Empty DataFrame fallback

@@ -69,7 +69,6 @@ class BaseTrainer:
             logger,
             self.device,
         )
-            
 
     # ---------- Public interface delegating to managers ----------
 
@@ -192,8 +191,14 @@ class BaseTrainer:
     # ---------- Main training orchestration ----------
 
     def run_training(
-        self, train_loader, val_loader, test_loader, init_model_fn, training_key,
-        ensemble_member=None, ensemble_size=None
+        self,
+        train_loader,
+        val_loader,
+        test_loader,
+        init_model_fn,
+        training_key,
+        ensemble_member=None,
+        ensemble_size=None,
     ):
         """
         Main training orchestration method.
@@ -224,7 +229,9 @@ class BaseTrainer:
             experiment_name = os.path.basename(self.config["output_dir"])
             # [PAPER] Mao et al.: Append ensemble member info to experiment name
             if ensemble_member is not None and ensemble_size is not None:
-                experiment_name = f"{experiment_name}_ensemble_{ensemble_member+1}_{ensemble_size}"
+                experiment_name = (
+                    f"{experiment_name}_ensemble_{ensemble_member + 1}_{ensemble_size}"
+                )
             setup_wandb_for_sweep(self.config, experiment_name)
 
         model = init_model_fn(seed)
@@ -232,7 +239,7 @@ class BaseTrainer:
         criterion_mse = get_criterion(self.config, "MSELoss")
         criterion_nll = get_criterion(self.config, "GaussianNLLLoss")
         criterion_kld = get_criterion(self.config, "BKLLoss")
-        
+
         # Only pass trainable parameters to optimizer (important for freeze_body)
         trainable_params = filter(lambda p: p.requires_grad, model.parameters())
         optimizer = get_optimizer(self.config, trainable_params)
@@ -248,7 +255,7 @@ class BaseTrainer:
         for epoch in range(epochs):
             gc.collect()
             print("")
-            self.logger.info(f"Epoch {epoch+1}/{epochs}")
+            self.logger.info(f"Epoch {epoch + 1}/{epochs}")
 
             # Update sampler epoch for different data sampling each epoch
             if hasattr(train_loader.sampler, "set_epoch"):
@@ -290,9 +297,6 @@ class BaseTrainer:
                     optimizer,
                     epoch,
                 )
-                train_metrics = calculate_metrics(
-                    train_outputs, train_targets, prefix="train"
-                )
 
             # Use appropriate validation method for ensemble models
             if model_type == "DE_MLP":
@@ -306,10 +310,9 @@ class BaseTrainer:
                         epoch,
                     )
                 )
-                # Extract outputs and targets for compatibility
                 val_outputs = val_metrics.get("predictions", [])
                 val_targets = val_metrics.get("targets", [])
-                val_variance = 0.0  # Ensemble handles variance internally
+                val_variance = 0.0
             else:
                 (
                     val_loss,
@@ -327,13 +330,15 @@ class BaseTrainer:
                     criterion_kld,
                     epoch,
                 )
-                val_metrics = calculate_metrics(val_outputs, val_targets, prefix="val")
 
             # Track losses for plotting
             self.track_losses(epoch + 1, train_loss, val_loss)
 
-            # Metrics already calculated in ensemble methods, just use them
-            if model_type != "DE_MLP":
+            if model_type == "DE_MLP":
+                train_metrics = calculate_metrics(
+                    train_outputs, train_targets, prefix="train"
+                )
+            else:
                 train_metrics = calculate_metrics(
                     train_outputs, train_targets, prefix="train"
                 )
@@ -375,7 +380,7 @@ class BaseTrainer:
 
             if (
                 val_loss < best_val_loss
-                or self.config['pretrain']["save_model_every_epoch"]
+                or self.config[training_key]["save_model_every_epoch"]
             ):
                 best_val_loss = self.save_checkpoint(
                     model, optimizer, epoch, val_loss, best_val_loss, model_dir, seed
@@ -383,7 +388,7 @@ class BaseTrainer:
                 patience_counter = 0
             else:
                 patience_counter += 1
-                if patience_counter >= self.config['pretrain'].get(
+                if patience_counter >= self.config[training_key].get(
                     "patience", float("inf")
                 ):
                     self.logger.info(
@@ -401,7 +406,9 @@ class BaseTrainer:
         # Load best checkpoint for testing
         filename = f"{self.config['mode']}_{self.config['model']['model_type']}_seed{seed:02}.pth"
         checkpoint_path = os.path.join(model_dir, filename)
-        checkpoint = torch.load(checkpoint_path, weights_only=True, map_location=self.config["device"])
+        checkpoint = torch.load(
+            checkpoint_path, weights_only=True, map_location=self.config["device"]
+        )
         model.load_state_dict(checkpoint["model_state_dict"])
 
         test_outputs, test_targets = self.test_model(model, test_loader)
@@ -416,14 +423,23 @@ class BaseTrainer:
         gc.collect()
 
         # Bayesian inference
-        num_samples = 100 if "BNN" in self.config["model"]["model_type"] or "Bayesian" in self.config["model"]["model_type"] else 1
+        num_samples = (
+            100
+            if "BNN" in self.config["model"]["model_type"]
+            or "Bayesian" in self.config["model"]["model_type"]
+            else 1
+        )
         bayesian_results, test_res_df = self.bayesian_inference_total_uncertainty(
             model, test_loader, num_samples=num_samples
         )
 
         # Get scenario evaluation setting from config (default to False to save runtime)
-        enable_scenarios = self.config.get("evaluation", {}).get("enable_scenarios", False)
-        self.logger.info(f"Scenario-based evaluation: {'enabled' if enable_scenarios else 'disabled (saves runtime)'}")
+        enable_scenarios = self.config.get("evaluation", {}).get(
+            "enable_scenarios", False
+        )
+        self.logger.info(
+            f"Scenario-based evaluation: {'enabled' if enable_scenarios else 'disabled (saves runtime)'}"
+        )
 
         # Plotting test metrics from bayesian inference
         plot_test_metrics(
@@ -454,7 +470,9 @@ class BaseTrainer:
             if self.config["mode"] == "pretrain":
                 # Generate separate plots for each subset if they have sufficient data
                 # Scenario evaluation is always disabled for temporal splits to save runtime
-                if len(interpolation_df) > 1000:  # Minimum threshold for meaningful plots
+                if (
+                    len(interpolation_df) > 1000
+                ):  # Minimum threshold for meaningful plots
                     try:
                         interpolation_base_dir = os.path.join(
                             self.config["output_dir"], "interpolation"
@@ -471,7 +489,9 @@ class BaseTrainer:
                             f"Could not generate plots for interpolation: {e}"
                         )
 
-                if len(extrapolation_df) > 1000:  # Minimum threshold for meaningful plots
+                if (
+                    len(extrapolation_df) > 1000
+                ):  # Minimum threshold for meaningful plots
                     try:
                         extrapolation_base_dir = os.path.join(
                             self.config["output_dir"], "extrapolation"

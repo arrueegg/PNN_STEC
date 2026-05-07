@@ -29,7 +29,7 @@ exit 1
 # OLD CODE BELOW (DO NOT USE)
 # =====================================================================
 
-PROJECT_DIR=$(pwd)
+PROJECT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 
 # Alternatively, hardcode cluster path:
 # PROJECT_DIR="/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC"

@@ -3,7 +3,7 @@
 # Submit all 245 independent SBATCH jobs
 # =====================================================================
 
-PROJECT_DIR=$(pwd)
+PROJECT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPTS_DIR="$PROJECT_DIR/sbatch_scripts"
 
 if [ ! -d "$SCRIPTS_DIR" ]; then

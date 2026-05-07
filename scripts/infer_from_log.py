@@ -43,7 +43,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Add src/ to path so we can import project modules without modifying them
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from utils.config_parser import load_config
 from utils.config_parser import compute_exp_name
@@ -855,7 +855,9 @@ def run_batch_mode(args: argparse.Namespace, logger: logging.Logger) -> int:
 
         try:
             if not args.skip_pretrained:
-                out_pre = derive_batch_output_path(output_root, "pretrained", str(log_file))
+                out_pre = derive_batch_output_path(
+                    output_root, "pretrained", str(log_file)
+                )
                 logger.info(
                     f"[{idx}/{len(log_files)}] Pretrained pass -> {Path(out_pre).name}"
                 )
@@ -875,7 +877,9 @@ def run_batch_mode(args: argparse.Namespace, logger: logging.Logger) -> int:
                 )
                 finetune_checkpoint = find_model_checkpoint(finetune_exp_dir)
                 finetune_config = finetune_exp_dir / "config.yaml"
-                out_ft = derive_batch_output_path(output_root, "finetuned", str(log_file))
+                out_ft = derive_batch_output_path(
+                    output_root, "finetuned", str(log_file)
+                )
                 logger.info(
                     f"[{idx}/{len(log_files)}] Finetuned pass ({year}-{doy:03d}) -> {Path(out_ft).name}"
                 )
@@ -934,14 +938,17 @@ def main():
         return run_batch_mode(args, logger)
 
     output_path = args.output or derive_output_path(args.data_file)
-    return run_single_inference(
-        config_path=args.config,
-        checkpoint_path=args.checkpoint or args.pretrained_checkpoint,
-        data_file=args.data_file,
-        output_path=output_path,
-        args=args,
-        logger=logger,
-    ) or 0
+    return (
+        run_single_inference(
+            config_path=args.config,
+            checkpoint_path=args.checkpoint or args.pretrained_checkpoint,
+            data_file=args.data_file,
+            output_path=output_path,
+            args=args,
+            logger=logger,
+        )
+        or 0
+    )
 
 
 if __name__ == "__main__":

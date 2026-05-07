@@ -15,7 +15,7 @@
 #SBATCH --mem-per-cpu=16G             # Memory per CPU
 #SBATCH --output=slurm_logs/positioning_%j.log
 
-PROJECT_DIR=$(pwd)
+PROJECT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 
 echo "=========================================="
 echo "VTEC Positioning Evaluation"
