@@ -1,10 +1,11 @@
 #!/bin/bash
-"""
-Convenience script to submit parallel multiday evaluation jobs.
+# Convenience script to submit parallel multiday evaluation jobs.
+#
+# Usage:
+#   ./positioning/scripts/submit_parallel.sh --dates "2024-183:2024-189" [options]
 
-Usage:
-    ./scripts/submit_parallel_multiday.sh --dates "2024-183:2024-189" [other options]
-"""
+REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$REPO_ROOT" || { echo "Failed to cd to $REPO_ROOT"; exit 1; }
 
 # Default values
 DATES=""
@@ -76,7 +77,7 @@ echo "VTEC config: $VTEC_CONFIG"
 echo "Output dir: $OUTPUT_DIR"
 echo
 
-python scripts/submit_parallel_multiday.py \
+python positioning/scripts/submit_parallel.py \
     --dates "$DATES" \
     --chunk_size "$CHUNK_SIZE" \
     --stec_config "$STEC_CONFIG" \

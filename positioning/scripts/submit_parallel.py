@@ -183,14 +183,14 @@ def main():
         epilog="""
 Examples:
   # Submit 7-day evaluation in chunks of 2 days each (4 parallel jobs)
-  python scripts/submit_parallel_multiday.py \\
+  python positioning/scripts/submit_parallel.py \\
       --dates "2024-183:2024-189" \\
       --chunk_size 2 \\
       --stec_config config/config.yaml \\
       --vtec_config config/config_vtec_mlp_baseline.yaml
 
   # Submit 10-day evaluation in chunks of 3 days each (4 jobs, last has 1 day)
-  python scripts/submit_parallel_multiday.py \\
+  python positioning/scripts/submit_parallel.py \\
       --dates "2024-183:2024-192" \\
       --chunk_size 3 \\
       --stec_config config/config.yaml \\

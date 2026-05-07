@@ -15,7 +15,6 @@ Usage:
         --stec_config config/config.yaml
 """
 
-import os
 import sys
 import argparse
 import logging
@@ -24,13 +23,14 @@ import torch
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 import gc
 from tqdm import tqdm
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent))
+_repo_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(_repo_root / "src"))
+sys.path.insert(0, str(_repo_root / "positioning"))
 
 from utils.feature_registry import initialize_feature_registry
 from training.base_trainer import BaseTrainer
@@ -46,10 +46,8 @@ from compare_stec_vtec_gim import (
 from evaluation.publication_plots import generate_all_plots
 from multiday_evaluation import (
     generate_date_list,
-    collect_existing_results,
     generate_aggregate_report,
     extract_metrics_from_experiment,
-    extract_elevation_metrics_from_experiment,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,11 +75,17 @@ def run_pretrained_inference(
     data_transforms = trainer.data_transforms
     device = trainer.device
     model_type = config["model"]["model_type"]
-    is_bayesian = "BNN" in model_type or "Bayesian" in model_type or "FactorizedSTEC" in model_type
+    is_bayesian = (
+        "BNN" in model_type
+        or "Bayesian" in model_type
+        or "FactorizedSTEC" in model_type
+    )
     samples = num_samples if is_bayesian else 1
 
     if not is_bayesian and num_samples > 1:
-        logger.info(f"  {model_type} is deterministic — using 1 sample instead of {num_samples}")
+        logger.info(
+            f"  {model_type} is deterministic — using 1 sample instead of {num_samples}"
+        )
 
     preds = []
     total_batches = len(test_loader)
@@ -89,18 +93,20 @@ def run_pretrained_inference(
 
     model.eval()
     with torch.inference_mode():
-        for batch_idx, batch in enumerate(tqdm(
-            test_loader,
-            desc="Pretrained Inference",
-            disable=disable_tqdm,
-        )):
+        for batch_idx, batch in enumerate(
+            tqdm(
+                test_loader,
+                desc="Pretrained Inference",
+                disable=disable_tqdm,
+            )
+        ):
             inputs = batch[0].to(device, non_blocking=True)
 
             if samples == 1:
                 outputs = model(inputs)
                 mean_raw, var_raw = data_transforms.compute_mean_var(outputs)
                 if "Laplacian" in model_type:
-                    var_raw = 2.0 * (var_raw ** 2)
+                    var_raw = 2.0 * (var_raw**2)
 
                 if data_transforms.use_log_target:
                     mean_y = torch.exp(mean_raw + 0.5 * var_raw) - data_transforms.eps
@@ -117,10 +123,12 @@ def run_pretrained_inference(
                     mean_raw, var_raw = data_transforms.compute_mean_var(outputs)
 
                     if "Laplacian" in model_type:
-                        var_raw = 2.0 * (var_raw ** 2)
+                        var_raw = 2.0 * (var_raw**2)
 
                     if data_transforms.use_log_target:
-                        mean_y = torch.exp(mean_raw + 0.5 * var_raw) - data_transforms.eps
+                        mean_y = (
+                            torch.exp(mean_raw + 0.5 * var_raw) - data_transforms.eps
+                        )
                     else:
                         mean_y = mean_raw
 
@@ -149,15 +157,21 @@ def compare_all_models_from_df(df: pd.DataFrame, logger) -> Dict[str, Dict[str, 
 
     # Direct STEC model
     if "stec_pred" in df.columns:
-        results["Direct STEC Model"] = compute_metrics(df["stec_pred"].values, ground_truth)
+        results["Direct STEC Model"] = compute_metrics(
+            df["stec_pred"].values, ground_truth
+        )
 
     # Pretrained STEC baseline
     if "pretrained_stec_pred" in df.columns:
-        results["Pretrained STEC"] = compute_metrics(df["pretrained_stec_pred"].values, ground_truth)
+        results["Pretrained STEC"] = compute_metrics(
+            df["pretrained_stec_pred"].values, ground_truth
+        )
 
     # VTEC + Mapping
     if "vtec_model_stec" in df.columns:
-        results["VTEC + Mapping"] = compute_metrics(df["vtec_model_stec"].values, ground_truth)
+        results["VTEC + Mapping"] = compute_metrics(
+            df["vtec_model_stec"].values, ground_truth
+        )
 
     # IGS GIM
     if "gim_stec" in df.columns:
@@ -170,7 +184,9 @@ def compare_all_models_from_df(df: pd.DataFrame, logger) -> Dict[str, Dict[str, 
     logger.info("COMPARISON RESULTS")
     logger.info("=" * 70)
     for model_name, m in results.items():
-        logger.info(f"  {model_name}: RMSE={m['rmse']:.4f}  MAE={m['mae']:.4f}  R²={m['r2']:.4f}  Bias={m['bias']:.4f}")
+        logger.info(
+            f"  {model_name}: RMSE={m['rmse']:.4f}  MAE={m['mae']:.4f}  R²={m['r2']:.4f}  Bias={m['bias']:.4f}"
+        )
     logger.info("=" * 70)
 
     return results
@@ -250,15 +266,17 @@ def save_extended_results(
     # Metrics summary CSV
     rows = []
     for model_name, m in metrics.items():
-        rows.append({
-            "Model": model_name,
-            "RMSE": m["rmse"],
-            "MAE": m["mae"],
-            "R²": m["r2"],
-            "Bias": m["bias"],
-            "Std": m["std"],
-            "Count": m["count"],
-        })
+        rows.append(
+            {
+                "Model": model_name,
+                "RMSE": m["rmse"],
+                "MAE": m["mae"],
+                "R²": m["r2"],
+                "Bias": m["bias"],
+                "Std": m["std"],
+                "Count": m["count"],
+            }
+        )
     pd.DataFrame(rows).to_csv(output_dir / "metrics_summary.csv", index=False)
 
     # Detailed predictions CSV
@@ -292,30 +310,74 @@ def main():
     parser = argparse.ArgumentParser(
         description="Add pretrained STEC baseline evaluation to existing daily results",
     )
-    parser.add_argument("--dates", type=str, required=True,
-                        help="Date(s) to process (e.g. '2024-183:2024-189')")
-    parser.add_argument("--source_dir", type=str, default="multiday_results/mao_evaluation",
-                        help="Directory with existing daily evaluations (default: multiday_results/mao_evaluation)")
-    parser.add_argument("--output_dir", type=str, default="multiday_results/with_pretrained_baseline",
-                        help="Output directory for extended results (default: multiday_results/with_pretrained_baseline)")
-    parser.add_argument("--pretrained_baseline", type=str, required=True,
-                        help="Path to pretrained STEC experiment folder")
-    parser.add_argument("--stec_config", type=str, required=True,
-                        help="Base STEC config file (for creating daily data loaders)")
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                        help="MC samples for Bayesian inference (default: 100)")
-    parser.add_argument("--skip_plots", action="store_true",
-                        help="Skip plot generation")
-    parser.add_argument("--dataset_types", type=str, default="own_vtec_gim,madrigal_vtec_gim",
-                        help="Comma-separated dataset subfolders to read from source (default: own_vtec_gim,madrigal_vtec_gim)")
-    parser.add_argument("--madrigal_path", type=str, default="/home/space/data/iono/Madrigal_STEC",
-                        help="Path to Madrigal STEC data directory")
-    parser.add_argument("--madrigal_batch_size", type=int, default=16384,
-                        help="Batch size for Madrigal loader (default: 16384)")
-    parser.add_argument("--madrigal_num_workers", type=int, default=8,
-                        help="Number of workers for Madrigal loader (default: 8)")
-    parser.add_argument("--skip_existing", action="store_true",
-                        help="Skip days that already have pretrained results in output_dir")
+    parser.add_argument(
+        "--dates",
+        type=str,
+        required=True,
+        help="Date(s) to process (e.g. '2024-183:2024-189')",
+    )
+    parser.add_argument(
+        "--source_dir",
+        type=str,
+        default="multiday_results/mao_evaluation",
+        help="Directory with existing daily evaluations (default: multiday_results/mao_evaluation)",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="multiday_results/with_pretrained_baseline",
+        help="Output directory for extended results (default: multiday_results/with_pretrained_baseline)",
+    )
+    parser.add_argument(
+        "--pretrained_baseline",
+        type=str,
+        required=True,
+        help="Path to pretrained STEC experiment folder",
+    )
+    parser.add_argument(
+        "--stec_config",
+        type=str,
+        required=True,
+        help="Base STEC config file (for creating daily data loaders)",
+    )
+    parser.add_argument(
+        "--num_inference_samples",
+        type=int,
+        default=100,
+        help="MC samples for Bayesian inference (default: 100)",
+    )
+    parser.add_argument(
+        "--skip_plots", action="store_true", help="Skip plot generation"
+    )
+    parser.add_argument(
+        "--dataset_types",
+        type=str,
+        default="own_vtec_gim,madrigal_vtec_gim",
+        help="Comma-separated dataset subfolders to read from source (default: own_vtec_gim,madrigal_vtec_gim)",
+    )
+    parser.add_argument(
+        "--madrigal_path",
+        type=str,
+        default="/home/space/data/iono/Madrigal_STEC",
+        help="Path to Madrigal STEC data directory",
+    )
+    parser.add_argument(
+        "--madrigal_batch_size",
+        type=int,
+        default=16384,
+        help="Batch size for Madrigal loader (default: 16384)",
+    )
+    parser.add_argument(
+        "--madrigal_num_workers",
+        type=int,
+        default=8,
+        help="Number of workers for Madrigal loader (default: 8)",
+    )
+    parser.add_argument(
+        "--skip_existing",
+        action="store_true",
+        help="Skip days that already have pretrained results in output_dir",
+    )
 
     args = parser.parse_args()
     logger = setup_logging()
@@ -323,7 +385,9 @@ def main():
     source_dir = Path(args.source_dir)
     output_base = Path(args.output_dir)
     output_base.mkdir(parents=True, exist_ok=True)
-    dataset_types = [item.strip() for item in args.dataset_types.split(",") if item.strip()]
+    dataset_types = [
+        item.strip() for item in args.dataset_types.split(",") if item.strip()
+    ]
 
     dates = generate_date_list(args.dates)
     logger.info(f"Processing {len(dates)} day(s): {dates}")
@@ -342,7 +406,9 @@ def main():
     # Increase batch size for speed
     for section in ("finetune", "pretrain"):
         if section in pre_config:
-            pre_config[section]["batchsize"] = max(pre_config[section].get("batchsize", 2048), 4096)
+            pre_config[section]["batchsize"] = max(
+                pre_config[section].get("batchsize", 2048), 4096
+            )
 
     pre_checkpoint = find_best_checkpoint(pre_dir)
     pre_model, _ = load_model_from_checkpoint(pre_config, pre_checkpoint, logger)
@@ -363,7 +429,9 @@ def main():
     # Increase batch size
     for section in ("finetune", "pretrain"):
         if section in base_stec_config:
-            base_stec_config[section]["batchsize"] = max(base_stec_config[section].get("batchsize", 2048), 4096)
+            base_stec_config[section]["batchsize"] = max(
+                base_stec_config[section].get("batchsize", 2048), 4096
+            )
 
     # Initialize feature registry once (only depends on feature set, not day)
     stec_registry = initialize_feature_registry(base_stec_config)
@@ -383,14 +451,29 @@ def main():
         for dataset_type in dataset_types:
             logger.info(f"  Dataset: {dataset_type}")
 
-            source_csv = source_dir / f"{year}_DOY_{doy:03d}" / "evaluation" / dataset_type / "detailed_predictions.csv"
+            source_csv = (
+                source_dir
+                / f"{year}_DOY_{doy:03d}"
+                / "evaluation"
+                / dataset_type
+                / "detailed_predictions.csv"
+            )
             if not source_csv.exists():
-                logger.warning(f"    Source CSV not found: {source_csv}, skipping dataset.")
+                logger.warning(
+                    f"    Source CSV not found: {source_csv}, skipping dataset."
+                )
                 continue
 
-            out_eval_dir = output_base / f"{year}_DOY_{doy:03d}" / "evaluation" / dataset_type
-            if args.skip_existing and (out_eval_dir / "detailed_predictions.csv").exists():
-                existing_output_df = pd.read_csv(out_eval_dir / "detailed_predictions.csv")
+            out_eval_dir = (
+                output_base / f"{year}_DOY_{doy:03d}" / "evaluation" / dataset_type
+            )
+            if (
+                args.skip_existing
+                and (out_eval_dir / "detailed_predictions.csv").exists()
+            ):
+                existing_output_df = pd.read_csv(
+                    out_eval_dir / "detailed_predictions.csv"
+                )
                 if "pretrained_stec_pred" in existing_output_df.columns:
                     logger.info("    Already has pretrained results, skipping dataset.")
                     day_success = True
@@ -428,11 +511,18 @@ def main():
 
             existing_df["pretrained_stec_pred"] = pre_preds
 
-            if "elevation" in existing_df.columns and "satele" not in existing_df.columns:
+            if (
+                "elevation" in existing_df.columns
+                and "satele" not in existing_df.columns
+            ):
                 existing_df.rename(columns={"elevation": "satele"}, inplace=True)
 
             metrics = compare_all_models_from_df(
-                existing_df.rename(columns={"satele": "elevation"} if "satele" in existing_df.columns else {}),
+                existing_df.rename(
+                    columns={"satele": "elevation"}
+                    if "satele" in existing_df.columns
+                    else {}
+                ),
                 logger,
             )
 
@@ -451,7 +541,9 @@ def main():
                 generate_all_plots(
                     test_df=plot_df,
                     stec_col="stec_pred",
-                    vtec_col="vtec_model_stec" if "vtec_model_stec" in plot_df.columns else None,
+                    vtec_col="vtec_model_stec"
+                    if "vtec_model_stec" in plot_df.columns
+                    else None,
                     gim_col="gim_stec" if "gim_stec" in plot_df.columns else None,
                     metrics=metrics,
                     output_dir=out_eval_dir,
@@ -464,15 +556,17 @@ def main():
         saved_metrics = extract_metrics_from_experiment(
             output_base / f"{year}_DOY_{doy:03d}" / "evaluation"
         )
-        batch_results.append({
-            "year": year,
-            "doy": doy,
-            "date": date_str,
-            "success": bool(saved_metrics) and day_success,
-            "stec_experiment": f"recovered_{date_str}",
-            "vtec_experiment": None,
-            "metrics": saved_metrics,
-        })
+        batch_results.append(
+            {
+                "year": year,
+                "doy": doy,
+                "date": date_str,
+                "success": bool(saved_metrics) and day_success,
+                "stec_experiment": f"recovered_{date_str}",
+                "vtec_experiment": None,
+                "metrics": saved_metrics,
+            }
+        )
 
         # Free memory
         gc.collect()
@@ -488,7 +582,9 @@ def main():
     logger.info("=" * 70)
 
     if success_count > 0:
-        generate_aggregate_report(batch_results, output_base, skip_plots=args.skip_plots)
+        generate_aggregate_report(
+            batch_results, output_base, skip_plots=args.skip_plots
+        )
 
     logger.info(f"\nAll results saved to: {output_base}")
 

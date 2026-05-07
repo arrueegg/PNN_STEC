@@ -1,6 +1,9 @@
 #!/bin/bash
 # Quick wrapper script for running the complete positioning evaluation pipeline
 
+REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$REPO_ROOT" || { echo "Failed to cd to $REPO_ROOT"; exit 1; }
+
 # Activate virtual environment if it exists and not already activated
 if [ -d "env/bin" ] && [ -z "$VIRTUAL_ENV" ]; then
     source env/bin/activate
@@ -38,7 +41,7 @@ if [ -z "$EXPERIMENT" ] || [ -z "$DATE" ]; then
 fi
 
 # Default settings - adjust as needed
-PPPX_PATH="./src/positioning_eval/pppx"
+PPPX_PATH="$REPO_ROOT/positioning/positioning_eval/pppx"
 GIM_PATH="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex"
 PARALLEL_JOBS=4
 
@@ -61,7 +64,7 @@ echo ""
 
 # Step 1: Generate STEC corrections (if not already done)
 echo "Step 1: Generating STEC corrections..."
-python src/inference_positioning.py \
+python positioning/scripts/generate_stec_corrections.py \
     --experiment "$EXPERIMENT" \
     --date "$DATE"
 
@@ -74,7 +77,7 @@ echo ""
 echo "Step 2: Running positioning evaluation..."
 
 # Step 2: Run positioning evaluation
-python src/positioning_eval/run_positioning_evaluation.py \
+python positioning/positioning_eval/run_positioning_evaluation.py \
     --experiment "$EXPERIMENT" \
     --date "$DATE" \
     --all_test_stations \
