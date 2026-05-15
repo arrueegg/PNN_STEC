@@ -143,34 +143,34 @@ class InferenceManager:
 
                     for sample_idx in range(num_samples):
                         outputs = model(inputs)
-                            mean_raw, var_raw = self.data_transforms.compute_mean_var(
-                                outputs
+                        mean_raw, var_raw = self.data_transforms.compute_mean_var(
+                            outputs
+                        )
+
+                        # [PAPER] Mao et al. 2025: Laplacian variance is 2 * scale^2
+                        if "Laplacian" in model_type:
+                            var_raw = 2.0 * (var_raw**2)
+
+                        if self.use_log_target:
+                            # Log-normal moments for this pass
+                            mean_y = torch.exp(mean_raw + 0.5 * var_raw) - self.eps
+                            var_alea_y = (torch.exp(var_raw) - 1.0) * torch.exp(
+                                2 * mean_raw + var_raw
                             )
+                        else:
+                            mean_y = mean_raw
+                            var_alea_y = var_raw
 
-                            # [PAPER] Mao et al. 2025: Laplacian variance is 2 * scale^2
-                            if "Laplacian" in model_type:
-                                var_raw = 2.0 * (var_raw**2)
+                        # Detach everything to completely break computation graph
+                        mean_y = mean_y.detach()
+                        var_alea_y = var_alea_y.detach()
 
-                            if self.use_log_target:
-                                # Log-normal moments for this pass
-                                mean_y = torch.exp(mean_raw + 0.5 * var_raw) - self.eps
-                                var_alea_y = (torch.exp(var_raw) - 1.0) * torch.exp(
-                                    2 * mean_raw + var_raw
-                                )
-                            else:
-                                mean_y = mean_raw
-                                var_alea_y = var_raw
+                        # Keep on GPU until all samples done
+                        per_sample_means.append(mean_y)
+                        per_sample_alea_vars.append(var_alea_y)
 
-                            # Detach everything to completely break computation graph
-                            mean_y = mean_y.detach()
-                            var_alea_y = var_alea_y.detach()
-
-                            # Keep on GPU until all samples done
-                            per_sample_means.append(mean_y)
-                            per_sample_alea_vars.append(var_alea_y)
-
-                            # Clean up intermediate tensors immediately
-                            del outputs, mean_raw, var_raw, mean_y, var_alea_y
+                        # Clean up intermediate tensors immediately
+                        del outputs, mean_raw, var_raw, mean_y, var_alea_y
 
                     # OPTIMIZATION 2: Stack and compute on GPU, then transfer once
                     pred_stack = torch.stack(per_sample_means, dim=0)  # [S, B]

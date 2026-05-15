@@ -65,3 +65,6 @@ positioning/outputs/
 positioning/data/
 slurm_logs/
 sbatch_scripts/
+
+vlbi_kband/data
+vlbi_kband/outputs
