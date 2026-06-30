@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any  # noqa: F401 — used in deferred (string) annotations
 
 
 # Reuse the .ion parser + per-row day decomposition from the inference script.
@@ -88,7 +89,7 @@ def missing_days(days: set[tuple[int, int]], base_config: str) -> list[tuple[int
     return sorted(d for d in days if not is_trained(base_config, d[0], d[1]))
 
 
-def _build_day_config(base_config: str, year: int, doy: int) -> dict:
+def _build_day_config(base_config: str, year: int, doy: int) -> dict[str, Any]:
     """Load the base config and apply the standard per-day fine-tune overrides.
 
     finetune.py selects the training day from top-level config["year"]/["doy"];
@@ -133,8 +134,10 @@ def train_one_day(
         tmp_path,
     ]
     logger.info("  training %d-DOY%03d ...", year, doy)
-    proc = subprocess.run(cmd, cwd=str(REPO_ROOT))
-    Path(tmp_path).unlink(missing_ok=True)
+    try:
+        proc = subprocess.run(cmd, cwd=str(REPO_ROOT))
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
     if proc.returncode != 0:
         logger.error(
@@ -203,15 +206,19 @@ def main() -> int:
             logger.info("  missing: %d-DOY%03d", year, doy)
         return 0
 
-    todo = missing[: args.limit] if args.limit else missing
-    if args.limit:
+    todo = missing[: args.limit] if args.limit is not None else missing
+    if args.limit is not None:
         logger.info("Limiting this run to %d day(s)", len(todo))
 
     trained, failed = [], []
     for idx, (year, doy) in enumerate(todo, start=1):
         logger.info("[%d/%d] %d-DOY%03d", idx, len(todo), year, doy)
         t0 = time.time()
-        ok = train_one_day(args.base_config, year, doy, logger)
+        try:
+            ok = train_one_day(args.base_config, year, doy, logger)
+        except Exception as exc:  # noqa: BLE001 — one day's crash must not abort the batch
+            logger.error("  unexpected error for %d-DOY%03d: %s", year, doy, exc)
+            ok = False
         logger.info("  -> %s (%.1fs)", "ok" if ok else "FAILED", time.time() - t0)
         (trained if ok else failed).append((year, doy))
 
