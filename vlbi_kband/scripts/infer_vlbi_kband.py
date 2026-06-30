@@ -18,12 +18,13 @@ The conversion uses the standard first-order dispersive relation:
 with STEC in TECU (1 TECU = 1e16 el/m²) and f taken from the file header
 (``# Ref. frequ = <MHz>``).
 
-Only files following the 2024+ naming convention ``YYYYMMDD-<expcode>.ion``
-are processed. For each file the year/DOY is parsed from the filename and the
-matching daily fine-tuned experiment (resolved via ``--finetune_base_config``)
-is loaded. Legacy files (e.g. ``02AUG25KV.ion``) are skipped because no
-fine-tuned model exists for those dates; files whose date falls outside the
-available fine-tune coverage are also skipped with a warning.
+Both the 2024+ ``YYYYMMDD-<expcode>.ion`` and the legacy ``YYMMMDD<suffix>.ion``
+naming conventions are accepted. The filename date is used only to admit sessions
+dated 2014 or later (the earliest year with fine-tuned models); files dated before
+2014, or with an unrecognized name, are skipped. The per-observation year/DOY used
+to pick each daily fine-tuned model comes from the row timestamps, not the
+filename. A session is also skipped (with a warning) if any day it touches has no
+fine-tuned model.
 
 Usage:
     python infer_vlbi_kband.py \

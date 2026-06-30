@@ -32,6 +32,11 @@ def test_legacy_pre_2014_still_parses_year():
     assert parse_year_doy_from_filename("02AUG25KV.ion") == (2002, 237)
 
 
+def test_legacy_invalid_day_returns_none():
+    # Feb 30 is not a real date — the datetime guard must yield None.
+    assert parse_year_doy_from_filename("14FEB30KV.ion") is None
+
+
 def test_unparseable_returns_none():
     assert parse_year_doy_from_filename("filelist.txt") is None
     assert parse_year_doy_from_filename("README.md") is None
