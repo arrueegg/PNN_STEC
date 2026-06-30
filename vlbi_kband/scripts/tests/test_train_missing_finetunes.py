@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import train_missing_finetunes as tmf
@@ -35,3 +37,8 @@ def test_missing_days_filters_out_trained(monkeypatch):
     monkeypatch.setattr(tmf, "is_trained", fake_is_trained)
     missing = tmf.missing_days(days, base_config="config/config.yaml")
     assert missing == [(2099, 1)]
+
+
+def test_is_trained_raises_on_missing_base_config():
+    with pytest.raises(FileNotFoundError):
+        tmf.is_trained("config/does_not_exist.yaml", 2024, 123)

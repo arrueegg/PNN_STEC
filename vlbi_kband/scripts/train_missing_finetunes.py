@@ -66,6 +66,10 @@ def session_days(
 
 def is_trained(base_config: str, year: int, doy: int) -> bool:
     """True if the canonical fine-tune experiment for (year, doy) already exists."""
+    # A missing base config must fail loudly — only a missing experiment
+    # directory is a legitimate "not yet trained" state.
+    if not Path(base_config).exists():
+        raise FileNotFoundError(f"Base config not found: {base_config}")
     try:
         resolve_finetune_experiment(base_config, year, doy)
         return True
