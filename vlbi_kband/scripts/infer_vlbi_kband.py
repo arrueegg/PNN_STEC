@@ -508,15 +508,22 @@ def run_for_file(
     num_samples: int,
     out_dir: Path,
     logger: logging.Logger,
+    skip_existing: bool = False,
 ) -> str:
     """Run inference on one .ion file using per-day fine-tuned models.
 
     Returns one of:
         "ok"          all rows predicted and outputs written
         "no_model"    at least one day in the session has no fine-tune; file skipped
+        "exists"      output already present and skip_existing=True; file skipped
     """
     logger.info("Parsing %s", ion_path)
     ion = parse_ion_file(ion_path)
+
+    if skip_existing and (out_dir / f"{ion.session}.ion").exists():
+        logger.info("  skipping %s: output already exists", ion_path.name)
+        return "exists"
+
     df_full = _row_year_doy(ion.records)
     days = sorted({(int(y), int(d)) for y, d in zip(df_full["_year"], df_full["_doy"])})
 
@@ -632,6 +639,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--num_samples", type=int, default=100, help="MC samples for Bayesian models"
     )
+    p.add_argument(
+        "--skip_existing",
+        action="store_true",
+        help="Skip sessions whose <session>.ion output already exists in --output_dir",
+    )
     return p.parse_args()
 
 
@@ -694,6 +706,7 @@ def main() -> int:
     failed: list[tuple[str, str]] = []
     no_model: list[Path] = []
     processed: list[Path] = []
+    skipped_existing: list[Path] = []
 
     for idx, ion_path in enumerate(to_process, start=1):
         logger.info("[%d/%d] %s", idx, len(to_process), ion_path.name)
@@ -706,6 +719,7 @@ def main() -> int:
                 num_samples=args.num_samples,
                 out_dir=out_dir,
                 logger=logger,
+                skip_existing=args.skip_existing,
             )
         except Exception as exc:  # noqa: BLE001 — log and continue across files
             logger.exception("Failed on %s: %s", ion_path, exc)
@@ -716,14 +730,18 @@ def main() -> int:
             processed.append(ion_path)
         elif status == "no_model":
             no_model.append(ion_path)
+        elif status == "exists":
+            skipped_existing.append(ion_path)
 
     logger.info(
         "Summary: %d processed, %d skipped (no fine-tuned model for some day), "
-        "%d failed, %d file(s) skipped (pre-2014/unparseable)",
+        "%d failed, %d file(s) skipped (pre-2014/unparseable), "
+        "%d skipped (output exists)",
         len(processed),
         len(no_model),
         len(failed),
         len(skipped),
+        len(skipped_existing),
     )
     if no_model:
         for p in no_model:
