@@ -102,26 +102,58 @@ _STATION_RE = re.compile(
 _FREQ_RE = re.compile(r"Ref\.?\s*frequ\s*=\s*([\d.]+)\s*MHz", re.IGNORECASE)
 _SESSION_RE = re.compile(r"Session:\s*(\S+)", re.IGNORECASE)
 
-# 2024+ filename convention: ``YYYYMMDD-<expcode>.ion`` — the 8-digit ISO date
-# is the only authoritative date source (some experiment codes embed unrelated
-# year digits, e.g. ``20240118-n23jh02i.ion``).
+# 2024+ convention: ``YYYYMMDD-<expcode>.ion`` — the 8-digit ISO date is the
+# only authoritative date source (some experiment codes embed unrelated year
+# digits, e.g. ``20240118-n23jh02i.ion``).
 _NEW_FILENAME_DATE_RE = re.compile(r"^(\d{8})-")
+
+# Legacy convention: ``YYMMMDD<suffix>.ion`` (e.g. ``17SEP22KV``, ``21APR19QL``).
+# Two-digit year, three-letter uppercase month, two-digit day, then a band/pol
+# suffix that we ignore.
+_LEGACY_FILENAME_DATE_RE = re.compile(r"^(\d{2})([A-Z]{3})(\d{2})")
+_LEGACY_MONTHS = {
+    "JAN": 1,
+    "FEB": 2,
+    "MAR": 3,
+    "APR": 4,
+    "MAY": 5,
+    "JUN": 6,
+    "JUL": 7,
+    "AUG": 8,
+    "SEP": 9,
+    "OCT": 10,
+    "NOV": 11,
+    "DEC": 12,
+}
 
 
 def parse_year_doy_from_filename(filename: str) -> tuple[int, int] | None:
-    """Return (year, day-of-year) for a 2024+ ``YYYYMMDD-*.ion`` filename.
+    """Return (year, day-of-year) for a session filename, or ``None``.
 
-    Returns ``None`` for the legacy ``YYMMMDDKx.ion`` convention or anything
-    else that doesn't match — those files are skipped at the call site.
+    Handles both the 2024+ ``YYYYMMDD-*.ion`` convention and the legacy
+    ``YYMMMDD<suffix>.ion`` convention (two-digit year expanded to ``20YY``).
+    The 2014 lower bound is enforced by the caller, not here.
     """
-    m = _NEW_FILENAME_DATE_RE.match(Path(filename).name)
-    if m is None:
-        return None
-    try:
-        dt = datetime.strptime(m.group(1), "%Y%m%d")
-    except ValueError:
-        return None
-    return dt.year, dt.timetuple().tm_yday
+    name = Path(filename).name
+
+    if (m := _NEW_FILENAME_DATE_RE.match(name)) is not None:
+        try:
+            dt = datetime.strptime(m.group(1), "%Y%m%d")
+        except ValueError:
+            return None
+        return dt.year, dt.timetuple().tm_yday
+
+    if (m := _LEGACY_FILENAME_DATE_RE.match(name)) is not None:
+        month = _LEGACY_MONTHS.get(m.group(2))
+        if month is None:
+            return None
+        try:
+            dt = datetime(2000 + int(m.group(1)), month, int(m.group(3)))
+        except ValueError:
+            return None
+        return dt.year, dt.timetuple().tm_yday
+
+    return None
 
 
 @dataclass
@@ -624,26 +656,30 @@ def main() -> int:
             )
             return 1
 
-    # Filter to files following the 2024+ filename convention; legacy files
-    # (pre-2024 naming) are silently skipped because no fine-tune exists.
+    # Process every session dated 2014 or later (legacy YYMMMDD or 2024+ ISO
+    # naming). Files dated before 2014 — or with an unparseable name — are
+    # skipped, since no fine-tuned model exists for them.
+    MIN_TRAINED_YEAR = 2014
     to_process: list[Path] = []
-    skipped_legacy: list[Path] = []
+    skipped: list[Path] = []
     for p in candidates:
-        if parse_year_doy_from_filename(p.name) is None:
-            skipped_legacy.append(p)
+        yd = parse_year_doy_from_filename(p.name)
+        if yd is None or yd[0] < MIN_TRAINED_YEAR:
+            skipped.append(p)
         else:
             to_process.append(p)
 
-    if skipped_legacy:
+    if skipped:
         logger.warning(
-            "Skipping %d file(s) not matching YYYYMMDD-*.ion: %s",
-            len(skipped_legacy),
-            ", ".join(p.name for p in skipped_legacy[:5])
-            + (" ..." if len(skipped_legacy) > 5 else ""),
+            "Skipping %d file(s) (pre-%d or unparseable name): %s",
+            len(skipped),
+            MIN_TRAINED_YEAR,
+            ", ".join(p.name for p in skipped[:5])
+            + (" ..." if len(skipped) > 5 else ""),
         )
 
     if not to_process:
-        logger.error("No 2024+ files to process.")
+        logger.error("No 2014+ files to process.")
         return 1
 
     out_dir = Path(args.output_dir)
@@ -682,11 +718,11 @@ def main() -> int:
 
     logger.info(
         "Summary: %d processed, %d skipped (no fine-tuned model for some day), "
-        "%d failed, %d legacy filename(s) skipped",
+        "%d failed, %d file(s) skipped (pre-2014/unparseable)",
         len(processed),
         len(no_model),
         len(failed),
-        len(skipped_legacy),
+        len(skipped),
     )
     if no_model:
         for p in no_model:
