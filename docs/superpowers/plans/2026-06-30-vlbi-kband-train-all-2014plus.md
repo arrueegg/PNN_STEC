@@ -720,14 +720,51 @@ PY
 
 Expected: positive, sub-100 ns delays; `plausibility checks passed`.
 
-- [ ] **Step 5: Commit the inference log**
+- [ ] **Step 5: Run the CODE-GIM comparison/evaluation**
+
+Run the existing evaluation that compares the PNN-STEC corrections against the
+original CODE-derived slant ionospheric delays (the last column of each input
+`.ion`, derived from CODE GIMs) — the same comparison previously run for the 2024
+sessions. With outputs now present for all 2014+ sessions, this covers the whole
+set (2024 + newly-enabled legacy + 2025):
 
 ```bash
-git add vlbi_kband/infer_all.log
-git commit -m "chore(vlbi_kband): run inference for all 2014+ sessions (legacy + 2025 enabled)"
+env/bin/python vlbi_kband/scripts/plot_comparison.py \
+    --data_dir vlbi_kband/data \
+    --output_dir vlbi_kband/outputs \
+    --plots_dir vlbi_kband/plots 2>&1 | tee vlbi_kband/compare_all.log | tail -40
+```
+
+Expected: it prints aggregate stats (median CODE delay, `corr(CODE, PNN)`, and a
+per-session `(PNN − CODE)` MAE/RMSE/bias table) and writes
+`vlbi_kband/plots/overview.png`, `vlbi_kband/plots/per_session_grid.png`, and
+`vlbi_kband/plots/per_session_stats.csv`. Sanity-check that `per_session_stats.csv`
+now contains rows for the legacy/2025 sessions (not just 2024) and that the
+correlation is high and biases are physically reasonable (small TECU-level).
+
+- [ ] **Step 6: Commit the run logs + per-session stats**
+
+```bash
+git add vlbi_kband/infer_all.log vlbi_kband/compare_all.log vlbi_kband/plots/per_session_stats.csv
+git commit -m "chore(vlbi_kband): inference + CODE-GIM comparison for all 2014+ sessions"
 ```
 
 ---
+
+## Known data gaps (accepted 2026-07-01)
+
+Two days have **no GNSS observation file** (`ccl_YYYYDOY_30_5.h5`) in the STEC DB
+— only the small `sit_*` station files are present — so they cannot be
+fine-tuned:
+
+- **2017-DOY113 (2017-04-23)** — blocks sessions `17APR23KA`, `17APR23KV`
+- **2017-DOY289 (2017-10-16)** — blocks session `17OCT16KV`
+
+These 2 days stay untrained and the 3 sessions are **expected `no_model` skips**
+at Task 6 inference (each session needs both its UTC days). This is accepted, not
+a bug: `--dry_run` will always show these 2 as "missing", and the Task 6 summary
+must list the 3 sessions explicitly (never silently dropped). Resolvable only by
+obtaining the missing `ccl_2017113_30_5.h5` / `ccl_2017289_30_5.h5` files.
 
 ## Notes / guardrails
 
