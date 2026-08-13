@@ -67,4 +67,8 @@ slurm_logs/
 sbatch_scripts/
 
 vlbi_kband/data
-vlbi_kband/outputs
+vlbi_kband/outputs*
+vlbi_kband/plots*
+
+
+docs/superpowers
