@@ -583,7 +583,7 @@ def write_prediction_store(
 
     try:
         path = prediction_store.write_predictions(
-            test_df,
+            store_df,
             model_variant=model_variant,
             dataset=dataset_type,
             year=int(year),
