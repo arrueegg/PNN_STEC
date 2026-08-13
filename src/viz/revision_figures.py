@@ -79,6 +79,10 @@ METHOD_ORDER = [
 # ever mean that approach, or the figures stop being readable side by side.
 CONDITION_COLORS = {"baseline": "#7f7f7f", "contrast": "#d62728"}
 
+# The observation-derived upper bound is not one of the compared approaches, so
+# it takes its own dark neutral instead of borrowing an approach colour.
+ORACLE_COLOR = "#3f3f3f"
+
 INK = "#1a1a1a"
 INK_MUTED = "#6b6b6b"
 GRID = "#d9d9d9"
@@ -451,6 +455,66 @@ def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -
     _save(fig, "weighting_ablation", "positioning", output_dir, provenance)
 
 
+def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
+    """R2.8 - how much of the remaining error is the model's, and how much the pipeline's.
+
+    The oracle bar is the pipeline's own noise floor: what is left when the
+    reference STEC itself is used as the correction. The gap above it is what a
+    better model could still recover.
+    """
+    order = [m for m in ("Reference STEC (oracle)", *METHOD_ORDER) if m in d.index]
+    d = d.loc[order]
+
+    fig, ax = plt.subplots(figsize=(8.0, 4.6))
+    colors = [
+        ORACLE_COLOR if m.startswith("Reference STEC") else COLORS[m] for m in d.index
+    ]
+    bars = ax.bar(np.arange(len(d)), d["mean"], 0.62, color=colors, zorder=3)
+    for bar, (_, row) in zip(bars, d.iterrows()):
+        ax.annotate(
+            f"{row['mean']:.2f}",
+            xy=(bar.get_x() + bar.get_width() / 2, row["mean"]),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            fontsize=9,
+            color=INK,
+        )
+
+    floor = d.loc[d.index[0], "mean"]
+    ax.axhline(floor, color=ORACLE_COLOR, linewidth=1.0, linestyle="--", zorder=4)
+    ax.annotate(
+        "observation-derived floor",
+        xy=(len(d) - 0.5, floor),
+        xytext=(0, 5),
+        textcoords="offset points",
+        ha="right",
+        fontsize=8.5,
+        color=INK_MUTED,
+    )
+
+    ax.set_xticks(np.arange(len(d)))
+    ax.set_xticklabels(
+        [
+            m.replace(" (oracle)", "\n(oracle)")
+            .replace(" Direct STEC", "\nDirect STEC")
+            .replace(" + ", "\n+ ")
+            for m in d.index
+        ],
+        fontsize=9,
+        color=INK,
+    )
+    _style_axes(ax, "3D RMS positioning error [m]")
+    ax.set_ylim(0, d["mean"].max() * 1.22)
+    ax.set_title(
+        "Applying the reference STEC directly bounds what any model of it can achieve",
+        loc="left",
+        fontsize=10,
+        color=INK,
+    )
+    _save(fig, "oracle_benchmark", "positioning", output_dir, provenance)
+
+
 def fig_architecture_search(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
     d = d.sort_values("best_val_MAE")
     fig, ax = plt.subplots(figsize=(7.5, 4.0))
@@ -508,6 +572,11 @@ def main() -> None:
         default=Path("multiday_results/hyperparameter_search/architectures.csv"),
     )
     parser.add_argument(
+        "--oracle_summary",
+        type=Path,
+        default=Path("multiday_results/oracle_benchmark/summary.csv"),
+    )
+    parser.add_argument(
         "--activity_dir",
         type=Path,
         default=Path("multiday_results/activity_stratification"),
@@ -559,6 +628,19 @@ def main() -> None:
         fig_architecture_search(d, args.output_dir, prov)
     else:
         logger.warning(f"⚠️  {args.architectures} not found")
+
+    if args.oracle_summary.exists():
+        d = pd.read_csv(args.oracle_summary, index_col=0)
+        station_days = int(d["station_days"].max())
+        prov = (
+            f"{args.oracle_summary} — SF-PPP, elevation weighting throughout, "
+            f"{station_days} station-days solved by every method"
+        )
+        fig_oracle_benchmark(d, args.output_dir, prov)
+    else:
+        logger.warning(
+            f"⚠️  {args.oracle_summary} not found - run src/analysis/oracle_benchmark.py"
+        )
 
     for stem, filename, bin_col, axis_label, driver in (
         (
