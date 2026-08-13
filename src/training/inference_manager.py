@@ -94,9 +94,11 @@ class InferenceManager:
         gc.collect()
         torch.cuda.empty_cache()
 
-        # Check if dataset returns metadata
-        return_metadata = self.config.get("return_metadata", False)
-        batch_metadata = [] if return_metadata else None
+        # Whether metadata arrives is a property of the dataloader, not of this
+        # trainer's config. The two can disagree - a baseline model carries its
+        # own config while reusing a loader built elsewhere - so detect it from
+        # the batch shape rather than trusting the flag.
+        batch_metadata = []
 
         # Hoist loop-invariant lookups outside the batch loop
         from model.model import DeepEnsemble, DeepEnsemble_MLP
@@ -115,7 +117,7 @@ class InferenceManager:
                     disable=disable_tqdm,
                 )
             ):
-                if return_metadata:
+                if len(batch_data) == 3:
                     inputs, targets, metadata = batch_data
                     batch_metadata.append(metadata)
                 else:
@@ -233,7 +235,7 @@ class InferenceManager:
                     )
 
                     # Add metadata if available
-                    if return_metadata and batch_metadata:
+                    if batch_metadata:
                         # Get metadata for this batch (last added entry)
                         batch_meta = batch_metadata[batch_idx]
                         for field in batch_meta[0].keys():
