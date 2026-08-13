@@ -62,18 +62,44 @@ DISPLAY_ORDER = [
 
 
 def load_oracle(results_root: Path) -> pd.DataFrame:
-    """Collect every daily_summary.csv the oracle experiment has produced."""
-    frames = []
-    for path in sorted(results_root.glob("*/daily_summary*.csv")):
-        frame = pd.read_csv(path)
-        frame["source_file"] = str(path)
-        frames.append(frame)
-    if not frames:
-        raise FileNotFoundError(f"No oracle daily_summary*.csv under {results_root}")
+    """Aggregate the oracle runs straight from their .pos solutions.
 
-    oracle = pd.concat(frames, ignore_index=True)
-    oracle["Method"] = oracle["method"].map(ORACLE_METHODS)
-    return oracle.dropna(subset=["Method"])
+    Deliberately not read from daily_summary.csv: that file is rewritten by
+    whichever evaluation ran last, so a single-station rerun silently truncates
+    it to one row while the .pos files stay complete. The solutions are the
+    durable artefact, so they are the input.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path("positioning/positioning_eval").resolve()))
+    from metrics import compute_metrics, load_sinex_coords, parse_pos_file
+
+    rows = []
+    for day_dir in sorted(results_root.glob("[0-9]" * 7)):
+        year, doy = int(day_dir.name[:4]), int(day_dir.name[4:])
+        sinex = sorted((day_dir.parent.parent / "evaluation" / day_dir.name / "products").glob("*CRD.SNX"))
+        if not sinex:
+            logger.warning(f"⚠️  No SINEX for {day_dir.name} - skipping")
+            continue
+        truth = load_sinex_coords(str(sinex[0]))
+
+        for method_dir, label in ORACLE_METHODS.items():
+            for pos_path in sorted((day_dir / method_dir).glob("*/*.pos")):
+                station = pos_path.parent.name
+                if station not in truth:
+                    continue
+                solution = parse_pos_file(str(pos_path), ref_pos=truth[station])
+                metrics = compute_metrics(solution)
+                if metrics is None:
+                    continue
+                rows.append(
+                    {"station": station, "year": year, "doy": doy, "Method": label, **metrics}
+                )
+
+    if not rows:
+        raise FileNotFoundError(f"No oracle .pos solutions under {results_root}")
+    logger.info(f"Aggregated {len(rows)} oracle solutions from .pos files")
+    return pd.DataFrame(rows)
 
 
 def load_baselines(summary_path: Path) -> pd.DataFrame:
