@@ -1,23 +1,37 @@
-"""Figures for the JGR-MLC revision.
+"""Figures for the JGR-MLC revision — one panel per file.
 
 Each figure answers a specific reviewer comment and is built from analyses that
-need no re-inference:
+need no re-inference. Figures are written one plot per PNG, grouped into
+subfolders by the data they were produced from, and every titled figure carries
+a provenance footnote naming its source file and scope.
 
-  fig_relative_error       R1.2  absolute vs TEC-normalised error by year
-  fig_storm_positioning    R2.7  positioning under quiet vs storm conditions
-  fig_weighting_ablation   R2.5  predicted-uncertainty vs elevation weighting
-  fig_architecture_search  R1.5  architecture comparison from the W&B history
+    plots/revision/
+      stec_pretrained_testset/   pretrained model, held-out test set 2014-2024
+      stec_finetuned_2024/       daily fine-tuned models, 242 test days of 2024
+      positioning_2024/          SF-PPP solutions, 2024 test period
+      training_runs/             W&B training history
+
+Reviewer mapping
+----------------
+  R1.2  relative_error_absolute, relative_error_normalised
+  R1.5  architecture_search
+  R2.4  activity_dst_*, activity_f107_*
+  R2.5  weighting_ablation
+  R2.7  storm_positioning_*
 
 Colour
 ------
-The published figures use matplotlib's default tab10 blue/orange/green/purple.
-That palette has a real accessibility defect: orange (#ff7f0e) and green
-(#2ca02c) collapse to dE = 0.7 in OKLab under protanopia, i.e. the
-"VTEC + Mapping" and "IGS GIM + Mapping" series are indistinguishable for
-red-blind readers. These figures therefore use the Okabe-Ito palette, which
-clears the same check at dE >= 9.6 (worst all-pairs, protanopia) while keeping
-blue for the Direct STEC series so the reader's association carries over.
-Every series also gets a distinct marker, so identity is never colour-alone.
+Series colours and markers are taken unchanged from the published figures
+(``positioning/scripts/plot_results.py``) so the revision is visually consistent
+with the rest of the paper: blue = Direct STEC, orange = VTEC + Mapping,
+green = IGS GIM + Mapping, purple = Pretrained Direct STEC.
+
+Known limitation, carried over deliberately: orange (#ff7f0e) and green
+(#2ca02c) are separated by only dE = 0.7 in OKLab under simulated protanopia,
+so those two series are hard to distinguish for red-blind readers. Consistency
+with the published figures was chosen over changing the palette. Where the form
+allows it, the paper's own per-series markers are used as a secondary channel so
+identity does not rest on colour alone.
 
 Usage::
 
@@ -39,19 +53,19 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Okabe-Ito. Validated all-pairs: protanopia dE 9.6, deuteranopia 7.6 (floor
-# band, hence the mandatory marker/label secondary encoding), normal 16.4.
+# Unchanged from positioning/scripts/plot_results.py so the revision figures sit
+# beside the published ones without a palette shift.
 COLORS = {
-    "Direct STEC": "#0072B2",
-    "VTEC + Mapping": "#D55E00",
-    "IGS GIM + Mapping": "#009E73",
-    "Pretrained Direct STEC": "#CC79A7",
+    "Direct STEC": "#1f77b4",
+    "VTEC + Mapping": "#ff7f0e",
+    "IGS GIM + Mapping": "#2ca02c",
+    "Pretrained Direct STEC": "#9467bd",
 }
 MARKERS = {
     "Direct STEC": "o",
     "VTEC + Mapping": "s",
     "IGS GIM + Mapping": "^",
-    "Pretrained Direct STEC": "D",
+    "Pretrained Direct STEC": "d",
 }
 METHOD_ORDER = [
     "Direct STEC",
@@ -60,11 +74,23 @@ METHOD_ORDER = [
     "IGS GIM + Mapping",
 ]
 
-# Text stays in ink, never in a series colour.
+# Colours for non-approach encodings (geomagnetic regime, weighting scheme).
+# Deliberately outside the approach palette above: an approach colour must only
+# ever mean that approach, or the figures stop being readable side by side.
+CONDITION_COLORS = {"baseline": "#7f7f7f", "contrast": "#d62728"}
+
 INK = "#1a1a1a"
 INK_MUTED = "#6b6b6b"
 GRID = "#d9d9d9"
-NEUTRAL = "#8c8c8c"
+NEUTRAL = "#7f7f7f"
+
+# Subfolders, keyed by which data produced the figure.
+SOURCE_DIRS = {
+    "pretrained": "stec_pretrained_testset",
+    "finetuned": "stec_finetuned_2024",
+    "positioning": "positioning_2024",
+    "training": "training_runs",
+}
 
 
 def _style_axes(ax, ylabel: str, xlabel: str = "") -> None:
@@ -81,10 +107,25 @@ def _style_axes(ax, ylabel: str, xlabel: str = "") -> None:
     ax.tick_params(colors=INK_MUTED, labelsize=9)
 
 
-def _save(fig, name: str, output_dir: Path) -> None:
-    """Write the titled figure and, per repo convention, a _notitle variant."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_dir / f"{name}.png", dpi=300, bbox_inches="tight")
+def _save(fig, name: str, source: str, output_dir: Path, provenance: str) -> None:
+    """Write one figure twice: titled with provenance, and a clean publication copy.
+
+    The provenance footnote states exactly which file and how many days or runs
+    the numbers came from. It is deliberately absent from the `_notitle` variant,
+    which is the one that goes into the manuscript.
+    """
+    target = output_dir / SOURCE_DIRS[source]
+    target.mkdir(parents=True, exist_ok=True)
+
+    # Negative y puts the note below the x-axis label; bbox_inches="tight"
+    # expands the saved area to include artists outside the figure rectangle,
+    # so this clears the label instead of overprinting it.
+    footnote = fig.text(
+        0.0, -0.06, f"Data: {provenance}", fontsize=7, color=INK_MUTED, va="top"
+    )
+    fig.savefig(target / f"{name}.png", dpi=300, bbox_inches="tight")
+
+    footnote.set_text("")
     for ax in fig.axes:
         # An axes keeps a separate title artist per location, so clearing only
         # the default (centre) one silently leaves a loc="left" title in place.
@@ -92,107 +133,13 @@ def _save(fig, name: str, output_dir: Path) -> None:
             ax.set_title("", loc=loc)
     if fig._suptitle is not None:
         fig._suptitle.set_text("")
-    fig.savefig(output_dir / f"{name}_notitle.png", dpi=300, bbox_inches="tight")
+    fig.savefig(target / f"{name}_notitle.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
-    logger.info(f"💾 {output_dir / name}.png (+ _notitle)")
-
-
-def fig_relative_error(metrics_csv: Path, output_dir: Path) -> None:
-    """R1.2 - absolute error tracks TEC amplitude; relative error does not.
-
-    Two panels rather than one chart with two y-scales: mixing TECU and percent
-    on twin axes would let the reader read any relationship they liked into the
-    gap between the curves.
-    """
-    d = pd.read_csv(metrics_csv).sort_values("year")
-
-    fig, (ax_top, ax_bot) = plt.subplots(
-        2, 1, figsize=(7.5, 6.2), sharex=True, gridspec_kw={"hspace": 0.18}
-    )
-
-    # Panel (a): both quantities are TECU, so one axis is honest here.
-    ax_top.plot(
-        d.year,
-        d.mean_STEC,
-        marker="o",
-        markersize=6,
-        linewidth=2,
-        color=NEUTRAL,
-        label="Mean observed STEC",
-    )
-    ax_top.plot(
-        d.year,
-        d.RMSE,
-        marker="s",
-        markersize=6,
-        linewidth=2,
-        color=COLORS["Direct STEC"],
-        label="Model RMSE",
-    )
-    _style_axes(ax_top, "STEC [TECU]")
-    ax_top.set_title(
-        "(a) Absolute error rises with the ionosphere itself",
-        loc="left",
-        fontsize=10,
-        color=INK,
-    )
-    ax_top.legend(frameon=False, fontsize=9, loc="upper left", labelcolor=INK)
-    ax_top.annotate(
-        f"r = {d.RMSE.corr(d.mean_STEC):+.2f}",
-        xy=(0.985, 0.06),
-        xycoords="axes fraction",
-        ha="right",
-        fontsize=9,
-        color=INK_MUTED,
-    )
-
-    # Panel (b): the same errors normalised by the mean STEC of each year.
-    ax_bot.plot(
-        d.year,
-        d["nRMSE_%"],
-        marker="s",
-        markersize=6,
-        linewidth=2,
-        color=COLORS["Direct STEC"],
-        label="RMSE / mean STEC",
-    )
-    median = d["nRMSE_%"].median()
-    ax_bot.axhline(median, color=NEUTRAL, linewidth=1.2, linestyle="--")
-    ax_bot.annotate(
-        f"median {median:.0f}%",
-        xy=(d.year.min(), median),
-        xytext=(3, 5),
-        textcoords="offset points",
-        fontsize=9,
-        color=INK_MUTED,
-    )
-    # Direct-label the year the reviewer asked about.
-    last = d[d.year == d.year.max()].iloc[0]
-    ax_bot.annotate(
-        f"2024: {last['nRMSE_%']:.1f}%\n(lowest of all years)",
-        xy=(last.year, last["nRMSE_%"]),
-        xytext=(-8, 20),
-        textcoords="offset points",
-        ha="right",
-        fontsize=9,
-        color=INK,
-        arrowprops=dict(arrowstyle="-", color=INK_MUTED, linewidth=0.8),
-    )
-    _style_axes(ax_bot, "Normalised RMSE [%]", "Year")
-    ax_bot.set_title(
-        "(b) Relative error is flat across the solar cycle",
-        loc="left",
-        fontsize=10,
-        color=INK,
-    )
-    ax_bot.set_ylim(0, max(45, d["nRMSE_%"].max() * 1.15))
-    ax_bot.set_xticks(d.year)
-
-    _save(fig, "revision_relative_error", output_dir)
+    logger.info(f"💾 {target / name}.png (+ _notitle)")
 
 
 def _grouped_bars(ax, groups, series, values, colors, ylabel, value_fmt="{:.2f}"):
-    """Grouped bars with a 2 px surface gap and a direct label on every bar."""
+    """Grouped bars with a small surface gap and a direct label on every bar."""
     n_series = len(series)
     x = np.arange(len(groups))
     width = 0.8 / n_series
@@ -201,7 +148,7 @@ def _grouped_bars(ax, groups, series, values, colors, ylabel, value_fmt="{:.2f}"
         bars = ax.bar(
             x + offset,
             values[name],
-            width * 0.94,  # 0.94 leaves the surface gap
+            width * 0.94,
             color=colors[i],
             label=name,
             zorder=3,
@@ -210,7 +157,7 @@ def _grouped_bars(ax, groups, series, values, colors, ylabel, value_fmt="{:.2f}"
             ax.annotate(
                 value_fmt.format(v),
                 xy=(bar.get_x() + bar.get_width() / 2, v),
-                xytext=(0, 3),
+                xytext=(0, 3 if v >= 0 else -11),
                 textcoords="offset points",
                 ha="center",
                 fontsize=8,
@@ -221,39 +168,140 @@ def _grouped_bars(ax, groups, series, values, colors, ylabel, value_fmt="{:.2f}"
     _style_axes(ax, ylabel)
 
 
-def fig_storm_positioning(degradation_csv: Path, output_dir: Path) -> None:
-    """R2.7 - does the method fail when the ionosphere is disturbed?"""
-    d = pd.read_csv(degradation_csv, index_col=0).reindex(METHOD_ORDER)
+# --------------------------------------------------------------------------
+# R1.2 - absolute vs relative error across the solar cycle
+# --------------------------------------------------------------------------
 
-    fig, (ax_left, ax_right) = plt.subplots(
-        1, 2, figsize=(11, 4.4), gridspec_kw={"wspace": 0.22}
+
+def fig_relative_error_absolute(
+    d: pd.DataFrame, output_dir: Path, provenance: str
+) -> None:
+    """Absolute RMSE alongside the mean observed STEC, both in TECU."""
+    fig, ax = plt.subplots(figsize=(7.0, 4.2))
+    ax.plot(
+        d.year,
+        d.mean_STEC,
+        marker="o",
+        markersize=6,
+        linewidth=2,
+        color=NEUTRAL,
+        label="Mean observed STEC",
     )
+    ax.plot(
+        d.year,
+        d.RMSE,
+        marker="s",
+        markersize=6,
+        linewidth=2,
+        color=COLORS["Direct STEC"],
+        label="Model RMSE",
+    )
+    _style_axes(ax, "STEC [TECU]", "Year")
+    ax.set_xticks(d.year)
+    ax.legend(frameon=False, fontsize=9, loc="upper left", labelcolor=INK)
+    ax.annotate(
+        f"r = {d.RMSE.corr(d.mean_STEC):+.2f}",
+        xy=(0.985, 0.06),
+        xycoords="axes fraction",
+        ha="right",
+        fontsize=9,
+        color=INK_MUTED,
+    )
+    ax.set_title(
+        "Absolute error rises with the ionosphere itself",
+        loc="left",
+        fontsize=10,
+        color=INK,
+    )
+    _save(fig, "relative_error_absolute", "pretrained", output_dir, provenance)
 
+
+def fig_relative_error_normalised(
+    d: pd.DataFrame, output_dir: Path, provenance: str
+) -> None:
+    """The same errors normalised by each year's mean observed STEC."""
+    fig, ax = plt.subplots(figsize=(7.0, 4.2))
+    ax.plot(
+        d.year,
+        d["nRMSE_%"],
+        marker="s",
+        markersize=6,
+        linewidth=2,
+        color=COLORS["Direct STEC"],
+        label="RMSE / mean STEC",
+    )
+    median = d["nRMSE_%"].median()
+    ax.axhline(median, color=NEUTRAL, linewidth=1.2, linestyle="--")
+    ax.annotate(
+        f"median {median:.0f}%",
+        xy=(d.year.min(), median),
+        xytext=(3, 5),
+        textcoords="offset points",
+        fontsize=9,
+        color=INK_MUTED,
+    )
+    last = d[d.year == d.year.max()].iloc[0]
+    ax.annotate(
+        f"2024: {last['nRMSE_%']:.1f}%\n(lowest of all years)",
+        xy=(last.year, last["nRMSE_%"]),
+        xytext=(-8, 26),
+        textcoords="offset points",
+        ha="right",
+        fontsize=9,
+        color=INK,
+        arrowprops=dict(arrowstyle="-", color=INK_MUTED, linewidth=0.8),
+    )
+    _style_axes(ax, "Normalised RMSE [%]", "Year")
+    ax.set_xticks(d.year)
+    ax.set_ylim(0, max(45, d["nRMSE_%"].max() * 1.18))
+    ax.set_title(
+        "Relative error is flat across the solar cycle",
+        loc="left",
+        fontsize=10,
+        color=INK,
+    )
+    _save(fig, "relative_error_normalised", "pretrained", output_dir, provenance)
+
+
+# --------------------------------------------------------------------------
+# R2.7 - positioning under quiet vs storm conditions
+# --------------------------------------------------------------------------
+
+
+def fig_storm_positioning_absolute(
+    d: pd.DataFrame, output_dir: Path, provenance: str
+) -> None:
+    fig, ax = plt.subplots(figsize=(7.5, 4.4))
     labels = [
         m.replace(" Direct STEC", "\nDirect STEC").replace(" + ", "\n+ ")
         for m in d.index
     ]
     _grouped_bars(
-        ax_left,
-        groups=labels,
-        series=["quiet", "storm"],
-        values={"quiet": d["quiet"].values, "storm": d["storm"].values},
-        colors=[NEUTRAL, COLORS["VTEC + Mapping"]],
-        ylabel="3D RMS positioning error [m]",
+        ax,
+        labels,
+        ["quiet", "storm"],
+        {"quiet": d["quiet"].values, "storm": d["storm"].values},
+        [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
+        "3D RMS positioning error [m]",
     )
-    ax_left.legend(
+    ax.set_ylim(0, d[["quiet", "storm"]].max().max() * 1.18)
+    legend = ax.legend(
         frameon=False,
         fontsize=9,
         labelcolor=INK,
         title="Geomagnetic conditions",
         title_fontsize=9,
     )
-    ax_left.get_legend().get_title().set_color(INK)
-    ax_left.set_title(
-        "(a) Absolute positioning error by regime", loc="left", fontsize=10, color=INK
+    legend.get_title().set_color(INK)
+    ax.set_title(
+        "Positioning error by geomagnetic regime", loc="left", fontsize=10, color=INK
     )
+    _save(fig, "storm_positioning_absolute", "positioning", output_dir, provenance)
 
-    # Improvement over the operational baseline, within each regime.
+
+def fig_storm_positioning_improvement(
+    d: pd.DataFrame, output_dir: Path, provenance: str
+) -> None:
     gim = "IGS GIM + Mapping"
     improvement = pd.DataFrame(
         {
@@ -262,73 +310,128 @@ def fig_storm_positioning(degradation_csv: Path, output_dir: Path) -> None:
         }
     ).drop(index=gim)
 
-    # Same quiet/storm encoding as panel (a). The sign is already carried by the
-    # zero line, so colour is not asked to do a second job here.
-    x = np.arange(len(improvement))
-    width = 0.38
-    for i, (reg, color) in enumerate(
-        (("quiet", NEUTRAL), ("storm", COLORS["VTEC + Mapping"]))
-    ):
-        offset = (i - 0.5) * width
-        bars = ax_right.bar(
-            x + offset, improvement[reg], width * 0.94, color=color, label=reg, zorder=3
-        )
-        for bar, v in zip(bars, improvement[reg]):
-            ax_right.annotate(
-                f"{v:+.0f}%",
-                xy=(bar.get_x() + bar.get_width() / 2, v),
-                xytext=(0, 4 if v >= 0 else -12),
-                textcoords="offset points",
-                ha="center",
-                fontsize=8,
-                color=INK,
-            )
-    ax_right.axhline(0, color=INK_MUTED, linewidth=1.0, zorder=4)
-    ax_right.set_xticks(x)
-    ax_right.set_xticklabels(
-        [
-            m.replace(" Direct STEC", "\nDirect STEC").replace(" + ", "\n+ ")
-            for m in improvement.index
-        ],
-        fontsize=9,
-        color=INK,
+    fig, ax = plt.subplots(figsize=(7.5, 4.4))
+    labels = [
+        m.replace(" Direct STEC", "\nDirect STEC").replace(" + ", "\n+ ")
+        for m in improvement.index
+    ]
+    _grouped_bars(
+        ax,
+        labels,
+        ["quiet", "storm"],
+        {"quiet": improvement["quiet"].values, "storm": improvement["storm"].values},
+        [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
+        "Improvement over IGS GIM + Mapping [%]",
+        value_fmt="{:+.0f}",
     )
-    _style_axes(ax_right, "Improvement over IGS GIM + Mapping [%]")
-    # Headroom so the outermost data labels do not collide with the frame.
-    lo, hi = improvement.min().min(), improvement.max().max()
-    ax_right.set_ylim(lo - 0.20 * (hi - lo), hi + 0.15 * (hi - lo))
-    ax_right.set_title(
-        "(b) Margin over the operational baseline is retained",
+    ax.axhline(0, color=INK_MUTED, linewidth=1.0, zorder=4)
+    flat = improvement.values.flatten()
+    ax.set_ylim(flat.min() - 0.22 * np.ptp(flat), flat.max() + 0.22 * np.ptp(flat))
+    ax.legend(frameon=False, fontsize=9, labelcolor=INK, loc="lower left")
+    ax.set_title(
+        "Margin over the operational baseline is retained under storms",
         loc="left",
         fontsize=10,
         color=INK,
     )
-    ax_right.legend(frameon=False, fontsize=9, labelcolor=INK, loc="lower left")
-
-    _save(fig, "revision_storm_positioning", output_dir)
+    _save(fig, "storm_positioning_improvement", "positioning", output_dir, provenance)
 
 
-def fig_weighting_ablation(paired_csv: Path, output_dir: Path) -> None:
-    """R2.5 - isolate what the predicted uncertainty contributes to positioning."""
-    d = pd.read_csv(paired_csv, index_col=0)
+# --------------------------------------------------------------------------
+# R2.4 - STEC error against geomagnetic activity and solar flux
+# --------------------------------------------------------------------------
 
+
+def _activity_figures(
+    table: pd.DataFrame,
+    bin_col: str,
+    axis_label: str,
+    driver: str,
+    stem: str,
+    output_dir: Path,
+    provenance: str,
+) -> None:
+    """One absolute-error figure and one margin figure for a given stratifier."""
+    rename = {
+        "Direct STEC Model": "Direct STEC",
+        "Pretrained STEC": "Pretrained Direct STEC",
+        "VTEC + Mapping": "VTEC + Mapping",
+        "IGS GIM": "IGS GIM + Mapping",
+    }
+    d = table.copy()
+    d["Model"] = d["Model"].map(rename)
+    bins = list(dict.fromkeys(d[bin_col]))
+    series = [m for m in METHOD_ORDER if m in set(d["Model"])]
+
+    values = {
+        m: [d[(d.Model == m) & (d[bin_col] == b)]["RMSE"].iloc[0] for b in bins]
+        for m in series
+    }
+    fig, ax = plt.subplots(figsize=(7.8, 4.6))
+    _grouped_bars(
+        ax,
+        bins,
+        series,
+        values,
+        [COLORS[m] for m in series],
+        "STEC RMSE [TECU]",
+        value_fmt="{:.1f}",
+    )
+    ax.set_xlabel(axis_label, color=INK)
+    ax.set_ylim(0, max(max(v) for v in values.values()) * 1.22)
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=INK, ncol=2, loc="upper left")
+    ax.set_title(f"STEC error vs {driver}", loc="left", fontsize=10, color=INK)
+    _save(fig, f"{stem}_absolute", "finetuned", output_dir, provenance)
+
+    rel_series = [m for m in series if m != "IGS GIM + Mapping"]
+    rel_values = {
+        m: [
+            d[(d.Model == m) & (d[bin_col] == b)]["improvement_over_gim_%"].iloc[0]
+            for b in bins
+        ]
+        for m in rel_series
+    }
+    fig, ax = plt.subplots(figsize=(7.8, 4.6))
+    _grouped_bars(
+        ax,
+        bins,
+        rel_series,
+        rel_values,
+        [COLORS[m] for m in rel_series],
+        "Improvement over IGS GIM [%]",
+        value_fmt="{:+.0f}",
+    )
+    ax.axhline(0, color=INK_MUTED, linewidth=1.0, zorder=4)
+    ax.set_xlabel(axis_label, color=INK)
+    flat = np.array([v for vals in rel_values.values() for v in vals])
+    ax.set_ylim(flat.min() - 0.22 * np.ptp(flat), flat.max() + 0.22 * np.ptp(flat))
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=INK, loc="lower left")
+    ax.set_title(f"Margin over IGS GIM vs {driver}", loc="left", fontsize=10, color=INK)
+    _save(fig, f"{stem}_improvement", "finetuned", output_dir, provenance)
+
+
+# --------------------------------------------------------------------------
+# R2.5 / R1.5
+# --------------------------------------------------------------------------
+
+
+def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
     fig, ax = plt.subplots(figsize=(7.5, 4.4))
     labels = [m.replace(" + ", "\n+ ") for m in d.index]
     _grouped_bars(
         ax,
-        groups=labels,
-        series=["elevation weighting", "predicted-uncertainty weighting"],
-        values={
+        labels,
+        ["elevation weighting", "predicted-uncertainty weighting"],
+        {
             "elevation weighting": d["elev_mean"].values,
             "predicted-uncertainty weighting": d["iono_mean"].values,
         },
-        colors=[NEUTRAL, COLORS["Direct STEC"]],
-        ylabel="3D RMS positioning error [m]",
+        [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
+        "3D RMS positioning error [m]",
     )
     ax.legend(frameon=False, fontsize=9, labelcolor=INK, loc="upper left")
-    ax.set_ylim(0, max(d[["elev_mean", "iono_mean"]].max()) * 1.25)
-
-    for i, (name, row) in enumerate(d.iterrows()):
+    ax.set_ylim(0, d[["elev_mean", "iono_mean"]].max().max() * 1.28)
+    for i, (_, row) in enumerate(d.iterrows()):
         ax.annotate(
             f"{row['gain_%']:+.1f}%",
             xy=(i, max(row["elev_mean"], row["iono_mean"])),
@@ -337,8 +440,6 @@ def fig_weighting_ablation(paired_csv: Path, output_dir: Path) -> None:
             ha="center",
             fontsize=9,
             fontweight="bold",
-            # Ink, not the series colour - the sign already carries the direction,
-            # and colouring text by value spends the identity channel twice.
             color=INK if row["gain_%"] > 0 else INK_MUTED,
         )
     ax.set_title(
@@ -347,130 +448,18 @@ def fig_weighting_ablation(paired_csv: Path, output_dir: Path) -> None:
         fontsize=10,
         color=INK,
     )
-    _save(fig, "revision_weighting_ablation", output_dir)
+    _save(fig, "weighting_ablation", "positioning", output_dir, provenance)
 
 
-def fig_activity_stratification(
-    dst_csv: Path, f107_csv: Path, output_dir: Path
-) -> None:
-    """R2.4 - STEC accuracy against geomagnetic activity and solar flux.
-
-    Left column is the absolute error, which rises with activity partly because
-    STEC itself does. Right column is the improvement over the operational
-    baseline, which is scale-free and is what actually answers whether the
-    advantage survives disturbed conditions.
-    """
-    # all_results.csv uses its own model names; map them onto the paper's labels.
-    rename = {
-        "Direct STEC Model": "Direct STEC",
-        "Pretrained STEC": "Pretrained Direct STEC",
-        "VTEC + Mapping": "VTEC + Mapping",
-        "IGS GIM": "IGS GIM + Mapping",
-    }
-
-    fig, axes = plt.subplots(
-        2, 2, figsize=(12.5, 8.0), gridspec_kw={"hspace": 0.42, "wspace": 0.22}
-    )
-
-    panels = [
-        (
-            "dst",
-            dst_csv,
-            "dst_bin",
-            "Daily minimum Dst",
-            "geomagnetic activity",
-            "(a)",
-            "(b)",
-        ),
-        ("f107", f107_csv, "f107_bin", "Daily mean F10.7", "solar flux", "(c)", "(d)"),
-    ]
-
-    for row, (_, csv_path, bin_col, axis_label, driver, tag_abs, tag_rel) in enumerate(
-        panels
-    ):
-        d = pd.read_csv(csv_path)
-        d["Model"] = d["Model"].map(rename)
-        bins = list(dict.fromkeys(d[bin_col]))  # preserve the file's bin order
-
-        ax_abs, ax_rel = axes[row, 0], axes[row, 1]
-
-        # Absolute RMSE, all four models.
-        series = [m for m in METHOD_ORDER if m in set(d["Model"])]
-        values = {
-            m: [d[(d.Model == m) & (d[bin_col] == b)]["RMSE"].iloc[0] for b in bins]
-            for m in series
-        }
-        _grouped_bars(
-            ax_abs,
-            bins,
-            series,
-            values,
-            [COLORS[m] for m in series],
-            "STEC RMSE [TECU]",
-            value_fmt="{:.1f}",
-        )
-        ax_abs.set_xlabel(axis_label, color=INK)
-        ax_abs.set_title(
-            f"{tag_abs} STEC error vs {driver}", loc="left", fontsize=10, color=INK
-        )
-        if row == 0:
-            ax_abs.legend(
-                frameon=False, fontsize=8.5, labelcolor=INK, ncol=2, loc="upper left"
-            )
-        ax_abs.set_ylim(0, max(max(v) for v in values.values()) * 1.28)
-
-        # Improvement over the operational baseline, inside each bin.
-        rel_series = [m for m in series if m != "IGS GIM + Mapping"]
-        rel_values = {
-            m: [
-                d[(d.Model == m) & (d[bin_col] == b)]["improvement_over_gim_%"].iloc[0]
-                for b in bins
-            ]
-            for m in rel_series
-        }
-        _grouped_bars(
-            ax_rel,
-            bins,
-            rel_series,
-            rel_values,
-            [COLORS[m] for m in rel_series],
-            "Improvement over IGS GIM [%]",
-            value_fmt="{:+.0f}",
-        )
-        ax_rel.axhline(0, color=INK_MUTED, linewidth=1.0, zorder=4)
-        ax_rel.set_xlabel(axis_label, color=INK)
-        ax_rel.set_title(
-            f"{tag_rel} Margin over IGS GIM vs {driver}",
-            loc="left",
-            fontsize=10,
-            color=INK,
-        )
-        flat = [v for vals in rel_values.values() for v in vals]
-        ax_rel.set_ylim(
-            min(flat) - 0.22 * (max(flat) - min(flat)),
-            max(flat) + 0.22 * (max(flat) - min(flat)),
-        )
-
-    _save(fig, "revision_activity_stratification", output_dir)
-
-
-def fig_architecture_search(architectures_csv: Path, output_dir: Path) -> None:
-    """R1.5 - what alternatives were tried, and how fairly."""
-    d = pd.read_csv(architectures_csv, index_col=0).sort_values("best_val_MAE")
-
+def fig_architecture_search(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
+    d = d.sort_values("best_val_MAE")
     fig, ax = plt.subplots(figsize=(7.5, 4.0))
     y = np.arange(len(d))
-    credible = d["credible_runs"] > 0
-    colors = [COLORS["Direct STEC"] if c else NEUTRAL for c in credible]
+    colors = [COLORS["Direct STEC"] if c > 0 else NEUTRAL for c in d["credible_runs"]]
     bars = ax.barh(y, d["best_val_MAE"], 0.62, color=colors, zorder=3)
-
-    for bar, (name, row) in zip(bars, d.iterrows()):
-        note = (
-            f"{row['best_val_MAE']:.2f}   "
-            f"({int(row['runs'])} runs, {int(row['credible_runs'])} credible)"
-        )
+    for bar, (_, row) in zip(bars, d.iterrows()):
         ax.annotate(
-            note,
+            f"{row['best_val_MAE']:.2f}   ({int(row['runs'])} runs, {int(row['credible_runs'])} credible)",
             xy=(row["best_val_MAE"], bar.get_y() + bar.get_height() / 2),
             xytext=(6, 0),
             textcoords="offset points",
@@ -487,12 +476,12 @@ def fig_architecture_search(architectures_csv: Path, output_dir: Path) -> None:
     ax.set_xlabel("Best validation MAE [TECU]", color=INK)
     ax.set_xlim(0, d["best_val_MAE"].max() * 1.55)
     ax.set_title(
-        "Architecture search: grey = no run reached 20 epochs, so not a fair comparison",
+        "Grey = no run reached 20 epochs, so not a fair comparison",
         loc="left",
         fontsize=10,
         color=INK,
     )
-    _save(fig, "revision_architecture_search", output_dir)
+    _save(fig, "architecture_search", "training", output_dir, provenance)
 
 
 def main() -> None:
@@ -529,25 +518,73 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    for path, builder in (
-        (args.relative_metrics, fig_relative_error),
-        (args.storm_degradation, fig_storm_positioning),
-        (args.weighting_paired, fig_weighting_ablation),
-        (args.architectures, fig_architecture_search),
-    ):
-        if path.exists():
-            builder(path, args.output_dir)
-        else:
-            logger.warning(f"⚠️  {path} not found - skipping {builder.__name__}")
-
-    # This one needs both stratification tables, so it sits outside the loop.
-    dst_csv = args.activity_dir / "by_dst.csv"
-    f107_csv = args.activity_dir / "by_f107.csv"
-    if dst_csv.exists() and f107_csv.exists():
-        fig_activity_stratification(dst_csv, f107_csv, args.output_dir)
+    if args.relative_metrics.exists():
+        d = pd.read_csv(args.relative_metrics).sort_values("year")
+        prov = (
+            f"{args.relative_metrics} — pretrained model, held-out test set, "
+            f"{d.year.min()}-{d.year.max()} ({int(d['count'].sum()):,} observations)"
+        )
+        fig_relative_error_absolute(d, args.output_dir, prov)
+        fig_relative_error_normalised(d, args.output_dir, prov)
     else:
-        logger.warning(
-            f"⚠️  {args.activity_dir} incomplete - run src/analysis/activity_stratification.py first"
+        logger.warning(f"⚠️  {args.relative_metrics} not found")
+
+    if args.storm_degradation.exists():
+        d = pd.read_csv(args.storm_degradation, index_col=0).reindex(METHOD_ORDER)
+        prov = (
+            f"{args.storm_degradation} — SF-PPP, 2024 test period, 39 storm days "
+            "(daily min Dst ≤ −50 nT) of 242, station-days ≤ 10 m"
+        )
+        fig_storm_positioning_absolute(d, args.output_dir, prov)
+        fig_storm_positioning_improvement(d, args.output_dir, prov)
+    else:
+        logger.warning(f"⚠️  {args.storm_degradation} not found")
+
+    if args.weighting_paired.exists():
+        d = pd.read_csv(args.weighting_paired, index_col=0)
+        prov = (
+            f"{args.weighting_paired} — SF-PPP, 2024 test period, paired station-days "
+            f"solved under both weightings ({int(d['paired_station_days'].sum()):,} pairs)"
+        )
+        fig_weighting_ablation(d, args.output_dir, prov)
+    else:
+        logger.warning(f"⚠️  {args.weighting_paired} not found")
+
+    if args.architectures.exists():
+        d = pd.read_csv(args.architectures, index_col=0)
+        prov = (
+            f"{args.architectures} — local W&B history, "
+            f"{int(d['runs'].sum())} STEC runs reporting a validation MAE"
+        )
+        fig_architecture_search(d, args.output_dir, prov)
+    else:
+        logger.warning(f"⚠️  {args.architectures} not found")
+
+    for stem, filename, bin_col, axis_label, driver in (
+        (
+            "activity_dst",
+            "by_dst.csv",
+            "dst_bin",
+            "Daily minimum Dst",
+            "geomagnetic activity",
+        ),
+        ("activity_f107", "by_f107.csv", "f107_bin", "Daily mean F10.7", "solar flux"),
+    ):
+        path = args.activity_dir / filename
+        if not path.exists():
+            logger.warning(
+                f"⚠️  {path} not found - run src/analysis/activity_stratification.py"
+            )
+            continue
+        table = pd.read_csv(path)
+        days = int(table[table.Model == "Direct STEC Model"]["days"].sum())
+        obs = int(table[table.Model == "Direct STEC Model"]["observations"].sum())
+        prov = (
+            f"{path} — daily fine-tuned models, own test set, "
+            f"{days} test days of 2024 ({obs:,} observations)"
+        )
+        _activity_figures(
+            table, bin_col, axis_label, driver, stem, args.output_dir, prov
         )
 
 
