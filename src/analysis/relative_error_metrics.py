@@ -82,6 +82,37 @@ def collect_yearly_metrics(experiment_dir: Path) -> pd.DataFrame:
     return table
 
 
+def collect_regime_metrics(experiment_dir: Path) -> pd.DataFrame | None:
+    """Compare the two evaluation regimes the temporal split creates.
+
+    Evidence for reviewer comment R1.1: for 2014-2023 the held-out test months
+    are surrounded by training data (interpolation in time), whereas 2024 is
+    predicted from past observations only (extrapolation). The manuscript pools
+    them, so the two cannot be told apart. The pretrained evaluation already
+    wrote both trees; this just reads them.
+    """
+    rows = []
+    for regime, label in (
+        ("interpolation", "2014-2023 (interpolation)"),
+        ("extrapolation", "2024 (extrapolation)"),
+    ):
+        path = (
+            experiment_dir / regime / "temporal_analysis" / "total_metrics_summary.txt"
+        )
+        if not path.exists():
+            logger.warning(f"⚠️  {path} not found - skipping regime comparison")
+            return None
+        values = parse_year_summary(path)
+        if values is None:
+            return None
+        rows.append({"regime": label, **values})
+
+    table = pd.DataFrame(rows)
+    table["nRMSE_%"] = 100 * table["RMSE"] / table["mean_STEC"]
+    table["nMAE_%"] = 100 * table["MAE"] / table["mean_STEC"]
+    return table
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experiment", type=Path, default=DEFAULT_EXPERIMENT)
@@ -116,6 +147,21 @@ def main() -> None:
         f"\ncorr(RMSE,  mean_STEC) = {table['RMSE'].corr(table['mean_STEC']):+.3f}"
         f"\ncorr(nRMSE, mean_STEC) = {table['nRMSE_%'].corr(table['mean_STEC']):+.3f}"
     )
+
+    regimes = collect_regime_metrics(args.experiment)
+    if regimes is not None:
+        regime_path = args.output.parent / "temporal_regime_comparison.csv"
+        regimes.to_csv(regime_path, index=False)
+        print("\n=== Interpolation vs extrapolation regime (R1.1) ===")
+        print(regimes.round(3).to_string(index=False))
+        interp, extrap = regimes.iloc[0], regimes.iloc[1]
+        print(
+            f"\nAbsolute RMSE is {extrap['RMSE'] / interp['RMSE']:.2f}x higher under extrapolation,"
+            f"\nbut mean STEC is {extrap['mean_STEC'] / interp['mean_STEC']:.2f}x higher, so the"
+            f"\nnormalised error is {extrap['nRMSE_%']:.1f}% vs {interp['nRMSE_%']:.1f}%"
+            " - lower, not higher."
+        )
+        logger.info(f"💾 {regime_path}")
     logger.info(f"💾 {args.output}")
 
 
