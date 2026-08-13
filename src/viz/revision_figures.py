@@ -350,6 +350,110 @@ def fig_weighting_ablation(paired_csv: Path, output_dir: Path) -> None:
     _save(fig, "revision_weighting_ablation", output_dir)
 
 
+def fig_activity_stratification(
+    dst_csv: Path, f107_csv: Path, output_dir: Path
+) -> None:
+    """R2.4 - STEC accuracy against geomagnetic activity and solar flux.
+
+    Left column is the absolute error, which rises with activity partly because
+    STEC itself does. Right column is the improvement over the operational
+    baseline, which is scale-free and is what actually answers whether the
+    advantage survives disturbed conditions.
+    """
+    # all_results.csv uses its own model names; map them onto the paper's labels.
+    rename = {
+        "Direct STEC Model": "Direct STEC",
+        "Pretrained STEC": "Pretrained Direct STEC",
+        "VTEC + Mapping": "VTEC + Mapping",
+        "IGS GIM": "IGS GIM + Mapping",
+    }
+
+    fig, axes = plt.subplots(
+        2, 2, figsize=(12.5, 8.0), gridspec_kw={"hspace": 0.42, "wspace": 0.22}
+    )
+
+    panels = [
+        (
+            "dst",
+            dst_csv,
+            "dst_bin",
+            "Daily minimum Dst",
+            "geomagnetic activity",
+            "(a)",
+            "(b)",
+        ),
+        ("f107", f107_csv, "f107_bin", "Daily mean F10.7", "solar flux", "(c)", "(d)"),
+    ]
+
+    for row, (_, csv_path, bin_col, axis_label, driver, tag_abs, tag_rel) in enumerate(
+        panels
+    ):
+        d = pd.read_csv(csv_path)
+        d["Model"] = d["Model"].map(rename)
+        bins = list(dict.fromkeys(d[bin_col]))  # preserve the file's bin order
+
+        ax_abs, ax_rel = axes[row, 0], axes[row, 1]
+
+        # Absolute RMSE, all four models.
+        series = [m for m in METHOD_ORDER if m in set(d["Model"])]
+        values = {
+            m: [d[(d.Model == m) & (d[bin_col] == b)]["RMSE"].iloc[0] for b in bins]
+            for m in series
+        }
+        _grouped_bars(
+            ax_abs,
+            bins,
+            series,
+            values,
+            [COLORS[m] for m in series],
+            "STEC RMSE [TECU]",
+            value_fmt="{:.1f}",
+        )
+        ax_abs.set_xlabel(axis_label, color=INK)
+        ax_abs.set_title(
+            f"{tag_abs} STEC error vs {driver}", loc="left", fontsize=10, color=INK
+        )
+        if row == 0:
+            ax_abs.legend(
+                frameon=False, fontsize=8.5, labelcolor=INK, ncol=2, loc="upper left"
+            )
+        ax_abs.set_ylim(0, max(max(v) for v in values.values()) * 1.28)
+
+        # Improvement over the operational baseline, inside each bin.
+        rel_series = [m for m in series if m != "IGS GIM + Mapping"]
+        rel_values = {
+            m: [
+                d[(d.Model == m) & (d[bin_col] == b)]["improvement_over_gim_%"].iloc[0]
+                for b in bins
+            ]
+            for m in rel_series
+        }
+        _grouped_bars(
+            ax_rel,
+            bins,
+            rel_series,
+            rel_values,
+            [COLORS[m] for m in rel_series],
+            "Improvement over IGS GIM [%]",
+            value_fmt="{:+.0f}",
+        )
+        ax_rel.axhline(0, color=INK_MUTED, linewidth=1.0, zorder=4)
+        ax_rel.set_xlabel(axis_label, color=INK)
+        ax_rel.set_title(
+            f"{tag_rel} Margin over IGS GIM vs {driver}",
+            loc="left",
+            fontsize=10,
+            color=INK,
+        )
+        flat = [v for vals in rel_values.values() for v in vals]
+        ax_rel.set_ylim(
+            min(flat) - 0.22 * (max(flat) - min(flat)),
+            max(flat) + 0.22 * (max(flat) - min(flat)),
+        )
+
+    _save(fig, "revision_activity_stratification", output_dir)
+
+
 def fig_architecture_search(architectures_csv: Path, output_dir: Path) -> None:
     """R1.5 - what alternatives were tried, and how fairly."""
     d = pd.read_csv(architectures_csv, index_col=0).sort_values("best_val_MAE")
@@ -414,6 +518,11 @@ def main() -> None:
         type=Path,
         default=Path("multiday_results/hyperparameter_search/architectures.csv"),
     )
+    parser.add_argument(
+        "--activity_dir",
+        type=Path,
+        default=Path("multiday_results/activity_stratification"),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -430,6 +539,16 @@ def main() -> None:
             builder(path, args.output_dir)
         else:
             logger.warning(f"⚠️  {path} not found - skipping {builder.__name__}")
+
+    # This one needs both stratification tables, so it sits outside the loop.
+    dst_csv = args.activity_dir / "by_dst.csv"
+    f107_csv = args.activity_dir / "by_f107.csv"
+    if dst_csv.exists() and f107_csv.exists():
+        fig_activity_stratification(dst_csv, f107_csv, args.output_dir)
+    else:
+        logger.warning(
+            f"⚠️  {args.activity_dir} incomplete - run src/analysis/activity_stratification.py first"
+        )
 
 
 if __name__ == "__main__":
