@@ -81,8 +81,15 @@ METHOD_ORDER = [
 # means that approach.
 CONDITION_COLORS = {"baseline": "#7f7f7f", "contrast": "#d62728"}
 ORACLE_COLOR = "#3f3f3f"
+# Evaluation sets, again outside the approach palette.
+DATASET_COLORS = {
+    "own": "#7f7f7f",
+    "madrigal": "#d62728",
+    "madrigal_corrected": "#8c564b",
+}
 
 SOURCE_DIRS = {
+    "stec_finetuned": "stec_finetuned_2024",
     "pretrained": "stec_pretrained_testset",
     "finetuned": "stec_finetuned_2024",
     "positioning": "positioning_2024",
@@ -372,6 +379,131 @@ def fig_architecture_search(d: pd.DataFrame, output_dir: Path, provenance: str) 
     _save(fig, "architecture_search", "training", output_dir, provenance)
 
 
+def fig_madrigal_reference_offset(
+    offsets: pd.DataFrame, output_dir: Path, provenance: str
+) -> None:
+    """R2.3 - two unrelated estimates disagree with Madrigal the same way.
+
+    Each point is a station. Agreement along the 1:1 line means the discrepancy
+    is a property of the Madrigal reference, since the model and the GIM share
+    nothing in how they are produced.
+    """
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    ax.scatter(
+        offsets["offset_gim"], offsets["offset_model"], s=90,
+        color=CONDITION_COLORS["contrast"], edgecolors="white", linewidths=0.8, zorder=3,
+    )
+    lo = float(min(offsets["offset_gim"].min(), offsets["offset_model"].min())) - 2
+    hi = float(max(offsets["offset_gim"].max(), offsets["offset_model"].max())) + 2
+    ax.plot([lo, hi], [lo, hi], color="black", linestyle="--", linewidth=1.5, zorder=2)
+    ax.axhline(0, color=CONDITION_COLORS["baseline"], linewidth=1.0, zorder=1)
+    ax.axvline(0, color=CONDITION_COLORS["baseline"], linewidth=1.0, zorder=1)
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_xlabel("IGS GIM − Madrigal, per station [TECU]")
+    ax.set_ylabel("Direct STEC − Madrigal, per station [TECU]")
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.set_title("Per-station disagreement with Madrigal")
+    _save(fig, "madrigal_reference_offset", "stec_finetuned", output_dir, provenance)
+
+
+def fig_calibration_coverage(
+    own: pd.DataFrame, madrigal: pd.DataFrame | None,
+    corrected: pd.DataFrame | None, output_dir: Path, provenance: str,
+) -> None:
+    """R2.6 - reliability: nominal against empirical interval coverage."""
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    ax.plot([0, 1], [0, 1], color="black", linestyle="--", linewidth=1.5, zorder=2)
+    ax.plot(own["nominal"], own["empirical"], marker="o", markersize=10,
+            color=DATASET_COLORS["own"], label="Own test set", zorder=3)
+    if madrigal is not None:
+        ax.plot(madrigal["nominal"], madrigal["empirical"], marker="s", markersize=10,
+                color=DATASET_COLORS["madrigal"], label="Madrigal", zorder=3)
+    if corrected is not None:
+        ax.plot(corrected["nominal"], corrected["empirical_offset_removed"],
+                marker="^", markersize=10, color=DATASET_COLORS["madrigal_corrected"],
+                label="Madrigal, station offset removed", zorder=3)
+    ax.set_xlabel("Nominal coverage")
+    ax.set_ylabel("Empirical coverage")
+    ax.set_xlim(0.45, 1.0)
+    ax.set_ylim(0, 1.0)
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend(loc="upper left")
+    ax.set_title("Interval coverage reliability")
+    _save(fig, "calibration_coverage", "stec_finetuned", output_dir, provenance)
+
+
+def fig_calibration_pit(
+    own: pd.DataFrame, madrigal: pd.DataFrame | None, output_dir: Path, provenance: str
+) -> None:
+    """R2.6 - PIT histogram; uniform under calibration."""
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    centres = 0.5 * (own["bin_left"] + own["bin_right"])
+    width = float(own["bin_right"].iloc[0] - own["bin_left"].iloc[0])
+    ax.bar(centres, own["density"], width * 0.94, color=DATASET_COLORS["own"],
+           label="Own test set", zorder=3)
+    if madrigal is not None:
+        ax.step(centres, madrigal["density"], where="mid", linewidth=2.5,
+                color=DATASET_COLORS["madrigal"], label="Madrigal", zorder=4)
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=1.5, zorder=5)
+    ax.set_xlabel("Probability integral transform")
+    ax.set_ylabel("Density")
+    ax.set_xlim(0, 1)
+    ax.grid(True, axis="y", linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend()
+    ax.set_title("PIT histogram")
+    _save(fig, "calibration_pit", "stec_finetuned", output_dir, provenance)
+
+
+def fig_station_independence(
+    per_station: pd.DataFrame, binned: pd.DataFrame, output_dir: Path, provenance: str
+) -> None:
+    """R1.3 - does error grow with distance from the nearest training station?"""
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    ax.scatter(
+        per_station["distance_km"], per_station["nRMSE_%"], s=70,
+        color=CONDITION_COLORS["baseline"], alpha=0.65,
+        edgecolors="white", linewidths=0.6, zorder=3,
+    )
+    ax.plot(
+        binned["median_distance_km"], binned["nRMSE_pct"], marker="o", markersize=11,
+        linewidth=2.5, color=CONDITION_COLORS["contrast"], zorder=4,
+        label="Distance-bin mean",
+    )
+    ax.set_xscale("log")
+    ax.set_xlabel("Distance to nearest training station [km]")
+    ax.set_ylabel("Normalised RMSE [%]")
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend()
+    ax.set_title("Test-station error against separation from the training network")
+    _save(fig, "station_independence", "stec_finetuned", output_dir, provenance)
+
+
+def fig_positioning_tail(tails: pd.DataFrame, output_dir: Path, provenance: str) -> None:
+    """R2.7 - tail behaviour, not just the mean."""
+    quantiles = ["median", "p90", "p95", "p99"]
+    order = [m for m in METHOD_ORDER if m in tails.index]
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    x = np.arange(len(quantiles))
+    for i, method in enumerate(order):
+        offset = (i - (len(order) - 1) / 2) * (0.8 / len(order))
+        ax.bar(x + offset, tails.loc[method, quantiles].values, 0.8 / len(order) * 0.94,
+               color=COLORS[method], label=method, zorder=3)
+    ax.set_xticks(x)
+    ax.set_xticklabels(["Median", "90th", "95th", "99th"])
+    ax.set_xlabel("Percentile of the daily 3D RMS across station-days")
+    ax.set_ylabel("3D RMS positioning error [m]")
+    ax.grid(True, axis="y", linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend(ncol=2)
+    ax.set_title("Tail of the positioning error distribution")
+    _save(fig, "positioning_tail", "positioning", output_dir, provenance)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output_dir", type=Path, default=Path("plots/revision"))
@@ -404,6 +536,26 @@ def main() -> None:
         "--activity_dir",
         type=Path,
         default=Path("multiday_results/activity_stratification"),
+    )
+    parser.add_argument(
+        "--calibration_dir",
+        type=Path,
+        default=Path("multiday_results/uncertainty_calibration"),
+    )
+    parser.add_argument(
+        "--madrigal_offset_dir",
+        type=Path,
+        default=Path("multiday_results/madrigal_reference_offset"),
+    )
+    parser.add_argument(
+        "--station_independence_dir",
+        type=Path,
+        default=Path("multiday_results/station_independence"),
+    )
+    parser.add_argument(
+        "--positioning_robustness_dir",
+        type=Path,
+        default=Path("multiday_results/positioning_robustness"),
     )
     args = parser.parse_args()
 
@@ -484,6 +636,68 @@ def main() -> None:
             f"{days} test days of 2024 ({obs:,} observations)"
         )
         _activity_figures(table, bin_col, axis_label, stem, args.output_dir, prov)
+
+    # R2.3 - per-station offsets against Madrigal
+    offsets_path = args.madrigal_offset_dir / "per_station_offsets.csv"
+    coverage_path = args.madrigal_offset_dir / "coverage_before_after.csv"
+    if offsets_path.exists():
+        offsets = pd.read_csv(offsets_path, index_col=0)
+        prov = (
+            f"{offsets_path} — daily fine-tuned models on Madrigal geometries, "
+            f"{len(offsets)} stations, {int(offsets['observations'].sum()):,} observations"
+        )
+        fig_madrigal_reference_offset(offsets, args.output_dir, prov)
+    else:
+        logger.warning(f"⚠️  {offsets_path} not found - run madrigal_reference_offset.py")
+
+    # R2.6 - calibration
+    own_cov = args.calibration_dir / "finetuned_stec_own" / "coverage_all.csv"
+    mad_cov = args.calibration_dir / "finetuned_stec_madrigal" / "coverage_all.csv"
+    own_pit = args.calibration_dir / "finetuned_stec_own" / "pit_all.csv"
+    mad_pit = args.calibration_dir / "finetuned_stec_madrigal" / "pit_all.csv"
+    if own_cov.exists():
+        prov = f"{args.calibration_dir} — daily fine-tuned models, prediction store"
+        fig_calibration_coverage(
+            pd.read_csv(own_cov),
+            pd.read_csv(mad_cov) if mad_cov.exists() else None,
+            pd.read_csv(coverage_path) if coverage_path.exists() else None,
+            args.output_dir,
+            prov,
+        )
+        if own_pit.exists():
+            fig_calibration_pit(
+                pd.read_csv(own_pit),
+                pd.read_csv(mad_pit) if mad_pit.exists() else None,
+                args.output_dir,
+                prov,
+            )
+    else:
+        logger.warning(f"⚠️  {own_cov} not found - run uncertainty_calibration.py")
+
+    # R1.3 - station independence
+    per_station = args.station_independence_dir / "per_station.csv"
+    binned = args.station_independence_dir / "by_distance_bin.csv"
+    if per_station.exists() and binned.exists():
+        d = pd.read_csv(per_station)
+        prov = (
+            f"{per_station} — daily fine-tuned models, own test set, "
+            f"{len(d)} test stations"
+        )
+        fig_station_independence(d, pd.read_csv(binned), args.output_dir, prov)
+    else:
+        logger.warning(f"⚠️  {per_station} not found - run station_independence.py")
+
+    # R2.7 - tail of the positioning error distribution
+    tails = args.positioning_robustness_dir / "tail_distribution.csv"
+    if tails.exists():
+        d = pd.read_csv(tails, index_col=0)
+        prov = (
+            f"{tails} — SF-PPP, 2024 test period, "
+            f"{int(d['station_days'].max()):,} station-days per method"
+        )
+        fig_positioning_tail(d, args.output_dir, prov)
+    else:
+        logger.warning(f"⚠️  {tails} not found - run positioning_robustness.py")
 
 
 if __name__ == "__main__":
