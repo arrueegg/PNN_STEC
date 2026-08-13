@@ -135,8 +135,12 @@ def main() -> None:
     # Pretraining: same model and samples-per-epoch, so scale the measured
     # fine-tune epoch cost by the batch-size ratio and the epochs actually run.
     epoch_seconds = stec["median_epoch_s"].median()
+    pretrain_epochs = (
+        len(pd.read_csv(args.pretrain_loss_history))
+        if args.pretrain_loss_history.exists()
+        else 0
+    )
     if args.pretrain_loss_history.exists():
-        pretrain_epochs = len(pd.read_csv(args.pretrain_loss_history))
         estimate_h = pretrain_epochs * epoch_seconds / 3600
         print(
             f"\n=== Pretraining (estimated, no timestamped log) ===\n"
@@ -151,6 +155,52 @@ def main() -> None:
         )
 
     inference_rate = MEASURED_INFERENCE["observations"] / MEASURED_INFERENCE["seconds"]
+
+    # Everything printed below also goes to CSV, so the cost table can be built
+    # without re-deriving numbers from the console output.
+    rows = [
+        {"item": "hardware", "value": HARDWARE, "unit": "", "measured": "yes"},
+        {
+            "item": "STEC daily fine-tune, median epoch",
+            "value": round(epoch_seconds, 2),
+            "unit": "s",
+            "measured": "yes",
+        },
+        {
+            "item": "STEC daily fine-tune, median wall clock",
+            "value": round(float(summary.loc["STEC daily fine-tune", "median_wall_clock_min"]), 2),
+            "unit": "min/day",
+            "measured": "yes",
+        },
+        {
+            "item": "STEC daily fine-tune, total over all days",
+            "value": round(float(summary.loc["STEC daily fine-tune", "total_gpu_hours"]), 2),
+            "unit": "GPU-hours",
+            "measured": "yes",
+        },
+        {
+            "item": "inference throughput",
+            "value": round(inference_rate, 0),
+            "unit": f"observations/s at T={MEASURED_INFERENCE['mc_samples']}",
+            "measured": "yes",
+        },
+        {
+            "item": "inference, one evaluation day",
+            "value": round(MEASURED_INFERENCE["seconds"] / 60, 2),
+            "unit": "min",
+            "measured": "yes",
+        },
+    ]
+    if args.pretrain_loss_history.exists():
+        rows.append(
+            {
+                "item": "pretraining, 150 epochs",
+                "value": round(pretrain_epochs * epoch_seconds / 3600, 2),
+                "unit": "GPU-hours",
+                "measured": "no - scaled from the measured fine-tune epoch cost",
+            }
+        )
+    pd.DataFrame(rows).to_csv(args.output_dir / "cost_summary.csv", index=False)
     print(
         f"\n=== Inference (measured) ===\n"
         f"{MEASURED_INFERENCE['observations']:,} observations at T = "
