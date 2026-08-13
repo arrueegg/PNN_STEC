@@ -72,3 +72,7 @@ vlbi_kband/plots*
 
 
 docs/superpowers
+predictions/*
+# PPPx SuiteSparse compatibility libs (fetched by fetch_libs.sh)
+positioning/positioning_eval/lib_compat/dl/
+positioning/positioning_eval/lib_compat/root/

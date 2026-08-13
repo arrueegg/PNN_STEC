@@ -97,6 +97,39 @@ def find_experiment_directory(experiment_name, base_dir="experiments"):
         raise ValueError(f"No experiment found matching '{experiment_name}'")
 
 
+def _pppx_environment():
+    """Environment for PPPx, including the SuiteSparse compatibility libraries.
+
+    The shipped binary is linked against libspqr.so.2 / libcholmod.so.3 /
+    libcxsparse.so.3 (the SuiteSparse 5 generation). Debian 13 ships SuiteSparse
+    7 with different SONAMEs, so on an upgraded machine the binary fails at load
+    with "error while loading shared libraries".
+
+    If `lib_compat/root` is present next to this file it is prepended to the
+    library path. Those are the matching runtime libraries; they are NOT
+    interchangeable with the system ones, since the intervening major versions
+    changed the CHOLMOD structures, so symlinking the newer ones under the old
+    names would risk silently wrong numerics rather than a clean failure.
+
+    Populate it with::
+
+        positioning/positioning_eval/lib_compat/fetch_libs.sh
+    """
+    env = os.environ.copy()
+    compat = (
+        Path(__file__).resolve().parent
+        / "lib_compat"
+        / "root"
+        / "usr"
+        / "lib"
+        / "x86_64-linux-gnu"
+    )
+    if compat.is_dir():
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{compat}:{existing}" if existing else str(compat)
+    return env
+
+
 def run_pppx_positioning(rinex_file, ini_file, output_dir, pppx_executable, logger):
     """
     Run PPPx positioning for a single RINEX file.
@@ -147,6 +180,7 @@ def run_pppx_positioning(rinex_file, ini_file, output_dir, pppx_executable, logg
             capture_output=True,
             text=True,
             timeout=600,  # 10 minute timeout
+            env=_pppx_environment(),
         )
 
         if result.returncode == 0:
