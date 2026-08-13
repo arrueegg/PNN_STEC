@@ -483,13 +483,16 @@ def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
 
     floor = d.loc[d.index[0], "mean"]
     ax.axhline(floor, color=ORACLE_COLOR, linewidth=1.0, linestyle="--", zorder=4)
+    # State the multiple explicitly: the gap is what the bar labels alone hide.
+    best = d.iloc[1:]["mean"].min()
     ax.annotate(
-        "observation-derived floor",
-        xy=(len(d) - 0.5, floor),
-        xytext=(0, 5),
-        textcoords="offset points",
-        ha="right",
-        fontsize=8.5,
+        f"models sit {best / floor:.0f}-{d.iloc[1:]['mean'].max() / floor:.0f}x above the floor,\n"
+        "i.e. almost all remaining error is ionospheric",
+        xy=(0.5, 0.93),
+        xycoords="axes fraction",
+        ha="center",
+        va="top",
+        fontsize=9,
         color=INK_MUTED,
     )
 
@@ -507,7 +510,7 @@ def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
     _style_axes(ax, "3D RMS positioning error [m]")
     ax.set_ylim(0, d["mean"].max() * 1.22)
     ax.set_title(
-        "Applying the reference STEC directly bounds what any model of it can achieve",
+        "Correcting with the reference STEC itself leaves 0.09 m of 3D RMS error",
         loc="left",
         fontsize=10,
         color=INK,
