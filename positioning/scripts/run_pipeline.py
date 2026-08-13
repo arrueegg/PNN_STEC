@@ -505,7 +505,7 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             else:
                 inf_cmd = [
                     sys.executable,
-                    "src/inference_positioning.py",
+                    str(_repo_root / "positioning" / "scripts" / "generate_stec_corrections.py"),
                     "--experiment",
                     exp_path,
                     "--date",
@@ -585,7 +585,7 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             station_parallel = getattr(args, "station_parallel", 1)
             eval_cmd = [
                 sys.executable,
-                "src/positioning_eval/run_positioning_evaluation.py",
+                str(_repo_root / "positioning" / "positioning_eval" / "run_positioning_evaluation.py"),
                 "--experiment",
                 exp_path,
                 "--date",
