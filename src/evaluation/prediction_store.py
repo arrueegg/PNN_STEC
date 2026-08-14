@@ -68,6 +68,16 @@ PREDICTION_COLUMNS = [
 BASELINE_COLUMNS = [
     "pretrained_stec_pred",
     "vtec_model_stec",
+    # The Mao et al. VTEC baseline is an MLP_LaplacianNLL, so it predicts a
+    # scale alongside its mean; `apply_mapping_function` maps that scale to the
+    # slant direction (variance scales with the mapping factor squared) and the
+    # positioning `VTEC_iono` arm already weights by it. Keeping only the mean
+    # here would make it the one baseline whose uncertainty cannot be scored -
+    # the same whitelist mistake this store exists to end. The `_var` twins are
+    # not stored: variance is the square of these.
+    "vtec_model_stec_total_unc",
+    "vtec_model_stec_aleatoric_unc",
+    "vtec_model_stec_epistemic_unc",
     "gim_stec",
     "madrigal_stec",
     "madrigal_dlos_tec",
@@ -173,10 +183,15 @@ def write_predictions(
 
     # Day identity is constant per file but cheap to carry, and makes a
     # concatenated multi-day frame self-describing.
-    if "year" not in out.columns:
-        out["year"] = int(year)
-    if "doy" not in out.columns:
-        out["doy"] = int(doy)
+    #
+    # These are overwritten, not filled in: the frame's own year/doy come back
+    # from the model input tensor, where doy was normalised to (doy-1)/365 and
+    # denormalised in float32. That round trip lands 26 days of the year just
+    # below the integer (2024-189 comes back as 188.99998), so a truncating cast
+    # silently shifts them to the previous day. The arguments are the day the
+    # caller actually evaluated, so they are authoritative.
+    out["year"] = int(year)
+    out["doy"] = int(doy)
 
     # Station names arrive uppercase from the own test set and lowercase from
     # Madrigal. Normalising here is what makes a per-station join between the

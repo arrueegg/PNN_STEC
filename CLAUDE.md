@@ -171,6 +171,15 @@ Two evaluations that are **not** what they look like:
 - **[src/evaluation.py:87](src/evaluation.py#L87) hard-codes `test_size = 10_000`.** That path is
   not the one used for paper numbers — `src/inference_testset.py` and
   `src/compare_stec_vtec_gim.py` are.
+- **`year`/`doy` in a results frame are denormalised model *inputs*, not integers read from
+  the file.** `doy` is normalised to `(doy-1)/365` and inverted in float32, so 26 days of the
+  year come back just under the integer (DOY 189 → 188.99998). **Always `round()`, never
+  `int()`.** Truncating there made `compare_stec_vtec_gim.py` load the previous day's IONEX map
+  on DOY 184–189 and 225–230, which inflated the published IGS GIM baseline (Table 4: 8.56 →
+  ≈8.31 TECU) and reversed the R2.4 activity conclusion. Fixed at both sites;
+  `src/analysis/repair_gim_baseline.py` repairs stored days and is the regression check
+  (unaffected days must reproduce to ~1e-5 TECU). Positioning never had the bug — it takes the
+  day from `--date`.
 - **`evaluation.enable_scenarios` defaults to `False`**, so the storm/quiet stratification in
   [src/analysis/scenario_evaluation.py](src/analysis/scenario_evaluation.py) (Kp≥37 or Dst≤−33)
   silently never runs. It is fully implemented.
@@ -207,6 +216,20 @@ Two evaluations that are **not** what they look like:
   nothing running. Two false "still running" reports came from this. Use
   `./scripts/check_jobs.sh`, which matches real process argv and reports liveness and progress
   separately, since a process can be alive and stuck.
+- **`ps -eo args` truncates to 80 columns when stdout is not a terminal.** A wait-loop that
+  greps a long command line for a late argument (e.g. `--output_dir` after a 1700-character
+  `--dates` list) silently never matches and falls straight through, starting a second GPU job
+  on top of the first. Grep `/proc/<pid>/cmdline` directly instead — and `grep -qa <file>`, not
+  `tr … | grep -q`, which trips the `pipefail` SIGPIPE trap below.
+- **`pkill -f` / `pgrep -f` match the shell running them.** `pkill -f run_positioning_evaluation`
+  killed the calling shell mid-command. Resolve PIDs with `ps -eo pid,args` filtered against
+  `$$`, then `kill` by PID.
+- **Positioning products are recoverable from sibling experiments, not from the network.**
+  `download_products` fails fatally when a product is genuinely missing, which killed 46 of ~51
+  days in the first full-coverage attempt. Orbits/clocks/ERP/attitude/CODE-GIM/SINEX are
+  properties of the *day*, and the paper's runs already fetched all 242, so
+  `reuse_from_other_runs` symlinks them from `experiments/*/positioning/evaluation/<tag>/products`.
+  Only DOY 303, 338 and 348 have no copy anywhere and cannot be run from this host.
 - **Background jobs die when the launching session exits.** Start anything long with
   `setsid nohup … &`, or it will be killed with no error in the log.
 - **`set -o pipefail` plus `grep -q`** reports pipeline failure even on a match, because

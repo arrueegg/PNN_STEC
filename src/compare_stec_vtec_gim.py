@@ -308,11 +308,17 @@ def add_gim_comparison(
     # Initialize GIM mapper
     gim_mapper = GIMMapper(mapping_type=mapping_type, gim_type="IGS")
 
-    # Group observations by date for efficient GIM loading
+    # Group observations by date for efficient GIM loading.
+    #
+    # year/doy here are denormalised model inputs, not integers read from the
+    # file: doy was scaled to (doy-1)/365 and inverted in float32, which returns
+    # 188.99998 for DOY 189. Truncating that picks the *previous* day's IONEX
+    # map, so the GIM baseline for 26 days of the year was computed against the
+    # wrong day. Rounding is what the value means.
     grouped_data = defaultdict(list)
     for idx, row in test_df.iterrows():
-        year = int(row["year"])
-        doy = int(row["doy"])
+        year = int(round(row["year"]))
+        doy = int(round(row["doy"]))
         date_key = (datetime(year, 1, 1) + timedelta(days=doy - 1)).strftime("%Y-%m-%d")
         grouped_data[date_key].append(idx)
 

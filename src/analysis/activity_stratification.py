@@ -42,6 +42,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 DEFAULT_SWI_PATH = Path("data/omni_hourly_2010-2025.h5")
+DEFAULT_GIM_REPAIR_REPORT = Path("multiday_results/gim_baseline_repair/gim_repair_report.csv")
 
 # Conventional geomagnetic storm classification on the daily minimum Dst.
 DST_BINS = [-1000, -100, -50, -30, 1000]
@@ -97,15 +98,54 @@ def _pool(group: pd.DataFrame) -> pd.Series:
     )
 
 
+def apply_gim_repair(
+    results: pd.DataFrame, dataset: str, report_path: Path
+) -> pd.DataFrame:
+    """Replace IGS GIM daily RMSE on the days that used the wrong IONEX map.
+
+    `all_results.csv` was produced before the day-truncation bug described in
+    `repair_gim_baseline.py` was found, so on 12 days of 2024 its IGS GIM row is
+    the error against the *previous* day's map. Two of those days (DOY 225 and
+    226) sit in the intense-storm bin, where there are only 14 days in total, so
+    leaving them in changes the sign of this analysis' conclusion.
+
+    This is a stopgap. Once the prediction store covers all 242 days the daily
+    metrics should be recomputed from it directly and this correction retired.
+    """
+    if not report_path.exists():
+        logger.warning(
+            f"⚠️  No GIM repair report at {report_path} - GIM rows may be stale"
+        )
+        return results
+
+    store_dataset = "madrigal" if dataset.startswith("madrigal") else "own"
+    report = pd.read_csv(report_path)
+    report = report[(report["dataset"] == store_dataset) & report["repaired"]]
+    if report.empty:
+        return results
+
+    corrected = report.set_index("doy")["RMSE_corrected"]
+    rows = (results["Model"] == GIM_MODEL) & results["doy"].isin(corrected.index)
+    results = results.copy()
+    results.loc[rows, "RMSE"] = results.loc[rows, "doy"].map(corrected)
+    logger.info(
+        f"Applied corrected IGS GIM RMSE for {int(rows.sum())} day(s): "
+        f"{sorted(results.loc[rows, 'doy'].tolist())}"
+    )
+    return results
+
+
 def stratify(
     results_csv: Path,
     year: int,
     dataset: str = "own_vtec_gim",
     swi_path: Path = DEFAULT_SWI_PATH,
+    gim_repair_report: Path = DEFAULT_GIM_REPAIR_REPORT,
 ) -> dict[str, pd.DataFrame]:
     """Pool the daily metrics into Dst and F10.7 bins, per model."""
     results = pd.read_csv(results_csv)
     results = results[results["dataset"] == dataset]
+    results = apply_gim_repair(results, dataset, gim_repair_report)
     merged = results.merge(load_daily_indices(year, swi_path), on="doy", how="inner")
 
     merged["dst_bin"] = pd.cut(merged["dst_min"], bins=DST_BINS, labels=DST_LABELS)

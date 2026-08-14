@@ -27,19 +27,21 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R1.5 / R1.8b architectures | **READY** | Final numbers. Also complete Table 2. |
 | R1.8f / R1.8g fine-tune details | **READY** | Already in the text; make prominent. |
 | R1.8h computational cost | **READY** | Final numbers. |
-| R2.4 activity stratification | **READY** | Final — already all 242 days. |
+| R2.4 activity stratification | **REVISED** | Conclusion reversed by the GIM fix — use the new table, not the old. 8 quiet days still to settle. |
 | R2.5 elevation vs uncertainty | **READY** | Final — already all 242 days. |
 | R2.7 storm, tails, components | **READY** | Final — already all 242 days. |
 | R1.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
-| R2.3 Madrigal reference offset | **PROVISIONAL** | Conclusion firm (corr +0.946). Recheck the 45% figure after the store completes. |
+| R2.3 Madrigal reference offset | **PROVISIONAL** | Conclusion firm (corr +0.924, 67 stations). Recheck the 41% figure after the store completes. |
 | R2.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
 | R2.8 oracle bound | **PENDING** | Only 9/242 days. Write the framing, leave numbers as placeholders. |
 | R2.5 fixed-variance arm | **PENDING** | Barely started. Leave a placeholder row in the ablation table. |
 | R1.6 uncertainty vs error, fine-tuned | **PENDING** | Not built yet. |
 | R2.2 fully-Bayesian comparison | **PENDING** | Not run (~1 GPU-hour). Text can already concede the limitation. |
 | R2.4b Figure 4 stratified | **PENDING** | Not run (~30 GPU-min). |
+| R2.6b uncertainty vs IONEX RMS | **READY** | Final on 43 days; will only firm up as the store grows. |
+| IGS GIM baseline correction | **ACTION NEEDED** | Table 4's GIM column and the R2.4 text must be updated before resubmission. |
 
-**So: 10 of 17 items can be written today**, including the framing change that matters most.
+**So: 11 of 19 items can be written today**, including the framing change that matters most.
 Two more are provisional — safe to draft, worth rechecking the exact figures. Five need
 results that do not exist yet; draft around them and leave the numbers as placeholders.
 
@@ -131,21 +133,64 @@ Removing a per-station constant drops the model's Madrigal RMSE from 13.64 → 1
 `multiday_results/madrigal_reference_offset/` ·
 `plots/revision/stec_finetuned_2024/madrigal_reference_offset_notitle.png`
 
-### R2.4 — stratify beyond aggregate scatter ✅ strong result
+### R2.4 — stratify beyond aggregate scatter ✅ — **conclusion revised, do not use the old table**
 Elevation, latitude, local time and season are already Figures 5–8. The missing axis was
-activity. **The advantage over IGS GIM widens with disturbance:**
+activity. **The advantage over IGS GIM narrows with disturbance** — the earlier "+18% → +34%,
+widens" reading was an artifact of the GIM date defect (see the dedicated section below) and is
+retracted.
 
-| Dst bin | Direct STEC | Pretrained | VTEC+Map | IGS GIM | Direct vs GIM |
-|---|---|---|---|---|---|
-| quiet (> −30 nT) | 6.8 | 12.7 | 8.9 | 8.3 | +18% |
-| weak | 7.1 | 13.9 | 9.0 | 8.6 | +18% |
-| moderate | 7.4 | 15.6 | 9.1 | 9.2 | +20% |
-| intense (≤ −100) | **8.0** | 24.3 | 9.6 | 12.1 | **+34%** |
+| Dst bin | days | Direct STEC | Pretrained | VTEC+Map | IGS GIM | Direct vs GIM |
+|---|---|---|---|---|---|---|
+| quiet (> −30 nT) | 165 | 6.78 | 12.69 | 8.95 | 8.30 | +18.4% |
+| weak (−50 to −30) | 38 | 7.07 | 13.91 | 8.98 | 8.63 | +18.0% |
+| moderate (−100 to −50) | 25 | 7.41 | 15.62 | 9.10 | 8.65 | +14.3% |
+| intense (≤ −100) | 14 | **8.04** | 24.26 | 9.59 | 9.02 | **+10.9%** |
 
-Quiet → intense, Direct STEC degrades +19%, IGS GIM +46%, pretrained-only +91%. Across F10.7
-terciles the margin holds at +20/+15/+24%. Bins: 14/25/38/165 days (Dst), 81/81/80 (F10.7).
+The claim that survives: Direct STEC is most accurate in every bin and degrades least from quiet
+to intense (+19%, against +9% VTEC + Mapping, +9% IGS GIM, +91% pretrained-only). F10.7
+terciles: +20/+15/+17%. Bins: 14/25/38/165 days (Dst), 81/81/80 (F10.7).
+
+⚠️ The quiet row still holds 8 days awaiting recomputation; expect it to fall ~1.5 points, which
+narrows the spread further. Intense/moderate/weak are final.
 `multiday_results/activity_stratification/` ·
 `plots/revision/stec_finetuned_2024/activity_{dst,f107}_{absolute,improvement}_notitle.png`
+
+### R2.6b — predicted uncertainty vs the GIM products' own IONEX RMS ✅ decisive
+Not a reviewer comment; it is the benchmark the word "Probabilistic" in the title invites, and it
+is the strongest uncertainty result in the revision. Each product scored against **its own**
+residuals, 43 days, 81.3 M observations.
+
+| | RMSE | 95% cov. | σ scale for nominal | CRPS skill vs constant σ | Spearman(σ,\|err\|) |
+|---|---|---|---|---|---|
+| Direct STEC | **7.31** | **88.7%** | **×1.42** | **+10.5%** | **0.41** |
+| CODE GIM + Mapping | 8.40 | 73.7% | ×2.02 | +1.5% | 0.39 |
+| IGS GIM + Mapping | 8.49 | 46.9% | ×4.60 | **−8.1%** | 0.30 |
+
+⏳ **A fourth arm is being added: the VTEC baseline's own uncertainty.** The Mao et al. MLP is
+trained with a Laplacian NLL, so it predicts a scale, and `apply_mapping_function` already maps
+that to the slant direction — the PPP's `VTEC_iono` arm weights by it. It was being dropped at
+the prediction-store write (schema whitelist); fixed, and the backfill now carries it. First day
+(DOY 124, Laplace-scored): mean σ 18.7 TECU against an RMSE of 6.4 and a mean absolute error of
+3.8, i.e. **over-dispersed by roughly 3×** — coverage 81.6% at nominal 50%, 99.9% at 95%, CRPS
+skill −42%. Its Spearman is 0.45, *higher* than ours: it ranks errors well but its scale is far
+off. Scope this as "the baseline as configured here", not as a claim about the published model.
+The 45 days stored before the fix lack the column and need a re-run for a like-for-like day set.
+
+The IGS combined RMS scores *worse than a single constant* per observation. Caveats to state:
+it is an inter-centre spread rather than a validated error, excludes mapping-function error, and
+is a 5°/2 h grid quantity judged per observation.
+`multiday_results/ionex_rms_benchmark/{overall,by_elevation,by_regime,per_day}_{IGS,CODE}.csv` ·
+`plots/revision/stec_finetuned_2024/ionex_rms_{coverage,crps_skill}_notitle.png`
+
+### GIM baseline defect — affects Table 4 and R2.4, **not** positioning
+`compare_stec_vtec_gim.py` picked the IONEX file from a `doy` that had round-tripped through
+float32 normalisation, so a truncating cast loaded the previous day's map on **DOY 184–189 and
+225–230** (12 of 242 days). Table 4's IGS GIM entry moves 8.56 → **≈8.31 TECU** (own) and
+15.64 → ≈15.50 (Madrigal); the Direct STEC advantage over GIM falls 19.1% → ≈16.7%. Model and
+VTEC baselines untouched; **all positioning results untouched** (the positioning pipeline takes
+the day from `--date`). Fixed at source; `src/analysis/repair_gim_baseline.py` repairs stored
+days and reproduces the unaffected ones to 1.5e-5 TECU.
+`multiday_results/gim_baseline_repair/gim_repair_report.csv`
 
 ### R2.5 — stochastic-model ablation
 Paired station-days, uncertainty vs elevation weighting: Direct STEC **+3.0%** (better on
@@ -208,6 +253,8 @@ GIM arm at max |Δ| = 0.0000 m over 45 station-days.
 |---|---|
 | Prediction store, full 242 days | running (~57 GPU-h) — refreshes R2.3, R2.6, R1.3, R1.6 |
 | Oracle + fixed-variance, full 242 days | running (~40 h) — R2.8 and the last R2.5 arm |
+| GIM repair on the remaining 8 affected days | waits on the store; re-run `repair_gim_baseline.py --apply`, then `activity_stratification.py` |
+| Regenerate daily metrics from the store | replaces `all_results.csv`, retires the repair patch in `activity_stratification.py` |
 | R1.6 uncertainty vs error, fine-tuned | pending, needs the store |
 | R2.2 fully-Bayesian comparison | pending, ~1 GPU-hour |
 | R2.4b Figure 4 stratified (pretrained) | pending, ~30 GPU-min |

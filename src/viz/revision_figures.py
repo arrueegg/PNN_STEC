@@ -82,6 +82,11 @@ METHOD_ORDER = [
 CONDITION_COLORS = {"baseline": "#7f7f7f", "contrast": "#d62728"}
 ORACLE_COLOR = "#3f3f3f"
 # Evaluation sets, again outside the approach palette.
+# CODE's GIM is a second instance of the "GIM + Mapping" approach, so it keeps
+# that approach's hue and is separated by a lighter shade rather than a new
+# colour, which would read as a fourth method.
+CODE_GIM_COLOR = "#7bc47f"
+
 DATASET_COLORS = {
     "own": "#7f7f7f",
     "madrigal": "#d62728",
@@ -504,6 +509,77 @@ def fig_positioning_tail(tails: pd.DataFrame, output_dir: Path, provenance: str)
     _save(fig, "positioning_tail", "positioning", output_dir, provenance)
 
 
+
+# --------------------------------------------------------------------------
+# IONEX RMS benchmark - our uncertainty against the GIM products' own
+# --------------------------------------------------------------------------
+
+_IONEX_COLORS = {
+    "Direct STEC": COLORS["Direct STEC"],
+    "IGS GIM + Mapping": COLORS["IGS GIM + Mapping"],
+    "CODE GIM + Mapping": CODE_GIM_COLOR,
+}
+
+
+def fig_ionex_coverage(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
+    """Empirical against nominal coverage; the diagonal is perfect calibration."""
+    levels = [50, 68, 90, 95]
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    span = [levels[0] - 5, 100]
+    ax.plot(
+        span,
+        span,
+        linestyle="--",
+        color=CONDITION_COLORS["baseline"],
+        linewidth=1.5,
+        label="Perfect calibration",
+        zorder=2,
+    )
+    ax.set_xlim(*span)
+    for product in d.index:
+        ax.plot(
+            levels,
+            [100 * d.loc[product, f"cov_{lv}"] for lv in levels],
+            marker="o",
+            markersize=9,
+            color=_IONEX_COLORS[product],
+            label=product,
+            zorder=3,
+        )
+    ax.set_xlabel("Nominal coverage [%]")
+    ax.set_ylabel("Empirical coverage [%]")
+    ax.set_xticks(levels)
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.legend(loc="upper left")
+    ax.set_title("Interval coverage of each product's own uncertainty")
+    _save(fig, "ionex_rms_coverage", "finetuned", output_dir, provenance)
+
+
+def fig_ionex_crps_skill(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
+    """CRPS skill against each product's own constant-sigma reference.
+
+    Positive means the per-observation uncertainty beats a single constant for
+    that same set of predictions; negative means it is worse than no
+    uncertainty at all.
+    """
+    bins = ["5-20", "20-40", "40-60", "60-90"]
+    products = [p for p in _IONEX_COLORS if p in d.index.get_level_values(0)]
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    _grouped_bars(
+        ax,
+        bins,
+        products,
+        {p: [100 * d.loc[(p, b), "CRPS_skill"] for b in bins] for p in products},
+        [_IONEX_COLORS[p] for p in products],
+        "CRPS skill over constant σ [%]",
+        xlabel="Satellite elevation [°]",
+    )
+    ax.axhline(0, color="black", linewidth=1.0, zorder=4)
+    ax.legend(loc="upper right")
+    ax.set_title("Value of the per-observation uncertainty, by elevation")
+    _save(fig, "ionex_rms_crps_skill", "finetuned", output_dir, provenance)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output_dir", type=Path, default=Path("plots/revision"))
@@ -551,6 +627,11 @@ def main() -> None:
         "--station_independence_dir",
         type=Path,
         default=Path("multiday_results/station_independence"),
+    )
+    parser.add_argument(
+        "--ionex_benchmark_dir",
+        type=Path,
+        default=Path("multiday_results/ionex_rms_benchmark"),
     )
     parser.add_argument(
         "--positioning_robustness_dir",
@@ -636,6 +717,35 @@ def main() -> None:
             f"{days} test days of 2024 ({obs:,} observations)"
         )
         _activity_figures(table, bin_col, axis_label, stem, args.output_dir, prov)
+
+    overall = args.ionex_benchmark_dir / "overall_IGS.csv"
+    if overall.exists():
+        igs = pd.read_csv(overall, index_col=0)
+        code = args.ionex_benchmark_dir / "overall_CODE.csv"
+        if code.exists():
+            extra = pd.read_csv(code, index_col=0)
+            igs = pd.concat([igs, extra.loc[[i for i in extra.index if i not in igs.index]]])
+        prov = (
+            f"{args.ionex_benchmark_dir}/overall_*.csv — daily fine-tuned models, own "
+            f"test set, {int(igs['days'].max())} test days of 2024 "
+            f"({int(igs['observations'].max()):,} observations)"
+        )
+        fig_ionex_coverage(igs, args.output_dir, prov)
+
+        by_elev = [
+            pd.read_csv(args.ionex_benchmark_dir / f"by_elevation_{g}.csv",
+                        index_col=[0, 1])
+            for g in ("IGS", "CODE")
+            if (args.ionex_benchmark_dir / f"by_elevation_{g}.csv").exists()
+        ]
+        if by_elev:
+            merged = pd.concat(by_elev)
+            merged = merged[~merged.index.duplicated()]
+            fig_ionex_crps_skill(merged, args.output_dir, prov)
+    else:
+        logger.warning(
+            f"⚠️  {overall} not found - run src/analysis/ionex_rms_benchmark.py"
+        )
 
     # R2.3 - per-station offsets against Madrigal
     offsets_path = args.madrigal_offset_dir / "per_station_offsets.csv"

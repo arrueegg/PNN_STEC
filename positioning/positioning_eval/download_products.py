@@ -11,6 +11,9 @@ import logging
 from pathlib import Path
 
 
+EXPERIMENTS_ROOT = Path(__file__).resolve().parents[2] / "experiments"
+
+
 def setup_logging():
     """Setup logging configuration."""
     logging.basicConfig(
@@ -53,6 +56,8 @@ def download_products(year, doy, output_dir, logger=None):
     # products were fetched earlier should not depend on either.
     existing = get_product_paths(year, doy, output_dir)
     missing = [name for name, path in existing.items() if not path.exists()]
+    if missing:
+        missing = reuse_from_other_runs(year, doy, existing, missing, logger)
     if not missing:
         logger.info(
             f"✓ Products for {year}/{doy:03d} already present, skipping download"
@@ -90,6 +95,45 @@ def download_products(year, doy, output_dir, logger=None):
     except Exception as e:
         logger.error(f"Error downloading products: {e}")
         return None
+
+
+def reuse_from_other_runs(year, doy, existing, missing, logger):
+    """Symlink products another experiment already fetched for the same day.
+
+    Outbound FTP to CODE is firewalled on this host and CDDIS needs Earthdata
+    credentials, so a day whose products were never fetched cannot be recovered
+    from the network at all - the download simply fails and takes the whole day's
+    evaluation with it. But orbits, clocks, ERP, attitude, the CODE GIM and the
+    SINEX are properties of the *day*, not of the experiment, so a copy fetched
+    by an earlier run is the identical file. The paper's own positioning runs
+    fetched all 242 days, which is what makes this recovery possible.
+
+    Returns the names still missing after linking.
+    """
+    tag = f"{year}{doy:03d}"
+    pattern = f"*/positioning/evaluation/{tag}/products"
+    still_missing = []
+    linked = []
+
+    for name in missing:
+        target = existing[name]
+        source = next(
+            (
+                candidate
+                for candidate in EXPERIMENTS_ROOT.glob(f"{pattern}/{target.name}")
+                if candidate.is_file() and candidate.resolve() != target
+            ),
+            None,
+        )
+        if source is None:
+            still_missing.append(name)
+            continue
+        target.symlink_to(source.resolve())
+        linked.append(name)
+
+    if linked:
+        logger.info(f"↩︎  Reused {len(linked)} product(s) from an earlier run: {linked}")
+    return still_missing
 
 
 def get_product_paths(year, doy, products_dir):

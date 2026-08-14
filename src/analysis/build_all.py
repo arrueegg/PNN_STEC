@@ -42,9 +42,26 @@ ANALYSES = [
     ),
     ("src/analysis/computational_cost.py", "R1.8h", "training and inference cost"),
     (
+        # Must precede activity_stratification.py: that analysis reads the
+        # corrected IGS GIM daily RMSE this writes.
+        "src/analysis/repair_gim_baseline.py --apply",
+        "Table 4, R2.4",
+        "recompute the IGS GIM baseline against the correct day's IONEX map",
+    ),
+    (
         "src/analysis/activity_stratification.py",
         "R2.4",
         "STEC error stratified by Dst and F10.7",
+    ),
+    (
+        "src/analysis/ionex_rms_benchmark.py",
+        "R2.6b",
+        "predicted uncertainty against the IGS GIM's own IONEX RMS",
+    ),
+    (
+        "src/analysis/ionex_rms_benchmark.py --gim_type CODE",
+        "R2.6b",
+        "the same benchmark against CODE's finer-resolution RMS",
     ),
     (
         "src/analysis/uncertainty_calibration.py",

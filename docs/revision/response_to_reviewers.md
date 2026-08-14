@@ -110,28 +110,62 @@ estimates of the same slant path: the model, the IGS GIM mapped to that line of 
 Madrigal. The model and the GIM share nothing in their construction, yet their per-station
 disagreement with Madrigal is almost identical:
 
-* **corr(offset_model, offset_gim) = +0.946** over 66 stations
-* both exceed Madrigal at **91%** of stations; mean offsets +5.63 and +7.76 TECU
-* removing a per-station constant drops the model's Madrigal RMSE from 13.64 to 10.10 TECU
+* **corr(offset_model, offset_gim) = +0.924** over 67 stations
+* both exceed Madrigal at **93%** of stations; mean offsets +6.04 and +8.50 TECU
+* removing a per-station constant drops the model's Madrigal RMSE from 15.76 to 12.06 TECU
 
-**45% of the variance in Table 4 is a station-dependent reference offset, not model error.**
+**41% of the variance in Table 4 is a station-dependent reference offset, not model error.**
 We will report Table 4 with this decomposition alongside, and expand Section 2 on how the
 reference STEC is produced (carrier-phase levelling, arc handling, DCB application).
 
-### R2.4 — stratification ✅
+### R2.4 — stratification ✅ (conclusion revised — see the GIM correction below)
 Elevation, geomagnetic latitude, local time and season are already Figures 5–8; the missing
-axis was activity. The advantage over IGS GIM **widens** with disturbance:
+axis was activity.
 
-| Daily min Dst | Direct STEC | Pretrained | VTEC+Map | IGS GIM | Direct vs GIM |
+| Daily min Dst | days | Direct STEC | Pretrained | VTEC+Map | IGS GIM | Direct vs GIM |
+|---|---|---|---|---|---|---|
+| quiet (> −30 nT) | 165 | 6.78 | 12.69 | 8.95 | 8.30 | +18.4% |
+| weak (−50 to −30) | 38 | 7.07 | 13.91 | 8.98 | 8.63 | +18.0% |
+| moderate (−100 to −50) | 25 | 7.41 | 15.62 | 9.10 | 8.65 | +14.3% |
+| intense (≤ −100 nT) | 14 | **8.04** | 24.26 | 9.59 | 9.02 | **+10.9%** |
+
+**The advantage over IGS GIM narrows with disturbance — it does not widen.** An earlier version
+of this document reported +18% → +34% and stated the opposite; that was an artifact of the GIM
+date defect described below, and it is retracted. Two of the fourteen intense-storm days
+(DOY 225, Dst −188; DOY 226, Dst −103) had been compared against the *previous* day's IONEX map,
+giving IGS GIM 22.1 and 23.9 TECU instead of 8.96 and 7.85.
+
+What survives, and is the defensible claim: Direct STEC is the most accurate model in every
+activity bin and degrades least from quiet to intense (+19%, against +9% for VTEC + Mapping,
++9% for IGS GIM and +91% for the pretrained-only variant). Across F10.7 terciles the margin is
++20/+15/+17%.
+
+⏳ The quiet row still contains 8 days whose GIM is being recomputed; they will move the quiet
+margin down by roughly 1.5 points, slightly *reducing* the remaining spread across bins. The
+intense, moderate and weak rows are final. ⏳ The equivalent stratification of Figure 4 itself
+(pretrained model) is still being computed.
+
+### R2.6b — our uncertainty against the GIM products' own ✅
+Not raised by either reviewer, but it is the comparison the title invites. The existing evidence
+only benchmarks the predicted uncertainty against *no* uncertainty (a constant σ, elevation
+weighting). IGS and CODE ship an RMS map in the same IONEX file, so it can be benchmarked
+against a real operational uncertainty. Each product is scored against **its own** residuals,
+on 43 test days (81.3 M observations):
+
+| | RMSE [TECU] | 95% coverage | σ scale for nominal | CRPS skill over constant σ | Spearman(σ, \|error\|) |
 |---|---|---|---|---|---|
-| quiet (> −30 nT) | 6.8 | 12.7 | 8.9 | 8.3 | +18% |
-| weak | 7.1 | 13.9 | 9.0 | 8.6 | +18% |
-| moderate | 7.4 | 15.6 | 9.1 | 9.2 | +20% |
-| intense (≤ −100 nT) | **8.0** | 24.3 | 9.6 | 12.1 | **+34%** |
+| Direct STEC | **7.31** | **88.7%** | **×1.42** | **+10.5%** | **0.41** |
+| CODE GIM + Mapping | 8.40 | 73.7% | ×2.02 | +1.5% | 0.39 |
+| IGS GIM + Mapping | 8.49 | 46.9% | ×4.60 | **−8.1%** | 0.30 |
 
-From quiet to intense, Direct STEC degrades by 19%, IGS GIM by 46% and the pretrained-only
-variant by 91%. Across F10.7 terciles the margin holds at +20/+15/+24%.
-⏳ The equivalent stratification of Figure 4 itself (pretrained model) is being computed.
+The IGS combined RMS is *worse than a single constant* as a per-observation uncertainty — a
+negative skill score. CODE's is far better dispersed but adds almost nothing over a constant.
+Ours is the only one that both approaches nominal coverage and earns a positive score.
+
+Three caveats to state rather than have an editor find: the IGS combined RMS reflects the
+spread among contributing analysis centres, not a validated error estimate; mapping-function
+error is not represented in it at all; and it is a 5°/2 h grid-cell quantity being judged
+per observation. It is nonetheless the uncertainty a user of the product actually receives.
 
 ### R2.5 — stochastic-model ablation ✅ (one arm ⏳)
 Restricting to station-days solved under both weightings:
@@ -202,6 +236,45 @@ reproduces the published elevation-weighted IGS GIM arm to max |Δ| = 0.0000 m o
 station-days.
 
 ---
+
+## Correction to the published IGS GIM baseline
+
+Building the prediction store surfaced a defect in how the IGS GIM comparison was computed, and
+it changes Table 4 and one of the stratified conclusions. It is reported here in full because
+the corrected numbers are slightly *less* favourable to the paper.
+
+**What happened.** `compare_stec_vtec_gim.py` selected the IONEX file using the `doy` carried in
+the results frame. That value is a denormalised model *input*: day of year is scaled to
+(doy−1)/365 and inverted in float32, which for 26 days of the year returns a value just below the
+integer — DOY 189 comes back as 188.99998. The truncating `int()` cast then loaded the **previous
+day's** global map. Twelve days of the 242-day 2024 test period are affected: **DOY 184–189 and
+225–230**.
+
+**What it does and does not touch.**
+
+* The model's own predictions are unaffected — the network consumed the normalised value
+  directly and never round-tripped it.
+* The VTEC + Mapping baseline is unaffected; it involves no date lookup.
+* **All positioning results are unaffected** — Table 5, Figures 12/13/A1/A2 and the ~31%
+  improvement claim. The positioning pipeline takes the day from its `--date` argument
+  (`run_positioning_evaluation.py`), never from a data frame. This was verified explicitly.
+* Only the IGS GIM column of the STEC-domain comparison is wrong, on those 12 days.
+
+**Corrected numbers.** Table 4's IGS GIM entry moves from 8.56 to **≈8.31 TECU** on the own test
+set, so the Direct STEC advantage over IGS GIM falls from 19.1% to **≈16.7%**. On Madrigal the
+GIM entry moves from 15.64 to ≈15.50 TECU (advantage 6.1% → 5.2%). Four of the twelve days are
+recomputed exactly; the remaining eight are projected at the median unaffected daily RMSE and
+will be exact once the store covers them.
+
+The knock-on is the R2.4 activity stratification, whose conclusion **reverses** — see that
+section.
+
+**Fixes.** The truncating cast is corrected at both sites
+([src/compare_stec_vtec_gim.py:316](../../src/compare_stec_vtec_gim.py#L316) and
+[src/evaluation/prediction_store.py:176](../../src/evaluation/prediction_store.py#L176), where
+the day is now taken from the caller rather than the frame), and
+`src/analysis/repair_gim_baseline.py` recomputes the stored days. As a check, that script
+reproduces the stored GIM column to 1.5×10⁻⁵ TECU on all 77 unaffected day-datasets.
 
 ## Additional correction, not raised by the reviewers
 
