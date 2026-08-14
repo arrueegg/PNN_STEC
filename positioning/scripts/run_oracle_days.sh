@@ -13,8 +13,12 @@
 #   positioning/scripts/run_oracle_days.sh 2024 "131 132 133 ..."
 set -uo pipefail
 
-YEAR="${1:?usage: run_oracle_days.sh <year> \"<doy> <doy> ...\"}"
+YEAR="${1:?usage: run_oracle_days.sh <year> \"<doy> <doy> ...\" [parallel]}"
 DOYS="${2:?give a space-separated list of DOYs}"
+# Stations are independent, so process several at once. The default of 1 in
+# run_positioning_evaluation.py leaves most of the machine idle; it also sets
+# the RINEX download thread count to 4x this value.
+PARALLEL="${3:-6}"
 
 cd "$(dirname "$0")/../.."
 EXPERIMENT="Reference_STEC_Oracle"
@@ -35,7 +39,7 @@ for doy in $DOYS; do
 
   python positioning/positioning_eval/run_positioning_evaluation.py \
     --experiment "$EXPERIMENT" --date "$date_str" --all_test_stations \
-    --weight_opt elev --no_cleanup \
+    --weight_opt elev --no_cleanup --parallel "$PARALLEL" \
     || echo "positioning failed for ${YEAR}-${padded}, continuing"
 
   echo "solutions so far: $(find experiments/${EXPERIMENT} -name '*.pos' | wc -l)"
