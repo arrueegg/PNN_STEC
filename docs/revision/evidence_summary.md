@@ -17,6 +17,38 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 
 ---
 
+## Status at a glance — what to write today
+
+| Reviewer comment | Status | Action |
+|---|---|---|
+| Framing (R1.4 / R2.1) | **READY** | Write now. No data needed; this is what caused the rejection. |
+| R1.1 split regimes | **READY** | Final numbers. |
+| R1.2 2024 attribution | **READY** | Final numbers. |
+| R1.5 / R1.8b architectures | **READY** | Final numbers. Also complete Table 2. |
+| R1.8f / R1.8g fine-tune details | **READY** | Already in the text; make prominent. |
+| R1.8h computational cost | **READY** | Final numbers. |
+| R2.4 activity stratification | **READY** | Final — already all 242 days. |
+| R2.5 elevation vs uncertainty | **READY** | Final — already all 242 days. |
+| R2.7 storm, tails, components | **READY** | Final — already all 242 days. |
+| R1.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
+| R2.3 Madrigal reference offset | **PROVISIONAL** | Conclusion firm (corr +0.946). Recheck the 45% figure after the store completes. |
+| R2.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
+| R2.8 oracle bound | **PENDING** | Only 9/242 days. Write the framing, leave numbers as placeholders. |
+| R2.5 fixed-variance arm | **PENDING** | Barely started. Leave a placeholder row in the ablation table. |
+| R1.6 uncertainty vs error, fine-tuned | **PENDING** | Not built yet. |
+| R2.2 fully-Bayesian comparison | **PENDING** | Not run (~1 GPU-hour). Text can already concede the limitation. |
+| R2.4b Figure 4 stratified | **PENDING** | Not run (~30 GPU-min). |
+
+**So: 10 of 17 items can be written today**, including the framing change that matters most.
+Two more are provisional — safe to draft, worth rechecking the exact figures. Five need
+results that do not exist yet; draft around them and leave the numbers as placeholders.
+
+Nothing in the PENDING list is expected to *change direction* — the oracle will stay an order
+of magnitude below the models, and the fully-Bayesian run is expected to confirm rather than
+overturn the limitation in R2.2. They are missing precision, not missing answers.
+
+---
+
 ## The framing issue that caused the rejection
 
 Both reviewers led with the same objection (R1.4, R2.1): daily fine-tuning uses observations
@@ -48,7 +80,7 @@ error. 2015 (40.3%) and 2017 (35.8%) are the genuine outliers, both low-sample e
 `multiday_results/relative_error_metrics.csv` ·
 `plots/revision/stec_pretrained_testset/relative_error_{absolute,normalised}_notitle.png`
 
-### R1.3 — random station split may be over-optimistic
+### R1.3 — random station split may be over-optimistic — **READY, as a limitation**
 **Does not exonerate the split.** Normalised error rises from 12.6% for test stations within
 100 km of a training station to 20.4% beyond 1000 km; Spearman +0.32 over 55 stations. Not
 monotonic at the near end (100–250 km band is best at 8.7%), and distance is confounded with
@@ -82,14 +114,14 @@ no freezing). Make more prominent; no new work.
 
 ---
 
-### R2.2 — Bayesian only in the output layer
+### R2.2 — Bayesian only in the output layer — **PENDING**
 Accepted as a limitation; relabel the small epistemic component in Sec 4.2 accordingly.
 A matched fully-Bayesian run (`config/config_A4_fully_bayesian.yaml`, identical except
 `model_type: ResNet_BNN_NLL`) is **pending** (~1 GPU-hour). Confound to report: the published
 architecture initialises its output bias to the dataset mean STEC, the fully-Bayesian variant
 does not.
 
-### R2.3 — products may have inconsistent bias references ✅ decisive
+### R2.3 — products may have inconsistent bias references — **PROVISIONAL** ✅ decisive
 On the Madrigal geometries there are three independent estimates of the same slant path: the
 model, the IGS GIM mapped to that line of sight, and Madrigal. The model and the GIM share
 nothing in their construction, yet **corr(offset_model, offset_gim) = +0.946** over 66
@@ -125,7 +157,7 @@ The fixed-variance arm is **running** (full 242 days).
 `multiday_results/weighting_ablation/paired.csv` ·
 `plots/revision/positioning_2024/weighting_ablation_notitle.png`
 
-### R2.6 — calibration diagnostics ✅
+### R2.6 — calibration diagnostics — **PROVISIONAL** ✅
 Conceded: monotonic association is not calibration. On the own test set (43.6 M observations)
 the uncertainties are close to calibrated centrally and over-confident in the tails —
 50% nominal → 48.8% empirical, 90% → 84.0%, 95% → 88.9%. **CRPS 2.80 against 3.11 for a
@@ -154,7 +186,7 @@ storm/quiet ordering.
 `multiday_results/{storm_stratification,positioning_robustness,positioning_summary}/` ·
 `plots/revision/positioning_2024/{storm_positioning_*,positioning_tail}_notitle.png`
 
-### R2.8 — observation-derived upper bound
+### R2.8 — observation-derived upper bound — **PENDING (9/242 days)**
 Applying the reference STEC directly as the correction gives **0.090 m** 3D RMS against
 Direct STEC 1.028, IGS GIM 1.204, VTEC + Mapping 1.284 — models sit 11–14× above the floor.
 Currently on a day subset; the full 242-day run is **in progress**.
