@@ -222,18 +222,26 @@ A methodological note we will include: without the 10 m outlier exclusion alread
 Figure 12, 102 of 35,652 station-days (0.29%) dominate the quiet-period mean strongly enough
 to reverse the storm/quiet ordering.
 
-### R2.8 — observation-derived upper bound ⏳
-Applying the GNSS-derived reference STEC directly as the ionospheric correction gives 0.090 m
-3D RMS, against 1.028 m for Direct STEC, 1.204 m for IGS GIM and 1.284 m for VTEC + Mapping —
-the models sit 11–14× above that floor. ⏳ Currently on a subset of days; the full test period
-is being computed.
+### R2.8 — observation-derived upper bound ⏳ provisional
+Applying the GNSS-derived reference STEC directly as the ionospheric correction gives **0.128 m**
+mean 3D RMS, against 1.149 m for Direct STEC, 1.336 m for IGS GIM and 1.497 m for VTEC + Mapping
+— the models sit **9–12×** above that floor.
+
+⏳ These are provisional and have moved as days accumulate (at 9 days the floor read 0.216 m,
+at 48 days 0.128 m). Do not quote them until the run covers the full period.
+
+**Three reasons these numbers do not line up with Table 5, none of them an error.** The oracle
+run uses **elevation** weighting where Table 5 uses predicted-uncertainty weighting (over all
+242 days that is 1.165 vs 1.123 m for Direct STEC); it is restricted to **station-days solved by
+all four methods**, currently 1,232 of 11,737 seen for at least one; and it covers 48 days, not
+242. Comparisons must be drawn inside this table, never across to Table 5.
 
 Framing we will use: the reference STEC is the training target itself, derived from the same
 observations, so this is the pipeline's own noise floor rather than reachable headroom. The
 defensible statement is that **almost all remaining positioning error in this experiment is
 ionospheric modelling error**, not orbit, clock or multipath. As a control, the same run
-reproduces the published elevation-weighted IGS GIM arm to max |Δ| = 0.0000 m over 45
-station-days.
+reproduces the published elevation-weighted IGS GIM arm to **max |Δ| = 0.0000 m over 1,560
+shared station-days**, which is what rules out the pipeline changes as a cause of any difference.
 
 ---
 

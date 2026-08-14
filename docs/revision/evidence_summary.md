@@ -33,7 +33,7 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R1.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
 | R2.3 Madrigal reference offset | **PROVISIONAL** | Conclusion firm (corr +0.924, 67 stations). Recheck the 41% figure after the store completes. |
 | R2.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
-| R2.8 oracle bound | **PENDING** | Only 9/242 days. Write the framing, leave numbers as placeholders. |
+| R2.8 oracle bound | **PENDING** | 48/242 days and still moving. Framing is safe; numbers are not. Uses **elev** weighting and paired station-days, so it is not comparable with Table 5. |
 | R2.5 fixed-variance arm | **PENDING** | Barely started. Leave a placeholder row in the ablation table. |
 | R1.6 uncertainty vs error, fine-tuned | **READY** | Built; final once the store covers 242 days. |
 | R2.2 fully-Bayesian comparison | **PENDING** | Not run (~1 GPU-hour). Text can already concede the limitation. |
