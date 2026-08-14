@@ -116,7 +116,53 @@ python positioning/scripts/plot_results.py --input multiday_results/positioning_
 
 # Re-derive positioning metrics from existing .pos files (no PPPx re-run)
 python positioning/scripts/recompute_metrics.py --experiment "..."
+
+# Rebuild every revision table and figure (see below)
+python src/analysis/build_all.py --figures
+
+# Are the long-running jobs alive AND progressing?
+./scripts/check_jobs.sh
 ```
+
+## Revision work (JGR-MLC resubmission)
+
+The paper was rejected; `docs/revision/response_to_reviewers.md` tracks the response, and
+`docs/revision/evidence_summary.md` is the standalone handoff listing every result, number
+and file per reviewer comment.
+
+Thirteen analyses under `src/analysis/` produce the evidence, one per reviewer point. They
+all write CSV to `multiday_results/<name>/` and are driven by
+[src/analysis/build_all.py](src/analysis/build_all.py), which also writes two indices:
+
+- `multiday_results/revision_metrics_index.csv` — every metric CSV mapped to the reviewer
+  comment it answers, the script that made it, and its columns.
+- `multiday_results/revision_analyses_status.csv` — which analyses ran, and why any were skipped.
+
+Figures come from [src/viz/revision_figures.py](src/viz/revision_figures.py): one plot per
+PNG, grouped into `plots/revision/<data source>/`, in the repo's standard `PLOT_CONFIG`
+style with **no in-plot explanatory text**. Each is written twice — a working copy with a
+title and a provenance footnote naming the source CSV, and a `_notitle` copy that is the
+manuscript version.
+
+**Colour rules.** Approach colours are those of `positioning/scripts/plot_results.py` and
+must not change: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple
+Pretrained. An approach colour must only ever mean that approach — conditions (quiet/storm,
+weighting scheme), datasets and the oracle bound take colours outside that palette. Known
+and accepted limitation: the orange and green are separated by only ΔE = 0.7 in OKLab under
+simulated protanopia, so those two series are hard to tell apart for red-blind readers;
+consistency with the published figures was chosen over fixing it.
+
+Two evaluations that are **not** what they look like:
+
+- **The Madrigal comparison changes two things at once** — the model is out of distribution
+  *and* the reference comes from a different processing chain. 45% of the Madrigal RMSE
+  variance is a per-station reference offset, established by the fact that the model and the
+  IGS GIM disagree with Madrigal identically (corr +0.946 over 66 stations). Madrigal numbers
+  must be read alongside `madrigal_reference_offset`, never standalone, and they do not
+  support claims about the model's out-of-distribution uncertainty.
+- **`station_independence` is limited by n = 55 test stations**, not by observations. Adding
+  days sharpens each point but not the Spearman coefficient. Making that result stronger
+  needs a region-held-out retrain, not more data.
 
 ## Gotchas
 
@@ -141,6 +187,31 @@ python positioning/scripts/recompute_metrics.py --experiment "..."
 - `save_plot` ([src/viz/base.py:93](src/viz/base.py#L93)) writes `X.png` **and** `X_notitle.png`;
   `performance.py` also adds `_no_legend.png`. **The `_notitle` / `_no_legend` variants are the
   paper figures.**
+- **PPPx needs the SuiteSparse 5 runtime libraries**, which Debian 13 no longer ships. The
+  binary wants `libspqr.so.2` / `libcholmod.so.3` / `libcxsparse.so.3`; trixie provides
+  SuiteSparse 7 with different SONAMEs, so it fails at load. Run
+  `positioning/positioning_eval/lib_compat/fetch_libs.sh` once — it unpacks the matching
+  Debian 12 runtime packages locally, no root, and the runner prepends them to
+  `LD_LIBRARY_PATH` for the PPPx subprocess. **Do not symlink the system libraries under the
+  old names**: CHOLMOD's structures changed across those versions, so it would give silently
+  wrong positions rather than a clean failure.
+- **Product downloads do not work from this host.** CODE is served over FTP from
+  `ftp.aiub.unibe.ch`, which is firewalled, and CDDIS returns 401 without Earthdata
+  credentials. `download_products` therefore reuses whatever is already in the products
+  directory and only fetches what is genuinely missing. RINEX comes from a reachable host and
+  still downloads normally.
+- **`--parallel` defaults to 1** in `run_positioning_evaluation.py`, so stations are processed
+  one at a time on a 24-core machine. Pass `--parallel 6` or more; it also sets the RINEX
+  download thread count to 4× that value.
+- **`pgrep -f "<pattern>"` matches the shell running the check**, so it reports a hit with
+  nothing running. Two false "still running" reports came from this. Use
+  `./scripts/check_jobs.sh`, which matches real process argv and reports liveness and progress
+  separately, since a process can be alive and stuck.
+- **Background jobs die when the launching session exits.** Start anything long with
+  `setsid nohup … &`, or it will be killed with no error in the log.
+- **`set -o pipefail` plus `grep -q`** reports pipeline failure even on a match, because
+  `grep -q` exits early and the upstream command takes SIGPIPE. It silently inverted a
+  liveness check here.
 - Producing K-band corrections is not finished until `vlbi_kband/scripts/plot_comparison.py` has
   been run against CODE.
 
