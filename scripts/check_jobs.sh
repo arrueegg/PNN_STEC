@@ -58,9 +58,15 @@ sweep_idle=$(newest_minutes predictions "*.parquet")
 sweep_days=$(find predictions/finetuned_stec/own -name "*.parquet" 2>/dev/null | wc -l)
 report "store sweep" "$sweep_alive" "$sweep_idle" "$sweep_days/44 days stored" "$(uptime_minutes "cli.py multiday")"
 
-oracle_alive=no; alive "run_oracle_days.sh" && oracle_alive=yes
+# The full-coverage driver superseded the day-subset batch; accept either.
+oracle_alive=no
+alive "run_full_positioning_coverage.sh" && oracle_alive=yes
+alive "run_oracle_days.sh" && oracle_alive=yes
 oracle_idle=$(newest_minutes experiments/Reference_STEC_Oracle "*.pos")
 oracle_days=$(find experiments/Reference_STEC_Oracle/positioning/results -maxdepth 1 -type d -name "2024*" 2>/dev/null | wc -l)
-report "oracle batch" "$oracle_alive" "$oracle_idle" "$oracle_days/23 days, $(find experiments/Reference_STEC_Oracle -name '*.pos' 2>/dev/null | wc -l) solutions" "$(uptime_minutes "run_oracle_days.sh")"
+fixed_days=$(find experiments/Fixed_Variance_STEC/positioning/results -maxdepth 1 -type d -name "2024*" 2>/dev/null | wc -l)
+report "positioning" "$oracle_alive" "$oracle_idle" \
+  "oracle $oracle_days/242 days ($(find experiments/Reference_STEC_Oracle -name '*.pos' 2>/dev/null | wc -l) solutions), fixed-variance $fixed_days/242" \
+  "$(uptime_minutes "run_full_positioning_coverage.sh")"
 
 printf "%-16s %s\n" "gpu" "$(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader 2>/dev/null || echo n/a)"
