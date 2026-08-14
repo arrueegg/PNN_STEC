@@ -35,9 +35,10 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R2.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
 | R2.8 oracle bound | **PENDING** | Only 9/242 days. Write the framing, leave numbers as placeholders. |
 | R2.5 fixed-variance arm | **PENDING** | Barely started. Leave a placeholder row in the ablation table. |
-| R1.6 uncertainty vs error, fine-tuned | **PENDING** | Not built yet. |
+| R1.6 uncertainty vs error, fine-tuned | **READY** | Built; final once the store covers 242 days. |
 | R2.2 fully-Bayesian comparison | **PENDING** | Not run (~1 GPU-hour). Text can already concede the limitation. |
-| R2.4b Figure 4 stratified | **PENDING** | Not run (~30 GPU-min). |
+| R2.4b Figure 4 stratified | **PENDING** | Pretrained pass is queued; the stratification itself is not built. |
+| Tables 3 & 4 corrected | **PENDING** | `daily_metrics.py` recomputes them from the store; exact only at 242/242 days. |
 | R2.6b uncertainty vs IONEX RMS | **READY** | Final on 43 days; will only firm up as the store grows. |
 | IGS GIM baseline correction | **ACTION NEEDED** | Table 4's GIM column and the R2.4 text must be updated before resubmission. |
 
@@ -181,6 +182,29 @@ it is an inter-centre spread rather than a validated error, excludes mapping-fun
 is a 5°/2 h grid quantity judged per observation.
 `multiday_results/ionex_rms_benchmark/{overall,by_elevation,by_regime,per_day}_{IGS,CODE}.csv` ·
 `plots/revision/stec_finetuned_2024/ionex_rms_{coverage,crps_skill}_notitle.png`
+
+### R1.6 — predicted uncertainty against realised error ✅
+`uncertainty_error_relation.py`, over the whole test period rather than the per-day PNGs. Two
+views: by predicted-σ decile and by elevation.
+
+**The model is over-confident everywhere**, by a factor RMSE/σ of 1.31–1.53 across σ deciles and
+1.60–1.77 across elevation bins. The ratio is U-shaped in σ — best in the middle deciles (1.31),
+worse at both the confident and the uncertain end — so it is not a single global scale error that
+one constant would fix.
+
+**The epistemic share of the predictive variance is 4.7–6.8%.** That is the number for R2.2: with
+only the output layer Bayesian, essentially all the predicted spread is aleatoric.
+`multiday_results/uncertainty_error_relation/by_{sigma,elevation}.csv` ·
+`plots/revision/stec_finetuned_2024/uncertainty_vs_error_notitle.png`
+
+### Tables 3 and 4 — recomputed from the store
+`daily_metrics.py` derives the per-day and pooled metrics from the prediction store instead of
+the inference-time aggregation, so it picks up the repaired GIM automatically and needs no GPU.
+It writes `vs_published.csv` diffing against the published table, and warns when the store covers
+fewer days than the published 242 — until then the deltas reflect the **day subset**, not the
+correction. Note the published tables report the *mean of daily RMSE*, not the pooled RMSE;
+both are written.
+`multiday_results/daily_metrics/{per_day,summary,vs_published}.csv`
 
 ### GIM baseline defect — affects Table 4 and R2.4, **not** positioning
 `compare_stec_vtec_gim.py` picked the IONEX file from a `doy` that had round-tripped through

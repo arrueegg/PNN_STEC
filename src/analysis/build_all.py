@@ -49,6 +49,18 @@ ANALYSES = [
         "recompute the IGS GIM baseline against the correct day's IONEX map",
     ),
     (
+        # After repair_gim_baseline, so Tables 3 and 4 are derived from the
+        # corrected GIM column rather than the published aggregation.
+        "src/analysis/daily_metrics.py",
+        "Tables 3, 4",
+        "per-day and pooled STEC metrics recomputed from the prediction store",
+    ),
+    (
+        "src/analysis/uncertainty_error_relation.py",
+        "R1.6, R2.2",
+        "predicted uncertainty vs realised error, and the epistemic share",
+    ),
+    (
         "src/analysis/activity_stratification.py",
         "R2.4",
         "STEC error stratified by Dst and F10.7",

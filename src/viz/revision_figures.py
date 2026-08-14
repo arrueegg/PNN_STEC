@@ -580,6 +580,44 @@ def fig_ionex_crps_skill(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
     _save(fig, "ionex_rms_crps_skill", "finetuned", output_dir, provenance)
 
 
+
+# --------------------------------------------------------------------------
+# R1.6 - predicted uncertainty against realised error
+# --------------------------------------------------------------------------
+
+
+def fig_uncertainty_vs_error(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
+    """Mean predicted sigma against realised RMSE, per predicted-sigma decile."""
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    limit = float(max(d.RMSE.max(), d.mean_sigma.max())) * 1.05
+    ax.plot(
+        [0, limit],
+        [0, limit],
+        linestyle="--",
+        color=CONDITION_COLORS["baseline"],
+        linewidth=1.5,
+        label="Perfect calibration",
+        zorder=2,
+    )
+    ax.plot(
+        d.mean_sigma,
+        d.RMSE,
+        marker="o",
+        markersize=9,
+        color=COLORS["Direct STEC"],
+        label="Direct STEC, by predicted-σ decile",
+        zorder=3,
+    )
+    ax.set_xlabel("Mean predicted σ [TECU]")
+    ax.set_ylabel("Realised RMSE [TECU]")
+    ax.set_xlim(0, limit)
+    ax.set_ylim(0, limit)
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.legend(loc="upper left")
+    ax.set_title("Predicted uncertainty against realised error")
+    _save(fig, "uncertainty_vs_error", "finetuned", output_dir, provenance)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output_dir", type=Path, default=Path("plots/revision"))
@@ -627,6 +665,11 @@ def main() -> None:
         "--station_independence_dir",
         type=Path,
         default=Path("multiday_results/station_independence"),
+    )
+    parser.add_argument(
+        "--uncertainty_error_dir",
+        type=Path,
+        default=Path("multiday_results/uncertainty_error_relation"),
     )
     parser.add_argument(
         "--ionex_benchmark_dir",
@@ -717,6 +760,19 @@ def main() -> None:
             f"{days} test days of 2024 ({obs:,} observations)"
         )
         _activity_figures(table, bin_col, axis_label, stem, args.output_dir, prov)
+
+    by_sigma = args.uncertainty_error_dir / "by_sigma.csv"
+    if by_sigma.exists():
+        d = pd.read_csv(by_sigma)
+        prov = (
+            f"{by_sigma} — daily fine-tuned models, own test set "
+            f"({int(d['n'].sum()):,} observations)"
+        )
+        fig_uncertainty_vs_error(d, args.output_dir, prov)
+    else:
+        logger.warning(
+            f"⚠️  {by_sigma} not found - run src/analysis/uncertainty_error_relation.py"
+        )
 
     overall = args.ionex_benchmark_dir / "overall_IGS.csv"
     if overall.exists():
