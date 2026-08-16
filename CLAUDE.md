@@ -230,6 +230,18 @@ Two evaluations that are **not** what they look like:
   properties of the *day*, and the paper's runs already fetched all 242, so
   `reuse_from_other_runs` symlinks them from `experiments/*/positioning/evaluation/<tag>/products`.
   Only DOY 303, 338 and 348 have no copy anywhere and cannot be run from this host.
+- **Positioning is disk-dominated, and it killed a run.** A solved day costs ~766 MB under
+  `results/<tag>/`, of which **.stat is 362 MB and .log 367 MB against 34 MB of .pos** — nothing
+  in the analysis path reads the first two, only `.pos` and `daily_summary.csv`. On top of that
+  `--no_cleanup` retains ~1 GB of RINEX per day under `evaluation/<tag>/rinex`, which is an
+  *input* and re-downloads from a reachable host. 242 days of both filled a 1.9 TB disk and
+  killed the store backfill with `OSError: No space left on device` mid-sweep.
+  `run_full_positioning_coverage.sh` now drops both per day (`KEEP_RINEX=1` /
+  `KEEP_DIAGNOSTICS=1` to retain). Budget ~550 MB per store day (150 MB parquet × 2 datasets +
+  248 MB of legacy `detailed_predictions.csv`).
+- **Long sweeps must batch.** `backfill_store.sh` runs 25 days at a time and checks a 40 GB free
+  floor between batches, because a single 200-day `cli.py multiday` invocation has no safe stop
+  point — a disk-full crash lands wherever it lands, possibly mid-parquet-write.
 - **Background jobs die when the launching session exits.** Start anything long with
   `setsid nohup … &`, or it will be killed with no error in the log.
 - **`set -o pipefail` plus `grep -q`** reports pipeline failure even on a match, because

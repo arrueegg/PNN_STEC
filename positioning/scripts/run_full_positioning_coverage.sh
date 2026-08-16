@@ -81,7 +81,26 @@ for doy in "${DOYS[@]}"; do
     --weight_opt iono --no_cleanup --skip_downloads --parallel "$PARALLEL" \
     || log "fixed-variance positioning failed for ${tag}, continuing"
 
-  log "oracle $(find experiments/${ORACLE} -name '*.pos' | wc -l) solutions, fixed-variance $(find experiments/${FIXED} -name '*.pos' 2>/dev/null | wc -l)"
+  # ---- reclaim the day's inputs -----------------------------------------
+  # RINEX is ~1 GB per day and is an *input*: once the .pos files exist it has
+  # no further use, and it downloads again from a reachable host if a day ever
+  # needs re-running. Keeping all 242 days filled the disk mid-run and killed
+  # the store backfill, so it is dropped as soon as both arms have finished
+  # with it. Set KEEP_RINEX=1 to retain it when debugging a single day.
+  if [[ "${KEEP_RINEX:-0}" != "1" ]]; then
+    rm -rf "${oracle_eval}/rinex" "${fixed_eval}/rinex"
+  fi
+  # PPPx writes a .stat and a .log per station - together ~730 MB of the 766 MB
+  # a solved day occupies, against 34 MB of .pos. Nothing in the analysis path
+  # reads either; only .pos and daily_summary.csv are consumed. Set
+  # KEEP_DIAGNOSTICS=1 to retain them.
+  if [[ "${KEEP_DIAGNOSTICS:-0}" != "1" ]]; then
+    find "experiments/${ORACLE}/positioning/results/${tag}" \
+         "experiments/${FIXED}/positioning/results/${tag}" \
+         \( -name '*.stat' -o -name '*.log' \) -delete 2>/dev/null
+  fi
+
+  log "oracle $(find experiments/${ORACLE} -name '*.pos' | wc -l) solutions, fixed-variance $(find experiments/${FIXED} -name '*.pos' 2>/dev/null | wc -l), $(df -BG --output=avail . | tail -1 | tr -dc '0-9') GB free"
 done
 
 log "=== full positioning coverage complete ==="
