@@ -94,7 +94,14 @@ Notes:
   rather than stored as placeholders. Per-arc analysis is only possible on the `own` dataset.
 - Space-weather columns keep registry names: `Kp_index`, `R_Sunspot_No`, `Dst-index,_nT`,
   `AE-index,_nT`, `ap_index,_nT`, `f107_index`.
-- Roughly 85 MB per 2.4 M-row day.
+- The VTEC baseline (`MLP_LaplacianNLL`) predicts a **scale**, not a std: variance is 2*scale^2,
+  converted in `inference_manager`. Its slant-mapped sigma is `vtec_model_stec_total_unc`
+  (plus aleatoric/epistemic twins). Score it as a **Laplace**, not a Gaussian - the same data
+  reads 90% coverage at nominal 50% under Gaussian quantiles against 82% under Laplace. It was
+  computed and then dropped by the schema whitelist for weeks; that is the failure mode this
+  store exists to prevent, so never narrow the schema at a write site.
+- Roughly 85 MB per 2.4 M-row day, ~550 MB per day once both datasets and the legacy
+  `detailed_predictions.csv` are counted.
 
 ## Commands
 
@@ -109,6 +116,10 @@ python cli.py compare --stec_experiment "Finetune_STEC_2024_183_..." \
 # Multi-day paper workflow
 python cli.py multiday --dates "2024-122:2024-366" \
     --stec_config config/config_BNN.yaml --vtec_config config/config_vtec_mlp_baseline.yaml
+
+# A full-day sweep costs ~15 min/day (both datasets, T=100) and ~550 MB/day of disk, so 242
+# days is >2 days of wall clock. Batch it and refresh results between batches rather than
+# rebuilding only at the end - scripts/backfill_store.sh does both.
 
 # Re-plot aggregates with no GPU and no re-inference
 python src/multiday_evaluation.py --summary_only --output_dir multiday_results/with_pretrained_baseline
@@ -130,7 +141,11 @@ The paper was rejected; `docs/revision/response_to_reviewers.md` tracks the resp
 `docs/revision/evidence_summary.md` is the standalone handoff listing every result, number
 and file per reviewer comment.
 
-Thirteen analyses under `src/analysis/` produce the evidence, one per reviewer point. They
+Sixteen analyses under `src/analysis/` produce the evidence, one per reviewer point. Four are
+newer than the rest: `repair_gim_baseline` (must run **before** `activity_stratification`, which
+reads its corrected GIM values), `daily_metrics` (Tables 3 and 4 recomputed from the store,
+replacing the un-recomputable `summary_statistics.csv`), `uncertainty_error_relation` (R1.6) and
+`ionex_rms_benchmark` (R2.6b). They
 all write CSV to `multiday_results/<name>/` and are driven by
 [src/analysis/build_all.py](src/analysis/build_all.py), which also writes two indices:
 
@@ -160,6 +175,10 @@ Two evaluations that are **not** what they look like:
   IGS GIM disagree with Madrigal identically (corr +0.946 over 66 stations). Madrigal numbers
   must be read alongside `madrigal_reference_offset`, never standalone, and they do not
   support claims about the model's out-of-distribution uncertainty.
+- **`oracle_benchmark` is not comparable with Table 5**, by design and permanently. It uses
+  **elev** weighting - the reference STEC carries only a placeholder sigma, so `iono` would
+  weight by a constant - and is restricted to station-days solved by *all four* methods. Read
+  ratios to the floor inside that table; take absolute positioning numbers from Table 5.
 - **`station_independence` is limited by n = 55 test stations**, not by observations. Adding
   days sharpens each point but not the Spearman coefficient. Making that result stronger
   needs a region-held-out retrain, not more data.
