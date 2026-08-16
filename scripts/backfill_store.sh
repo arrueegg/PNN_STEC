@@ -87,6 +87,20 @@ while true; do
     log "batch made no progress - stopping rather than looping"
     exit 1
   fi
+
+  # Refresh the store-only results after every batch. At ~15 min per day a full
+  # backfill takes over a day, and waiting for the end means no usable output in
+  # the meantime; this way the tables and figures are always current to the last
+  # completed batch. Only the cheap analyses run here - the IONEX benchmark
+  # rereads every stored day and grows with the store, so it is left to the
+  # final rebuild in weekend_queue.sh.
+  log "refreshing store-only results ($(( 242 - $(tr ',' '\n' <<<"$(missing_days)" | grep -c . ) )) day(s) covered)"
+  python src/analysis/repair_gim_baseline.py --apply >/dev/null 2>&1 \
+    || log "  GIM repair failed, continuing"
+  for analysis in daily_metrics uncertainty_error_relation activity_stratification; do
+    python "src/analysis/${analysis}.py" >/dev/null 2>&1 || log "  ${analysis} failed, continuing"
+  done
+  python src/viz/revision_figures.py >/dev/null 2>&1 || log "  figures failed, continuing"
 done
 
 log "backfill finished"
