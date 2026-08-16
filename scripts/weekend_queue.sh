@@ -50,7 +50,18 @@ while backfill_running; do
 done
 step "backfill finished"
 
-# ---- 2. days missing the VTEC uncertainty column -------------------------
+# ---- 2. rebuild straight away on the now-complete store ------------------
+# The GPU steps below take most of a day. Everything that depends only on the
+# store - Tables 3 and 4, R1.6, R2.4, the IONEX benchmark, calibration - can be
+# correct hours earlier, so it is built first and built again at the end once
+# the extras have landed.
+step "first rebuild: repairing the GIM baseline over all stored days"
+python src/analysis/repair_gim_baseline.py --apply || log "GIM repair failed, continuing"
+step "first rebuild: tables and figures on the complete store"
+python src/analysis/build_all.py --figures || log "build_all failed, continuing"
+log "full-period tables and figures are now current in multiday_results/ and plots/revision/"
+
+# ---- 3. days missing the VTEC uncertainty column -------------------------
 step "finding days stored before the VTEC-uncertainty fix"
 DAYS=$(python - <<'PY'
 import glob, re
@@ -77,21 +88,21 @@ else
   log "every stored day already carries the VTEC uncertainty"
 fi
 
-# ---- 3. pretrained model over the full test set --------------------------
+# ---- 4. pretrained model over the full test set --------------------------
 step "pretrained test-set pass (feeds R2.4b and R1.6)"
 python src/inference_testset.py --config_path "$PRETRAIN_EXPERIMENT/config.yaml" \
   || log "pretrained test-set pass failed, continuing"
 
-# ---- 4. R2.2 fully-Bayesian ----------------------------------------------
+# ---- 5. R2.2 fully-Bayesian ----------------------------------------------
 step "R2.2 fully-Bayesian pretrain"
 python cli.py train --config config/config_A4_fully_bayesian.yaml \
   || log "fully-Bayesian pretrain failed, continuing"
 
-# ---- 5. rebuild everything -----------------------------------------------
-step "repairing the GIM baseline over all stored days"
+# ---- 6. rebuild again, now including the GPU extras ----------------------
+step "final rebuild: repairing the GIM baseline over all stored days"
 python src/analysis/repair_gim_baseline.py --apply || log "GIM repair failed, continuing"
 
-step "rebuilding all revision tables and figures"
+step "final rebuild: all revision tables and figures"
 python src/analysis/build_all.py --figures || log "build_all failed"
 
 step "weekend queue complete"
