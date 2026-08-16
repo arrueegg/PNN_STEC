@@ -27,6 +27,21 @@ PRETRAIN_EXPERIMENT="experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v
 log() { printf '%s  %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$*"; }
 step() { log "=== $* ==="; }
 
+# The backfill checks a free-space floor between batches, but the GPU steps below
+# are single long invocations with no safe interior stop point - the same shape
+# that lost a half-written sweep when the disk filled. Check before each one and
+# skip it rather than crash partway through.
+MIN_FREE_GB=40
+enough_space() {
+  local available
+  available=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
+  if (( available < MIN_FREE_GB )); then
+    log "only ${available} GB free, below the ${MIN_FREE_GB} GB floor - skipping: $*"
+    return 1
+  fi
+  return 0
+}
+
 # ---- 1. wait for the backfill -------------------------------------------
 # Match the backfill *script*, not its python command line: `ps -eo args`
 # truncates to 80 columns when stdout is not a terminal, and the backfill's
@@ -74,7 +89,7 @@ for path in sorted(glob.glob("predictions/finetuned_stec/own/year=2024/doy=*.par
 print(",".join(f"2024-{d:03d}" for d in stale))
 PY
 )
-if [[ -n "$DAYS" ]]; then
+if [[ -n "$DAYS" ]] && enough_space "VTEC-uncertainty re-run"; then
   log "re-running $(tr ',' '\n' <<<"$DAYS" | wc -l) day(s) for the VTEC uncertainty column"
   python cli.py multiday \
     --dates "$DAYS" \
@@ -90,11 +105,13 @@ fi
 
 # ---- 4. pretrained model over the full test set --------------------------
 step "pretrained test-set pass (feeds R2.4b and R1.6)"
+enough_space "pretrained test-set pass" &&
 python src/inference_testset.py --config_path "$PRETRAIN_EXPERIMENT/config.yaml" \
   || log "pretrained test-set pass failed, continuing"
 
 # ---- 5. R2.2 fully-Bayesian ----------------------------------------------
 step "R2.2 fully-Bayesian pretrain"
+enough_space "R2.2 fully-Bayesian pretrain" &&
 python cli.py train --config config/config_A4_fully_bayesian.yaml \
   || log "fully-Bayesian pretrain failed, continuing"
 
