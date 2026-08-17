@@ -42,7 +42,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 DEFAULT_SWI_PATH = Path("data/omni_hourly_2010-2025.h5")
-DEFAULT_GIM_REPAIR_REPORT = Path("multiday_results/gim_baseline_repair/gim_repair_report.csv")
+STORE_DAILY_METRICS = Path("multiday_results/daily_metrics/per_day.csv")
 
 # Conventional geomagnetic storm classification on the daily minimum Dst.
 DST_BINS = [-1000, -100, -50, -30, 1000]
@@ -98,41 +98,30 @@ def _pool(group: pd.DataFrame) -> pd.Series:
     )
 
 
-def apply_gim_repair(
-    results: pd.DataFrame, dataset: str, report_path: Path
-) -> pd.DataFrame:
-    """Replace IGS GIM daily RMSE on the days that used the wrong IONEX map.
+def resolve_results_csv(preferred: Path, fallback: Path) -> Path:
+    """Prefer the per-day metrics derived from the prediction store.
 
-    `all_results.csv` was produced before the day-truncation bug described in
-    `repair_gim_baseline.py` was found, so on 12 days of 2024 its IGS GIM row is
-    the error against the *previous* day's map. Two of those days (DOY 225 and
-    226) sit in the intense-storm bin, where there are only 14 days in total, so
-    leaving them in changes the sign of this analysis' conclusion.
+    `all_results.csv` was aggregated at inference time and its IGS GIM column is
+    wrong on 12 days of 2024 (see `repair_gim_baseline.py`). This used to be
+    handled by patching those days from the repair report, which was a trap: the
+    report only marks a day `repaired` when that run actually changed it, so once
+    the store was fixed the report went empty, the patch substituted nothing and
+    this analysis silently reverted to the contaminated numbers. A correction
+    that erases itself once it succeeds is worse than none.
 
-    This is a stopgap. Once the prediction store covers all 242 days the daily
-    metrics should be recomputed from it directly and this correction retired.
+    `daily_metrics.py` recomputes the same per-day table directly from the
+    repaired store with an identical schema, so it is simply the better input.
+    It covers only the days the store holds, which is the honest constraint -
+    fewer days, right numbers.
     """
-    if not report_path.exists():
-        logger.warning(
-            f"⚠️  No GIM repair report at {report_path} - GIM rows may be stale"
-        )
-        return results
-
-    store_dataset = "madrigal" if dataset.startswith("madrigal") else "own"
-    report = pd.read_csv(report_path)
-    report = report[(report["dataset"] == store_dataset) & report["repaired"]]
-    if report.empty:
-        return results
-
-    corrected = report.set_index("doy")["RMSE_corrected"]
-    rows = (results["Model"] == GIM_MODEL) & results["doy"].isin(corrected.index)
-    results = results.copy()
-    results.loc[rows, "RMSE"] = results.loc[rows, "doy"].map(corrected)
-    logger.info(
-        f"Applied corrected IGS GIM RMSE for {int(rows.sum())} day(s): "
-        f"{sorted(results.loc[rows, 'doy'].tolist())}"
+    if preferred.exists():
+        logger.info(f"using store-derived daily metrics: {preferred}")
+        return preferred
+    logger.warning(
+        f"⚠️  {preferred} not found - falling back to {fallback}, whose IGS GIM "
+        "column is wrong on DOY 184-189 and 225-230. Run daily_metrics.py first."
     )
-    return results
+    return fallback
 
 
 def stratify(
@@ -140,12 +129,10 @@ def stratify(
     year: int,
     dataset: str = "own_vtec_gim",
     swi_path: Path = DEFAULT_SWI_PATH,
-    gim_repair_report: Path = DEFAULT_GIM_REPAIR_REPORT,
 ) -> dict[str, pd.DataFrame]:
     """Pool the daily metrics into Dst and F10.7 bins, per model."""
     results = pd.read_csv(results_csv)
     results = results[results["dataset"] == dataset]
-    results = apply_gim_repair(results, dataset, gim_repair_report)
     merged = results.merge(load_daily_indices(year, swi_path), on="doy", how="inner")
 
     merged["dst_bin"] = pd.cut(merged["dst_min"], bins=DST_BINS, labels=DST_LABELS)
@@ -196,6 +183,12 @@ def main() -> None:
     parser.add_argument(
         "--results",
         type=Path,
+        default=None,
+        help="per-day metrics; defaults to the store-derived table when present",
+    )
+    parser.add_argument(
+        "--fallback_results",
+        type=Path,
         default=Path(
             "multiday_results/with_pretrained_baseline/summary/all_results.csv"
         ),
@@ -214,7 +207,10 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    tables = stratify(args.results, args.year, args.dataset, args.swi_path)
+    results_csv = args.results or resolve_results_csv(
+        STORE_DAILY_METRICS, args.fallback_results
+    )
+    tables = stratify(results_csv, args.year, args.dataset, args.swi_path)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     for key, table in tables.items():
