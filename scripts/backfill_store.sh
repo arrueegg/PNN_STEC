@@ -23,7 +23,31 @@ BATCH_DAYS=25
 # headroom in reserve rather than discovering the limit mid-write.
 MIN_FREE_GB=40
 
+# Run heavy python under a cgroup memory cap. This host has 30 GB shared with a
+# desktop session, and the dataloader forks a worker per CPU, each touching a
+# copy of the in-RAM day - the spike pushed the machine into swap hard enough to
+# take the user's session down. With a cap the kernel kills our job instead of
+# collapsing the desktop, which is the right failure.
+MEMORY_MAX="${MEMORY_MAX:-14G}"
+# Probe once rather than per call: if systemd-run cannot make a scope here (no
+# user D-Bus in a detached session, for instance) we must run uncapped rather
+# than fail the batch, and we should say so instead of silently losing the cap.
+if systemd-run --user --scope -q -p MemoryMax=64M true >/dev/null 2>&1; then
+  USE_CAP=1
+else
+  USE_CAP=0
+fi
+capped() {
+  if (( USE_CAP )); then
+    systemd-run --user --scope -q -p MemoryMax="$MEMORY_MAX" -p MemorySwapMax=2G "$@"
+  else
+    "$@"
+  fi
+}
+
 log() { printf '%s  %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$*"; }
+
+(( USE_CAP )) && log "memory cap ${MEMORY_MAX} active" || log "⚠️  no memory cap - systemd scope unavailable"
 
 free_gb() { df -BG --output=avail . | tail -1 | tr -dc '0-9'; }
 
@@ -73,7 +97,7 @@ while true; do
   BATCH=$(tr ',' '\n' <<<"$DAYS" | head -n "$BATCH_DAYS" | paste -sd,)
   log "${remaining} day(s) outstanding, ${available} GB free - running a batch of $(tr ',' '\n' <<<"$BATCH" | wc -l)"
 
-  python cli.py multiday \
+  capped python cli.py multiday \
     --dates "$BATCH" \
     --stec_config config/config_BayesianResNetSTEC.yaml \
     --vtec_config config/config_mao_laplacian.yaml \

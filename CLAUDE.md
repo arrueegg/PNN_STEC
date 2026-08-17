@@ -261,6 +261,15 @@ Two evaluations that are **not** what they look like:
 - **Long sweeps must batch.** `backfill_store.sh` runs 25 days at a time and checks a 40 GB free
   floor between batches, because a single 200-day `cli.py multiday` invocation has no safe stop
   point — a disk-full crash lands wherever it lands, possibly mid-parquet-write.
+- **This host has 30 GB of RAM shared with a desktop session.** Two concurrent sweeps push it
+  into swap hard enough to collapse the user's login. Long jobs run under
+  `systemd-run --user --scope -p MemoryMax=14G`; the scope's `memory.current` is the number to
+  trust, **not** summed RSS — 12 forked dataloader workers report ~22 GB of RSS against a true
+  cgroup charge of 5 GB, because copy-on-write pages are counted once per process.
+- **A "is the other job running?" guard must match the driving *script*, not its python.** The
+  queue keyed on the sweep's `--output_dir`; between batches no such process exists, so it
+  concluded the backfill had finished and started a second concurrent sweep. Match
+  `backfill_store.sh` in `/proc/<pid>/cmdline` instead.
 - **Background jobs die when the launching session exits.** Start anything long with
   `setsid nohup … &`, or it will be killed with no error in the log.
 - **`set -o pipefail` plus `grep -q`** reports pipeline failure even on a match, because

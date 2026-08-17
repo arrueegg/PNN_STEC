@@ -24,7 +24,31 @@ cd "$(dirname "$0")/.."
 
 PRETRAIN_EXPERIMENT="experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
 
+# Run heavy python under a cgroup memory cap. This host has 30 GB shared with a
+# desktop session, and the dataloader forks a worker per CPU, each touching a
+# copy of the in-RAM day - the spike pushed the machine into swap hard enough to
+# take the user's session down. With a cap the kernel kills our job instead of
+# collapsing the desktop, which is the right failure.
+MEMORY_MAX="${MEMORY_MAX:-14G}"
+# Probe once rather than per call: if systemd-run cannot make a scope here (no
+# user D-Bus in a detached session, for instance) we must run uncapped rather
+# than fail the batch, and we should say so instead of silently losing the cap.
+if systemd-run --user --scope -q -p MemoryMax=64M true >/dev/null 2>&1; then
+  USE_CAP=1
+else
+  USE_CAP=0
+fi
+capped() {
+  if (( USE_CAP )); then
+    systemd-run --user --scope -q -p MemoryMax="$MEMORY_MAX" -p MemorySwapMax=2G "$@"
+  else
+    "$@"
+  fi
+}
+
 log() { printf '%s  %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$*"; }
+(( USE_CAP )) && log "memory cap ${MEMORY_MAX} active" || log "⚠️  no memory cap - systemd scope unavailable"
+
 step() { log "=== $* ==="; }
 
 # The backfill checks a free-space floor between batches, but the GPU steps below
@@ -51,14 +75,27 @@ enough_space() {
 # grep reads /proc/<pid>/cmdline directly: piping `tr` into `grep -q` would trip
 # the set -o pipefail trap, where grep exits early, tr takes SIGPIPE and the
 # pipeline reports failure on a successful match.
+# Match the backfill *script*, not the python it launches. The python only
+# exists while a batch is in flight; between batches the script is computing the
+# outstanding day list or running the refresh analyses, and a guard keyed on the
+# sweep's --output_dir sees nothing and concludes the backfill has finished. That
+# race started a second concurrent sweep on a 30 GB host and was the source of
+# the intermittent memory pressure that collapsed the desktop.
+#
+# grep reads /proc/<pid>/cmdline directly: `ps -eo args` truncates to 80 columns
+# off a terminal, and piping `tr` into `grep -q` trips the pipefail SIGPIPE trap.
 backfill_running() {
+  local cmdline pid
   for cmdline in /proc/[0-9]*/cmdline; do
-    if grep -qaF 'store_sweep_full' "$cmdline" 2>/dev/null; then
+    pid=${cmdline#/proc/}; pid=${pid%/cmdline}
+    [[ "$pid" == "$$" ]] && continue
+    if grep -qaF 'backfill_store.sh' "$cmdline" 2>/dev/null; then
       return 0
     fi
   done
   return 1
 }
+
 while backfill_running; do
   log "store backfill still running, waiting"
   sleep 600
@@ -91,7 +128,7 @@ PY
 )
 if [[ -n "$DAYS" ]] && enough_space "VTEC-uncertainty re-run"; then
   log "re-running $(tr ',' '\n' <<<"$DAYS" | wc -l) day(s) for the VTEC uncertainty column"
-  python cli.py multiday \
+  capped python cli.py multiday \
     --dates "$DAYS" \
     --stec_config config/config_BayesianResNetSTEC.yaml \
     --vtec_config config/config_mao_laplacian.yaml \
@@ -106,13 +143,13 @@ fi
 # ---- 4. pretrained model over the full test set --------------------------
 step "pretrained test-set pass (feeds R2.4b and R1.6)"
 enough_space "pretrained test-set pass" &&
-python src/inference_testset.py --config_path "$PRETRAIN_EXPERIMENT/config.yaml" \
+capped python src/inference_testset.py --config_path "$PRETRAIN_EXPERIMENT/config.yaml" \
   || log "pretrained test-set pass failed, continuing"
 
 # ---- 5. R2.2 fully-Bayesian ----------------------------------------------
 step "R2.2 fully-Bayesian pretrain"
 enough_space "R2.2 fully-Bayesian pretrain" &&
-python cli.py train --config config/config_A4_fully_bayesian.yaml \
+capped python cli.py train --config config/config_A4_fully_bayesian.yaml \
   || log "fully-Bayesian pretrain failed, continuing"
 
 # ---- 6. rebuild again, now including the GPU extras ----------------------

@@ -66,8 +66,8 @@ training:
 pretrain:
   epochs: 150
   batchsize: 1024
-  num_workers: 12 
-  prefetch_factor: 4
+  num_workers: 4  # capped for peak RSS: each worker forks a copy of the in-RAM day (30 GB host) 
+  prefetch_factor: 2
   learning_rate: 0.01
   scheduler: ReduceLROnPlateau            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 150       # Step size for scheduler
@@ -77,7 +77,7 @@ pretrain:
 
 finetune:
   epochs: 100
-  num_workers: 12
+  num_workers: 4
   learning_rate: 0.001
   scheduler: ReduceLROnPlateau             # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100       # Step size for scheduler
