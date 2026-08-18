@@ -73,10 +73,23 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
             if method_column not in frame.columns:
                 continue
             error = frame[method_column].to_numpy(float) - truth
-            part = pd.DataFrame({"bin": binned, "_sq": error**2, "_abs": np.abs(error)})
-            part = part.dropna(subset=["bin"])
+            # sum_truth / sum_truth_sq carry the total sum of squares, so R2 is
+            # poolable across days without holding any observation in memory.
+            part = pd.DataFrame(
+                {
+                    "bin": binned,
+                    "_sq": error**2,
+                    "_abs": np.abs(error),
+                    "_truth": truth,
+                    "_truth_sq": truth**2,
+                }
+            ).dropna(subset=["bin"])
             grouped = part.groupby("bin", observed=True).agg(
-                n=("_sq", "size"), sum_sq=("_sq", "sum"), sum_abs=("_abs", "sum")
+                n=("_sq", "size"),
+                sum_sq=("_sq", "sum"),
+                sum_abs=("_abs", "sum"),
+                sum_truth=("_truth", "sum"),
+                sum_truth_sq=("_truth_sq", "sum"),
             )
             for value, row in grouped.iterrows():
                 rows.append(
@@ -111,6 +124,9 @@ def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
     )
     pooled["RMSE"] = np.sqrt(pooled.sum_sq / pooled.n)
     pooled["MAE"] = pooled.sum_abs / pooled.n
+    # SST from the running sums: sum((y - ybar)^2) = sum(y^2) - n*ybar^2
+    total_sum_squares = pooled.sum_truth_sq - pooled.sum_truth**2 / pooled.n
+    pooled["R2"] = np.where(total_sum_squares > 0, 1 - pooled.sum_sq / total_sum_squares, np.nan)
     pooled = pooled.rename(columns={"n": "observations"})
 
     tables = {}
@@ -129,7 +145,7 @@ def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
         else:
             group = group.assign(improvement_over_gim_pct=np.nan)
         tables[name] = group[
-            ["bin", "Method", "days", "observations", "RMSE", "MAE",
+            ["bin", "Method", "days", "observations", "RMSE", "MAE", "R2",
              "improvement_over_gim_pct"]
         ].reset_index(drop=True)
     return tables
