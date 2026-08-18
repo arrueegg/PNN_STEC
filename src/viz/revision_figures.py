@@ -771,6 +771,90 @@ def fig_reference_precision(
     )
 
 
+
+# --------------------------------------------------------------------------
+# R1.4 - all four methods across every stratifier, not just the model alone
+# --------------------------------------------------------------------------
+
+STRATIFIER_AXES = {
+    "elevation": "Satellite elevation [°]",
+    "geomagnetic_latitude": "Geomagnetic latitude of the pierce point [°]",
+    "local_time": "Local time [h]",
+    "season": "Season",
+}
+
+
+def _interval_label(text: str, unit: str = "") -> tuple[float, str]:
+    """Turn a pandas interval string into a sort key and a readable label.
+
+    Ranges spanning negative values cannot use a bare dash - "-90--60" is
+    unreadable - so a negative endpoint switches the separator to "to" and the
+    unit is dropped, since the axis label already carries it.
+    """
+    if not text.startswith("("):
+        return (0.0, text)
+    left, right = text.strip("()[]").split(", ")
+    lo, hi = float(left), float(right)
+    # pandas pads the lowest edge (4.999, -90.001); show the intended value.
+    lo = round(lo) if abs(lo - round(lo)) < 0.01 else lo
+    def minus(value: float) -> str:
+        return f"{value:g}".replace("-", "\u2212")
+
+    separator = " to " if lo < 0 or hi < 0 else "\u2013"
+    return (lo, f"{minus(lo)}{separator}{minus(hi)}")
+
+
+def _stratified_figures(
+    table: pd.DataFrame, name: str, output_dir: Path, provenance: str
+) -> None:
+    unit = ""  # the axis label carries the unit; keep tick labels short
+    keys = {b: _interval_label(b, unit) for b in table["bin"].unique()}
+    if name == "season":
+        # Order by the calendar, and carry the day count: the test period is
+        # May-December, so winter is ten December days and must not read as a
+        # quarter of the year.
+        order = ["spring", "summer", "autumn", "winter"]
+        days = table.drop_duplicates("bin").set_index("bin")["days"]
+        keys = {
+            b: (order.index(b.strip()) if b.strip() in order else 99,
+                f"{b.strip()}\n({int(days[b])} d)")
+            for b in table["bin"].unique()
+        }
+    bins = sorted(keys, key=lambda b: keys[b][0])
+    labels = [keys[b][1] for b in bins]
+    series = [m for m in METHOD_ORDER if m in set(table["Method"])]
+
+    def values(column):
+        return {
+            m: [
+                table[(table.Method == m) & (table.bin == b)][column].iloc[0]
+                for b in bins
+            ]
+            for m in series
+        }
+
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    plotted = _grouped_bars(
+        ax, labels, series, values("RMSE"), [COLORS[m] for m in series],
+        "STEC RMSE [TECU]", STRATIFIER_AXES[name],
+    )
+    ax.legend(ncol=2)
+    ax.set_title(f"STEC error by {STRATIFIER_AXES[name].split(' [')[0].lower()}")
+    _save(fig, f"stratified_{name}_absolute", "finetuned", output_dir, provenance, plotted)
+
+    relative = [m for m in series if m != "IGS GIM + Mapping"]
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    plotted = _grouped_bars(
+        ax, labels, relative, values("improvement_over_gim_pct"),
+        [COLORS[m] for m in relative], "Improvement over IGS GIM [%]",
+        STRATIFIER_AXES[name],
+    )
+    ax.axhline(0, color="black", linewidth=1.2, zorder=4)
+    ax.legend(loc="lower left")
+    ax.set_title(f"Margin over IGS GIM by {STRATIFIER_AXES[name].split(' [')[0].lower()}")
+    _save(fig, f"stratified_{name}_improvement", "finetuned", output_dir, provenance, plotted)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output_dir", type=Path, default=Path("plots/revision"))
@@ -818,6 +902,11 @@ def main() -> None:
         "--station_independence_dir",
         type=Path,
         default=Path("multiday_results/station_independence"),
+    )
+    parser.add_argument(
+        "--stratified_dir",
+        type=Path,
+        default=Path("multiday_results/stratified_comparison"),
     )
     parser.add_argument(
         "--uncertainty_error_dir",
@@ -913,6 +1002,20 @@ def main() -> None:
             f"{days} test days of 2024 ({obs:,} observations)"
         )
         _activity_figures(table, bin_col, axis_label, stem, args.output_dir, prov)
+
+    for name in STRATIFIER_AXES:
+        path = args.stratified_dir / f"by_{name}.csv"
+        if not path.exists():
+            logger.warning(f"⚠️  {path} not found - run stratified_comparison.py")
+            continue
+        table = pd.read_csv(path)
+        direct = table[table.Method == "Direct STEC"]
+        prov = (
+            f"{path} — daily fine-tuned models, own test set, "
+            f"{int(direct['days'].max())} test days of 2024 "
+            f"({int(direct['observations'].sum()):,} observations)"
+        )
+        _stratified_figures(table, name, args.output_dir, prov)
 
     by_sigma = args.uncertainty_error_dir / "by_sigma.csv"
     if by_sigma.exists():

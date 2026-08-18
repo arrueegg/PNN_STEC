@@ -62,7 +62,7 @@ STRATIFIERS = {
 }
 
 
-def accumulate_day(frame: pd.DataFrame) -> list[dict]:
+def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
     truth = frame["true_stec"].to_numpy(float)
     rows = []
     for name, (column, bins, labels) in STRATIFIERS.items():
@@ -84,6 +84,7 @@ def accumulate_day(frame: pd.DataFrame) -> list[dict]:
                         "stratifier": name,
                         "bin": str(value),
                         "Method": method,
+                        "doy": doy,
                         **row.to_dict(),
                     }
                 )
@@ -91,11 +92,22 @@ def accumulate_day(frame: pd.DataFrame) -> list[dict]:
 
 
 def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
+    frame = pd.DataFrame(rows)
+    # Day count per bin, so an unevenly sampled stratifier cannot be read as if
+    # it were balanced. The 2024 test period runs DOY 122-366, so "winter" is 11
+    # December days and nothing else - that has to be visible.
+    days = (
+        frame.groupby(["stratifier", "bin"], observed=True)["doy"]
+        .nunique()
+        .rename("days")
+        .reset_index()
+    )
     pooled = (
-        pd.DataFrame(rows)
+        frame.drop(columns=["doy"])
         .groupby(["stratifier", "bin", "Method"], observed=True)
         .sum()
         .reset_index()
+        .merge(days, on=["stratifier", "bin"], how="left")
     )
     pooled["RMSE"] = np.sqrt(pooled.sum_sq / pooled.n)
     pooled["MAE"] = pooled.sum_abs / pooled.n
@@ -110,7 +122,8 @@ def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
             / g["bin"].map(baseline)
         )
         tables[name] = group[
-            ["bin", "Method", "observations", "RMSE", "MAE", "improvement_over_gim_pct"]
+            ["bin", "Method", "days", "observations", "RMSE", "MAE",
+             "improvement_over_gim_pct"]
         ].reset_index(drop=True)
     return tables
 
@@ -151,7 +164,7 @@ def main() -> None:
             root=args.store_root,
             columns=[c for c in dict.fromkeys(wanted) if c in available],
         )
-        rows.extend(accumulate_day(frame))
+        rows.extend(accumulate_day(frame, doy))
 
     tables = finalise(rows)
     args.output_dir.mkdir(parents=True, exist_ok=True)

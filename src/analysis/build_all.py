@@ -61,6 +61,11 @@ ANALYSES = [
         "predicted uncertainty vs realised error, and the epistemic share",
     ),
     (
+        "src/analysis/stratified_comparison.py",
+        "R1.4",
+        "all four methods by elevation, geomagnetic latitude, local time, season",
+    ),
+    (
         "src/analysis/activity_stratification.py",
         "R1.4",
         "STEC error stratified by Dst and F10.7",
