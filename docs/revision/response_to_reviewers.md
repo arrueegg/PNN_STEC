@@ -103,8 +103,8 @@ axis was activity.
 
 | Daily min Dst | days | Direct STEC | Pretrained | VTEC+Map | IGS GIM | Direct vs GIM |
 |---|---|---|---|---|---|---|
-| quiet (> −30 nT) | 165 | 6.78 | 12.69 | 8.95 | 8.30 | +18.4% |
-| weak (−50 to −30) | 38 | 7.07 | 13.91 | 8.98 | 8.63 | +18.0% |
+| quiet (> −30 nT) | 165 | 6.78 | 12.69 | 8.95 | 8.14 | +16.7% |
+| weak (−50 to −30) | 38 | 7.07 | 13.90 | 8.98 | 8.51 | +16.9% |
 | moderate (−100 to −50) | 25 | 7.41 | 15.62 | 9.10 | 8.65 | +14.3% |
 | intense (≤ −100 nT) | 14 | **8.04** | 24.26 | 9.59 | 9.02 | **+10.9%** |
 
@@ -119,8 +119,9 @@ activity bin and degrades least from quiet to intense (+19%, against +9% for VTE
 +9% for IGS GIM and +91% for the pretrained-only variant). Across F10.7 terciles the margin is
 +20/+15/+17%.
 
-⏳ The quiet row still contains 8 days whose GIM is being recomputed; they will move the quiet
-margin down by roughly 1.5 points, slightly *reducing* the remaining spread across bins. The
+All 242 days are now in place, including the 12 whose GIM was recomputed — 8 of them in the
+quiet bin, which is why that row moved from +18.4% to +16.7% while moderate and intense did not
+change. The
 intense, moderate and weak rows are final. ⏳ The equivalent stratification of Figure 4 itself
 (pretrained model) is still being computed.
 
