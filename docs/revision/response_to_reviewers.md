@@ -41,18 +41,36 @@ output bias to the dataset mean STEC while the fully-Bayesian variant does not.
 
 ### R1.3 — comparability of STEC products ✅
 The reviewer is right that the comparison conflates model error with reference inconsistency,
-and we can now quantify the split. On the Madrigal geometries there are three independent
-estimates of the same slant path: the model, the IGS GIM mapped to that line of sight, and
-Madrigal. The model and the GIM share nothing in their construction, yet their per-station
-disagreement with Madrigal is almost identical:
+and we can now bound the split. On the Madrigal geometries there are three independent estimates
+of the same slant path: the model, the IGS GIM mapped to that line of sight, and Madrigal. The
+model and the GIM share nothing in their construction, yet they disagree with Madrigal the same
+way, at 67 stations over 443 M observations:
 
-* **corr(offset_model, offset_gim) = +0.924** over 67 stations
-* both exceed Madrigal at **93%** of stations; mean offsets +6.04 and +8.50 TECU
-* removing a per-station constant drops the model's Madrigal RMSE from 15.76 to 12.06 TECU
+* **96% of stations have both the model and the GIM exceeding Madrigal**; mean offsets +6.48 and
+  +8.75 TECU. Sign agreement carries no leverage and is the most robust form of the statement.
+* **Spearman ρ = +0.697** (p = 6×10⁻¹¹) between the two products' per-station offsets.
+* Removing a per-station constant drops the model's Madrigal RMSE from 15.05 to 11.13 TECU:
+  **45% of the variance in Table 4 is a station-dependent reference offset, not model error.**
 
-**41% of the variance in Table 4 is a station-dependent reference offset, not model error.**
-We will report Table 4 with this decomposition alongside, and expand Section 2 on how the
-reference STEC is produced (carrier-phase levelling, arc handling, DCB application).
+**The decisive number is the scale.** The reference database states its own precision per
+observation (`vtec_stddev`): median 0.20 TECU vertical, **0.28 TECU mapped to the slant
+direction**. The mean absolute per-station offset is 6.69 TECU — **24× the reference's own stated
+noise**, and reproduced by an independent product. A discrepancy that large cannot be reference
+noise; it is a systematic inter-product bias, exactly as the reviewer suspects.
+
+*A caveat we state ourselves:* the Pearson correlation over all stations is +0.925, but that is
+inflated by a sparse arm of large-offset stations — restricted to |offset| < 15 TECU it falls to
++0.617 (n = 53, p = 9×10⁻⁷). We therefore quote the rank correlation and the sign agreement,
+which are leverage-free. `leverage_check.csv` reports all four cut-offs.
+
+**What we will add to Section 2.** The reference processing is not described in the manuscript
+beyond CamaliotGNSS and CAS DCB. From the database itself: DCBs are applied **per day**, one
+receiver DCB per station per constellation (100% of 719 station-constellation pairs on DOY 183)
+and one satellite DCB per satellite, except Galileo where each satellite carries two values split
+by receiver — different E1–E5a/E5b combinations, differing by 0.16–0.90 TECU. Receiver DCBs span
+−84 to +69 TECU. Arcs are defined by a cycle-slip counter and are heavily fragmented: 192,728
+arcs in one day, 72% shorter than 10 epochs, p90 ≈ 3.5 h. The levelling procedure itself still
+needs to be documented by the group that produces the database.
 
 ### R1.4 — stratification ✅ (conclusion revised — see the GIM correction below)
 Elevation, geomagnetic latitude, local time and season are already Figures 5–8; the missing

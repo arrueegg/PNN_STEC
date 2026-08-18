@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 # A station needs enough observations for its mean offset to mean anything.
 MIN_OBSERVATIONS_PER_STATION = 5000
+RAW_STEC_DB = "/home/space/data/iono/STEC_DB_CASDCB"
 
 
 def iter_days(store_root: Path, model_variant: str):
@@ -184,6 +185,89 @@ def decompose_and_coverage(
     return summary, coverage
 
 
+def reference_precision(sample_days: int = 5) -> pd.Series | None:
+    """The reference product's OWN stated precision, mapped to the slant direction.
+
+    The raw STEC database carries `vtec_stddev` per observation - the precision
+    the reference processing claims for itself. Comparing it with the per-station
+    offsets is what answers the reviewer: if the disagreement between products is
+    orders of magnitude larger than the reference's own stated noise, it cannot be
+    reference noise, and must be a systematic bias difference between products.
+
+    Sampled across the test period rather than computed on every day; the quantity
+    is a property of the processing, not of the weather.
+    """
+    import h5py
+    from evaluation.gim_mapper import MappingFunction
+
+    paths = sorted(Path(RAW_STEC_DB).glob("2024/*/ccl_2024*_30_5.h5"))
+    if not paths:
+        logger.warning(f"⚠️  raw STEC DB not readable under {RAW_STEC_DB}")
+        return None
+    chosen = paths[:: max(1, len(paths) // sample_days)][:sample_days]
+
+    mapping = MappingFunction("MSLM")
+    vertical, slant = [], []
+    for path in chosen:
+        with h5py.File(path, "r") as handle:
+            group = handle[list(handle.keys())[0]]
+            data = group[list(group.keys())[0]]["all_data"]
+            sample = data[:: max(1, data.shape[0] // 200_000)]
+        sigma = np.asarray(sample["vtec_stddev"], dtype=float)
+        elevation = np.radians(np.asarray(sample["satele"], dtype=float))
+        keep = np.isfinite(sigma) & (sigma > 0)
+        vertical.append(sigma[keep])
+        slant.append(sigma[keep] * mapping.get_mapping_factor(elevation[keep]))
+
+    vertical = np.concatenate(vertical)
+    slant = np.concatenate(slant)
+    logger.info(f"reference precision sampled over {len(chosen)} day(s)")
+    return pd.Series(
+        {
+            "days_sampled": len(chosen),
+            "observations": int(vertical.size),
+            "vtec_stddev_median_TECU": float(np.median(vertical)),
+            "vtec_stddev_p90_TECU": float(np.percentile(vertical, 90)),
+            "slant_stddev_median_TECU": float(np.median(slant)),
+            "slant_stddev_p90_TECU": float(np.percentile(slant, 90)),
+        }
+    )
+
+
+def leverage_check(offsets: pd.DataFrame) -> pd.DataFrame:
+    """Is the model-GIM agreement carried by a handful of large-offset stations?
+
+    The Pearson correlation over all stations is inflated by the sparse arm of
+    high-offset stations. Restricting the range and using a rank correlation both
+    answer that, and the sign agreement is leverage-free entirely - so the claim
+    is stated with the robust numbers rather than the flattering one.
+    """
+    from scipy import stats
+
+    rows = []
+    for cutoff in (np.inf, 20.0, 15.0, 10.0):
+        subset = offsets[
+            (offsets["offset_model"].abs() < cutoff)
+            & (offsets["offset_gim"].abs() < cutoff)
+        ]
+        if len(subset) < 4:
+            continue
+        pearson, p_pearson = stats.pearsonr(subset["offset_model"], subset["offset_gim"])
+        spearman, _ = stats.spearmanr(subset["offset_model"], subset["offset_gim"])
+        rows.append(
+            {
+                "max_abs_offset_TECU": "all" if np.isinf(cutoff) else cutoff,
+                "stations": len(subset),
+                "pearson_r": pearson,
+                "pearson_p": p_pearson,
+                "spearman_rho": spearman,
+                "both_exceed_madrigal_%": 100
+                * ((subset["offset_model"] > 0) & (subset["offset_gim"] > 0)).mean(),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store_root", type=Path, default=Path("predictions"))
@@ -232,6 +316,23 @@ def main() -> None:
     print(coverage.round(4).to_string(index=False))
 
     summary.to_frame("value").to_csv(args.output_dir / "decomposition.csv")
+
+    leverage = leverage_check(offsets)
+    leverage.to_csv(args.output_dir / "leverage_check.csv", index=False)
+    print("\n=== Is the agreement carried by the large-offset stations? ===")
+    print(leverage.round(4).to_string(index=False))
+
+    precision = reference_precision()
+    if precision is not None:
+        precision.to_frame("value").to_csv(args.output_dir / "reference_precision.csv")
+        ratio = summary["mean_abs_station_offset"] / precision["slant_stddev_median_TECU"]
+        print("\n=== The reference's own stated precision, against the offsets ===")
+        print(precision.round(4).to_string())
+        print(
+            f"\nmean |per-station offset| is {ratio:.0f}x the reference's own median slant"
+            "\nprecision - too large to be reference noise, and reproduced by an"
+            "\nindependent product, so it is a systematic inter-product bias."
+        )
     print("\n=== Decomposition of the model's Madrigal RMSE ===")
     print(summary.round(3).to_string())
     logger.info(f"💾 {args.output_dir}")

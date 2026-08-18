@@ -708,6 +708,69 @@ def fig_uncertainty_vs_error(d: pd.DataFrame, output_dir: Path, provenance: str)
           d[["bin", "n", "mean_sigma", "RMSE", "rmse_over_sigma"]])
 
 
+
+def fig_reference_precision(
+    offsets: pd.DataFrame, precision: pd.Series, output_dir: Path, provenance: str
+) -> None:
+    """R1.3 - the offsets dwarf the reference's own stated precision.
+
+    One point per station, absolute disagreement with Madrigal, on a log axis so
+    the two scales fit together. The band is the reference product's own claimed
+    slant precision (median to p90). Every station sits one to two orders of
+    magnitude to the right of it, for two products that share nothing in their
+    construction - which is what makes this an inter-product bias rather than
+    reference noise or model error.
+    """
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    rows = [
+        ("Direct STEC − Madrigal", offsets["offset_model"].abs(), COLORS["Direct STEC"]),
+        ("IGS GIM − Madrigal", offsets["offset_gim"].abs(), COLORS["IGS GIM + Mapping"]),
+    ]
+    ax.axvspan(
+        precision["slant_stddev_median_TECU"],
+        precision["slant_stddev_p90_TECU"],
+        color=CONDITION_COLORS["baseline"],
+        alpha=0.35,
+        zorder=1,
+    )
+    ax.axvline(
+        precision["slant_stddev_median_TECU"],
+        color=CONDITION_COLORS["baseline"],
+        linewidth=2.0,
+        label="Reference product's own stated precision",
+        zorder=2,
+    )
+    rng = np.linspace(-0.16, 0.16, len(offsets))
+    for i, (label, values, colour) in enumerate(rows):
+        ax.scatter(
+            values, np.full(len(values), i) + rng, s=70, color=colour,
+            alpha=0.75, edgecolors="white", linewidths=0.6, zorder=3, label=label,
+        )
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([r[0].replace(" − ", "\n− ") for r in rows])
+    ax.set_ylim(-0.6, len(rows) - 0.4)
+    ax.set_xscale("log")
+    ax.set_xlabel("Absolute per-station disagreement with Madrigal [TECU]")
+    ax.grid(True, axis="x", linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend(loc="lower right")
+    ax.set_title("Per-station offsets against the reference's own precision")
+    _save(
+        fig, "reference_precision", "stec_finetuned", output_dir, provenance,
+        pd.concat([
+            offsets.reset_index()[["station"]].assign(
+                product="Direct STEC − Madrigal",
+                abs_offset_TECU=offsets["offset_model"].abs().values),
+            offsets.reset_index()[["station"]].assign(
+                product="IGS GIM − Madrigal",
+                abs_offset_TECU=offsets["offset_gim"].abs().values),
+        ], ignore_index=True).assign(
+            reference_slant_precision_median_TECU=precision["slant_stddev_median_TECU"],
+            reference_slant_precision_p90_TECU=precision["slant_stddev_p90_TECU"],
+        ),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output_dir", type=Path, default=Path("plots/revision"))
@@ -903,6 +966,12 @@ def main() -> None:
             f"{len(offsets)} stations, {int(offsets['observations'].sum()):,} observations"
         )
         fig_madrigal_reference_offset(offsets, args.output_dir, prov)
+        precision_path = args.madrigal_offset_dir / "reference_precision.csv"
+        if precision_path.exists():
+            precision = pd.read_csv(precision_path, index_col=0)["value"]
+            fig_reference_precision(offsets, precision, args.output_dir, prov)
+        else:
+            logger.warning(f"⚠️  {precision_path} not found - skipping precision figure")
     else:
         logger.warning(f"⚠️  {offsets_path} not found - run madrigal_reference_offset.py")
 

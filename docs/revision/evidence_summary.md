@@ -31,7 +31,7 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R1.5 elevation vs uncertainty | **READY** | Final — already all 242 days. |
 | R1.7 storm, tails, components | **READY** | Final — already all 242 days. |
 | R2.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
-| R1.3 Madrigal reference offset | **PROVISIONAL** | Conclusion firm (corr +0.924, 67 stations). Recheck the 41% figure after the store completes. |
+| R1.3 Madrigal reference offset | **READY** | 67 stations, 235/238 possible days. Quote Spearman +0.697 and 96% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. |
 | R1.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
 | R1.8 oracle bound | **PENDING** | 48/242 days and still moving. Framing is safe; numbers are not. Uses **elev** weighting and paired station-days, so it is not comparable with Table 5. |
 | R1.5 fixed-variance arm | **READY** | 242 days. Constant sigma is 11.5% *worse* than elevation weighting; the model's sigma is 2.6% better. |
