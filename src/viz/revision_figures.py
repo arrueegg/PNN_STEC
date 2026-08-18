@@ -102,10 +102,25 @@ SOURCE_DIRS = {
 }
 
 
-def _save(fig, name: str, source: str, output_dir: Path, provenance: str) -> None:
-    """Write the working copy (title + provenance) and the manuscript copy."""
+def _save(
+    fig,
+    name: str,
+    source: str,
+    output_dir: Path,
+    provenance: str,
+    data: pd.DataFrame | None = None,
+) -> None:
+    """Write the working copy (title + provenance), the manuscript copy, and the numbers.
+
+    The CSV holds what the figure actually draws, not the analysis table it came
+    from - those often carry extra models, bins or columns that never reach the
+    axes. Writing the plotted values means the number a reader checks is the
+    number they see, and the two cannot drift apart.
+    """
     target = output_dir / SOURCE_DIRS[source]
     target.mkdir(parents=True, exist_ok=True)
+    if data is not None:
+        data.to_csv(target / f"{name}.csv", index=False)
 
     # Negative y places the note below the x-axis label; bbox_inches="tight"
     # expands the saved area to include artists outside the figure rectangle.
@@ -128,7 +143,11 @@ def _save(fig, name: str, source: str, output_dir: Path, provenance: str) -> Non
 
 
 def _grouped_bars(ax, groups, series, values, colors, ylabel, xlabel=""):
-    """Grouped bars in the paper's style: no value labels, y-grid only."""
+    """Grouped bars in the paper's style: no value labels, y-grid only.
+
+    Returns the plotted values tidied to one row per bar, so the caller can hand
+    them straight to `_save`.
+    """
     n_series = len(series)
     x = np.arange(len(groups))
     width = 0.8 / n_series
@@ -149,6 +168,13 @@ def _grouped_bars(ax, groups, series, values, colors, ylabel, xlabel=""):
         ax.set_xlabel(xlabel)
     ax.grid(True, axis="y", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
+    return pd.DataFrame(
+        [
+            {"group": str(g).replace("\n", " "), "series": name, "value": values[name][i]}
+            for i, g in enumerate(groups)
+            for name in series
+        ]
+    )
 
 
 def _method_labels(names) -> list[str]:
@@ -188,7 +214,8 @@ def fig_relative_error_absolute(
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(loc="upper left")
     ax.set_title("Absolute error and mean observed STEC by year")
-    _save(fig, "relative_error_absolute", "pretrained", output_dir, provenance)
+    _save(fig, "relative_error_absolute", "pretrained", output_dir, provenance,
+          d[["year", "mean_STEC", "RMSE"]])
 
 
 def fig_relative_error_normalised(
@@ -202,7 +229,8 @@ def fig_relative_error_normalised(
     ax.set_ylim(0, max(45, d["nRMSE_%"].max() * 1.15))
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.set_title("TEC-normalised error by year")
-    _save(fig, "relative_error_normalised", "pretrained", output_dir, provenance)
+    _save(fig, "relative_error_normalised", "pretrained", output_dir, provenance,
+          d[["year", "nRMSE_%"]])
 
 
 # --------------------------------------------------------------------------
@@ -214,7 +242,7 @@ def fig_storm_positioning_absolute(
     d: pd.DataFrame, output_dir: Path, provenance: str
 ) -> None:
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    _grouped_bars(
+    plotted = _grouped_bars(
         ax,
         _method_labels(d.index),
         ["quiet", "storm"],
@@ -224,7 +252,7 @@ def fig_storm_positioning_absolute(
     )
     ax.legend(title="Geomagnetic conditions")
     ax.set_title("Positioning error by geomagnetic regime")
-    _save(fig, "storm_positioning_absolute", "positioning", output_dir, provenance)
+    _save(fig, "storm_positioning_absolute", "positioning", output_dir, provenance, plotted)
 
 
 def fig_storm_positioning_improvement(
@@ -239,7 +267,7 @@ def fig_storm_positioning_improvement(
     ).drop(index=gim)
 
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    _grouped_bars(
+    plotted = _grouped_bars(
         ax,
         _method_labels(improvement.index),
         ["quiet", "storm"],
@@ -250,7 +278,7 @@ def fig_storm_positioning_improvement(
     ax.axhline(0, color="black", linewidth=1.2, zorder=4)
     ax.legend(title="Geomagnetic conditions", loc="lower left")
     ax.set_title("Margin over the operational baseline by geomagnetic regime")
-    _save(fig, "storm_positioning_improvement", "positioning", output_dir, provenance)
+    _save(fig, "storm_positioning_improvement", "positioning", output_dir, provenance, plotted)
 
 
 # --------------------------------------------------------------------------
@@ -282,7 +310,7 @@ def _activity_figures(
         for m in series
     }
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    _grouped_bars(
+    plotted = _grouped_bars(
         ax,
         bins,
         series,
@@ -293,7 +321,7 @@ def _activity_figures(
     )
     ax.legend(ncol=2)
     ax.set_title(f"STEC error by {axis_label.lower()}")
-    _save(fig, f"{stem}_absolute", "finetuned", output_dir, provenance)
+    _save(fig, f"{stem}_absolute", "finetuned", output_dir, provenance, plotted)
 
     rel_series = [m for m in series if m != "IGS GIM + Mapping"]
     rel_values = {
@@ -304,7 +332,7 @@ def _activity_figures(
         for m in rel_series
     }
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    _grouped_bars(
+    plotted = _grouped_bars(
         ax,
         bins,
         rel_series,
@@ -316,7 +344,7 @@ def _activity_figures(
     ax.axhline(0, color="black", linewidth=1.2, zorder=4)
     ax.legend(loc="lower left")
     ax.set_title(f"Margin over IGS GIM by {axis_label.lower()}")
-    _save(fig, f"{stem}_improvement", "finetuned", output_dir, provenance)
+    _save(fig, f"{stem}_improvement", "finetuned", output_dir, provenance, plotted)
 
 
 # --------------------------------------------------------------------------
@@ -326,7 +354,7 @@ def _activity_figures(
 
 def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    _grouped_bars(
+    plotted = _grouped_bars(
         ax,
         [m.replace(" + ", "\n+ ") for m in d.index],
         ["Elevation weighting", "Predicted-uncertainty weighting"],
@@ -339,7 +367,7 @@ def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -
     )
     ax.legend(loc="upper left")
     ax.set_title("Observation weighting scheme")
-    _save(fig, "weighting_ablation", "positioning", output_dir, provenance)
+    _save(fig, "weighting_ablation", "positioning", output_dir, provenance, plotted)
 
 
 def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
@@ -362,7 +390,14 @@ def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
     ax.grid(True, axis="y", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     ax.set_title("Positioning against the observation-derived bound")
-    _save(fig, "oracle_benchmark", "positioning", output_dir, provenance)
+    _save(
+        fig, "oracle_benchmark", "positioning", output_dir, provenance,
+        d.reset_index()[
+            [c for c in (d.index.name or "index", "mean", "median", "p95",
+                         "station_days", "above_oracle_m", "ratio_to_oracle")
+             if c in d.reset_index().columns]
+        ],
+    )
 
 
 def fig_architecture_search(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
@@ -381,7 +416,13 @@ def fig_architecture_search(d: pd.DataFrame, output_dir: Path, provenance: str) 
     ax.grid(True, axis="x", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     ax.set_title("Architecture comparison")
-    _save(fig, "architecture_search", "training", output_dir, provenance)
+    _save(
+        fig, "architecture_search", "training", output_dir, provenance,
+        d.reset_index()[
+            [c for c in (d.index.name or "index", "best_val_MAE", "runs", "credible_runs")
+             if c in d.reset_index().columns]
+        ],
+    )
 
 
 def fig_madrigal_reference_offset(
@@ -410,7 +451,8 @@ def fig_madrigal_reference_offset(
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     ax.set_title("Per-station disagreement with Madrigal")
-    _save(fig, "madrigal_reference_offset", "stec_finetuned", output_dir, provenance)
+    _save(fig, "madrigal_reference_offset", "stec_finetuned", output_dir, provenance,
+          offsets.reset_index()[["station", "observations", "offset_gim", "offset_model"]])
 
 
 def fig_calibration_coverage(
@@ -437,7 +479,19 @@ def fig_calibration_coverage(
     ax.set_axisbelow(True)
     ax.legend(loc="upper left")
     ax.set_title("Interval coverage reliability")
-    _save(fig, "calibration_coverage", "stec_finetuned", output_dir, provenance)
+    series = [own[["nominal", "empirical"]].assign(series="own test set")]
+    if madrigal is not None:
+        series.append(madrigal[["nominal", "empirical"]].assign(series="Madrigal"))
+    if corrected is not None:
+        series.append(
+            corrected[["nominal", "empirical_offset_removed"]]
+            .rename(columns={"empirical_offset_removed": "empirical"})
+            .assign(series="Madrigal, station offset removed")
+        )
+    _save(
+        fig, "calibration_coverage", "stec_finetuned", output_dir, provenance,
+        pd.concat(series, ignore_index=True),
+    )
 
 
 def fig_calibration_pit(
@@ -460,7 +514,14 @@ def fig_calibration_pit(
     ax.set_axisbelow(True)
     ax.legend()
     ax.set_title("PIT histogram")
-    _save(fig, "calibration_pit", "stec_finetuned", output_dir, provenance)
+    _save(
+        fig, "calibration_pit", "stec_finetuned", output_dir, provenance,
+        pd.DataFrame({
+            "pit_centre": centres,
+            "density_own": own["density"].to_numpy(),
+            **({"density_madrigal": madrigal["density"].to_numpy()} if madrigal is not None else {}),
+        }),
+    )
 
 
 def fig_station_independence(
@@ -485,7 +546,14 @@ def fig_station_independence(
     ax.set_axisbelow(True)
     ax.legend()
     ax.set_title("Test-station error against separation from the training network")
-    _save(fig, "station_independence", "stec_finetuned", output_dir, provenance)
+    _save(
+        fig, "station_independence", "stec_finetuned", output_dir, provenance,
+        pd.concat([
+            per_station.reset_index()[["station", "distance_km", "nRMSE_%"]].assign(series="station"),
+            binned.rename(columns={"median_distance_km": "distance_km", "nRMSE_pct": "nRMSE_%"})
+                  [["distance_km", "nRMSE_%"]].assign(series="distance-bin mean"),
+        ], ignore_index=True),
+    )
 
 
 def fig_positioning_tail(tails: pd.DataFrame, output_dir: Path, provenance: str) -> None:
@@ -506,7 +574,12 @@ def fig_positioning_tail(tails: pd.DataFrame, output_dir: Path, provenance: str)
     ax.set_axisbelow(True)
     ax.legend(ncol=2)
     ax.set_title("Tail of the positioning error distribution")
-    _save(fig, "positioning_tail", "positioning", output_dir, provenance)
+    _save(
+        fig, "positioning_tail", "positioning", output_dir, provenance,
+        tails.loc[order, quantiles].reset_index().melt(
+            id_vars=tails.index.name or "index", var_name="percentile", value_name="error_3d_rms_m"
+        ),
+    )
 
 
 
@@ -514,8 +587,12 @@ def fig_positioning_tail(tails: pd.DataFrame, output_dir: Path, provenance: str)
 # IONEX RMS benchmark - our uncertainty against the GIM products' own
 # --------------------------------------------------------------------------
 
+# Keyed by the product labels ionex_rms_benchmark emits. "VTEC + Mapping" was
+# added to that benchmark later; omitting it here raised KeyError and took every
+# figure after it down with the run.
 _IONEX_COLORS = {
     "Direct STEC": COLORS["Direct STEC"],
+    "VTEC + Mapping": COLORS["VTEC + Mapping"],
     "IGS GIM + Mapping": COLORS["IGS GIM + Mapping"],
     "CODE GIM + Mapping": CODE_GIM_COLOR,
 }
@@ -536,7 +613,7 @@ def fig_ionex_coverage(d: pd.DataFrame, output_dir: Path, provenance: str) -> No
         zorder=2,
     )
     ax.set_xlim(*span)
-    for product in d.index:
+    for product in [p for p in d.index if p in _IONEX_COLORS]:
         ax.plot(
             levels,
             [100 * d.loc[product, f"cov_{lv}"] for lv in levels],
@@ -552,7 +629,14 @@ def fig_ionex_coverage(d: pd.DataFrame, output_dir: Path, provenance: str) -> No
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(loc="upper left")
     ax.set_title("Interval coverage of each product's own uncertainty")
-    _save(fig, "ionex_rms_coverage", "finetuned", output_dir, provenance)
+    _save(
+        fig, "ionex_rms_coverage", "finetuned", output_dir, provenance,
+        pd.DataFrame([
+            {"product": p, "nominal_%": lv, "empirical_%": 100 * d.loc[p, f"cov_{lv}"],
+             "days": d.loc[p, "days"]}
+            for p in d.index if p in _IONEX_COLORS for lv in levels
+        ]),
+    )
 
 
 def fig_ionex_crps_skill(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
@@ -565,7 +649,7 @@ def fig_ionex_crps_skill(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
     bins = ["5-20", "20-40", "40-60", "60-90"]
     products = [p for p in _IONEX_COLORS if p in d.index.get_level_values(0)]
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    _grouped_bars(
+    plotted = _grouped_bars(
         ax,
         bins,
         products,
@@ -577,7 +661,7 @@ def fig_ionex_crps_skill(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
     ax.axhline(0, color="black", linewidth=1.0, zorder=4)
     ax.legend(loc="upper right")
     ax.set_title("Value of the per-observation uncertainty, by elevation")
-    _save(fig, "ionex_rms_crps_skill", "finetuned", output_dir, provenance)
+    _save(fig, "ionex_rms_crps_skill", "finetuned", output_dir, provenance, plotted)
 
 
 
@@ -615,7 +699,8 @@ def fig_uncertainty_vs_error(d: pd.DataFrame, output_dir: Path, provenance: str)
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(loc="upper left")
     ax.set_title("Predicted uncertainty against realised error")
-    _save(fig, "uncertainty_vs_error", "finetuned", output_dir, provenance)
+    _save(fig, "uncertainty_vs_error", "finetuned", output_dir, provenance,
+          d[["bin", "n", "mean_sigma", "RMSE", "rmse_over_sigma"]])
 
 
 def main() -> None:

@@ -59,6 +59,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 from scipy.stats import norm, spearmanr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -320,13 +321,11 @@ def main() -> None:
         if path is None:
             logger.warning(f"⚠️  no {args.gim_type} IONEX for {year}-{doy:03d}")
             continue
-        frame = prediction_store.read_predictions(
-            args.model_variant,
-            "own",
-            years=[year],
-            doys=[doy],
-            root=args.store_root,
-            columns=[
+        # Days stored before the VTEC-uncertainty schema fix lack those columns,
+        # and pyarrow raises rather than returning them as null - so ask each
+        # file only for what it has. The VTEC arm is then simply absent for
+        # those days, which `skipped` reports rather than hiding.
+        wanted = [
                 "true_stec",
                 "stec_pred",
                 "gim_stec",
@@ -337,7 +336,21 @@ def main() -> None:
                 "lat_ipp",
                 "lon_ipp",
                 "sod",
-            ],
+        ]
+        available = set(
+            pq.ParquetFile(
+                prediction_store.store_path(
+                    args.model_variant, "own", year, doy, args.store_root
+                )
+            ).schema.names
+        )
+        frame = prediction_store.read_predictions(
+            args.model_variant,
+            "own",
+            years=[year],
+            doys=[doy],
+            root=args.store_root,
+            columns=[c for c in wanted if c in available],
         )
         mapper.load_gim_data(
             str(args.gim_root), datetime.strptime(f"{year}-{doy:03d}", "%Y-%j")
