@@ -77,9 +77,7 @@ def load_fixed_variance(results_dir: Path) -> pd.DataFrame:
     ]
 
 
-def paired_ablation(
-    summary_path: Path, fixed_variance_dir: Path | None = None
-) -> pd.DataFrame:
+def paired_ablation(summary_path: Path) -> pd.DataFrame:
     """Pair every weighting arm per (station, day) and summarise the effect.
 
     Pairing is across *all* arms available for a correction, so adding the
@@ -100,12 +98,6 @@ def paired_ablation(
         runs["method"].map(METHOD_LABELS).tolist(), index=runs.index
     )
     runs = runs[["station", "doy", "error_3d_rms", "correction", "weighting"]]
-
-    if fixed_variance_dir is not None:
-        extra = load_fixed_variance(fixed_variance_dir)
-        if not extra.empty:
-            extra = extra[extra["error_3d_rms"] <= OUTLIER_3D_RMS_M]
-            runs = pd.concat([runs, extra], ignore_index=True)
 
     rows = []
     for correction, group in runs.groupby("correction"):
@@ -153,6 +145,41 @@ def paired_ablation(
     return pd.DataFrame(rows).set_index("correction").reindex(CORRECTION_ORDER)
 
 
+def fixed_variance_comparison(
+    summary_path: Path, fixed_variance_dir: Path
+) -> pd.Series | None:
+    """Direct STEC under all three stochastic models, on one paired sample."""
+    extra = load_fixed_variance(fixed_variance_dir)
+    if extra.empty:
+        return None
+    extra = extra[extra["error_3d_rms"] <= OUTLIER_3D_RMS_M]
+
+    runs = pd.read_csv(summary_path)
+    runs = runs[runs["error_3d_rms"] <= OUTLIER_3D_RMS_M]
+    runs = runs[runs["method"].isin(["STEC_elev", "STEC_iono"])].copy()
+    runs["weighting"] = runs["method"].str.replace("STEC_", "", regex=False)
+    combined = pd.concat(
+        [runs[["station", "doy", "error_3d_rms", "weighting"]], extra], ignore_index=True
+    )
+
+    wide = combined.pivot_table(
+        index=["station", "doy"], columns="weighting", values="error_3d_rms"
+    ).dropna()
+    if not {"elev", "fixed", "iono"}.issubset(wide.columns):
+        return None
+    return pd.Series(
+        {
+            "paired_station_days": len(wide),
+            "elev_mean_m": wide["elev"].mean(),
+            "fixed_variance_mean_m": wide["fixed"].mean(),
+            "predicted_uncertainty_mean_m": wide["iono"].mean(),
+            "fixed_vs_elev_%": 100 * (wide["elev"] - wide["fixed"]).mean() / wide["elev"].mean(),
+            "iono_vs_elev_%": 100 * (wide["elev"] - wide["iono"]).mean() / wide["elev"].mean(),
+            "iono_vs_fixed_%": 100 * (wide["fixed"] - wide["iono"]).mean() / wide["fixed"].mean(),
+        }
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -172,9 +199,26 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    table = paired_ablation(args.summary, args.fixed_variance_dir)
+    table = paired_ablation(args.summary)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     table.to_csv(args.output_dir / "paired.csv")
+
+    # The fixed-variance arm is kept out of the headline table and the figure:
+    # elevation weighting is the operational default, so that is the comparison
+    # the figure should carry, and a bar for a scheme nobody uses would be
+    # clutter. It is still computed, because R2.5 asks for several stochastic
+    # models and this is the only arm that separates "our sigma is informative"
+    # from "any weighting helps" - the STEC values and weight_opt are identical
+    # to the iono arm, only the per-observation sigma becomes a constant.
+    fixed = fixed_variance_comparison(args.summary, args.fixed_variance_dir)
+    if fixed is not None:
+        fixed.to_frame("value").to_csv(args.output_dir / "fixed_variance.csv")
+        print("\n=== Fixed variance vs the model's own sigma (Direct STEC) ===")
+        print(fixed.round(3).to_string())
+        print(
+            "\nSame STEC and the same weight_opt iono; only the per-observation sigma"
+            "\nis replaced by a constant. Reported as a number, not a figure bar."
+        )
 
     print("=== Predicted-uncertainty vs elevation weighting, paired station-days ===")
     print(table.round(3).to_string())

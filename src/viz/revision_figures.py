@@ -357,17 +357,17 @@ def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -
     plotted = _grouped_bars(
         ax,
         [m.replace(" + ", "\n+ ") for m in d.index],
-        ["Elevation weighting", "Fixed variance", "Predicted-uncertainty weighting"],
+        # Two bars only: elevation weighting is the operational default, so it is
+        # the comparison a reader needs. The fixed-variance arm answers a
+        # different, mechanistic question and is reported as a number in
+        # multiday_results/weighting_ablation/fixed_variance.csv rather than as a
+        # bar for a scheme nobody actually uses.
+        ["Elevation weighting", "Predicted-uncertainty weighting"],
         {
             "Elevation weighting": d["elev_mean"].values,
-            # Only the Direct STEC correction has a fixed-variance run; the bar is
-            # simply absent for the others rather than faked.
-            "Fixed variance": d.get(
-                "fixed_mean", pd.Series(np.nan, index=d.index)
-            ).values,
             "Predicted-uncertainty weighting": d["iono_mean"].values,
         },
-        [CONDITION_COLORS["baseline"], "#8c6d31", CONDITION_COLORS["contrast"]],
+        [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
         "3D RMS positioning error [m]",
     )
     ax.legend(loc="upper left")
