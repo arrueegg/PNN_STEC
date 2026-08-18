@@ -1,6 +1,6 @@
 """Stochastic-model ablation: what does the predicted uncertainty buy in PPP?
 
-Answers reviewer comment R2.5, which asks to isolate whether the uncertainty
+Answers reviewer comment R1.5, which asks to isolate whether the uncertainty
 estimates themselves improve positioning, rather than the STEC correction they
 accompany.
 
@@ -12,7 +12,7 @@ STEC values with the per-observation sigma replaced by a constant
 (`generate_fixed_variance_corrections.py`, run under `--weight_opt iono` so PPPx
 still reads the uncertainty column). It is what separates "weighting by a
 model-derived uncertainty" from "weighting by anything at all", which is the
-distinction R2.5 actually asks about, and it lives in a separate experiment tree
+distinction R1.5 actually asks about, and it lives in a separate experiment tree
 rather than in the six-arm sweep.
 
 Weighting provenance: PPPx takes `weight_opt` = elev | snr | iono
@@ -122,7 +122,7 @@ def paired_ablation(summary_path: Path) -> pd.DataFrame:
                 difference = reference - wide[arm]
                 row[f"gain_{arm}_%"] = 100 * difference.mean() / reference.mean()
                 row[f"{arm}_better_frac_%"] = 100 * (difference > 0).mean()
-        # Kept under its old name: the headline R2.5 number is iono vs elev.
+        # Kept under its old name: the headline R1.5 number is iono vs elev.
         row["gain_%"] = row.get("gain_iono_%")
 
         # Also report iono-vs-elev on the *two-arm* pairing. Adding the
@@ -206,7 +206,7 @@ def main() -> None:
     # The fixed-variance arm is kept out of the headline table and the figure:
     # elevation weighting is the operational default, so that is the comparison
     # the figure should carry, and a bar for a scheme nobody uses would be
-    # clutter. It is still computed, because R2.5 asks for several stochastic
+    # clutter. It is still computed, because R1.5 asks for several stochastic
     # models and this is the only arm that separates "our sigma is informative"
     # from "any weighting helps" - the STEC values and weight_opt are identical
     # to the iono arm, only the per-observation sigma becomes a constant.

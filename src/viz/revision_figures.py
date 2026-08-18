@@ -12,12 +12,12 @@ subfolders by the data that produced them:
 
 Reviewer mapping
 ----------------
-  R1.2  relative_error_absolute, relative_error_normalised
-  R1.5  architecture_search
-  R2.4  activity_dst_*, activity_f107_*
-  R2.5  weighting_ablation
-  R2.7  storm_positioning_*
-  R2.8  oracle_benchmark
+  R2.2  relative_error_absolute, relative_error_normalised
+  R2.5  architecture_search
+  R1.4  activity_dst_*, activity_f107_*
+  R1.5  weighting_ablation
+  R1.7  storm_positioning_*
+  R1.8  oracle_benchmark
 
 Style
 -----
@@ -184,7 +184,7 @@ def _method_labels(names) -> list[str]:
 
 
 # --------------------------------------------------------------------------
-# R1.2 — absolute vs TEC-normalised error across the solar cycle
+# R2.2 — absolute vs TEC-normalised error across the solar cycle
 # --------------------------------------------------------------------------
 
 
@@ -234,7 +234,7 @@ def fig_relative_error_normalised(
 
 
 # --------------------------------------------------------------------------
-# R2.7 — positioning under quiet vs storm conditions
+# R1.7 — positioning under quiet vs storm conditions
 # --------------------------------------------------------------------------
 
 
@@ -282,7 +282,7 @@ def fig_storm_positioning_improvement(
 
 
 # --------------------------------------------------------------------------
-# R2.4 — STEC error against geomagnetic activity and solar flux
+# R1.4 — STEC error against geomagnetic activity and solar flux
 # --------------------------------------------------------------------------
 
 
@@ -348,7 +348,7 @@ def _activity_figures(
 
 
 # --------------------------------------------------------------------------
-# R2.5, R2.8, R1.5
+# R1.5, R1.8, R2.5
 # --------------------------------------------------------------------------
 
 
@@ -433,7 +433,7 @@ def fig_architecture_search(d: pd.DataFrame, output_dir: Path, provenance: str) 
 def fig_madrigal_reference_offset(
     offsets: pd.DataFrame, output_dir: Path, provenance: str
 ) -> None:
-    """R2.3 - two unrelated estimates disagree with Madrigal the same way.
+    """R1.3 - two unrelated estimates disagree with Madrigal the same way.
 
     Each point is a station. Agreement along the 1:1 line means the discrepancy
     is a property of the Madrigal reference, since the model and the GIM share
@@ -464,7 +464,7 @@ def fig_calibration_coverage(
     own: pd.DataFrame, madrigal: pd.DataFrame | None,
     corrected: pd.DataFrame | None, output_dir: Path, provenance: str,
 ) -> None:
-    """R2.6 - reliability: nominal against empirical interval coverage."""
+    """R1.6 - reliability: nominal against empirical interval coverage."""
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     ax.plot([0, 1], [0, 1], color="black", linestyle="--", linewidth=1.5, zorder=2)
     ax.plot(own["nominal"], own["empirical"], marker="o", markersize=10,
@@ -502,7 +502,7 @@ def fig_calibration_coverage(
 def fig_calibration_pit(
     own: pd.DataFrame, madrigal: pd.DataFrame | None, output_dir: Path, provenance: str
 ) -> None:
-    """R2.6 - PIT histogram; uniform under calibration."""
+    """R1.6 - PIT histogram; uniform under calibration."""
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     centres = 0.5 * (own["bin_left"] + own["bin_right"])
     width = float(own["bin_right"].iloc[0] - own["bin_left"].iloc[0])
@@ -532,7 +532,7 @@ def fig_calibration_pit(
 def fig_station_independence(
     per_station: pd.DataFrame, binned: pd.DataFrame, output_dir: Path, provenance: str
 ) -> None:
-    """R1.3 - does error grow with distance from the nearest training station?"""
+    """R2.3 - does error grow with distance from the nearest training station?"""
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     ax.scatter(
         per_station["distance_km"], per_station["nRMSE_%"], s=70,
@@ -562,7 +562,7 @@ def fig_station_independence(
 
 
 def fig_positioning_tail(tails: pd.DataFrame, output_dir: Path, provenance: str) -> None:
-    """R2.7 - tail behaviour, not just the mean."""
+    """R1.7 - tail behaviour, not just the mean."""
     quantiles = ["median", "p90", "p95", "p99"]
     order = [m for m in METHOD_ORDER if m in tails.index]
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
@@ -671,7 +671,7 @@ def fig_ionex_crps_skill(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
 
 
 # --------------------------------------------------------------------------
-# R1.6 - predicted uncertainty against realised error
+# R2.6 - predicted uncertainty against realised error
 # --------------------------------------------------------------------------
 
 
@@ -893,7 +893,7 @@ def main() -> None:
             f"⚠️  {overall} not found - run src/analysis/ionex_rms_benchmark.py"
         )
 
-    # R2.3 - per-station offsets against Madrigal
+    # R1.3 - per-station offsets against Madrigal
     offsets_path = args.madrigal_offset_dir / "per_station_offsets.csv"
     coverage_path = args.madrigal_offset_dir / "coverage_before_after.csv"
     if offsets_path.exists():
@@ -906,7 +906,7 @@ def main() -> None:
     else:
         logger.warning(f"⚠️  {offsets_path} not found - run madrigal_reference_offset.py")
 
-    # R2.6 - calibration
+    # R1.6 - calibration
     own_cov = args.calibration_dir / "finetuned_stec_own" / "coverage_all.csv"
     mad_cov = args.calibration_dir / "finetuned_stec_madrigal" / "coverage_all.csv"
     own_pit = args.calibration_dir / "finetuned_stec_own" / "pit_all.csv"
@@ -930,7 +930,7 @@ def main() -> None:
     else:
         logger.warning(f"⚠️  {own_cov} not found - run uncertainty_calibration.py")
 
-    # R1.3 - station independence
+    # R2.3 - station independence
     per_station = args.station_independence_dir / "per_station.csv"
     binned = args.station_independence_dir / "by_distance_bin.csv"
     if per_station.exists() and binned.exists():
@@ -943,7 +943,7 @@ def main() -> None:
     else:
         logger.warning(f"⚠️  {per_station} not found - run station_independence.py")
 
-    # R2.7 - tail of the positioning error distribution
+    # R1.7 - tail of the positioning error distribution
     tails = args.positioning_robustness_dir / "tail_distribution.csv"
     if tails.exists():
         d = pd.read_csv(tails, index_col=0)

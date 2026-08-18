@@ -1,6 +1,6 @@
 """Is the Madrigal disagreement model error or reference inconsistency?
 
-Evidence for reviewer comment R2.3:
+Evidence for reviewer comment R1.3:
 
     "The manuscript treats GNSS-derived STEC, IGS GIM-derived STEC, and Madrigal
      STEC as directly comparable realizations of the same physical quantity ...

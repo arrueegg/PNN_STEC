@@ -1,6 +1,6 @@
 """STEC accuracy stratified by geomagnetic activity (Dst) and solar flux (F10.7).
 
-Answers the part of reviewer comment R2.4 that Figures 5-8 do not already cover.
+Answers the part of reviewer comment R1.4 that Figures 5-8 do not already cover.
 The published figures stratify by elevation, geomagnetic latitude, local time and
 season, but never by activity level, so the manuscript cannot say what happens to
 the STEC error itself during the disturbed periods of 2024. The positioning-domain

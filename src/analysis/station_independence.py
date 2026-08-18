@@ -1,6 +1,6 @@
 """Does the random station split inflate the reported accuracy?
 
-Evidence for reviewer comment R1.3:
+Evidence for reviewer comment R2.3:
 
     "The random station split may lead to over-optimistic estimates of the model
      spatial generalization because nearby stations can belong to different

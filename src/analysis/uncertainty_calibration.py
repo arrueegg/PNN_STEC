@@ -1,6 +1,6 @@
 """Probabilistic calibration of the predicted uncertainties.
 
-Evidence for reviewer comment R2.6:
+Evidence for reviewer comment R1.6:
 
     "The uncertainty estimates are presented as meaningful and physically
      informative, but the manuscript does not provide sufficient calibration

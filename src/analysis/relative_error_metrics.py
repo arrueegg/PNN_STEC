@@ -1,6 +1,6 @@
 """Relative (TEC-normalised) error metrics by year.
 
-Answers reviewer comment R1.2: the paper attributes the model's larger 2024
+Answers reviewer comment R2.2: the paper attributes the model's larger 2024
 errors primarily to increased ionospheric variability at solar maximum, and the
 reviewer asks for a more cautious interpretation because 2024 is also the only
 temporal-extrapolation year.
@@ -85,7 +85,7 @@ def collect_yearly_metrics(experiment_dir: Path) -> pd.DataFrame:
 def collect_regime_metrics(experiment_dir: Path) -> pd.DataFrame | None:
     """Compare the two evaluation regimes the temporal split creates.
 
-    Evidence for reviewer comment R1.1: for 2014-2023 the held-out test months
+    Evidence for reviewer comment R2.1: for 2014-2023 the held-out test months
     are surrounded by training data (interpolation in time), whereas 2024 is
     predicted from past observations only (extrapolation). The manuscript pools
     them, so the two cannot be told apart. The pretrained evaluation already
@@ -152,7 +152,7 @@ def main() -> None:
     if regimes is not None:
         regime_path = args.output.parent / "temporal_regime_comparison.csv"
         regimes.to_csv(regime_path, index=False)
-        print("\n=== Interpolation vs extrapolation regime (R1.1) ===")
+        print("\n=== Interpolation vs extrapolation regime (R2.1) ===")
         print(regimes.round(3).to_string(index=False))
         interp, extrap = regimes.iloc[0], regimes.iloc[1]
         print(

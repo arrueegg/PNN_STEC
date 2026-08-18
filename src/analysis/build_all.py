@@ -27,25 +27,25 @@ logger = logging.getLogger(__name__)
 ANALYSES = [
     (
         "src/analysis/relative_error_metrics.py",
-        "R1.1, R1.2",
+        "R2.1, R2.2",
         "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
     ),
     (
         "src/analysis/hyperparameter_search_summary.py",
-        "R1.5, R1.8b",
+        "R2.5, R2.8b",
         "architecture comparison and hyperparameter sweep from the W&B history",
     ),
     (
         "src/analysis/station_independence.py",
-        "R1.3",
+        "R2.3",
         "test-station error against distance to the nearest training station",
     ),
-    ("src/analysis/computational_cost.py", "R1.8h", "training and inference cost"),
+    ("src/analysis/computational_cost.py", "R2.8h", "training and inference cost"),
     (
         # Must precede activity_stratification.py: that analysis reads the
         # corrected IGS GIM daily RMSE this writes.
         "src/analysis/repair_gim_baseline.py --apply",
-        "Table 4, R2.4",
+        "Table 4, R1.4",
         "recompute the IGS GIM baseline against the correct day's IONEX map",
     ),
     (
@@ -57,60 +57,60 @@ ANALYSES = [
     ),
     (
         "src/analysis/uncertainty_error_relation.py",
-        "R1.6, R2.2",
+        "R2.6, R1.2",
         "predicted uncertainty vs realised error, and the epistemic share",
     ),
     (
         "src/analysis/activity_stratification.py",
-        "R2.4",
+        "R1.4",
         "STEC error stratified by Dst and F10.7",
     ),
     (
         "src/analysis/ionex_rms_benchmark.py",
-        "R2.6b",
+        "R1.6b",
         "predicted uncertainty against the IGS GIM's own IONEX RMS",
     ),
     (
         "src/analysis/ionex_rms_benchmark.py --gim_type CODE",
-        "R2.6b",
+        "R1.6b",
         "the same benchmark against CODE's finer-resolution RMS",
     ),
     (
         "src/analysis/uncertainty_calibration.py",
-        "R2.6",
+        "R1.6",
         "coverage, PIT and CRPS on the own test set",
     ),
     (
         "src/analysis/uncertainty_calibration.py --dataset madrigal",
-        "R2.6",
+        "R1.6",
         "the same calibration diagnostics under dataset shift",
     ),
     (
         "src/analysis/madrigal_reference_offset.py",
-        "R2.3",
+        "R1.3",
         "reference offset vs model error on Madrigal",
     ),
     (
         "src/analysis/weighting_ablation.py",
-        "R2.5",
+        "R1.5",
         "predicted-uncertainty vs elevation weighting, paired",
     ),
     (
         "src/analysis/storm_stratification.py",
-        "R2.7",
+        "R1.7",
         "positioning under quiet vs storm conditions",
     ),
     (
         "src/analysis/positioning_robustness.py",
-        "R2.7",
+        "R1.7",
         "tail behaviour and horizontal/vertical split",
     ),
     (
         "src/analysis/positioning_summary.py",
-        "R2.7, R2.5",
+        "R1.7, R1.5",
         "Table 5 columns overall, by regime and by weighting",
     ),
-    ("src/analysis/oracle_benchmark.py", "R2.8", "observation-derived upper bound"),
+    ("src/analysis/oracle_benchmark.py", "R1.8", "observation-derived upper bound"),
 ]
 
 
@@ -183,63 +183,63 @@ def main() -> None:
     # Map each output directory back to the analysis that owns it.
     produced = {
         "relative_error_metrics.csv": (
-            "R1.1, R1.2",
+            "R2.1, R2.2",
             "error by year",
             "relative_error_metrics.py",
         ),
         "temporal_regime_comparison.csv": (
-            "R1.1",
+            "R2.1",
             "interpolation vs extrapolation",
             "relative_error_metrics.py",
         ),
         "hyperparameter_search": (
-            "R1.5, R1.8b",
+            "R2.5, R2.8b",
             "architecture and sweep",
             "hyperparameter_search_summary.py",
         ),
         "station_independence": (
-            "R1.3",
+            "R2.3",
             "error vs training-network distance",
             "station_independence.py",
         ),
         "computational_cost": (
-            "R1.8h",
+            "R2.8h",
             "training and inference cost",
             "computational_cost.py",
         ),
         "activity_stratification": (
-            "R2.4",
+            "R1.4",
             "error by Dst and F10.7",
             "activity_stratification.py",
         ),
         "uncertainty_calibration": (
-            "R2.6",
+            "R1.6",
             "coverage, PIT, CRPS",
             "uncertainty_calibration.py",
         ),
         "madrigal_reference_offset": (
-            "R2.3",
+            "R1.3",
             "reference offset vs model error",
             "madrigal_reference_offset.py",
         ),
-        "weighting_ablation": ("R2.5", "weighting scheme", "weighting_ablation.py"),
+        "weighting_ablation": ("R1.5", "weighting scheme", "weighting_ablation.py"),
         "storm_stratification": (
-            "R2.7",
+            "R1.7",
             "positioning by regime",
             "storm_stratification.py",
         ),
         "positioning_robustness": (
-            "R2.7",
+            "R1.7",
             "tail and components",
             "positioning_robustness.py",
         ),
         "positioning_summary": (
-            "R2.7, R2.5",
+            "R1.7, R1.5",
             "Table 5 columns",
             "positioning_summary.py",
         ),
         "oracle_benchmark": (
-            "R2.8",
+            "R1.8",
             "observation-derived bound",
             "oracle_benchmark.py",
         ),

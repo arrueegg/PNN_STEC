@@ -6,9 +6,9 @@ rebuilt or restratified without re-running PPP. Three tables are written:
 * ``overall.csv`` - the Table 5 columns per method: 3D mean, 3D median, 2D mean
   and Up mean, plus the station-day count behind each row.
 * ``by_regime.csv`` - the same columns split into quiet and storm days, which is
-  what the revised table needs for R2.7.
+  what the revised table needs for R1.7.
 * ``by_weighting.csv`` - the same columns for the elevation- and
-  uncertainty-weighted arms, for R2.5.
+  uncertainty-weighted arms, for R1.5.
 
 All three apply the 10 m station-day exclusion used in Figure 12, so the numbers
 line up with the published ones rather than nearly doing so.

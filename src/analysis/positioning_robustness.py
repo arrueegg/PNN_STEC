@@ -1,6 +1,6 @@
 """Positioning robustness metrics beyond the daily 3D RMS.
 
-Evidence for the remainder of reviewer comment R2.7:
+Evidence for the remainder of reviewer comment R1.7:
 
     "For PPP applications, daily RMS statistics are insufficient. The authors
      should evaluate convergence time, vertical/horizontal error behavior, tail

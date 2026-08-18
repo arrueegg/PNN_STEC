@@ -144,8 +144,8 @@ and file per reviewer comment.
 Sixteen analyses under `src/analysis/` produce the evidence, one per reviewer point. Four are
 newer than the rest: `repair_gim_baseline` (must run **before** `activity_stratification`, which
 reads its corrected GIM values), `daily_metrics` (Tables 3 and 4 recomputed from the store,
-replacing the un-recomputable `summary_statistics.csv`), `uncertainty_error_relation` (R1.6) and
-`ionex_rms_benchmark` (R2.6b). They
+replacing the un-recomputable `summary_statistics.csv`), `uncertainty_error_relation` (R2.6) and
+`ionex_rms_benchmark` (R1.6b). They
 all write CSV to `multiday_results/<name>/` and are driven by
 [src/analysis/build_all.py](src/analysis/build_all.py), which also writes two indices:
 
@@ -195,7 +195,7 @@ Two evaluations that are **not** what they look like:
   year come back just under the integer (DOY 189 → 188.99998). **Always `round()`, never
   `int()`.** Truncating there made `compare_stec_vtec_gim.py` load the previous day's IONEX map
   on DOY 184–189 and 225–230, which inflated the published IGS GIM baseline (Table 4: 8.56 →
-  ≈8.31 TECU) and reversed the R2.4 activity conclusion. Fixed at both sites;
+  ≈8.31 TECU) and reversed the R1.4 activity conclusion. Fixed at both sites;
   `src/analysis/repair_gim_baseline.py` repairs stored days and is the regression check
   (unaffected days must reproduce to ~1e-5 TECU). Positioning never had the bug — it takes the
   day from `--date`.

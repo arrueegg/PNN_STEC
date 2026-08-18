@@ -1,6 +1,6 @@
 """Storm/quiet stratification of the GNSS positioning results.
 
-Answers reviewer comment R2.7: "A method that improves average RMS but fails
+Answers reviewer comment R1.7: "A method that improves average RMS but fails
 during disturbed periods may not be operationally reliable." The published
 Table 5 pools the whole 2024 test period, so it cannot show what happens during
 the two great storms of that year (DOY 131-133, Dst_min = -406 nT; DOY 282-285,

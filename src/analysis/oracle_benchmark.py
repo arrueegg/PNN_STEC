@@ -1,6 +1,6 @@
 """Observation-derived upper bound for the positioning experiment.
 
-Evidence for reviewer comment R2.8, which asks for a benchmark in which the
+Evidence for reviewer comment R1.8, which asks for a benchmark in which the
 GNSS-derived reference STEC is applied directly as the ionospheric correction,
 to show how close the model gets to the best achievable result under the same
 STEC processing pipeline.

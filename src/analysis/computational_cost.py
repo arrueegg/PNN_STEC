@@ -1,6 +1,6 @@
 """Computational cost of training and inference.
 
-Evidence for reviewer comment R1.8h ("Include information on computational cost
+Evidence for reviewer comment R2.8h ("Include information on computational cost
 for pre-trained and fine-tuned models").
 
 Rather than timing a single representative run, this parses the per-epoch

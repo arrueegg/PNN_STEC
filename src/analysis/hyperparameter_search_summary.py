@@ -1,7 +1,7 @@
 """Summarise the architecture and hyperparameter search from the W&B run history.
 
-Answers reviewer comments R1.5 ("Have the authors evaluated simpler alternatives,
-and if so, how was their performance?") and R1.8b ("Explain how the
+Answers reviewer comments R2.5 ("Have the authors evaluated simpler alternatives,
+and if so, how was their performance?") and R2.8b ("Explain how the
 hyperparameters in Table 2 were selected").
 
 Reads the local `wandb/run-*/files/{config.yaml,wandb-summary.json}` pairs

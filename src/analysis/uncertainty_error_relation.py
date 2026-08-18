@@ -1,4 +1,4 @@
-"""Predicted uncertainty against realised error, over the whole test period (R1.6).
+"""Predicted uncertainty against realised error, over the whole test period (R2.6).
 
 The manuscript shows this only for the pretrained model on a scatter plot
 (Figure 4) and per-day PNGs exist for the fine-tuned models, but there is no
@@ -17,7 +17,7 @@ Two views, because they answer different questions:
 
 Aleatoric and epistemic parts are reported separately. For the published
 architecture the epistemic term is small by construction - only the output layer
-is Bayesian - and saying so with a number is the evidence for R2.2.
+is Bayesian - and saying so with a number is the evidence for R1.2.
 
 Deciles are computed on a subsample of the first day's sigma distribution and
 then applied to every day, so the bin edges are identical across days and the
