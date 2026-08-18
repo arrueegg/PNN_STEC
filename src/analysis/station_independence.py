@@ -123,21 +123,48 @@ def per_station_error(
         + (" - results sharpen as the sweep fills in" if len(days) < 40 else "")
     )
 
-    frame = prediction_store.read_predictions(
-        model_variant,
-        dataset,
-        root=store_root,
-        columns=["station", "true_stec", "stec_pred", "pred_total_unc", "satele"],
+    # Accumulate per-station sums one day at a time. Reading the whole store in
+    # a single call held ~580 M rows in memory at 242 days and was OOM-killed at
+    # a 16 GB cap; it only worked while the store was a fraction full. Every
+    # quantity below is a sum, so the streamed result is exact, not an estimate.
+    totals: dict[str, np.ndarray] = {}
+    for year, doy in days:
+        day = prediction_store.read_predictions(
+            model_variant,
+            dataset,
+            years=[year],
+            doys=[doy],
+            root=store_root,
+            columns=["station", "true_stec", "stec_pred", "pred_total_unc"],
+        )
+        error = day["stec_pred"].to_numpy(float) - day["true_stec"].to_numpy(float)
+        day = day.assign(_sq=error**2, _abs=np.abs(error))
+        grouped = day.groupby("station", observed=True).agg(
+            n=("_sq", "size"),
+            sum_sq=("_sq", "sum"),
+            sum_abs=("_abs", "sum"),
+            sum_unc=("pred_total_unc", "sum"),
+            sum_true=("true_stec", "sum"),
+        )
+        for station, row in grouped.iterrows():
+            running = totals.get(station)
+            values = row.to_numpy(dtype=float)
+            totals[station] = values if running is None else running + values
+
+    if not totals:
+        return pd.DataFrame()
+
+    summed = pd.DataFrame.from_dict(
+        totals, orient="index", columns=["n", "sum_sq", "sum_abs", "sum_unc", "sum_true"]
     )
-    frame["error"] = frame["stec_pred"] - frame["true_stec"]
-    grouped = frame.groupby("station", observed=True)
+    summed.index.name = "station"
     return pd.DataFrame(
         {
-            "observations": grouped.size(),
-            "RMSE": grouped["error"].apply(lambda e: float(np.sqrt((e**2).mean()))),
-            "MAE": grouped["error"].apply(lambda e: float(e.abs().mean())),
-            "mean_pred_unc": grouped["pred_total_unc"].mean(),
-            "mean_true_stec": grouped["true_stec"].mean(),
+            "observations": summed["n"].astype(int),
+            "RMSE": np.sqrt(summed["sum_sq"] / summed["n"]),
+            "MAE": summed["sum_abs"] / summed["n"],
+            "mean_pred_unc": summed["sum_unc"] / summed["n"],
+            "mean_true_stec": summed["sum_true"] / summed["n"],
         }
     )
 

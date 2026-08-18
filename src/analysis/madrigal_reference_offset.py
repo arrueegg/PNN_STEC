@@ -50,95 +50,138 @@ logger = logging.getLogger(__name__)
 MIN_OBSERVATIONS_PER_STATION = 5000
 
 
-def load(store_root: Path, model_variant: str) -> pd.DataFrame:
-    """Model, GIM and Madrigal STEC on the same Madrigal observations."""
-    frame = prediction_store.read_predictions(
-        model_variant,
-        "madrigal",
-        root=store_root,
-        columns=[
-            "station",
-            "doy",
-            "true_stec",
-            "stec_pred",
-            "gim_stec",
-            "satele",
-            "pred_total_unc",
-        ],
-    )
-    # In the madrigal store, true_stec IS the Madrigal reference.
-    frame = frame.rename(columns={"true_stec": "madrigal_stec"})
-    return frame.dropna(subset=["madrigal_stec", "stec_pred"])
+def iter_days(store_root: Path, model_variant: str):
+    """Yield one Madrigal day at a time.
+
+    Reading the whole Madrigal store into one frame held ~560 M rows at 234 days
+    and was OOM-killed; it only ever worked while the store was part-full. Every
+    quantity this module reports is a sum or a count, so two streamed passes give
+    exactly the same answer as one big frame.
+    """
+    days = prediction_store.available_days(model_variant, "madrigal", root=store_root)
+    logger.info(f"streaming {len(days)} Madrigal day(s)")
+    for year, doy in days:
+        day = prediction_store.read_predictions(
+            model_variant,
+            "madrigal",
+            years=[year],
+            doys=[doy],
+            root=store_root,
+            columns=[
+                "station",
+                "true_stec",
+                "stec_pred",
+                "gim_stec",
+                "pred_total_unc",
+            ],
+        )
+        # In the madrigal store, true_stec IS the Madrigal reference.
+        day = day.rename(columns={"true_stec": "madrigal_stec"})
+        yield day.dropna(subset=["madrigal_stec", "stec_pred"])
 
 
-def per_station_offsets(frame: pd.DataFrame) -> pd.DataFrame:
+def per_station_offsets(store_root: Path, model_variant: str) -> pd.DataFrame:
     """Mean signed difference from Madrigal, per station, for each estimate."""
-    grouped = frame.groupby("station", observed=True)
+    totals: dict[str, np.ndarray] = {}
+    for day in iter_days(store_root, model_variant):
+        prepared = day.assign(
+            _model=day["stec_pred"] - day["madrigal_stec"],
+            _gim=day["gim_stec"] - day["madrigal_stec"],
+        )
+        grouped = prepared.groupby("station", observed=True).agg(
+            n=("_model", "size"),
+            sum_model=("_model", "sum"),
+            sum_gim=("_gim", "sum"),
+            sum_madrigal=("madrigal_stec", "sum"),
+        )
+        for station, row in grouped.iterrows():
+            values = row.to_numpy(dtype=float)
+            running = totals.get(station)
+            totals[station] = values if running is None else running + values
+
+    summed = pd.DataFrame.from_dict(
+        totals, orient="index", columns=["n", "sum_model", "sum_gim", "sum_madrigal"]
+    )
+    summed.index.name = "station"
     table = pd.DataFrame(
         {
-            "observations": grouped.size(),
-            "offset_model": grouped.apply(
-                lambda g: float((g["stec_pred"] - g["madrigal_stec"]).mean()),
-                include_groups=False,
-            ),
-            "offset_gim": grouped.apply(
-                lambda g: float((g["gim_stec"] - g["madrigal_stec"]).mean()),
-                include_groups=False,
-            ),
-            "madrigal_mean_stec": grouped["madrigal_stec"].mean(),
+            "observations": summed["n"].astype(int),
+            "offset_model": summed["sum_model"] / summed["n"],
+            "offset_gim": summed["sum_gim"] / summed["n"],
+            "madrigal_mean_stec": summed["sum_madrigal"] / summed["n"],
         }
     )
     return table[table["observations"] >= MIN_OBSERVATIONS_PER_STATION]
 
 
-def decompose(frame: pd.DataFrame, offsets: pd.DataFrame) -> pd.Series:
-    """Split the model's Madrigal RMSE into per-station offset and residual."""
-    merged = frame.join(offsets["offset_model"], on="station", how="inner")
-    residual = merged["stec_pred"] - merged["madrigal_stec"]
-    corrected = residual - merged["offset_model"]
+def decompose_and_coverage(
+    store_root: Path, model_variant: str, offsets: pd.DataFrame
+) -> tuple[pd.Series, pd.DataFrame]:
+    """Second pass: RMSE decomposition and interval coverage, before and after.
 
-    rmse = float(np.sqrt((residual**2).mean()))
-    rmse_corrected = float(np.sqrt((corrected**2).mean()))
-    return pd.Series(
+    The corrected column removes the per-station offset established in the first
+    pass. A systematic offset in the *reference* is not something any predictive
+    distribution should be expected to cover, so it is the fairer number.
+    """
+    from scipy.stats import norm
+
+    levels = (0.50, 0.68, 0.90, 0.95, 0.99)
+    half_widths = {level: norm.ppf(0.5 + level / 2) for level in levels}
+    offset_by_station = offsets["offset_model"]
+
+    n_obs = 0
+    sum_sq = 0.0
+    sum_sq_corrected = 0.0
+    n_sigma = 0
+    covered = {level: 0 for level in levels}
+    covered_corrected = {level: 0 for level in levels}
+
+    for day in iter_days(store_root, model_variant):
+        day = day[day["station"].isin(offset_by_station.index)]
+        if day.empty:
+            continue
+        offset = day["station"].map(offset_by_station).to_numpy(float)
+        residual = (
+            day["stec_pred"].to_numpy(float) - day["madrigal_stec"].to_numpy(float)
+        )
+        corrected = residual - offset
+        n_obs += residual.size
+        sum_sq += float((residual**2).sum())
+        sum_sq_corrected += float((corrected**2).sum())
+
+        sigma = day["pred_total_unc"].to_numpy(float)
+        keep = np.isfinite(sigma) & (sigma > 1e-3)
+        if keep.any():
+            z = np.abs(residual[keep] / sigma[keep])
+            z_corrected = np.abs(corrected[keep] / sigma[keep])
+            n_sigma += int(keep.sum())
+            for level, half in half_widths.items():
+                covered[level] += int((z <= half).sum())
+                covered_corrected[level] += int((z_corrected <= half).sum())
+
+    rmse = float(np.sqrt(sum_sq / n_obs))
+    rmse_corrected = float(np.sqrt(sum_sq_corrected / n_obs))
+    summary = pd.Series(
         {
-            "observations": len(merged),
-            "stations": merged["station"].nunique(),
+            "observations": n_obs,
+            "stations": int(len(offsets)),
             "RMSE_vs_madrigal": rmse,
             "RMSE_after_removing_station_offset": rmse_corrected,
             "variance_explained_by_offset_%": 100 * (1 - (rmse_corrected / rmse) ** 2),
             "mean_abs_station_offset": float(offsets["offset_model"].abs().mean()),
         }
     )
-
-
-def coverage_before_after(frame: pd.DataFrame, offsets: pd.DataFrame) -> pd.DataFrame:
-    """Interval coverage against Madrigal, before and after removing the offset.
-
-    The calibration collapse reported against Madrigal is only a statement about
-    the model if it survives here. A systematic per-station offset in the
-    reference is not something any predictive distribution should be expected to
-    cover, so the corrected column is the fairer one.
-    """
-    from scipy.stats import norm
-
-    merged = frame.join(offsets["offset_model"], on="station", how="inner")
-    sigma = merged["pred_total_unc"].to_numpy(dtype=np.float64)
-    keep = np.isfinite(sigma) & (sigma > 1e-3)
-    residual = (merged["stec_pred"] - merged["madrigal_stec"]).to_numpy(np.float64)[keep]
-    corrected = residual - merged["offset_model"].to_numpy(np.float64)[keep]
-    sigma = sigma[keep]
-
-    rows = []
-    for level in (0.50, 0.68, 0.90, 0.95, 0.99):
-        half = norm.ppf(0.5 + level / 2)
-        rows.append(
+    coverage = pd.DataFrame(
+        [
             {
                 "nominal": level,
-                "empirical": float(np.mean(np.abs(residual / sigma) <= half)),
-                "empirical_offset_removed": float(np.mean(np.abs(corrected / sigma) <= half)),
+                "empirical": covered[level] / n_sigma,
+                "empirical_offset_removed": covered_corrected[level] / n_sigma,
             }
-        )
-    return pd.DataFrame(rows)
+            for level in levels
+        ]
+    )
+    return summary, coverage
 
 
 def main() -> None:
@@ -156,12 +199,7 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    frame = load(args.store_root, args.model_variant)
-    logger.info(
-        f"{len(frame):,} Madrigal observations, {frame['station'].nunique()} stations"
-    )
-
-    offsets = per_station_offsets(frame)
+    offsets = per_station_offsets(args.store_root, args.model_variant)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     offsets.to_csv(args.output_dir / "per_station_offsets.csv")
 
@@ -186,12 +224,13 @@ def main() -> None:
         f"  GIM {offsets['offset_gim'].mean():+.2f} TECU"
     )
 
-    coverage = coverage_before_after(frame, offsets)
+    summary, coverage = decompose_and_coverage(
+        args.store_root, args.model_variant, offsets
+    )
     coverage.to_csv(args.output_dir / "coverage_before_after.csv", index=False)
     print("\n=== Interval coverage against Madrigal, before and after offset removal ===")
     print(coverage.round(4).to_string(index=False))
 
-    summary = decompose(frame, offsets)
     summary.to_frame("value").to_csv(args.output_dir / "decomposition.csv")
     print("\n=== Decomposition of the model's Madrigal RMSE ===")
     print(summary.round(3).to_string())

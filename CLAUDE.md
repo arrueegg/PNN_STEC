@@ -310,3 +310,10 @@ Two evaluations that are **not** what they look like:
 - **Substring-matching `/proc/<pid>/cmdline` for a script name matches any shell that merely
   mentions it**, including an interactive session grepping for it. Compare argv *fields* exactly
   (`[[ "${field##*/}" == "backfill_store.sh" ]]`), or a "is it still running?" guard waits forever.
+- **Analyses must stream the store day by day, never read it whole.**
+  `prediction_store.read_predictions(...)` without `doys=[...]` loads every stored day: ~580 M
+  rows at 242 days, which OOM-killed `build_all` at a 16 GB cap. It passed for weeks only
+  because the store was part-full. `station_independence` and `madrigal_reference_offset` were
+  the two offenders and now accumulate per-station sums per day (exact, not approximate — every
+  reported quantity is a sum or a count); the madrigal one needs two passes because its
+  decomposition depends on the offsets from the first. Peaks dropped to 0.8 GB and 1.3 GB.
