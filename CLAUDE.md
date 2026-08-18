@@ -270,6 +270,14 @@ Two evaluations that are **not** what they look like:
   queue keyed on the sweep's `--output_dir`; between batches no such process exists, so it
   concluded the backfill had finished and started a second concurrent sweep. Match
   `backfill_store.sh` in `/proc/<pid>/cmdline` instead.
+- **Cap long jobs with `MemoryHigh`, not only `MemoryMax`.** A cgroup's `memory.current` is
+  mostly *reclaimable page cache* when the job streams parquet — measured 11.2 GB file cache
+  against 1.7 GB anon. Only the anon part can OOM, but cache still counts toward `MemoryMax`, so
+  a hard-limit-only cap OOM-kills a job that is not actually using the memory. Set
+  `MemoryHigh` ~2/3 of `MemoryMax` so the kernel reclaims continuously, and read the split from
+  `memory.stat` (`anon` / `file`) before concluding a job is memory-hungry.
+- **Give unattended queues `Restart=on-failure`.** Every step of `weekend_queue.sh` is idempotent
+  or resumable, so a crash should cost the in-flight step, not the night.
 - **Background jobs die when the launching session exits.** Start anything long with
   `setsid nohup … &`, or it will be killed with no error in the log.
 - **`set -o pipefail` plus `grep -q`** reports pipeline failure even on a match, because

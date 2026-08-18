@@ -165,7 +165,7 @@ PY
 # backfill got a fresh process every 25 days and peaked at 5 GB. Re-deriving the
 # outstanding list each round also makes this resumable after exactly that
 # failure, which is how it picks up at 213/242 rather than starting over.
-VTEC_BATCH=12
+VTEC_BATCH=8
 while :; do
   DAYS=$(vtec_missing_days)
   [[ -z "$DAYS" ]] && { log "every stored day carries the VTEC uncertainty"; break; }
