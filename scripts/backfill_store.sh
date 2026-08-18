@@ -17,6 +17,19 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Activate the project virtualenv explicitly. Launched as a systemd unit there is
+# no inherited shell environment, so a bare `python` resolves to the system
+# interpreter and every step dies with ModuleNotFoundError before doing any work.
+if [[ -z "${VIRTUAL_ENV:-}" && -x env/bin/activate ]]; then
+  source env/bin/activate
+elif [[ -z "${VIRTUAL_ENV:-}" && -f env/bin/activate ]]; then
+  source env/bin/activate
+fi
+if ! python -c "import pandas" 2>/dev/null; then
+  echo "FATAL: no usable python (pandas missing) - refusing to run and report success" >&2
+  exit 1
+fi
+
 BATCH_DAYS=25
 # A day costs ~430 MB (276 MB parquet across both datasets + the legacy
 # detailed_predictions.csv). Stopping with this much left keeps a whole batch of
@@ -32,10 +45,19 @@ MEMORY_MAX="${MEMORY_MAX:-14G}"
 # Probe once rather than per call: if systemd-run cannot make a scope here (no
 # user D-Bus in a detached session, for instance) we must run uncapped rather
 # than fail the batch, and we should say so instead of silently losing the cap.
-if systemd-run --user --scope -q -p MemoryMax=64M true >/dev/null 2>&1; then
+# $INVOCATION_ID is set by systemd for a managed unit. When this script is
+# itself launched as a transient service it already owns a capped cgroup, and
+# nesting a scope inside would place work *outside* that cgroup and escape the
+# cap - so cap only when we are not already managed.
+if [[ -n "${INVOCATION_ID:-}" ]]; then
+  USE_CAP=0
+  MANAGED_UNIT=1
+elif systemd-run --user --scope -q -p MemoryMax=64M true >/dev/null 2>&1; then
   USE_CAP=1
+  MANAGED_UNIT=0
 else
   USE_CAP=0
+  MANAGED_UNIT=0
 fi
 capped() {
   if (( USE_CAP )); then
@@ -47,7 +69,13 @@ capped() {
 
 log() { printf '%s  %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$*"; }
 
-(( USE_CAP )) && log "memory cap ${MEMORY_MAX} active" || log "⚠️  no memory cap - systemd scope unavailable"
+if (( MANAGED_UNIT )); then
+  log "running as a managed systemd unit - its cgroup caps everything below"
+elif (( USE_CAP )); then
+  log "memory cap ${MEMORY_MAX} active"
+else
+  log "⚠️  NO memory cap - a spike here can OOM the whole login session"
+fi
 
 free_gb() { df -BG --output=avail . | tail -1 | tr -dc '0-9'; }
 

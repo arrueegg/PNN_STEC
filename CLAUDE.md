@@ -295,3 +295,18 @@ Two evaluations that are **not** what they look like:
   mirroring source layout.
 - Comment *why*, not *what*. No leftover debug prints, no bare `except:`.
 - Runtime output should be sparse and say what step is running or what was produced.
+- **Long jobs must run as a transient systemd *service*, not `setsid nohup`.** `setsid` changes
+  the session but **not the cgroup**, so a job launched from the IDE stays inside
+  `app-code-*.scope`; its memory counts against the editor, and when systemd OOM-killed that
+  scope (21.6 GB peak) it took VS Code *and* the job with it. This is what was collapsing the
+  login session. Launch with
+  `systemd-run --user --unit=<name> -p MemoryMax=16G --working-directory="$PWD" bash -c '…'`,
+  which gets its own cgroup and survives the IDE. Check with
+  `systemctl --user show <name> -p ActiveState -p MemoryCurrent`.
+- **A systemd unit inherits no shell environment**, so bare `python` is the *system* python and
+  every step dies with `ModuleNotFoundError: No module named 'pandas'` — while the script happily
+  logs "complete". Both long scripts now `source env/bin/activate` themselves and abort if pandas
+  is still missing rather than reporting success.
+- **Substring-matching `/proc/<pid>/cmdline` for a script name matches any shell that merely
+  mentions it**, including an interactive session grepping for it. Compare argv *fields* exactly
+  (`[[ "${field##*/}" == "backfill_store.sh" ]]`), or a "is it still running?" guard waits forever.
