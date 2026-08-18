@@ -86,6 +86,11 @@ ANALYSES = [
         "the same calibration diagnostics under dataset shift",
     ),
     (
+        "src/analysis/mapping_function_consistency.py",
+        "R1.3",
+        "mapping-convention mismatch between the reference and our MSLM",
+    ),
+    (
         "src/analysis/madrigal_reference_offset.py",
         "R1.3",
         "reference offset vs model error on Madrigal",
