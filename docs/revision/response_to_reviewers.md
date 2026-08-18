@@ -170,16 +170,29 @@ per observation. It is nonetheless the uncertainty a user of the product actuall
 ### R2.5 — stochastic-model ablation ✅ (one arm ⏳)
 Restricting to station-days solved under both weightings:
 
-| Correction | elevation [m] | predicted uncertainty [m] | gain |
-|---|---|---|---|
-| Direct STEC | 1.156 | 1.121 | **+3.0%** |
-| VTEC + Mapping | 1.580 | 1.624 | −2.7% |
-| IGS GIM + Mapping | 1.630 | 1.631 | −0.1% |
+| Correction | elevation [m] | fixed variance [m] | predicted uncertainty [m] | iono vs elev |
+|---|---|---|---|---|
+| Direct STEC | 1.226 | **1.367** | 1.195 | **+2.6%** |
+| VTEC + Mapping | 1.580 | — | 1.624 | −2.7% |
+| IGS GIM + Mapping | 1.630 | — | 1.631 | −0.1% |
+
+**The fixed-variance arm is the one that makes the point.** Replacing the predicted
+per-observation sigma with a constant — same STEC values, same `weight_opt iono`, so PPPx still
+weights by the uncertainty column — makes positioning **11.5% worse than elevation weighting**,
+while the model's own uncertainty makes it 2.6% better. A 14-point spread between "weight by a
+constant" and "weight by our uncertainty" is direct evidence that the gain comes from the sigma
+*varying per observation* in a way that tracks real error, not from having an uncertainty column
+at all. 242 days, 5,422 station-days solved under all three arms.
+
+Note on the sample: pairing across three arms rather than two shrinks the Direct STEC set from
+8,170 to 5,422 station-days and moves the iono-vs-elev figure from +3.0% to +2.6%. Both are
+reported in `paired.csv` (`gain_iono_%` and `gain_iono_two_arm_%`); the +3.0% quoted previously
+is the two-arm number and remains correct on its own sample.
 
 **We will moderate the manuscript's claim accordingly.** Uncertainty weighting yields a small
 but consistent gain, and only where the uncertainty is genuinely observation-level and
 model-derived; the majority of the ~31% improvement over IGS GIM comes from the STEC
-correction itself. ⏳ A fixed-variance arm is being computed to complete the requested list.
+correction itself.
 
 ### R2.6 — calibration diagnostics ✅
 Conceded: monotonic association is not calibration. Treating each prediction as the Gaussian
