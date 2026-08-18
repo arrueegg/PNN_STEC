@@ -147,7 +147,8 @@ log "full-period tables and figures are now current in multiday_results/ and plo
 
 # ---- 3. days missing the VTEC uncertainty column -------------------------
 step "finding days stored before the VTEC-uncertainty fix"
-DAYS=$(python - <<'PY'
+vtec_missing_days() {
+  python - <<'PY'
 import glob, re
 import pyarrow.parquet as pq
 
@@ -157,20 +158,35 @@ for path in sorted(glob.glob("predictions/finetuned_stec/own/year=2024/doy=*.par
         stale.append(int(re.search(r"doy=(\d+)", path).group(1)))
 print(",".join(f"2024-{d:03d}" for d in stale))
 PY
-)
-if [[ -n "$DAYS" ]] && enough_space "VTEC-uncertainty re-run"; then
-  log "re-running $(tr ',' '\n' <<<"$DAYS" | wc -l) day(s) for the VTEC uncertainty column"
+}
+# Batch it. The first attempt ran all 45 days in one invocation inside the
+# service's cgroup and was OOM-killed at 15.5 GB after 32 of them: a long-lived
+# cgroup accumulates page cache and fragmentation across the whole run, where the
+# backfill got a fresh process every 25 days and peaked at 5 GB. Re-deriving the
+# outstanding list each round also makes this resumable after exactly that
+# failure, which is how it picks up at 213/242 rather than starting over.
+VTEC_BATCH=12
+while :; do
+  DAYS=$(vtec_missing_days)
+  [[ -z "$DAYS" ]] && { log "every stored day carries the VTEC uncertainty"; break; }
+  enough_space "VTEC-uncertainty re-run" || break
+
+  BATCH=$(tr ',' '\n' <<<"$DAYS" | head -n "$VTEC_BATCH" | paste -sd,)
+  log "VTEC re-run: $(tr ',' '\n' <<<"$DAYS" | wc -l) outstanding, doing $(tr ',' '\n' <<<"$BATCH" | wc -l)"
   capped python cli.py multiday \
-    --dates "$DAYS" \
+    --dates "$BATCH" \
     --stec_config config/config_BayesianResNetSTEC.yaml \
     --vtec_config config/config_mao_laplacian.yaml \
     --pretrained_baseline "$(basename "$PRETRAIN_EXPERIMENT")" \
     --skip_training --skip_plots --no_aggregate \
     --output_dir multiday_results/store_sweep_vtec_unc \
-    || log "VTEC-uncertainty re-run failed, continuing"
-else
-  log "every stored day already carries the VTEC uncertainty"
-fi
+    || log "VTEC batch failed, recomputing the outstanding list and continuing"
+
+  if [[ "$(vtec_missing_days)" == "$DAYS" ]]; then
+    log "VTEC batch made no progress - stopping rather than looping"
+    break
+  fi
+done
 
 # ---- 4. pretrained model over the full test set --------------------------
 step "pretrained test-set pass (feeds R2.4b and R1.6)"
@@ -195,6 +211,27 @@ step "R2.2 fully-Bayesian pretrain"
 enough_space "R2.2 fully-Bayesian pretrain" &&
 capped python cli.py train --config config/config_A4_fully_bayesian.yaml \
   || log "fully-Bayesian pretrain failed, continuing"
+
+# ---- 5b. evaluate it -----------------------------------------------------
+# Training alone produces no evidence. R2.2 needs two numbers from the trained
+# model - its accuracy against the published last-layer architecture, and the
+# magnitude of its epistemic component - and both come from an inference pass
+# into the store followed by uncertainty_error_relation, which already reports
+# epistemic_share_%. Without this the queue would finish with a checkpoint and
+# nothing to say about it.
+step "R2.2 fully-Bayesian evaluation"
+FULLY_BAYESIAN=$(ls -dt experiments/Pretrain_STEC_ResNet_BNN_NLL_* 2>/dev/null | head -1)
+if [[ -n "$FULLY_BAYESIAN" && -d "$FULLY_BAYESIAN/model" ]]; then
+  log "evaluating $FULLY_BAYESIAN"
+  capped python src/inference_testset.py --config_path "$FULLY_BAYESIAN/config.yaml" \
+    || log "fully-Bayesian evaluation failed, continuing"
+  capped python src/analysis/uncertainty_error_relation.py \
+    --model_variant pretrained_stec \
+    --output_dir multiday_results/uncertainty_error_relation_fully_bayesian \
+    || log "fully-Bayesian uncertainty analysis failed, continuing"
+else
+  log "⚠️  no fully-Bayesian experiment found - R2.2 has no evidence to report"
+fi
 
 # ---- 6. rebuild again, now including the GPU extras ----------------------
 step "final rebuild: repairing the GIM baseline over all stored days"
