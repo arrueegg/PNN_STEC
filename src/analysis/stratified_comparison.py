@@ -115,12 +115,19 @@ def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
 
     tables = {}
     for name, group in pooled.groupby("stratifier", observed=True):
-        baseline = group[group.Method == BASELINE].set_index("bin")["RMSE"]
-        group = group.assign(
-            improvement_over_gim_pct=lambda g: 100
-            * (g["bin"].map(baseline) - g["RMSE"])
-            / g["bin"].map(baseline)
-        )
+        # The pretrained model's own multi-year test set carries no baselines:
+        # the VTEC baseline is fine-tuned per day and exists for 2024 only, so
+        # there is nothing to compare against before then. Report the RMSE alone
+        # rather than a margin against a baseline that is not there.
+        if BASELINE in set(group["Method"]):
+            baseline = group[group.Method == BASELINE].set_index("bin")["RMSE"]
+            group = group.assign(
+                improvement_over_gim_pct=lambda g: 100
+                * (g["bin"].map(baseline) - g["RMSE"])
+                / g["bin"].map(baseline)
+            )
+        else:
+            group = group.assign(improvement_over_gim_pct=np.nan)
         tables[name] = group[
             ["bin", "Method", "days", "observations", "RMSE", "MAE",
              "improvement_over_gim_pct"]
@@ -132,6 +139,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store_root", type=Path, default=Path("predictions"))
     parser.add_argument("--model_variant", type=str, default="finetuned_stec")
+    parser.add_argument(
+        "--label",
+        type=str,
+        default=None,
+        help="rename stec_pred in the output, e.g. 'Pretrained Direct STEC'",
+    )
     parser.add_argument("--dataset", type=str, default="own")
     parser.add_argument(
         "--output_dir",
@@ -167,6 +180,9 @@ def main() -> None:
         rows.extend(accumulate_day(frame, doy))
 
     tables = finalise(rows)
+    if args.label:
+        for table in tables.values():
+            table["Method"] = table["Method"].replace({"Direct STEC": args.label})
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.to_csv(args.output_dir / f"by_{name}.csv", index=False)
@@ -177,9 +193,10 @@ def main() -> None:
             .round(2)
             .to_string()
         )
-        print(f"--- Direct STEC advantage over {BASELINE} [%] ---")
-        margin = table[table.Method == "Direct STEC"].set_index("bin")
-        print(margin["improvement_over_gim_pct"].round(1).to_string())
+        if table["improvement_over_gim_pct"].notna().any():
+            print(f"--- Direct STEC advantage over {BASELINE} [%] ---")
+            margin = table[table.Method == "Direct STEC"].set_index("bin")
+            print(margin["improvement_over_gim_pct"].round(1).to_string())
 
     logger.info(f"💾 {args.output_dir}")
 

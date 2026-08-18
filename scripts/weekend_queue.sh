@@ -178,6 +178,18 @@ enough_space "pretrained test-set pass" &&
 capped python src/inference_testset.py --config_path "$PRETRAIN_EXPERIMENT/config.yaml" \
   || log "pretrained test-set pass failed, continuing"
 
+# ---- 4b. stratify the pretrained model's own multi-year test set ----------
+# Only meaningful once step 4 has written predictions/pretrained_stec. It is a
+# single-model stratification, not a four-way one: the VTEC baseline is
+# fine-tuned per day and exists for 2024 only, so there is nothing to compare
+# against over 2014-2023.
+step "stratifying the pretrained multi-year test set"
+capped python src/analysis/stratified_comparison.py \
+  --model_variant pretrained_stec \
+  --label "Pretrained Direct STEC" \
+  --output_dir multiday_results/stratified_comparison_pretrained \
+  || log "pretrained stratification failed, continuing"
+
 # ---- 5. R2.2 fully-Bayesian ----------------------------------------------
 step "R2.2 fully-Bayesian pretrain"
 enough_space "R2.2 fully-Bayesian pretrain" &&

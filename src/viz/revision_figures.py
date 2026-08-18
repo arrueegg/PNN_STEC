@@ -836,10 +836,10 @@ def _stratified_figures(
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     plotted = _grouped_bars(
         ax, labels, series, values("RMSE"), [COLORS[m] for m in series],
-        "STEC RMSE [TECU]", STRATIFIER_AXES[name],
+        "STEC RMSE [TECU]", STRATIFIER_AXES[name.replace("_pretrained", "")],
     )
     ax.legend(ncol=2)
-    ax.set_title(f"STEC error by {STRATIFIER_AXES[name].split(' [')[0].lower()}")
+    ax.set_title(f"STEC error by {STRATIFIER_AXES[name.replace("_pretrained", "")].split(' [')[0].lower()}")
     _save(fig, f"stratified_{name}_absolute", "finetuned", output_dir, provenance, plotted)
 
     relative = [m for m in series if m != "IGS GIM + Mapping"]
@@ -847,11 +847,11 @@ def _stratified_figures(
     plotted = _grouped_bars(
         ax, labels, relative, values("improvement_over_gim_pct"),
         [COLORS[m] for m in relative], "Improvement over IGS GIM [%]",
-        STRATIFIER_AXES[name],
+        STRATIFIER_AXES[name.replace("_pretrained", "")],
     )
     ax.axhline(0, color="black", linewidth=1.2, zorder=4)
     ax.legend(loc="lower left")
-    ax.set_title(f"Margin over IGS GIM by {STRATIFIER_AXES[name].split(' [')[0].lower()}")
+    ax.set_title(f"Margin over IGS GIM by {STRATIFIER_AXES[name.replace("_pretrained", "")].split(' [')[0].lower()}")
     _save(fig, f"stratified_{name}_improvement", "finetuned", output_dir, provenance, plotted)
 
 
@@ -1003,19 +1003,28 @@ def main() -> None:
         )
         _activity_figures(table, bin_col, axis_label, stem, args.output_dir, prov)
 
-    for name in STRATIFIER_AXES:
-        path = args.stratified_dir / f"by_{name}.csv"
+    stratified_sources = [
+        (args.stratified_dir, "", "daily fine-tuned models, own test set"),
+        (
+            Path(f"{args.stratified_dir}_pretrained"),
+            "_pretrained",
+            "pretrained model, multi-year held-out test set",
+        ),
+    ]
+    for source_dir, suffix, description in stratified_sources:
+      for name in STRATIFIER_AXES:
+        path = source_dir / f"by_{name}.csv"
         if not path.exists():
-            logger.warning(f"⚠️  {path} not found - run stratified_comparison.py")
+            if not suffix:
+                logger.warning(f"⚠️  {path} not found - run stratified_comparison.py")
             continue
         table = pd.read_csv(path)
-        direct = table[table.Method == "Direct STEC"]
+        lead = table[table.Method == table.Method.iloc[0]]
         prov = (
-            f"{path} — daily fine-tuned models, own test set, "
-            f"{int(direct['days'].max())} test days of 2024 "
-            f"({int(direct['observations'].sum()):,} observations)"
+            f"{path} — {description}, {int(lead['days'].max())} days "
+            f"({int(lead['observations'].sum()):,} observations)"
         )
-        _stratified_figures(table, name, args.output_dir, prov)
+        _stratified_figures(table, f"{name}{suffix}", args.output_dir, prov)
 
     by_sigma = args.uncertainty_error_dir / "by_sigma.csv"
     if by_sigma.exists():
