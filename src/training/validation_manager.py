@@ -287,9 +287,15 @@ class ValidationManager:
         disable_tqdm = self.config.get("cluster", False)
 
         with torch.no_grad():
-            for inputs, targets in tqdm(
-                dataloader, desc="Testing", disable=disable_tqdm
-            ):
+            for batch in tqdm(dataloader, desc="Testing", disable=disable_tqdm):
+                # The loader yields (inputs, targets) normally and
+                # (inputs, targets, metadata) when return_metadata is set -
+                # inference_testset.py sets it so the prediction store can carry
+                # station and satellite. This pass only needs the first two, but
+                # unpacking a fixed two raised "too many values to unpack" and
+                # killed the whole pretrained evaluation. Drive it off the shape,
+                # as inference_manager already does.
+                inputs, targets = batch[0], batch[1]
                 inputs = inputs.to(self.device, non_blocking=True)
                 training_targets, original_targets = (
                     self.data_transforms.targets_to_training_space(targets)

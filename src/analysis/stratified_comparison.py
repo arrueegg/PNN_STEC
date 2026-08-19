@@ -52,6 +52,11 @@ ELEVATION_BINS = [5, 20, 30, 40, 50, 60, 70, 90]
 GEOMAGNETIC_BINS = [-90, -60, -40, -20, -10, 10, 20, 40, 60, 90]
 LOCAL_TIME_BINS = [0, 4, 8, 12, 16, 20, 24]
 SEASON_BINS = [0, 80, 172, 264, 356, 367]
+# Winter straddles the year boundary, so pd.cut needs two edges for it. The
+# trailing-space label keeps them distinct for pd.cut and is stripped straight
+# afterwards, which merges the two fragments into one bin. On the 2024 test
+# period only the December fragment had data and the duplicate never showed;
+# the pretrained model's 2014-2024 set has both, and reported "winter" twice.
 SEASON_LABELS = ["winter", "spring", "summer", "autumn", "winter "]
 
 STRATIFIERS = {
@@ -69,6 +74,9 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
         if column not in frame.columns:
             continue
         binned = pd.cut(frame[column], bins=bins, labels=labels, include_lowest=True)
+        if labels is not None:
+            # Strip the disambiguating whitespace so split bins merge.
+            binned = binned.astype(str).str.strip().replace("nan", np.nan)
         for method_column, method in METHODS.items():
             if method_column not in frame.columns:
                 continue
@@ -105,6 +113,12 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
 
 
 def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
+    if not rows:
+        raise RuntimeError(
+            "no observations were read - the prediction store for this model "
+            "variant is empty. Run the inference pass that populates it first; "
+            "a bare KeyError here hides which step actually failed."
+        )
     frame = pd.DataFrame(rows)
     # Day count per bin, so an unevenly sampled stratifier cannot be read as if
     # it were balanced. The 2024 test period runs DOY 122-366, so "winter" is 11

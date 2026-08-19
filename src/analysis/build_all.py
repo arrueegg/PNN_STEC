@@ -116,6 +116,11 @@ ANALYSES = [
         "tail behaviour and horizontal/vertical split",
     ),
     (
+        "src/analysis/common_set_positioning.py",
+        "R1.5",
+        "Table 5 rebuilt on the station-day set common to every arm",
+    ),
+    (
         "src/analysis/positioning_summary.py",
         "R1.7, R1.5",
         "Table 5 columns overall, by regime and by weighting",
