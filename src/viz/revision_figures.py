@@ -843,6 +843,12 @@ def _stratified_figures(
     _save(fig, f"stratified_{name}_absolute", "finetuned", output_dir, provenance, plotted)
 
     relative = [m for m in series if m != "IGS GIM + Mapping"]
+    # Without the GIM baseline - the pretrained model's own multi-year test set
+    # has none - every margin is NaN and the panel would be blank. Skip it rather
+    # than ship an empty figure that looks like a result.
+    if not table["improvement_over_gim_pct"].notna().any() or not relative:
+        logger.info(f"  no baseline for {name}; margin panel skipped")
+        return
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     plotted = _grouped_bars(
         ax, labels, relative, values("improvement_over_gim_pct"),

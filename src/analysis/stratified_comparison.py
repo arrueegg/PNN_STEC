@@ -67,7 +67,25 @@ STRATIFIERS = {
 }
 
 
+def add_local_time(frame: pd.DataFrame) -> pd.DataFrame:
+    """Derive local time where the store lacks it.
+
+    `local_time_hours` is a model *input*, so it is only stored for models that
+    were configured with it - the pretrained STEC model was not, which silently
+    dropped the local-time panel for its test set. It is a function of the
+    observation, not of the model: solar local time at the pierce point is
+    UTC plus 15 degrees of longitude per hour.
+    """
+    if "local_time_hours" in frame.columns or not {"sod", "lon_ipp"} <= set(frame.columns):
+        return frame
+    local = (
+        frame["sod"].to_numpy(float) / 3600.0 + frame["lon_ipp"].to_numpy(float) / 15.0
+    ) % 24.0
+    return frame.assign(local_time_hours=local)
+
+
 def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
+    frame = add_local_time(frame)
     truth = frame["true_stec"].to_numpy(float)
     rows = []
     for name, (column, bins, labels) in STRATIFIERS.items():
@@ -192,7 +210,9 @@ def main() -> None:
     )
     logger.info(f"streaming {len(days)} day(s)")
 
-    wanted = ["true_stec", *METHODS, *(c for c, _, _ in STRATIFIERS.values())]
+    wanted = [
+        "true_stec", *METHODS, *(c for c, _, _ in STRATIFIERS.values()), "sod", "lon_ipp"
+    ]
     rows = []
     for year, doy in days:
         path = prediction_store.store_path(
