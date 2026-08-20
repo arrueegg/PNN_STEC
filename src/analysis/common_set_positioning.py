@@ -36,6 +36,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from paths import canonical_positioning_summary
+
 logger = logging.getLogger(__name__)
 
 # The paper's own rule, verified to reproduce Table 5 exactly on the full set.
@@ -148,7 +150,7 @@ def main() -> None:
     parser.add_argument(
         "--three_way",
         type=Path,
-        default=Path("multiday_results/positioning_comparison_3way/multiday_summary.csv"),
+        default=canonical_positioning_summary(),
     )
     parser.add_argument(
         "--ablation",

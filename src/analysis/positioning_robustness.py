@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from paths import canonical_positioning_summary
+
 logger = logging.getLogger(__name__)
 
 # Same rule as Figure 12 / Table 5.
@@ -108,9 +110,7 @@ def main() -> None:
     parser.add_argument(
         "--summary",
         type=Path,
-        default=Path(
-            "multiday_results/positioning_comparison_3way/multiday_summary.csv"
-        ),
+        default=canonical_positioning_summary(),
     )
     parser.add_argument(
         "--output_dir",

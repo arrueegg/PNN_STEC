@@ -27,6 +27,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from paths import canonical_positioning_summary
+
 logger = logging.getLogger(__name__)
 
 OUTLIER_3D_RMS_M = 10.0
@@ -95,9 +97,7 @@ def main() -> None:
     parser.add_argument(
         "--paper_summary",
         type=Path,
-        default=Path(
-            "multiday_results/positioning_comparison_3way/multiday_summary.csv"
-        ),
+        default=canonical_positioning_summary(),
         help="The iono-weighted run behind Table 5 and Figures 12/13",
     )
     parser.add_argument(

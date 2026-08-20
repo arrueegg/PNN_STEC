@@ -27,6 +27,8 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from paths import canonical_positioning_summary
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SWI_PATH = Path("data/omni_hourly_2010-2025.h5")
@@ -158,9 +160,7 @@ def main() -> None:
     parser.add_argument(
         "--summary",
         type=Path,
-        default=Path(
-            "multiday_results/positioning_comparison_3way/multiday_summary.csv"
-        ),
+        default=canonical_positioning_summary(),
         help="Multi-day positioning summary CSV",
     )
     parser.add_argument("--year", type=int, default=2024)
