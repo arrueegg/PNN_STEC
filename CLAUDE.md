@@ -135,6 +135,40 @@ python src/analysis/build_all.py --figures
 ./scripts/check_jobs.sh
 ```
 
+## The stage pipeline
+
+Every result the paper reports is produced by a **declared stage** in
+[src/pipeline/stages.py](src/pipeline/stages.py): a command, what it reads, what it writes,
+the reviewer comment it answers, and the minimum it must produce to be believed.
+
+```bash
+PYTHONPATH=src python -m pipeline status        # what is out of date, and why
+PYTHONPATH=src python -m pipeline run           # run only what is out of date
+PYTHONPATH=src python -m pipeline run --only daily_metrics --force
+PYTHONPATH=src python -m pipeline run --keep-going
+```
+
+A stage is skipped only when its input fingerprint matches *and* every declared output is
+still present with the digest recorded. Each run writes `.pipeline/<stage>.json` — commit,
+command, input digests, output digests and row counts — which is both the skip decision and
+the answer to "what produced this number". `.pipeline/` is small and is the provenance
+record to publish alongside the code.
+
+Three rules the registry enforces, each of which corresponds to a bug that reached results:
+
+- **One owner per output.** Two stages claiming the same file is a startup error. Tables 3
+  and 4 previously existed in three places that disagreed.
+- **Assertions run before a stage is recorded as done.** A script that exits zero while
+  writing a header-only CSV fails instead of being cached as complete.
+- **Inputs are declared at the granularity that changes.** The prediction store is declared
+  as a directory, and the raw HDF5 days are not declared at all — they are immutable
+  external data, and fingerprinting them would mean walking 740 GB to decide whether to run
+  a two-second summary. Large files are summarised by size and mtime rather than hashed;
+  `--force` covers the case where that is not enough.
+
+Adding an analysis means adding a `Stage`, not editing a driver. `tests/pipeline/` pins the
+skip decisions, because a wrong skip reports success while serving a stale number.
+
 ## Revision work (JGR-MLC resubmission)
 
 The paper was rejected; `docs/revision/response_to_reviewers.md` tracks the response, and
