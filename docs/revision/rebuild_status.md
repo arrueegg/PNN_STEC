@@ -15,15 +15,15 @@ Updated 2026-08-20.
 | 0 — verify the existing numbers | **done** |
 | 1 — skeleton and contracts | **done** |
 | 2 — data layer | **layout, transforms and splits done, Gate A green both halves**; the H5 dataset/loader remains |
-| 3 — models and training | model ported (Gate B green); loss and scheduler ported; the fit loop itself remains |
+| 3 — models and training | model ported (Gate B green); loss, scheduler and CLI ported; the fit loop itself remains |
 | 4 — inference | Monte Carlo path and uncertainty decomposition ported |
-| 5 — baselines | IGS GIM ported with three defects fixed; VTEC mapping and Madrigal remain |
+| 5 — baselines | **IGS GIM, VTEC mapping and Madrigal all ported**, with five defects fixed between them |
 | 6 — positioning | solution metrics ported; PPPx driver deliberately not yet touched |
-| 7 — analyses and figures | `daily_metrics` (verified exact), `uncertainty_calibration`, `paper_tables`, `results_manifest` ported; the rest declared only |
+| 7 — analyses and figures | six analyses ported (`daily_metrics` verified exact); figures and 17 others declared only |
 | 8 — divergences | not started (manuscript frozen until then) |
 | 9 — release package | not started |
 
-226 tests pass. `ruff check` and `ruff format --check` are clean.
+274 tests pass. Six of the 23 declared stages now run rebuilt code. `ruff check` and `ruff format --check` are clean.
 
 ---
 
@@ -251,3 +251,26 @@ and nothing else does.
 2. Port the training loop and run Gate C on one STEC and one VTEC fine-tune day.
 3. Port inference, then Gate D with a tolerance derived from the MC noise floor.
 4. Positioning, then the analysis bodies, then the divergences.
+
+---
+
+## Defects found and fixed during the port
+
+Each was found by porting the code and comparing against the original, not by reading it.
+None was known before this session except where noted.
+
+| # | Defect | Severity |
+|---|---|---|
+| Column ordering (×3) | station SM-first, SH grouped by coordinate system, SWI after harmonics | would train a plausible wrong model; caught by Gate A values half |
+| Feature layout | one-column-per-feature gives 120, not 127 | my own port; caught against real checkpoints |
+| Subset cache | stored the seed, never validated it | verified harmless here — every cache and call site uses 42 |
+| `stratified_comparison` | no finiteness check, so one method's NaN poisoned every method's bin | silent corruption of a reviewer-facing table |
+| `uncertainty_error_relation` | decile edges taken from day one, applied to 242 days | sums counts across differently-defined partitions |
+| VTEC sigma | stored column is `sqrt(2)·scale`, not the scale | double-counts `sqrt(2)`; tripped two independent ports |
+| Madrigal join | `how="left"` fans out, caller assigns positionally | **dead code only** — live path does no matching; Table 4 unaffected |
+| `build_gim_stec` | wrong argument shapes, wrong keyword | dead code; deliberately not ported |
+| `GIMMapper(path)` | path binds to `shell_height_km` | dead code; port is keyword-only so it cannot recur |
+| Store path | four ported analyses each re-declared the absolute path | recurred *during* this session; now via `paths.py` |
+
+The pattern worth noting: every one of these produces a plausible number rather than an
+error. That is the property that makes them expensive to find and cheap to ship.

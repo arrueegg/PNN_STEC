@@ -138,7 +138,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "uncertainty_error_relation",
-        "src/analysis/uncertainty_error_relation.py",
+        "-m stec.analysis.uncertainty_error_relation",
         "R2.6, R1.2",
         "predicted uncertainty against realised error, pooled over the test period",
         inputs=[STORE_OWN],
@@ -146,7 +146,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "stratified_comparison",
-        "src/analysis/stratified_comparison.py",
+        "-m stec.analysis.stratified_comparison",
         "R1.4",
         "all four methods by elevation, geomagnetic latitude, local time and season",
         inputs=[STORE_OWN, STORE_PRETRAINED],
