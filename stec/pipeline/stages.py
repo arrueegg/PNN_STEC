@@ -292,10 +292,10 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "results_manifest",
-        "src/analysis/results_manifest.py",
+        "-m stec.analysis.results_manifest",
         "-",
         "which result trees are canonical and which are superseded",
-        outputs=["multiday_results/runs_manifest.csv"],
-        min_rows={"multiday_results/runs_manifest.csv": 10},
+        outputs=["multiday_results/results_manifest"],
+        canonical_for="provenance index",
     ),
 ]
