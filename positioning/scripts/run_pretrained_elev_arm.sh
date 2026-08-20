@@ -33,7 +33,12 @@ python -c "import pandas" 2>/dev/null || { echo "FATAL: no usable python" >&2; e
 PRETRAIN="Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
 EXP="experiments/${PRETRAIN}"
 CHUNK_DAYS=${CHUNK_DAYS:-20}
-STATION_PARALLEL=${STATION_PARALLEL:-12}
+# run_positioning_evaluation sets download_threads = max(4, parallel * 4), so
+# --parallel 12 means 48 concurrent RINEX downloads. The server throttles that
+# and the runner logs nothing: stations are simply never solved. Measured on
+# DOY 122, same experiment and day - parallel 12 solved 27 stations, parallel 4
+# solved 41, which is exactly what the uncertainty arm reaches. Do not raise it.
+STATION_PARALLEL=${STATION_PARALLEL:-4}
 MIN_FREE_GB=${MIN_FREE_GB:-60}
 
 log() { printf '%s  %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$*"; }
@@ -80,11 +85,17 @@ while :; do
     --dates "$CHUNK" \
     --weight_opt elev \
     --skip_inference \
+    --parallel 1 \
     --station_parallel "$STATION_PARALLEL" \
     || log "chunk reported a failure, continuing"
 
   # RINEX is an input and re-downloads from a reachable host; products are not
-  # recoverable and are left alone.
+  # recoverable and are left alone. Note --parallel 1: run_pipeline defaults to
+  # four concurrent days, which with 12 stations each meant 48 simultaneous RINEX
+  # downloads. The first pass solved only 22 stations a day against the 34 the
+  # same experiment reaches under uncertainty weighting, with no solver failures
+  # logged - the stations were never attempted because their RINEX never arrived.
+  # The working 242-day precedent did one day at a time.
   find "$EXP/positioning/evaluation" -maxdepth 2 -type d -name rinex -exec rm -rf {} + 2>/dev/null
   # PPPx diagnostics: 95% of a solved day's footprint, read by nothing.
   find "$EXP/positioning/results" \( -name '*.stat' -o -name '*.log' \) -delete 2>/dev/null

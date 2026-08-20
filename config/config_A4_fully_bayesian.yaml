@@ -60,7 +60,7 @@ finetune:
   epochs: 50
   freeze_body: false
   learning_rate: 0.0002
-  num_workers: 12
+  num_workers: 4  # 12 starved the GPU to 2% against a concurrent PPPx sweep on 24 cores
   patience: 15
   save_model_every_epoch: false
   scheduler: ReduceLROnPlateau
@@ -85,7 +85,7 @@ pretrain:
   early_stopping: true
   epochs: 150
   learning_rate: 0.001
-  num_workers: 12
+  num_workers: 4  # 12 starved the GPU to 2% against a concurrent PPPx sweep on 24 cores
   patience: 20
   prefetch_factor: 4
   save_model_every_epoch: false
