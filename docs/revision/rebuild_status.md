@@ -14,7 +14,7 @@ Updated 2026-08-20.
 |---|---|
 | 0 — verify the existing numbers | **done** |
 | 1 — skeleton and contracts | **done** |
-| 2 — data layer | **layout and transforms done, Gate A green both halves**; splits and the H5 loader remain |
+| 2 — data layer | **layout, transforms and splits done, Gate A green both halves**; the H5 dataset/loader remains |
 | 3 — models and training | model ported (Gate B green); loss and scheduler ported; the fit loop itself remains |
 | 4 — inference | Monte Carlo path and uncertainty decomposition ported |
 | 5 — baselines | IGS GIM ported with three defects fixed; VTEC mapping and Madrigal remain |
