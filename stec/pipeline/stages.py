@@ -173,16 +173,21 @@ STAGES: list[Stage] = [
         outputs=["multiday_results/ionex_rms_benchmark"],
     ),
     Stage(
+        # Ported. Scores every model under both Gaussian and Laplace, tagging which is
+        # native, so the mis-specified number sits beside the correct one.
         "uncertainty_calibration",
-        "src/analysis/uncertainty_calibration.py",
+        "-m stec.analysis.uncertainty_calibration",
         "R1.6, R2.6",
-        "coverage, PIT and CRPS for every model",
+        "coverage, PIT and CRPS for every model, each under its own likelihood",
         inputs=[STORE_OWN, STORE_PRETRAINED],
         outputs=["multiday_results/uncertainty_calibration"],
         caveats=[
-            "The VTEC baseline is an MLP_LaplacianNLL and predicts a scale, not a std. "
-            "Score it as a Laplace: the same data reads 90% coverage at nominal 50% under "
-            "Gaussian quantiles against 82% under Laplace."
+            "The VTEC baseline is a Laplace, and its stored vtec_model_stec_total_unc is "
+            "already a standard deviation (sqrt(2) * scale), not the raw scale - recover "
+            "the scale as std / sqrt(2) before any Laplace formula sees it.",
+            "Scored as a Gaussian the same data reads 90% coverage at nominal 50% against "
+            "82% under Laplace; both scorings are emitted side by side, tagged by which "
+            "likelihood is native to each model."
         ],
     ),
     Stage(
