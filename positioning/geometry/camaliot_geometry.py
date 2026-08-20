@@ -34,8 +34,10 @@ import logging
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -179,6 +181,54 @@ def parse_ion(path: Path) -> pd.DataFrame:
     return out
 
 
+def parse_site(path: Path) -> dict:
+    """Station longitude/latitude from the +SITE/ID block."""
+    with open(path, errors="ignore") as handle:
+        inside = False
+        for line in handle:
+            if line.startswith("+SITE/ID"):
+                inside = True
+                continue
+            if line.startswith("-SITE/ID"):
+                break
+            if inside and not line.startswith("*"):
+                parts = line.split()
+                # ... _LONGITUDE _LATITUDE_ _HGT_ELI_ _HGT_MSL_
+                lon, lat = float(parts[-4]), float(parts[-3])
+                return {"lon_sta": (lon + 180.0) % 360.0 - 180.0, "lat_sta": lat}
+    return {}
+
+
+def add_solar_magnetic(frame: pd.DataFrame, year: int, doy: int) -> pd.DataFrame:
+    """Solar-magnetic coordinates, exactly as ion_to_h5_parallel.py computes them.
+
+    Same spacepy call, same 450 km shell radius. Reproducing this rather than
+    approximating it is what keeps the features identical in construction to the
+    training data; an independent dipole implementation agreed to 0.002 degrees
+    but there is no reason to accept even that when the original is available.
+    """
+    from spacepy.coordinates import Coords
+    from spacepy.time import Ticktock
+
+    base = datetime(year, 1, 1) + timedelta(days=doy - 1)
+    epochs = [base + timedelta(seconds=float(s)) for s in frame["sod"]]
+    ticks = Ticktock(epochs, "UTC")
+
+    for suffix, lat_col, lon_col in (("ipp", "lat_ipp", "lon_ipp"),
+                                     ("sta", "lat_sta", "lon_sta")):
+        radius = np.full(len(frame), 1 + 450 / 6371)
+        coords = Coords(
+            np.column_stack((radius, frame[lat_col].to_numpy(float),
+                             frame[lon_col].to_numpy(float))),
+            "GEO", "sph",
+        )
+        coords.ticks = ticks
+        sm = coords.convert("SM", "sph")
+        frame[f"sm_lat_{suffix}"] = np.clip(np.asarray(sm.lati, dtype=float), -90, 90)
+        frame[f"sm_lon_{suffix}"] = (np.asarray(sm.long, dtype=float) + 180) % 360 - 180
+    return frame
+
+
 def run_station(rinex: Path, nav: Path, bsx: Path, workdir: Path) -> pd.DataFrame:
     choice = select_observables(rinex)
     if choice is None:
@@ -206,7 +256,11 @@ def run_station(rinex: Path, nav: Path, bsx: Path, workdir: Path) -> pd.DataFram
         logger.warning(f"⚠️  {rinex.name}: no .ION produced")
         return pd.DataFrame()
     frame = parse_ion(ion[0])
+    if frame.empty:
+        return frame
     frame["station"] = rinex.name[:4].upper()
+    for key, value in parse_site(ion[0]).items():
+        frame[key] = value
     return frame
 
 

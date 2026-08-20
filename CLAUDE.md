@@ -278,6 +278,23 @@ Two evaluations that are **not** what they look like:
   `memory.stat` (`anon` / `file`) before concluding a job is memory-hungry.
 - **Give unattended queues `Restart=on-failure`.** Every step of `weekend_queue.sh` is idempotent
   or resumable, so a crash should cost the in-flight step, not the night.
+- **A/B input comparisons must seed the weight draws.** `BayesianResNetSTEC`'s output layer
+  samples weights on every forward pass, so `model(a)` vs `model(b)` differs by ~1.4 TECU of
+  *sampling noise* even when `a is b`. A sensitivity test built this way measures nothing: the
+  zero-perturbation control came out **larger** (1.37 TECU) than the perturbed runs, and the
+  spurious 0.33 TECU it produced was used to reject a correct approach for days. Call
+  `torch.manual_seed(k)` immediately before each forward pass, and **always run a
+  zero-perturbation control** — it must return exactly 0.0000.
+- **The STEC database's `sm_lat_ipp` carries a per-station constant offset of up to ±0.05°**
+  (zero-mean across the network, within-station scatter ~0.005°) that no re-computation
+  reproduces: feeding the database's *own* `lat_ipp`/`lon_ipp` and epochs back through the
+  reference `coord_transform` returns +0.0005° ± 0.03° overall, but −0.0477° for AMC4
+  specifically. Cause unidentified; it is not spacepy version, IGRF data (both environments
+  share `~/.spacepy`), nor epoch construction (Timestamp/datetime64/datetime all agree to 1e-5).
+  **It does not matter**: measured end-to-end through the real model with seeded weights over
+  1.64 M observations and 36 stations, the actual per-station offsets move predicted STEC by
+  **0.0001 TECU mean, 0.0027 TECU max** (<0.01% of the 6.92 TECU RMSE). Use spacepy directly —
+  which is also what `src/utils/coordinate_transforms.py` already does for new-point inference.
 - **Background jobs die when the launching session exits.** Start anything long with
   `setsid nohup … &`, or it will be killed with no error in the log.
 - **`set -o pipefail` plus `grep -q`** reports pipeline failure even on a match, because
