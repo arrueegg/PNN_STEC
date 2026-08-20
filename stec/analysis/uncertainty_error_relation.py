@@ -40,6 +40,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from ..inference import prediction_store as ps
+from ..config import paths
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,10 @@ def _canonical_bin_labels(edges: list[float]) -> list[str]:
 BIN_LABELS = _canonical_bin_labels(UNCERTAINTY_BINS_TECU)
 BIN_ORDER = {label: position for position, label in enumerate(BIN_LABELS)}
 
-DEFAULT_STORE_ROOT = Path("/scratch2/arrueegg/WP4/PNN_STEC/predictions")
+# The pre-rebuild store, resolved in one place so this file does not become a fifth
+# copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
+# reader of the published code can point it elsewhere without editing source.
+DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
 DEFAULT_OUTPUT_DIR = Path("multiday_results/uncertainty_error_relation_rebuilt")
 
 

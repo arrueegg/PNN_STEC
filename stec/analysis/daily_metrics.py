@@ -33,6 +33,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from ..inference import prediction_store as ps
+from ..config import paths
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,10 @@ MODELS = {
 TRUTH_COLUMN = "true_stec"
 DATASET_LABELS = {"own": "own_vtec_gim", "madrigal": "madrigal_vtec_gim"}
 
-DEFAULT_STORE_ROOT = Path("/scratch2/arrueegg/WP4/PNN_STEC/predictions")
+# The pre-rebuild store, resolved in one place so this file does not become a fifth
+# copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
+# reader of the published code can point it elsewhere without editing source.
+DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
 DEFAULT_OUTPUT_DIR = Path("multiday_results/daily_metrics_rebuilt")
 
 

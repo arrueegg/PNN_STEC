@@ -235,4 +235,6 @@ def test_directory_output_gets_its_caveats_inside_not_beside(workspace):
 
     import json
 
-    assert json.loads(inside.read_text())["caveats"] == ["read with the offset analysis"]
+    assert json.loads(inside.read_text())["caveats"] == [
+        "read with the offset analysis"
+    ]

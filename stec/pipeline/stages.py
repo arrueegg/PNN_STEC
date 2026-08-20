@@ -187,7 +187,7 @@ STAGES: list[Stage] = [
             "the scale as std / sqrt(2) before any Laplace formula sees it.",
             "Scored as a Gaussian the same data reads 90% coverage at nominal 50% against "
             "82% under Laplace; both scorings are emitted side by side, tagged by which "
-            "likelihood is native to each model."
+            "likelihood is native to each model.",
         ],
     ),
     Stage(
