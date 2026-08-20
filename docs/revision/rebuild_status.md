@@ -15,15 +15,15 @@ Updated 2026-08-20.
 | 0 — verify the existing numbers | **done** |
 | 1 — skeleton and contracts | **done** |
 | 2 — data layer | **done — Gate A green end to end, bit-exact on real data** |
-| 3 — models and training | model ported (Gate B green); loss, scheduler and CLI ported; the fit loop itself remains |
+| 3 — models and training | **done — Gate C green, bit-exact against the legacy trainer** |
 | 4 — inference | **done — Gate D green, bit-exact on a real checkpoint** |
 | 5 — baselines | **done** — IGS GIM, VTEC mapping and Madrigal, five defects fixed between them |
 | 6 — positioning | metrics and all six positioning analyses ported; PPPx driver deliberately untouched |
-| 7 — analyses and figures | 18 analyses plus the figures ported; 4 stages stay on pre-rebuild scripts by choice |
+| 7 — analyses and figures | 20 analyses plus the figures ported; 2 stages stay on pre-rebuild scripts by choice |
 | 8 — divergences | not started (manuscript frozen until then) |
 | 9 — release package | not started |
 
-394 tests pass. **Nineteen of the 23 declared stages now run rebuilt code.** `ruff check` and `ruff format --check` are clean.
+419 tests pass. **Twenty-one of the 23 declared stages now run rebuilt code.** `ruff check` and `ruff format --check` are clean.
 
 ---
 
@@ -39,7 +39,7 @@ they catch is the wiring error a port introduces.
 | A (values half) | assembled input tensor vs the legacy collation, all 127 columns | **PASS — after fixing 3 ordering bugs it found** |
 | A (end to end) | real HDF5 → reader → assembler vs the legacy loader, 6 days | **PASS, bit-exact** (0.000e+00), incl. derived local time and the hourly space-weather join |
 | B | 7 real checkpoints: the paper's pretrained model + 6 fine-tuned days | **PASS, bit-exact** (mean and variance both 0.0e+00) |
-| C | precondition measured, gate not yet run | training is bit-exact run-to-run, so the gate can require exact agreement |
+| C | legacy TrainManager vs rebuilt fit loop, same seed and batches, 3 and 6 epochs | **PASS, bit-exact** — loss trajectory and every parameter at 0.000e+00 |
 | D | rebuilt vs legacy inference, seeded, 4096 real observations, 100 draws | **PASS, bit-exact** — against an MC noise floor of 1.275 TECU |
 | E–F | not yet run | — |
 
@@ -276,3 +276,24 @@ None was known before this session except where noted.
 
 The pattern worth noting: every one of these produces a plausible number rather than an
 error. That is the property that makes them expensive to find and cheap to ship.
+
+---
+
+## Later findings (second working session)
+
+| # | Defect | Severity |
+|---|---|---|
+| KL weight template | `config_BNN.yaml` sets `loss_weight: 1.0` and `end_weight: 0.1` with a comment saying they should match; the annealer reads `loss_weight` and ignores `end_weight` entirely | **live trap** — a fresh run from the repo's own template anneals to 10× the published KL weight. Published runs unaffected (all use 0.1). |
+| Storm threshold | I specified the per-observation rule (Kp≥37 or Dst≤−33) for a daily analysis that uses Dst≤−50 | caught before shipping; would have moved a published number (52 storm days → 132) |
+| Outlier boundary | three positioning tables applied the 10 m rule with two different operators (`<` vs `<=`) | a station-day at exactly 10.000 m was in two tables and not the third |
+| Coverage glob | independent wildcards for the model's DOY and the results' DOY; `Finetune_STEC_2024_170` holds a DOY 122 summary | the keep-first dedup resolves it correctly here by sort order, i.e. by luck |
+| F10.7 bins | derived as terciles of the data being summarised | counts from differently-binned periods were summed as one partition |
+| Stratified NaN | no finiteness check, so one method's NaN poisoned every method's bin | silent corruption of a reviewer-facing table |
+| VTEC empty table | `summarise()` called unconditionally, `KeyError` when no VTEC logs exist | cannot fire on the real tree (169 logs) |
+
+**The coverage numbers are currently unstable and must be re-read after the jobs finish.**
+3,733 files under `experiments/` changed in the nine hours after the checked-in
+`coverage.csv` snapshot was written, because the station-recovery sweep is still running.
+The port is byte-identical to the source run against the same tree at the same moment, so
+this is a property of the data, not the code — but R1.5's 8,003 / 2,311 / 510 should be
+quoted from a post-sweep run, not from the current one.

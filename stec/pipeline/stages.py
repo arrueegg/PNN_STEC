@@ -96,10 +96,10 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "computational_cost",
-        "src/analysis/computational_cost.py",
+        "-m stec.analysis.computational_cost --output-dir multiday_results/computational_cost_rebuilt",
         "R2.8h",
         "training and inference cost",
-        outputs=["multiday_results/computational_cost"],
+        outputs=["multiday_results/computational_cost_rebuilt"],
     ),
     Stage(
         "repair_gim_baseline",
@@ -234,7 +234,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "positioning_coverage",
-        "src/analysis/positioning_coverage.py",
+        "-m stec.analysis.positioning_coverage --output-dir multiday_results/positioning_coverage_rebuilt",
         "R1.5",
         "which station-days each method solved, and why the rest are missing",
         inputs=["experiments"],
