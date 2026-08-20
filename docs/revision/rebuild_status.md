@@ -14,16 +14,16 @@ Updated 2026-08-20.
 |---|---|
 | 0 — verify the existing numbers | **done** |
 | 1 — skeleton and contracts | **done** |
-| 2 — data layer | **layout, transforms and splits done, Gate A green both halves**; the H5 dataset/loader remains |
+| 2 — data layer | **done — Gate A green end to end, bit-exact on real data** |
 | 3 — models and training | model ported (Gate B green); loss, scheduler and CLI ported; the fit loop itself remains |
 | 4 — inference | Monte Carlo path and uncertainty decomposition ported |
 | 5 — baselines | **IGS GIM, VTEC mapping and Madrigal all ported**, with five defects fixed between them |
 | 6 — positioning | solution metrics ported; PPPx driver deliberately not yet touched |
-| 7 — analyses and figures | six analyses ported (`daily_metrics` verified exact); figures and 17 others declared only |
+| 7 — analyses and figures | ten analyses plus the figures ported; 12 stages still on pre-rebuild scripts |
 | 8 — divergences | not started (manuscript frozen until then) |
 | 9 — release package | not started |
 
-274 tests pass. Six of the 23 declared stages now run rebuilt code. `ruff check` and `ruff format --check` are clean.
+336 tests pass. Eleven of the 23 declared stages now run rebuilt code. `ruff check` and `ruff format --check` are clean.
 
 ---
 
@@ -37,6 +37,7 @@ they catch is the wiring error a port introduces.
 |---|---|---|
 | A (layout half) | rebuilt layout vs legacy derivation, all 1,591 experiment configs | **PASS — 1,587 agree, 0 disagree** |
 | A (values half) | assembled input tensor vs the legacy collation, all 127 columns | **PASS — after fixing 3 ordering bugs it found** |
+| A (end to end) | real HDF5 → reader → assembler vs the legacy loader, 6 days | **PASS, bit-exact** (0.000e+00), incl. derived local time and the hourly space-weather join |
 | B | 7 real checkpoints: the paper's pretrained model + 6 fine-tuned days | **PASS, bit-exact** (mean and variance both 0.0e+00) |
 | C | precondition measured, gate not yet run | training is bit-exact run-to-run, so the gate can require exact agreement |
 | D–F | not yet run | — |

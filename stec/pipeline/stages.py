@@ -67,7 +67,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "relative_error_metrics",
-        "src/analysis/relative_error_metrics.py",
+        "-m stec.analysis.relative_error_metrics",
         "R2.1, R2.2",
         "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
         outputs=["multiday_results/relative_error_metrics.csv"],
@@ -83,7 +83,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "station_independence",
-        "src/analysis/station_independence.py",
+        "-m stec.analysis.station_independence",
         "R2.3",
         "test-station error against distance to the nearest training station",
         inputs=[STORE_OWN],
@@ -166,7 +166,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "ionex_rms_benchmark",
-        "src/analysis/ionex_rms_benchmark.py",
+        "-m stec.analysis.ionex_rms_benchmark",
         "R1.6b",
         "model uncertainty against the IGS and CODE GIM RMS maps",
         inputs=[STORE_OWN],
@@ -200,7 +200,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "madrigal_reference_offset",
-        "src/analysis/madrigal_reference_offset.py",
+        "-m stec.analysis.madrigal_reference_offset",
         "R1.3",
         "how much of the Madrigal error is a per-station reference offset",
         inputs=[STORE_MADRIGAL],
@@ -282,7 +282,7 @@ STAGES: list[Stage] = [
     # Last: reads the metric CSVs every stage above writes, so it must follow all of them.
     Stage(
         "figures",
-        "src/viz/revision_figures.py",
+        "-m stec.viz.revision_figures",
         "all",
         "one PNG per revision figure, plus the _notitle manuscript variants",
         inputs=["multiday_results"],
