@@ -8,10 +8,9 @@ configuration mistakes that should never reach a compute run.
 from __future__ import annotations
 
 from .stage import Stage
+from .stages import STAGES
 
-# Populated as layers are ported. Each entry moves here from src/pipeline/stages.py once
-# its analysis has a declared owner in the rebuilt package.
-STAGES: list[Stage] = []
+__all__ = ["STAGES", "Stage", "by_name", "validate"]
 
 
 def by_name(stages: list[Stage] | None = None) -> dict[str, Stage]:
