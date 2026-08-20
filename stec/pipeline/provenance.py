@@ -29,6 +29,7 @@ from pathlib import Path
 STATE_DIR = Path(".pipeline")
 
 CAVEAT_SUFFIX = ".caveats.json"
+DIRECTORY_CAVEAT_NAME = "CAVEATS.json"
 SUPERSEDED_SUFFIX = ".superseded.json"
 
 
@@ -94,7 +95,14 @@ def write_caveats(output: Path, stage: str, caveats: list[str]) -> Path | None:
     """
     if not output.exists():
         return None
-    sidecar = output.with_suffix(output.suffix + CAVEAT_SUFFIX)
+    # For a directory output the sidecar goes *inside* it, not beside it. Beside is where
+    # `with_suffix` would put it, and it would then be invisible to anyone who opened the
+    # directory and read one of the CSVs - which is exactly the reader this is for.
+    sidecar = (
+        output / DIRECTORY_CAVEAT_NAME
+        if output.is_dir()
+        else output.with_suffix(output.suffix + CAVEAT_SUFFIX)
+    )
     sidecar.write_text(
         json.dumps(
             {

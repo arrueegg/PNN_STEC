@@ -215,3 +215,24 @@ def test_superseded_artifact_is_marked_not_deleted(workspace):
     assert old.exists(), "superseded artifacts are marked, never deleted"
     marker = workspace / ("old_summary.csv" + provenance.SUPERSEDED_SUFFIX)
     assert marker.exists()
+
+
+def test_directory_output_gets_its_caveats_inside_not_beside(workspace):
+    """A sidecar next to a directory is invisible to whoever opens the directory."""
+    produced = workspace / "results_tree"
+    produced.mkdir()
+    (produced / "table.csv").write_text("a,b\n1,2\n")
+
+    stage = make_stage(
+        outputs=["results_tree"], min_rows={}, caveats=["read with the offset analysis"]
+    )
+    runner.record_context(stage)
+
+    inside = produced / provenance.DIRECTORY_CAVEAT_NAME
+    beside = workspace / ("results_tree" + provenance.CAVEAT_SUFFIX)
+    assert inside.exists(), "a directory's caveats must live inside it"
+    assert not beside.exists()
+
+    import json
+
+    assert json.loads(inside.read_text())["caveats"] == ["read with the offset analysis"]
