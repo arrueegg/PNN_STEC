@@ -388,6 +388,26 @@ serve as a reference, for reasons verified in the code on 2026-08-20:
 - What *is* recoverable: `random_seed: 42` in every stored `config.yaml`, and per-epoch
   `loss_history.csv` in every experiment directory. Those are the comparison targets.
 
+**Measured 2026-08-20 — this settles the question for forward passes.**
+`stec/models/determinism.py` pins each Bayesian layer's noise to a generator seeded from
+the layer's *name*, so the draw no longer depends on construction order, which was the
+reason a refactor would otherwise produce a different posterior draw rather than a close
+one. (`torchbnn`'s own `freeze()` fails that property; a test records it.)
+`verification/measure_determinism_floor.py` reports, on the RTX 4070 Ti at the paper
+model's architecture:
+
+| | max abs difference |
+|---|---|
+| same model, forward twice (zero-perturbation control) | **0.0** |
+| two independent constructions, identical weights, pinned by name | **0.0** |
+| the same, plus deterministic algorithms and TF32 off | **0.0** |
+| unpinned Bayesian forward, twice — the noise this removes | 1.6e+01 |
+
+Agreement is **bit-exact**, so a 1e-6 tolerance is far looser than needed. This covers
+forward equivalence in one process and one build. It says nothing yet about training
+reproducibility, where backward-pass reductions are a separate question, nor about
+agreement across torch versions.
+
 | Gate | Claim | Method |
 |---|---|---|
 | A — data | New loader yields identical model inputs | Byte-compare feature tensors for a fixed index set against the old loader |
@@ -593,11 +613,12 @@ Reference numbers for the coverage split, from
 - **Replace-in-place** means equivalence testing needs the `pre-rebuild` worktree, and the rebuild
   itself needs its own worktree so the running jobs keep executing unmodified code (§0). Write
   Gates A-F before deleting old modules.
-- **The determinism harness may not close.** Gates B-D assume that with a frozen Bayesian head,
-  `use_deterministic_algorithms(True)` and TF32 off, old and new code agree to 1e-6. If some op
-  has no deterministic implementation, the gates degrade to tolerance bands and the "reuse the
-  checkpoints" decision rests on weaker evidence. Measure the achievable floor early in phase 3 —
-  it is cheap and it changes the plan.
+- ~~**The determinism harness may not close.**~~ **Closed for forward passes** (measured
+  2026-08-20, §8): two independent constructions with identical weights agree bit-exactly once
+  the Bayesian noise is pinned by layer name. Gate B needs no tolerance band. **Still open for
+  training**: Gate C involves backward-pass reductions, where atomics can be non-deterministic
+  regardless of seeding, so measure the same floor for a training step before trusting Gate C's
+  pass/fail. That measurement is what the "reuse the checkpoints" decision rests on.
 - **VLBI K-band and Madrigal** are the least-exercised paths in the repo and will surface their own
   defects. Madrigal additionally interacts with divergence 8 (join tolerance).
 - **Gate C may fail** through a legitimately-fixed scheduler bug. Decide on retraining then, with
