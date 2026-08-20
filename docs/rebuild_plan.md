@@ -490,6 +490,18 @@ missing from this list in the previous draft:
    moves every Madrigal number in Table 4 — and interacts with `madrigal_reference_offset`, which
    must be recomputed on the new population.
 
+9. **The 10 m outlier boundary.** `common_set_positioning` applied the rule with a strict
+   `<` while `positioning_summary` and `oracle_benchmark` used `<=`, so a station-day at
+   exactly 10.000 m was in two tables and not the third. Unified to `<=`; this moves the
+   appendix table's population.
+
+10. **The storm/quiet definition, if it is ever unified.** Two thresholds exist for two
+    questions: a daily minimum Dst of −50 nT for the positioning tables (R2.7), and
+    Kp ≥ 37 or Dst ≤ −33 per observation for the STEC scenarios. They are *not* variants —
+    applied to days, the per-observation rule marks 132 of 2024's days as storms against 52,
+    and moves the published +31.9% / +26.3% to +32.2% / +29.1%. Keep them distinct; if a
+    future reviewer asks for one definition, that is a divergence with a measured cost.
+
 ---
 
 ## 10. Execution phases

@@ -67,11 +67,11 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "relative_error_metrics",
-        "-m stec.analysis.relative_error_metrics",
+        "-m stec.analysis.relative_error_metrics --output-dir multiday_results/relative_error_metrics_rebuilt",
         "R2.1, R2.2",
         "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
-        outputs=["multiday_results/relative_error_metrics.csv"],
-        min_rows={"multiday_results/relative_error_metrics.csv": 5},
+        outputs=["multiday_results/relative_error_metrics_rebuilt"],
+        min_rows={"multiday_results/relative_error_metrics_rebuilt": 5},
     ),
     Stage(
         "hyperparameter_search",
@@ -83,11 +83,11 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "station_independence",
-        "-m stec.analysis.station_independence",
+        "-m stec.analysis.station_independence --output-dir multiday_results/station_independence_rebuilt",
         "R2.3",
         "test-station error against distance to the nearest training station",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/station_independence"],
+        outputs=["multiday_results/station_independence_rebuilt"],
         caveats=[
             "Limited by n = 55 test stations, not by observation count. Adding days "
             "sharpens each point but does not sharpen the Spearman coefficient.",
@@ -119,11 +119,11 @@ STAGES: list[Stage] = [
         # on RMSE_mean, pooled_RMSE, MAE_mean, R2_mean, day and observation counts, across
         # all seven model/dataset combinations over 242 days and 475,111,413 observations.
         "daily_metrics",
-        "-m stec.analysis.daily_metrics",
+        "-m stec.analysis.daily_metrics --output-dir multiday_results/daily_metrics_rebuilt",
         "Tables 3, 4",
         "per-day and pooled STEC metrics recomputed from the prediction store",
         inputs=[STORE_OWN, STORE_PRETRAINED, "multiday_results/gim_baseline_repair"],
-        outputs=["multiday_results/daily_metrics"],
+        outputs=["multiday_results/daily_metrics_rebuilt"],
         min_rows={},
         canonical_for="Tables 3 and 4",
         caveats=[
@@ -138,27 +138,27 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "uncertainty_error_relation",
-        "-m stec.analysis.uncertainty_error_relation",
+        "-m stec.analysis.uncertainty_error_relation --output-dir multiday_results/uncertainty_error_relation_rebuilt",
         "R2.6, R1.2",
         "predicted uncertainty against realised error, pooled over the test period",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/uncertainty_error_relation"],
+        outputs=["multiday_results/uncertainty_error_relation_rebuilt"],
     ),
     Stage(
         "stratified_comparison",
-        "-m stec.analysis.stratified_comparison",
+        "-m stec.analysis.stratified_comparison --output-dir multiday_results/stratified_comparison_rebuilt",
         "R1.4",
         "all four methods by elevation, geomagnetic latitude, local time and season",
         inputs=[STORE_OWN, STORE_PRETRAINED],
-        outputs=["multiday_results/stratified_comparison"],
+        outputs=["multiday_results/stratified_comparison_rebuilt"],
     ),
     Stage(
         "activity_stratification",
-        "src/analysis/activity_stratification.py",
+        "-m stec.analysis.activity_stratification --output-dir multiday_results/activity_stratification_rebuilt",
         "R1.4",
         "STEC error stratified by Dst and F10.7",
-        inputs=["multiday_results/daily_metrics", SWI],
-        outputs=["multiday_results/activity_stratification"],
+        inputs=["multiday_results/daily_metrics_rebuilt", SWI],
+        outputs=["multiday_results/activity_stratification_rebuilt"],
         caveats=[
             "Reads the repaired GIM values. Run after repair_gim_baseline: the "
             "un-repaired baseline reversed this comparison's conclusion."
@@ -166,21 +166,21 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "ionex_rms_benchmark",
-        "-m stec.analysis.ionex_rms_benchmark",
+        "-m stec.analysis.ionex_rms_benchmark --output-dir multiday_results/ionex_rms_benchmark_rebuilt",
         "R1.6b",
         "model uncertainty against the IGS and CODE GIM RMS maps",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/ionex_rms_benchmark"],
+        outputs=["multiday_results/ionex_rms_benchmark_rebuilt"],
     ),
     Stage(
         # Ported. Scores every model under both Gaussian and Laplace, tagging which is
         # native, so the mis-specified number sits beside the correct one.
         "uncertainty_calibration",
-        "-m stec.analysis.uncertainty_calibration",
+        "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/uncertainty_calibration_rebuilt",
         "R1.6, R2.6",
         "coverage, PIT and CRPS for every model, each under its own likelihood",
         inputs=[STORE_OWN, STORE_PRETRAINED],
-        outputs=["multiday_results/uncertainty_calibration"],
+        outputs=["multiday_results/uncertainty_calibration_rebuilt"],
         caveats=[
             "The VTEC baseline is a Laplace, and its stored vtec_model_stec_total_unc is "
             "already a standard deviation (sqrt(2) * scale), not the raw scale - recover "
@@ -192,45 +192,45 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "mapping_function_consistency",
-        "src/analysis/mapping_function_consistency.py",
+        "-m stec.analysis.mapping_function_consistency --output-dir multiday_results/mapping_function_consistency_rebuilt",
         "R1.3",
         "cost of the mapping-function convention mismatch",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/mapping_function_consistency"],
+        outputs=["multiday_results/mapping_function_consistency_rebuilt"],
     ),
     Stage(
         "madrigal_reference_offset",
-        "-m stec.analysis.madrigal_reference_offset",
+        "-m stec.analysis.madrigal_reference_offset --output-dir multiday_results/madrigal_reference_offset_rebuilt",
         "R1.3",
         "how much of the Madrigal error is a per-station reference offset",
         inputs=[STORE_MADRIGAL],
-        outputs=["multiday_results/madrigal_reference_offset"],
+        outputs=["multiday_results/madrigal_reference_offset_rebuilt"],
         canonical_for="Madrigal reference-offset decomposition",
         caveats=MADRIGAL_CAVEAT,
     ),
     Stage(
         "weighting_ablation",
-        "src/analysis/weighting_ablation.py",
+        "-m stec.analysis.weighting_ablation --output-dir multiday_results/weighting_ablation_rebuilt",
         "R2.5",
         "elevation against predicted-uncertainty weighting, paired station-days",
         inputs=[WEIGHTING_RUN],
-        outputs=["multiday_results/weighting_ablation"],
+        outputs=["multiday_results/weighting_ablation_rebuilt"],
     ),
     Stage(
         "storm_stratification",
-        "src/analysis/storm_stratification.py",
+        "-m stec.analysis.storm_stratification --output-dir multiday_results/storm_stratification_rebuilt",
         "R2.7",
         "positioning accuracy on storm against quiet days",
         inputs=[POSITIONING, SWI],
-        outputs=["multiday_results/storm_stratification"],
+        outputs=["multiday_results/storm_stratification_rebuilt"],
     ),
     Stage(
         "positioning_robustness",
-        "src/analysis/positioning_robustness.py",
+        "-m stec.analysis.positioning_robustness --output-dir multiday_results/positioning_robustness_rebuilt",
         "R2.7b",
         "tail behaviour and convergence of the positioning solutions",
         inputs=[POSITIONING],
-        outputs=["multiday_results/positioning_robustness"],
+        outputs=["multiday_results/positioning_robustness_rebuilt"],
     ),
     Stage(
         "positioning_coverage",
@@ -243,11 +243,11 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "common_set_positioning",
-        "src/analysis/common_set_positioning.py",
+        "-m stec.analysis.common_set_positioning --output-dir multiday_results/common_set_positioning_rebuilt",
         "R1.5, Table A1",
         "positioning recomputed on the station-days every method solved",
         inputs=[POSITIONING, WEIGHTING_RUN],
-        outputs=["multiday_results/common_set_positioning"],
+        outputs=["multiday_results/common_set_positioning_rebuilt"],
         canonical_for="Table A1",
         caveats=[
             "A different station-day population from Table 5, by design: requiring both "
@@ -256,20 +256,20 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "positioning_summary",
-        "src/analysis/positioning_summary.py",
+        "-m stec.analysis.positioning_summary --output-dir multiday_results/positioning_summary_rebuilt",
         "Table 5",
         "headline positioning table, four methods on iono weighting",
         inputs=[POSITIONING],
-        outputs=["multiday_results/positioning_summary"],
+        outputs=["multiday_results/positioning_summary_rebuilt"],
         canonical_for="Table 5",
     ),
     Stage(
         "oracle_benchmark",
-        "src/analysis/oracle_benchmark.py",
+        "-m stec.analysis.oracle_benchmark --output-dir multiday_results/oracle_benchmark_rebuilt",
         "R2.8",
         "positioning floor from reference STEC, on its own restricted set",
         inputs=[POSITIONING],
-        outputs=["multiday_results/oracle_benchmark"],
+        outputs=["multiday_results/oracle_benchmark_rebuilt"],
         caveats=[
             "NOT comparable with Table 5, by design and permanently. It uses elev "
             "weighting - the reference STEC carries only a placeholder sigma, so iono "

@@ -95,6 +95,13 @@ def model_run(run_id: str) -> Path:
 
 # --- legacy trees (read for migration, never written) --------------------------------
 
-LEGACY_PREDICTIONS = REPO_ROOT / "predictions"
-LEGACY_MULTIDAY = REPO_ROOT / "multiday_results"
-LEGACY_EXPERIMENTS = REPO_ROOT / "experiments"
+# These are the pre-rebuild result trees: ~640 GB of predictions, experiments and
+# multiday results, none of it version-controlled. A git worktree therefore has none of
+# it, so the root is overridable and a worktree points at the primary checkout rather
+# than copying. Without this a stage run from a worktree finds an empty store and fails -
+# loudly, which is correct, but for a reason that has nothing to do with the analysis.
+LEGACY_ROOT = _root("STEC_LEGACY_ROOT", REPO_ROOT)
+
+LEGACY_PREDICTIONS = LEGACY_ROOT / "predictions"
+LEGACY_MULTIDAY = LEGACY_ROOT / "multiday_results"
+LEGACY_EXPERIMENTS = LEGACY_ROOT / "experiments"
