@@ -235,6 +235,10 @@ def run_station(rinex: Path, nav: Path, bsx: Path, workdir: Path) -> pd.DataFram
         return pd.DataFrame()
     obs, systems = choice
 
+    # The binary runs with cwd=workdir, so every path handed to it must be absolute.
+    workdir = workdir.resolve()
+    rinex, nav, bsx = rinex.resolve(), nav.resolve(), bsx.resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
     config = workdir / "ccl.conf"
     text = CONFIG_TEMPLATE.read_text()
     for placeholder, value in (
@@ -246,14 +250,18 @@ def run_station(rinex: Path, nav: Path, bsx: Path, workdir: Path) -> pd.DataFram
         text = text.replace(placeholder, value)
     config.write_text(text)
 
-    subprocess.run(
+    result = subprocess.run(
         [str(BINARY), str(rinex), str(nav), "-k", str(config), "-sys", systems,
          "-x", "3", "-y", "2", "-o", "out.pos", "-ti", "30"],
-        cwd=workdir, capture_output=True, timeout=1800,
+        cwd=workdir, capture_output=True, text=True, timeout=1800,
     )
     ion = list(workdir.glob("*.ION"))
     if not ion:
-        logger.warning(f"⚠️  {rinex.name}: no .ION produced")
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        logger.warning(
+            f"⚠️  {rinex.name}: no .ION produced (exit {result.returncode})"
+            + (f": {detail[-1]}" if detail else "")
+        )
         return pd.DataFrame()
     frame = parse_ion(ion[0])
     if frame.empty:
