@@ -94,9 +94,14 @@ Notes:
   rather than stored as placeholders. Per-arc analysis is only possible on the `own` dataset.
 - Space-weather columns keep registry names: `Kp_index`, `R_Sunspot_No`, `Dst-index,_nT`,
   `AE-index,_nT`, `ap_index,_nT`, `f107_index`.
-- The VTEC baseline (`MLP_LaplacianNLL`) predicts a **scale**, not a std: variance is 2*scale^2,
-  converted in `inference_manager`. Its slant-mapped sigma is `vtec_model_stec_total_unc`
-  (plus aleatoric/epistemic twins). Score it as a **Laplace**, not a Gaussian - the same data
+- The VTEC baseline (`MLP_LaplacianNLL`) predicts a Laplace **scale** `b`, not a std - but
+  the store does not hold `b`. Two independent ports misread this, so being blunt about
+  which number lives where: `inference_manager` converts `b` to `variance = 2*b^2` and
+  stores its **square root**, so `vtec_model_stec_total_unc` is `sqrt(2)*b`, the
+  distribution's standard deviation, already converted (plus aleatoric/epistemic twins).
+  Recovering the scale from the store is `b = std / sqrt(2)`; applying `variance = 2*b^2`
+  to the stored column instead double-counts the `sqrt(2)`.
+  Score it as a **Laplace**, not a Gaussian - the same data
   reads 90% coverage at nominal 50% under Gaussian quantiles against 82% under Laplace. It was
   computed and then dropped by the schema whitelist for weeks; that is the failure mode this
   store exists to prevent, so never narrow the schema at a write site.
