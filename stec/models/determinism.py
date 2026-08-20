@@ -34,6 +34,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import warnings
 from collections.abc import Iterator
 
 import torch
@@ -137,9 +138,22 @@ def deterministic_mode(enabled: bool = True) -> Iterator[None]:
         "float32_precision": torch.get_float32_matmul_precision(),
         "cublas_workspace": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
     }
-    # cuBLAS needs this set for its GEMMs to be deterministic; without it
-    # use_deterministic_algorithms raises as soon as one runs.
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    # cuBLAS reads CUBLAS_WORKSPACE_CONFIG when its handle is first created, which happens
+    # on the first CUDA GEMM. Setting it here is therefore too late in any process that has
+    # already run one, and torch says so at the first backward pass. Setting it anyway is
+    # still right - it takes effect in a process that has not yet touched CUDA - but a
+    # caller who needs the guarantee has to set it before starting python, so say so rather
+    # than leave a warning from a lower layer as the only sign.
+    if "CUBLAS_WORKSPACE_CONFIG" not in os.environ and torch.cuda.is_initialized():
+        warnings.warn(
+            "CUBLAS_WORKSPACE_CONFIG was not set before CUDA was initialised, so cuBLAS "
+            "GEMM determinism is not guaranteed in this process. Export "
+            "CUBLAS_WORKSPACE_CONFIG=:4096:8 before starting python if an exact "
+            "comparison depends on it.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.backends.cuda.matmul.allow_tf32 = False

@@ -613,12 +613,21 @@ Reference numbers for the coverage split, from
 - **Replace-in-place** means equivalence testing needs the `pre-rebuild` worktree, and the rebuild
   itself needs its own worktree so the running jobs keep executing unmodified code (§0). Write
   Gates A-F before deleting old modules.
-- ~~**The determinism harness may not close.**~~ **Closed for forward passes** (measured
-  2026-08-20, §8): two independent constructions with identical weights agree bit-exactly once
-  the Bayesian noise is pinned by layer name. Gate B needs no tolerance band. **Still open for
-  training**: Gate C involves backward-pass reductions, where atomics can be non-deterministic
-  regardless of seeding, so measure the same floor for a training step before trusting Gate C's
-  pass/fail. That measurement is what the "reuse the checkpoints" decision rests on.
+- ~~**The determinism harness may not close.**~~ **Closed, for both forward and training**
+  (measured 2026-08-20). Forward: two independent constructions with identical weights agree
+  bit-exactly once the Bayesian noise is pinned by layer name, so Gate B needs no tolerance
+  band — and it now passes bit-exactly on seven real checkpoints. Training:
+  `verification/measure_training_determinism.py` runs 50 real steps (Gaussian NLL + KL, Adam)
+  twice from one seed and gets **0.0 difference in both loss trajectory and final parameters**,
+  with and without deterministic mode, against 1.8e-01 of parameter movement from a seed
+  change. **Gate C can therefore require exact agreement**: any difference is a real
+  difference, not a noise floor.
+  Two scope limits, neither yet measured: this covers the model, loss and optimiser against a
+  fixed batch, so it does not include the DataLoader path (12 workers, `EpochRandomSampler`
+  seeded by `base_seed + epoch`, itself deterministic by construction) nor multi-epoch training
+  over real data. And `CUBLAS_WORKSPACE_CONFIG` must be exported **before** python starts —
+  cuBLAS reads it when its handle is created, so setting it in-process is too late.
+  `deterministic_mode` now warns rather than silently pretending.
 - **VLBI K-band and Madrigal** are the least-exercised paths in the repo and will surface their own
   defects. Madrigal additionally interacts with divergence 8 (join tolerance).
 - **Gate C may fail** through a legitimately-fixed scheduler bug. Decide on retraining then, with
