@@ -16,14 +16,14 @@ Updated 2026-08-20.
 | 1 — skeleton and contracts | **done** |
 | 2 — data layer | **layout and transforms done, Gate A green both halves**; splits and the H5 loader remain |
 | 3 — models and training | model ported (Gate B green); loss and scheduler ported; the fit loop itself remains |
-| 4 — inference | Monte Carlo path in progress |
+| 4 — inference | Monte Carlo path and uncertainty decomposition ported |
 | 5 — baselines | IGS GIM ported with three defects fixed; VTEC mapping and Madrigal remain |
-| 6 — positioning | metrics in progress; PPPx driver deliberately not yet touched |
-| 7 — analyses and figures | `daily_metrics` ported and verified exact; calibration in progress; 20 others declared only |
+| 6 — positioning | solution metrics ported; PPPx driver deliberately not yet touched |
+| 7 — analyses and figures | `daily_metrics` (verified exact), `uncertainty_calibration`, `paper_tables`, `results_manifest` ported; the rest declared only |
 | 8 — divergences | not started (manuscript frozen until then) |
 | 9 — release package | not started |
 
-153 tests pass. `ruff check` and `ruff format --check` are clean.
+226 tests pass. `ruff check` and `ruff format --check` are clean.
 
 ---
 
@@ -183,6 +183,40 @@ The repo's `*data/` rule, intended for datasets, also matched `stec/data/` and
 `tests/data/`. The data-layer source was invisible to git until this was found — worth
 noting because a silent omission from version control is the same class of failure as a
 silent omission from a results table.
+
+### 11. The subset cache ignored its own seed — checked, and it never drifted
+
+`get_fixed_subset_indices` wrote `{"len", "k", "seed", "indices"}` to disk and, on load,
+validated only `len` and `k`. The one input that determines the selection was the one input
+the cache ignored, so changing the seed silently returned the previous seed's subset.
+
+Because fixing it is behaviour-changing — it invalidates the 1,128 caches under
+`data/val_test_subsets_idx/` — the consequence was checked before shipping rather than
+after: **every cache file records `seed: 42`**, and all three call sites in `loaders.py`
+pass the config's `random_seed`, which is 42 in every stored experiment config. The
+published evaluation sets are unaffected. Worth confirming rather than assuming, since
+nothing would have reported a drift had one occurred.
+
+### 12. The VTEC uncertainty carries two stacked errors, and they partially mask each other
+
+Scoring the VTEC baseline as a Gaussian is the known error. Underneath it is a second one:
+the store's `vtec_model_stec_total_unc` is **not** the Laplace scale — `inference_manager`
+already converts the model's raw scale to a standard deviation as `std = sqrt(2)·scale`.
+Correct Laplace scoring therefore has to recover `scale = std / sqrt(2)` first. Feeding the
+stored value straight into a Laplace formula is wrong even after choosing the right family.
+
+Measured on five real days: **85.9% empirical coverage at nominal 50% under Gaussian
+quantiles against 76.7% under Laplace**, the same direction and comparable magnitude to the
+90%/82% recorded for the full sweep.
+
+### 13. Two more "which statistic is this" cases, both now pinned
+
+The positioning summary is a **mean of per-station-day values**, not an epoch-weighted
+pooled statistic — the same distinction as `RMSE_mean` versus `pooled_RMSE` in the STEC
+tables, and with the same capacity to be reported under one name. And the epistemic
+variance applies Bessel's correction for Gaussian models but not for the Laplace ensemble
+(`unbiased=not is_laplacian` in the source); that asymmetry is preserved deliberately, with
+the substring test replaced by the declared distribution.
 
 ---
 
