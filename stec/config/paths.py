@@ -43,8 +43,11 @@ STEC_DATABASE = DATA_ROOT / "STEC_DB_CASDCB"
 MADRIGAL_ROOT = DATA_ROOT / "Madrigal_STEC"
 GIM_IONEX_ROOT = DATA_ROOT / "GIM_IONEX"
 
-# In-repo data that is small enough to version alongside the code.
-REPO_DATA = REPO_ROOT / "data"
+# Sits inside the repository but is not versioned - `data/` is gitignored, because it holds
+# the 103 GB aggregated splits and the space-weather archive. A git worktree therefore does
+# not get a copy, so this is overridable: a worktree points at the primary checkout's copy
+# rather than duplicating tens of gigabytes.
+REPO_DATA = _root("STEC_REPO_DATA", REPO_ROOT / "data")
 OMNI_INDICES = REPO_DATA / "omni_hourly_2010-2025.h5"
 SUBSET_INDEX_CACHE = REPO_DATA / "val_test_subsets_idx"
 
