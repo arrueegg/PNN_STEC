@@ -16,14 +16,14 @@ Updated 2026-08-20.
 | 1 — skeleton and contracts | **done** |
 | 2 — data layer | **done — Gate A green end to end, bit-exact on real data** |
 | 3 — models and training | model ported (Gate B green); loss, scheduler and CLI ported; the fit loop itself remains |
-| 4 — inference | Monte Carlo path and uncertainty decomposition ported |
-| 5 — baselines | **IGS GIM, VTEC mapping and Madrigal all ported**, with five defects fixed between them |
-| 6 — positioning | solution metrics ported; PPPx driver deliberately not yet touched |
-| 7 — analyses and figures | ten analyses plus the figures ported; 12 stages still on pre-rebuild scripts |
+| 4 — inference | **done — Gate D green, bit-exact on a real checkpoint** |
+| 5 — baselines | **done** — IGS GIM, VTEC mapping and Madrigal, five defects fixed between them |
+| 6 — positioning | metrics and all six positioning analyses ported; PPPx driver deliberately untouched |
+| 7 — analyses and figures | 18 analyses plus the figures ported; 4 stages stay on pre-rebuild scripts by choice |
 | 8 — divergences | not started (manuscript frozen until then) |
 | 9 — release package | not started |
 
-336 tests pass. Eleven of the 23 declared stages now run rebuilt code. `ruff check` and `ruff format --check` are clean.
+394 tests pass. **Nineteen of the 23 declared stages now run rebuilt code.** `ruff check` and `ruff format --check` are clean.
 
 ---
 
@@ -40,7 +40,8 @@ they catch is the wiring error a port introduces.
 | A (end to end) | real HDF5 → reader → assembler vs the legacy loader, 6 days | **PASS, bit-exact** (0.000e+00), incl. derived local time and the hourly space-weather join |
 | B | 7 real checkpoints: the paper's pretrained model + 6 fine-tuned days | **PASS, bit-exact** (mean and variance both 0.0e+00) |
 | C | precondition measured, gate not yet run | training is bit-exact run-to-run, so the gate can require exact agreement |
-| D–F | not yet run | — |
+| D | rebuilt vs legacy inference, seeded, 4096 real observations, 100 draws | **PASS, bit-exact** — against an MC noise floor of 1.275 TECU |
+| E–F | not yet run | — |
 
 ### The determinism question is settled
 
