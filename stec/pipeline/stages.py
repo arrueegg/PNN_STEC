@@ -50,6 +50,22 @@ MADRIGAL_CAVEAT = [
 
 STAGES: list[Stage] = [
     Stage(
+        "paper_tables",
+        "-m stec.analysis.paper_tables --config config/config_BNN.yaml",
+        "Tables 1, 2",
+        "input feature list and hyperparameters, generated from the model rather than "
+        "maintained beside it",
+        outputs=["multiday_results/paper_tables"],
+        canonical_for="Tables 1 and 2",
+        caveats=[
+            "Generated from a resolved run config. Point it at a stored experiment's "
+            "config.yaml to describe what actually trained, not at a template.",
+            "Table 2 includes three hyperparameters the submitted manuscript omits: the "
+            "KL warmup (0 to 0.1 over 5 epochs), the variance floor, and the output bias "
+            "initialisation.",
+        ],
+    ),
+    Stage(
         "relative_error_metrics",
         "src/analysis/relative_error_metrics.py",
         "R2.1, R2.2",
