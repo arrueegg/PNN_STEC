@@ -78,3 +78,5 @@ positioning/positioning_eval/lib_compat/dl/
 positioning/positioning_eval/lib_compat/root/
 
 STEC_Modelling/
+# Rebuild artifacts: produced by stages, reproducible from the pipeline.
+/artifacts/
