@@ -33,8 +33,16 @@ from stec.data.feature_layout import layout_from_feature_control  # noqa: E402
 
 DEFAULT_EXPERIMENTS = Path("/scratch2/arrueegg/WP4/PNN_STEC/experiments")
 
-# Checkpoints whose first layer is named differently, or which are not a single model.
-INPUT_WEIGHT_KEYS = ("input_layer.0.weight", "model.0.weight", "net.0.weight")
+# Architectures name their input projection differently. `layers.0.weight` is the MLP
+# family, which includes the Mao et al. VTEC baseline - the only models that exercise the
+# (degree + 1)**2 spherical-harmonic convention, so leaving them unchecked would leave half
+# the layout logic unvalidated.
+INPUT_WEIGHT_KEYS = (
+    "input_layer.0.weight",
+    "layers.0.weight",
+    "model.0.weight",
+    "net.0.weight",
+)
 
 
 def checkpoint_input_width(path: Path) -> int | None:
