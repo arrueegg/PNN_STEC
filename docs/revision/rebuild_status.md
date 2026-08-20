@@ -14,16 +14,16 @@ Updated 2026-08-20.
 |---|---|
 | 0 — verify the existing numbers | **done** |
 | 1 — skeleton and contracts | **done** |
-| 2 — data layer | layout done and gated; loaders, splits and collation remain |
-| 3 — models and training | model ported, Gate B green; training loop not ported |
-| 4 — inference | not started |
-| 5 — baselines | not started |
-| 6 — positioning | not started |
-| 7 — analyses and figures | declared as stages; bodies not ported |
+| 2 — data layer | **layout and transforms done, Gate A green both halves**; splits and the H5 loader remain |
+| 3 — models and training | model ported (Gate B green); loss and scheduler ported; the fit loop itself remains |
+| 4 — inference | Monte Carlo path in progress |
+| 5 — baselines | IGS GIM ported with three defects fixed; VTEC mapping and Madrigal remain |
+| 6 — positioning | metrics in progress; PPPx driver deliberately not yet touched |
+| 7 — analyses and figures | `daily_metrics` ported and verified exact; calibration in progress; 20 others declared only |
 | 8 — divergences | not started (manuscript frozen until then) |
 | 9 — release package | not started |
 
-88 tests pass. `ruff check` and `ruff format --check` are clean.
+153 tests pass. `ruff check` and `ruff format --check` are clean.
 
 ---
 
@@ -36,6 +36,7 @@ they catch is the wiring error a port introduces.
 | Gate | Scope run | Result |
 |---|---|---|
 | A (layout half) | rebuilt layout vs legacy derivation, all 1,591 experiment configs | **PASS — 1,587 agree, 0 disagree** |
+| A (values half) | assembled input tensor vs the legacy collation, all 127 columns | **PASS — after fixing 3 ordering bugs it found** |
 | B | 7 real checkpoints: the paper's pretrained model + 6 fine-tuned days | **PASS, bit-exact** (mean and variance both 0.0e+00) |
 | C | precondition measured, gate not yet run | training is bit-exact run-to-run, so the gate can require exact agreement |
 | D–F | not yet run | — |
@@ -134,6 +135,57 @@ when selecting the canonical VTEC baseline.
 
 ---
 
+### 7. Gate A's values half caught three ordering bugs in my own port
+
+The width check passed at 127 columns; comparing the actual tensor against the legacy
+collation element for element did not. Three width-preserving permutations:
+
+1. station features are emitted **solar-magnetic first** (`sm_lat_sta, sm_lon_sta,
+   lat_sta, lon_sta`) while IPP is geographic first — an asymmetry I had assumed away;
+2. the spherical harmonics group **by coordinate system, not by location**
+   (`sta_geo, ipp_geo, sta_sm, ipp_sm`);
+3. **space weather is appended after the harmonics**, not with the other scalars.
+
+Each produces a tensor of exactly the right shape holding the wrong numbers, which trains
+a plausible and wrong model rather than failing. This is the concrete argument for
+comparing *values* and not only shapes, and for comparing against the old code rather than
+reasoning about what the order ought to be.
+
+### 8. What the scheduler defect actually cost the published results
+
+Narrower than it first appears, and the distinction matters for the retraining decision.
+`config/config_BNN.yaml` selects `CosineAnnealingLR`, where the defect is severe — `T_max`
+taken from 150 pretrain epochs means a 50-epoch fine-tune barely decays at all. But the
+**stored configs for the paper's checkpoints use `ReduceLROnPlateau`**, so that severe path
+applies to anything retrained from the current config, not to the published models.
+
+On the `ReduceLROnPlateau` path the code reads `scheduler_patience` and `scheduler_gamma`,
+and **neither key exists in either config block** — so both fall back to defaults and the
+configured `patience: 15` is silently ignored in favour of 5. The one parameter that
+genuinely differs by mode is `min_lr`, computed from the pretrain learning rate: 1e-6
+rather than the 2e-7 the fine-tune rate implies, a five-fold higher floor. Whether that
+bound was ever reached over 50 epochs is a question for Gate C, not for argument.
+
+The port keeps both behaviours behind a compat flag defaulting to legacy, because ~3,580
+checkpoints were trained on the buggy path and a released pipeline containing only the fix
+could not reproduce the models it ships.
+
+### 9. A fourth GIM defect, found and deliberately not carried forward
+
+`build_gim_stec` in the legacy module is independently broken: it passes a `(start, end)`
+tuple where a single date is expected and calls `map_vtec_to_stec` with a keyword that does
+not match its signature. It has no callers. Porting it would have carried an unreported bug
+into the new package; it was left out and reported instead.
+
+### 10. `.gitignore` was swallowing the new package's own source
+
+The repo's `*data/` rule, intended for datasets, also matched `stec/data/` and
+`tests/data/`. The data-layer source was invisible to git until this was found — worth
+noting because a silent omission from version control is the same class of failure as a
+silent omission from a results table.
+
+---
+
 ## What the rebuilt package contains
 
 ```
@@ -141,6 +193,10 @@ stec/
   config/paths.py          every location resolved once, with env overrides
   pipeline/                stage contract, registry, fingerprint, provenance, runner
   pipeline/stages.py       the 22 analyses, with canonical_for / caveats / supersedes
+  analysis/                daily_metrics (verified exact), uncertainty calibration
+  baselines/               IGS GIM, three defects structurally prevented
+  training/                annealed KL loss, scheduler with a legacy/corrected flag
+  positioning/             solution metrics
   inference/               the prediction store, streaming by default
   models/                  architecture, capability flags, determinism harness
   data/feature_layout.py   the single input-dimension computation

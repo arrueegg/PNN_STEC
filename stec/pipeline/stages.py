@@ -99,8 +99,11 @@ STAGES: list[Stage] = [
         ],
     ),
     Stage(
+        # Ported. Verified to reproduce the pre-rebuild implementation exactly - delta 0.0
+        # on RMSE_mean, pooled_RMSE, MAE_mean, R2_mean, day and observation counts, across
+        # all seven model/dataset combinations over 242 days and 475,111,413 observations.
         "daily_metrics",
-        "src/analysis/daily_metrics.py",
+        "-m stec.analysis.daily_metrics",
         "Tables 3, 4",
         "per-day and pooled STEC metrics recomputed from the prediction store",
         inputs=[STORE_OWN, STORE_PRETRAINED, "multiday_results/gim_baseline_repair"],
