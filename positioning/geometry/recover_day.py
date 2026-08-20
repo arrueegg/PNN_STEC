@@ -103,51 +103,8 @@ def resolve_experiment(kind: str, doy: int) -> Path | None:
     return matches[0]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--year", type=int, default=2024)
-    parser.add_argument("--doy", type=int, required=True)
-    parser.add_argument("--coverage", type=Path,
-                        default=Path("multiday_results/positioning_full_coverage/coverage.csv"))
-    parser.add_argument("--weight_opt", default="iono", choices=["iono", "elev"])
-    parser.add_argument("--parallel", type=int, default=4)
-    parser.add_argument("--workdir", type=Path, default=Path("data/recovery_work"))
-    parser.add_argument("--output_root", type=Path, default=Path("data/recovered_stec_db"))
-    parser.add_argument("--keep_rinex", action="store_true")
-    parser.add_argument("--keep_diagnostics", action="store_true",
-                        help="retain PPPx .stat/.log; nothing in the analysis path reads them")
-    args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-    coverage = pd.read_csv(args.coverage)
-    stations = sorted(coverage[(coverage.doy == args.doy) &
-                               (coverage.cause == ABSENT_CAUSE)].station.str.upper().unique())
-    if not stations:
-        logger.info(f"DOY {args.doy}: nothing to recover")
-        return
-    logger.info(f"DOY {args.doy}: recovering {len(stations)} station(s): {', '.join(stations)}")
-
-    workdir = args.workdir / f"{args.year}{args.doy:03d}"
-    rinex_dir = workdir / "rinex"
-    rinex_dir.mkdir(parents=True, exist_ok=True)
-    nav, bsx = ensure_nav(args.year, args.doy, workdir), ensure_bsx(args.year, args.doy)
-
-    sys.path.insert(0, str(REPO / "positioning" / "positioning_eval"))
-    from download_rinex import download_rinex_batch  # noqa: E402
-
-    download_rinex_batch(stations, args.year, args.doy, rinex_dir, logger,
-                         max_workers=4 * args.parallel)
-
-    built = run(["python", "positioning/geometry/build_recovered_day.py",
-                 "--year", args.year, "--doy", args.doy, "--stations", ",".join(stations),
-                 "--rinex_dir", rinex_dir, "--nav", nav, "--bsx", bsx,
-                 "--workdir", workdir / "camaliot", "--output_root", args.output_root,
-                 "--parallel", args.parallel])
-    if built.returncode != 0:
-        logger.error(f"DOY {args.doy}: geometry build failed, nothing to position")
-        return
-
+def run_models(args, stations: list[str]) -> None:
+    """Inference and positioning for every model over the recovered day."""
     date = pd.Timestamp(f"{args.year}-01-01") + pd.Timedelta(days=args.doy - 1)
     for kind in EXPERIMENT_PATTERNS:
         experiment = resolve_experiment(kind, args.doy)
@@ -169,6 +126,72 @@ def main() -> None:
             for pattern in ("**/.*.stat", "**/.*.log"):
                 for stale in results.glob(pattern):
                     stale.unlink(missing_ok=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--year", type=int, default=2024)
+    parser.add_argument("--doy", type=int, required=True)
+    parser.add_argument("--coverage", type=Path,
+                        default=Path("multiday_results/positioning_full_coverage/coverage.csv"))
+    parser.add_argument("--weight_opt", default="iono", choices=["iono", "elev"])
+    parser.add_argument("--parallel", type=int, default=4)
+    parser.add_argument("--workdir", type=Path, default=Path("data/recovery_work"))
+    parser.add_argument("--output_root", type=Path, default=Path("data/recovered_stec_db"))
+    parser.add_argument("--stages", default="all", choices=["all", "geometry", "models"],
+                        help="'geometry' needs no GPU and can run alongside a training job; "
+                             "'models' does inference and positioning over an existing file")
+    parser.add_argument("--keep_rinex", action="store_true")
+    parser.add_argument("--keep_diagnostics", action="store_true",
+                        help="retain PPPx .stat/.log; nothing in the analysis path reads them")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+    coverage = pd.read_csv(args.coverage)
+    stations = sorted(coverage[(coverage.doy == args.doy) &
+                               (coverage.cause == ABSENT_CAUSE)].station.str.upper().unique())
+    if not stations:
+        logger.info(f"DOY {args.doy}: nothing to recover")
+        return
+    logger.info(f"DOY {args.doy}: recovering {len(stations)} station(s): {', '.join(stations)}")
+
+    recovered = (args.output_root / str(args.year) / f"{args.doy:03d}" /
+                 f"ccl_{args.year}{args.doy:03d}_30_5.h5")
+    if args.stages == "models":
+        if not recovered.exists():
+            logger.error(f"DOY {args.doy}: no recovered file, run the geometry stage first")
+            return
+        run_models(args, stations)
+        return
+
+    workdir = args.workdir / f"{args.year}{args.doy:03d}"
+    rinex_dir = workdir / "rinex"
+    rinex_dir.mkdir(parents=True, exist_ok=True)
+    nav, bsx = ensure_nav(args.year, args.doy, workdir), ensure_bsx(args.year, args.doy)
+
+    sys.path.insert(0, str(REPO / "positioning" / "positioning_eval"))
+    from download_rinex import download_rinex_batch  # noqa: E402
+
+    download_rinex_batch(stations, args.year, args.doy, rinex_dir, logger,
+                         max_workers=4 * args.parallel)
+
+    built = run(["python", "positioning/geometry/build_recovered_day.py",
+                 "--year", args.year, "--doy", args.doy, "--stations", ",".join(stations),
+                 "--rinex_dir", rinex_dir, "--nav", nav, "--bsx", bsx,
+                 "--workdir", workdir / "camaliot", "--output_root", args.output_root,
+                 "--parallel", args.parallel])
+    if built.returncode != 0:
+        logger.error(f"DOY {args.doy}: geometry build failed, nothing to position")
+        return
+
+    if args.stages == "geometry":
+        if not args.keep_rinex:
+            shutil.rmtree(rinex_dir, ignore_errors=True)
+        logger.info(f"DOY {args.doy}: geometry done")
+        return
+
+    run_models(args, stations)
 
     if not args.keep_rinex:
         shutil.rmtree(rinex_dir, ignore_errors=True)

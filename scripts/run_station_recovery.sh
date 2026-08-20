@@ -22,7 +22,14 @@ WEIGHT_OPT=${WEIGHT_OPT:-iono}
 PARALLEL=${PARALLEL:-4}
 MIN_FREE_GB=${MIN_FREE_GB:-40}
 FORCE=${FORCE:-0}
-LOG=${LOG:-logs/station_recovery.log}
+# 'geometry' uses no GPU, so it can run alongside a training job; 'models' does the
+# inference and positioning afterwards. 'all' does both and must run on its own.
+STAGES=${STAGES:-all}
+WAIT_FOR_SWEEP=${WAIT_FOR_SWEEP:-1}
+# Systemd units this run must not overlap with, space separated. Both stages use this same
+# script, so they cannot be told apart by argv - wait on the unit instead.
+WAIT_FOR_UNITS=${WAIT_FOR_UNITS:-}
+LOG=${LOG:-logs/station_recovery_${STAGES}.log}
 mkdir -p "$(dirname "$LOG")"
 
 # Match the driving script in /proc/<pid>/cmdline, never `pgrep -f` (which matches the
@@ -41,10 +48,19 @@ other_sweep_running() {
     return 1
 }
 
-while other_sweep_running; do
-    echo "$(date '+%F %T') waiting: another sweep is still running" >> "$LOG"
-    sleep 300
+for unit in $WAIT_FOR_UNITS; do
+    while systemctl --user is-active --quiet "$unit"; do
+        echo "$(date '+%F %T') waiting for $unit" >> "$LOG"
+        sleep 300
+    done
 done
+
+if [ "$WAIT_FOR_SWEEP" = "1" ]; then
+    while other_sweep_running; do
+        echo "$(date '+%F %T') waiting: another sweep is still running" >> "$LOG"
+        sleep 300
+    done
+fi
 
 DAYS=$(python - "$COVERAGE" <<'PY'
 import sys, pandas as pd
@@ -54,7 +70,7 @@ print(" ".join(str(int(d)) for d in days))
 PY
 )
 
-echo "$(date '+%F %T') starting recovery of $(echo "$DAYS" | wc -w) day(s)" >> "$LOG"
+echo "$(date '+%F %T') starting '$STAGES' over $(echo "$DAYS" | wc -w) day(s)" >> "$LOG"
 
 for doy in $DAYS; do
     free_gb=$(df -BG --output=avail /scratch2 | tail -1 | tr -dc '0-9')
@@ -65,15 +81,17 @@ for doy in $DAYS; do
         exit 3
     fi
 
+    # Only the geometry stage is stamped by its output file; the model stage is driven
+    # by whether that file exists, and reruns cheaply.
     stamp=$(printf 'data/recovered_stec_db/2024/%03d/ccl_2024%03d_30_5.h5' "$doy" "$doy")
-    if [ "$FORCE" != "1" ] && [ -f "$stamp" ]; then
+    if [ "$STAGES" = "geometry" ] && [ "$FORCE" != "1" ] && [ -f "$stamp" ]; then
         echo "$(date '+%F %T') DOY $doy already recovered, skipping" >> "$LOG"
         continue
     fi
 
     echo "$(date '+%F %T') DOY $doy starting (${free_gb}G free)" >> "$LOG"
     if python positioning/geometry/recover_day.py \
-            --doy "$doy" --coverage "$COVERAGE" \
+            --doy "$doy" --coverage "$COVERAGE" --stages "$STAGES" \
             --weight_opt "$WEIGHT_OPT" --parallel "$PARALLEL" >> "$LOG" 2>&1; then
         echo "$(date '+%F %T') DOY $doy done" >> "$LOG"
     else
