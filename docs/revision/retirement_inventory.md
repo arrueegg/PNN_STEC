@@ -1,373 +1,464 @@
 # Retirement inventory: pre-rebuild `src/`, `positioning/positioning_eval/`, `positioning/scripts/`
 
-Read-only classification of every Python module the pre-rebuild codebase ships, done to
-decide what can be deleted when `stec/` replaces it. Scope, per the brief: every `.py`
-under the original's `src/` (102 files), `positioning/positioning_eval/` (7 files) and
-`positioning/scripts/` (9 files) — **118 files total**.
+Recomputed at HEAD `63ed78e` on `pipeline-rebuild`, replacing the version written at
+`507bcf2`. Scope, per the brief: every `.py` under `src/` (102 files), `positioning/
+positioning_eval/` (7 files), `positioning/scripts/` (9 files) — **118 files total**,
+confirmed by `find … -name "*.py" | wc -l` on each of the three trees.
 
-**A framing fact that changes what "delete" means here.** `PNN_STEC_rebuild` is a git
-*worktree* of the same repository as `/scratch2/arrueegg/WP4/PNN_STEC` (confirmed: shared
-commit hashes, e.g. `efa1e5a`/`453a47e` appear in both `git log` outputs). Its local
-`src/`, `positioning/positioning_eval/`, `positioning/scripts/` are byte-identical copies
-of the original's — checked with `diff -rq`, which reported **zero differences** across
-all of `src/` and all of `positioning/scripts/`, and exactly two changed files under
-`positioning/positioning_eval/` (`metrics.py`, `run_positioning_evaluation.py` — a bug fix
-applied only in this worktree, see Blocker 3). "Retiring" a module therefore means deleting
-*this worktree's own copy* of it. The original repository is explicitly out of scope and
-was never written to. Several of the project's own verification gates already read the
-original directly by absolute path (`/scratch2/arrueegg/WP4/PNN_STEC/src`) rather than this
-worktree's copy — noted per-module below, and it means the original's `src/` must never be
-deleted regardless of what happens here.
+All work here is read-only against both this worktree and `/scratch2/arrueegg/WP4/PNN_STEC`
+(the data root, a sibling worktree of the same repository on branch `paper-revision-jgr-mlc`,
+currently running a live GPU job — never touched). Every disposition below rests on reading
+both the candidate file and its claimed replacement, and grepping the *current* repository
+(`cli.py`, `scripts/*.sh`, `config/*.yaml`, `stec/pipeline/stages.py`, `hp_search/*.sh`,
+`docs/*.md`) for real callers — quoted, not asserted. `docs/revision/*.md` other than this
+file and `merge_plan.md` were used only as leads and re-verified independently; several are
+themselves stale (see §0) and are named as such below rather than cited as fact.
 
-Method: every disposition below rests on a grep across both trees (quoted where it proves a
-negative), a direct read of both the candidate file and its claimed replacement, and, for
-the two empirical claims (the `evaluation.py`/`evaluation/` shadowing, and the running
-processes cited in Blocker 2), a live check. `docs/revision/{port_completeness_audit.md,
-stage_coverage.md, rebuild_status.md, figure_coverage.md}` — written by earlier sessions on
-this branch — were used as a cross-check, not a source: every claim taken from them was
-independently re-verified against the code before being repeated here (e.g. re-grepping for
-`common_set.py`'s callers, re-running the `evaluation` import shadowing check).
+## 0. Why this recompute differs from the `507bcf2` version, and where it was wrong
+
+The version this replaces was written at commit `507bcf2`, which is **19 commits behind**
+current HEAD on this branch (`git log --oneline --reverse main..HEAD`, `507bcf2` is entry
+159 of 165). Its central premise — "the entire training, inference and data-preparation
+driver layer … has not been touched by the rebuild" — was true when written and is **false
+now**. Commits after it landed real drivers and closed gaps it built its 84-file KEEP count
+around:
+
+| Commit | What it changed |
+|---|---|
+| `2e2597e` | `stec/data/spherical_harmonics.py` + `spherical_harmonics_ylm.py` — a native, ported spherical-harmonics encoder. This closes the old inventory's own **Blocker 1** outright: `tests/test_clean_clone.py` now imports `stec.data.spherical_harmonics.SphericalHarmonics` (confirmed by reading the test), not `utils.locationencoder`. |
+| `e2c3e6d` | `stec/viz/manuscript_figures.py` grown to define all 14 code-generated manuscript figures (Figs 1-2, 4-11, 12-15; only Fig 3 is hand-drawn) and `stec/analysis/elevation_metrics_finetuned.py` added for Figure 11's error bars. |
+| `2b32aca` | `stec/training/run_training.py` + `stec/inference/run_inference.py` — the training and inference drivers the old inventory's **Blocker 5** said did not exist. |
+| `ab34769` | `stec/data/run_data_prep.py` — the data-preparation driver, same blocker, other half. |
+| `1072c8b` | Results-layout restructure (`stec/config/paths.py`, `stec/runs/restructure_results.py`) — moved every analysis stage's output-directory convention; **designed, tested, dry-run verified, not applied** (see `merge_plan.md`). |
+| `75d9375` | Fixed the `save_daily_summary` data-loss bug **in this worktree's own copy** of `positioning/positioning_eval/metrics.py` and `run_positioning_evaluation.py` — five hours after `02e125b` had only *prepared* the fix as a patch. Not applied to the data root. See the dedicated section below. |
+| `63ed78e` (HEAD) | `.pipeline/*.json` provenance records for the stages that had never recorded one. |
+
+**Concretely, where `507bcf2`'s document was wrong, stated so it can be checked:**
+
+1. **"14 of the manuscript's 15 figures have no `stec/` generator" — no longer true.**
+   `stec/viz/manuscript_figures.py` now defines a `fig_*` function for all 14. It is,
+   however, still true that only **8 of the 14** are actually wired to run on real data via
+   any current entry point (§"src/viz/" below) — the old finding was about code existing at
+   all, and undersells how much progress there has been, but a naive reading of "14 figures
+   ported" today would overstate how reproducible they are, in the other direction.
+2. **"No production driver exists for training, inference, or multi-day orchestration" — no
+   longer true as stated**, but the successor drivers are declared pipeline stages that run
+   only against a tiny checked-in fixture (`tests/fixtures/pipeline_smoke`), not the paper's
+   real data, and each has code-documented, test-pinned gaps (§2 below). The old blocker
+   conflated "driver does not exist" with "driver reproduces the paper's checkpoints"; those
+   are now two different, both-still-true statements.
+3. **`common_set_positioning.py` was marked "Gate F: declared DIVERGED" — now MATCH.**
+   `docs/revision/gate_f_inventory.md` (re-verified against the real 242-day store, not
+   re-derived from memory): "the declared `</`<=` outlier divergence never fires; 0
+   station-days sit at the 10.000 m boundary." The divergence was real in the code but never
+   manifested in the data; Gate F has since actually been *run*, not just declared.
+4. **`stratified_comparison.py` was marked "has never completed a full run on either
+   side… Declared-not-measured" — it has since completed and is Gate F MATCH.**
+   `gate_f_inventory.md`: "the last of the 19. First run FAILed on the `Method` column…
+   Restored to the predecessor's labels and re-run: all four outputs … byte-identical."
+5. **"Gate F has only measured 2 of 23 stages" — now 17 of 19 runnable comparisons
+   measured (13 MATCH, 4 DIVERGED-as-declared), 0 unexplained, 2 permanent structural
+   skips** (`repair_gim_baseline`, `positioning_coverage` — comparing either against itself
+   or against a tree the station-recovery sweep is actively rewriting). Source:
+   `docs/revision/gate_f_inventory.md`, last touched at `785ddd1`/`24301f6` — after
+   `507bcf2`, so this is not a stale citation, and its per-row verdicts were spot-checked
+   against `stec/pipeline/stages.py`'s own inline comments (e.g. the `daily_metrics` Stage:
+   "delta 0.0 on RMSE_mean, pooled_RMSE, MAE_mean, R2_mean, day/observation counts").
+6. **`docs/revision/task_board.md` (also written at `507bcf2`) is stale and must not be
+   cited.** It states stage 1 (data prep) has "No — no `Stage` in `stages.py`; no CLI/`main()`
+   anywhere under `stec/data/`" — false today: `data_prep_smoke` is a declared Stage in
+   `stec/pipeline/stages.py`, confirmed by reading it directly.
+7. **`eval_database.py`, `h52h5sta.py`, `h52parquet.py`, `visualize_split_sizes.py` were
+   marked KEEP on "the same `docs/REPRODUCING.md` rationale" as `add_split_indices.py` — that
+   rationale does not actually name these four files.** `docs/REPRODUCING.md`, read in full,
+   says raw-DB assembly is "assembled by the scripts under `src/data_processing/`" in general
+   prose only, never these four by name. A repo-wide grep for each filename (`grep -rln
+   '\beval_database\b' . --include=*.py --include=*.sh --include=*.md --include=*.yaml`, and
+   the same for the other three) returns **zero hits anywhere except the stale
+   `507bcf2`-era docs themselves**. Reclassified DEAD below — §2 states the distinction from
+   `add_split_indices.py`, which *is* named as a live dependency by `stec/data/
+   run_data_prep.py`'s own docstring.
+8. **`visualize_temporal_splits.py` was marked KEEP, "no `stec/` equivalent" — it now has
+   one, in full.** The file does *only* plotting (`load_date_splits`,
+   `create_timeline_heatmap`, `print_split_statistics` — no write path to any `.list` file,
+   confirmed by reading it), and `stec/viz/manuscript_figures.py::fig_temporal_split`
+   (Figure 1) is wired into `FIGURE_BUILDERS` and ported completely. Reclassified PORTED.
+9. **New structural finding not in the old inventory at all: `stec/config/paths.py:54`
+   hardcodes `SPLIT_LISTS = REPO_ROOT / "src" / "data_processing"`.** Seven small,
+   git-tracked data files (`{train,val,test}_{station,dates}.list`, `IGSNetwork.csv`) under
+   `src/data_processing/` are load-bearing for `stec/` **itself**, permanently, not only for
+   legacy code. This is a real blocker to a literal `rm -rf src/` and is new to this
+   document — see `merge_plan.md`'s structural-blocker section.
+10. **`src/viz/revision_figures.py` was marked KEEP — correct, but for a different reason
+    than either version of this document first assumed.** It is not simply "no `stec/`
+    equivalent" (`stec/viz/revision_figures.py` is in fact a verified superset port). It
+    stays KEEP because it is still the file a **second, parallel legacy pipeline**
+    (`src/pipeline/stages.py`, entirely separate from `stec/pipeline/stages.py`) and
+    `src/analysis/build_all.py --figures` — the exact command CLAUDE.md documents as
+    canonical ("Rebuild every revision table and figure") — both still invoke directly, and
+    it is invoked a third way by `scripts/backfill_store.sh:155`. This is the same
+    stale-automation blocker that keeps `src/analysis/build_all.py` and `src/pipeline/*`
+    alive below, not an independent gap — see §2.
 
 ## 1. Summary
 
 | Disposition | Count | Meaning |
 |---|---:|---|
-| **PORTED** | 28 | Equivalent exists in `stec/`; safe to delete **after** the blockers in §3 are cleared |
-| **KEEP** | 84 | No replacement exists yet, or the file is a deliberate, permanent exception |
-| **DEAD** | 6 | No caller anywhere in either tree; proven by grep below |
-| **UNRESOLVED** | 0 | — |
+| **PORTED** | 30 | Equivalent exists in `stec/`; safe to delete once the blockers in `merge_plan.md` are cleared |
+| **KEEP** | 71 | No replacement exists yet, or the file is a deliberate, permanent exception |
+| **DEAD** | 17 | No caller anywhere, proven by grep; several new to this recompute (§0 item 7 and the `swi_loader.py` correction in §2) |
+| **UNRESOLVED** | 0 | Every file was settled by direct evidence — none deferred |
 | **Total** | 118 | |
 
-The KEEP count is large because **the entire production driver layer — training,
-inference, comparison, multi-day orchestration, and 14 of the manuscript's 15 figures — has
-not been touched by the rebuild.** `stec/` covers the *analysis* layer (the ~20
-reviewer-response computations) plus a set of **library-level** components (data layout,
-model architecture, training loop, inference sampling, positioning metrics) that Gates A–E
-prove bit-exact against their `src/` counterparts but that **nothing wires into a runnable
-driver**. `cli.py train/compare/inference/map/multiday` and `scripts/backfill_store.sh`
-still call `src/main.py`, `src/finetune.py`, `src/pretrain.py`,
-`src/compare_stec_vtec_gim.py`, `src/inference_testset.py`, `src/inference_map.py`,
-`src/multiday_evaluation.py` — confirmed live: the GPU job running right now
-(`cli.py train --config config/config_A4_fully_bayesian.yaml`, PID 2406, 11h38m at time of
-writing) has `cwd` `/scratch2/arrueegg/WP4/PNN_STEC` — the *original* checkout, not this
-worktree, consistent with `docs/rebuild_plan.md`'s "the protected jobs re-invoke python …
-from the live checkout" — but it is running unmodified `src/` code that would need a
-replacement before this tree's copy could go.
+Both PORTED (28→30) and DEAD (6→17) grew since `507bcf2`; KEEP fell from 84 to 71. The net
+direction — more is portable or provably dead than the old document credited — is the
+correction this recompute makes, but 71 files is still the majority, and the reason is now
+precise rather than a single blanket "no driver layer" claim: every KEEP below states which
+specific gap keeps it alive.
 
 ## 2. Full module table
 
-Grouped by directory. "Callers" cites the strongest evidence found, not every hit. Where a
-`stec/` module exists but the original remains load-bearing (imported by something that is
-itself KEEP), the module is listed **KEEP** with the `stec/` equivalent named — per the
-brief, PORTED means safe to delete, and these are not.
-
 ### `src/analysis/` (28 files)
+
+Verdicts marked "Gate F" are taken from `docs/revision/gate_f_inventory.md`, independently
+spot-checked against `stec/pipeline/stages.py`'s inline comments for the stages that carry
+one (`daily_metrics`, `uncertainty_calibration`, `stratified_comparison`).
 
 | Module | Disposition | Replacement / reason | Callers |
 |---|---|---|---|
-| `activity_stratification.py` | PORTED | `stec/analysis/activity_stratification.py` (Gate F: declared DIVERGED, fixed F10.7 bands vs. terciles, by design) | `build_all.py`; superseded |
-| `build_all.py` | PORTED | `stec.pipeline.runner` / `stec.cli pipeline run` (§4 of `docs/REPRODUCING.md` names this the sanctioned path) | `scripts/weekend_queue.sh:145,241`, `scripts/overnight_final.sh:44` — **both present unmodified in this worktree**, see Blocker 2 |
-| `cleanup_audit.py` | **DEAD** | none | `grep -rn "cleanup_audit" . --include=*.py --include=*.sh` → only its own two `Usage:` docstring lines. No caller anywhere. |
-| `common_set_positioning.py` | PORTED | `stec/analysis/common_set_positioning.py` (docstring: "Ported from `src/analysis/common_set_positioning.py`"; Gate F: declared DIVERGED, `<` vs `<=` outlier rule, documented) | `build_all.py`, `scripts/overnight_final.sh:22` |
-| `common_set.py` | **DEAD** | none (distinct from `common_set_positioning.py` — a separate, never-wired-up module: `restrict_to_common_set`/`coverage_report`/`pooled_arms`) | `grep -rn "from analysis.common_set import\|import common_set\b" .` → only its own docstring example (`common_set.py:18`). `common_set_positioning.py` implements the same pairing logic **independently** (`from paths import canonical_positioning_summary`, no `common_set` import) — confirms this was written and never wired in, in the original too. |
-| `computational_cost.py` | PORTED | `stec/analysis/computational_cost.py` (Gate F: declared MATCH) | `build_all.py` |
-| `daily_metrics.py` | PORTED | `stec/analysis/daily_metrics.py` — **the one analysis with a confirmed, measured Gate F result**: delta 0.0 on RMSE_mean/pooled_RMSE/MAE_mean/R2_mean/day/observation counts, 7 model×dataset combos, 242 days | `build_all.py` |
-| `hyperparameter_search_summary.py` | **KEEP** (deliberate, permanent) | Self-contained (`argparse`/`glob`/`json`/`yaml`/`pandas` only — confirmed by reading its imports, no `src/` dependency); not ported because its input (`wandb/`, ~606 MB, gitignored) doesn't exist in this worktree or any fresh clone | `build_all.py`; stage `hyperparameter_search` in `stec/pipeline/stages.py:92` still names this script directly |
-| `__init__.py` | KEEP | Re-exports `.metrics` (`calc_rmse` etc.); needed for `src/viz/{__init__,distributions,spatial}.py` (KEEP, §"src/viz/") to import `analysis.metrics` at all | transitively via `src/viz/` |
-| `ionex_rms_benchmark.py` | PORTED | `stec/analysis/ionex_rms_benchmark.py` (Gate F: declared MATCH) | `build_all.py` |
-| `madrigal_reference_offset.py` | PORTED | `stec/analysis/madrigal_reference_offset.py` (Gate F: declared MATCH) | `build_all.py` |
-| `mapping_function_consistency.py` | PORTED | `stec/analysis/mapping_function_consistency.py` (Gate F: declared MATCH) | `build_all.py` |
-| `metrics.py` | KEEP | Used by `src/viz/__init__.py:57`, `src/viz/distributions.py:350`, `src/viz/spatial.py:374` (all `from analysis.metrics import calc_rmse`) — all three are KEEP (Figures 4–9 path, see §"src/viz/"). Not the same file as `src/utils/metrics.py` or `positioning/positioning_eval/metrics.py` — **three distinct `metrics.py` files exist in the pre-rebuild tree**, exactly the "RMSE computed by three different functions" defect `docs/rebuild_plan.md:97` names. | `src/viz/*` (KEEP) |
-| `oracle_benchmark.py` | PORTED | `stec/analysis/oracle_benchmark.py` (Gate F: declared MATCH) | `build_all.py` |
-| `paths.py` | PORTED (by inlining) | Logic (`canonical_positioning_summary`) is duplicated inline into `stec/analysis/{positioning_summary,positioning_robustness,storm_stratification,common_set_positioning}.py` — each carries a comment admitting there is no shared `stec/analysis/paths.py` yet ("centralising this" flagged as a followup). Not a clean 1:1 port; four copies replace one. | `common_set_positioning.py`, `positioning_summary.py`, `positioning_robustness.py`, `storm_stratification.py` (all PORTED/superseded) |
-| `positioning_coverage.py` | PORTED | `stec/analysis/positioning_coverage.py` — a strict superset (adds `collisions.csv`, `foreign_doy_rows.csv`, `canonical_gaps.csv`; fixes the sort-order variant-selection bug). Gate F comparison **excluded by design** while the station-recovery sweep is rewriting `experiments/` (would measure the sweep, not the port). | `build_all.py` |
-| `positioning_robustness.py` | PORTED | `stec/analysis/positioning_robustness.py` (Gate F: declared MATCH) | `build_all.py` |
-| `positioning_summary.py` | PORTED | `stec/analysis/positioning_summary.py` — owns Table 5 (Gate F: declared MATCH) | `build_all.py` |
-| `relative_error_metrics.py` | PORTED | `stec/analysis/relative_error_metrics.py` (Gate F: declared MATCH; output renamed, declared) | `build_all.py` |
-| `repair_gim_baseline.py` | **KEEP** (deliberate, permanent) | Regression check for the GIM day-lookup repair; porting it would make the check share an implementation with what it checks (`stec/pipeline/stages.py:142-145`, `verification/gate_f_analysis_equivalence.py:318-323`). Imports only `from evaluation import prediction_store` / `from evaluation.gim_mapper import GIMMapper` — no `analysis` package dependency. | `build_all.py`; stage `repair_gim_baseline` still names this script directly, `--apply` |
-| `results_manifest.py` | PORTED | `stec/analysis/results_manifest.py` — was initially a scope-narrowed redesign (audited and flagged), then restored to a genuine disk-classifying port; see `docs/revision/port_completeness_audit.md` "Resolution status" | `build_all.py` |
-| `scenario_evaluation.py` | **KEEP** (dormant, not ported) | Gated behind `config["evaluation"]["enable_scenarios"]`, which defaults `False` in every checked-in config (`grep -rn "enable_scenarios" config/*.yaml` → 8 files, all `False`/`false`). Reachable from `src/inference_testset.py:189-200`, `src/training/base_trainer.py:437-449`, `src/viz/__init__.py:268,523` — never actually invoked in practice, but not orphaned code (it is a live conditional branch someone could flip). `stec/analysis/storm_stratification.py:15-38` discusses it descriptively but does not port it — a different, deliberately kept-separate day-level rule. | `inference_testset.py`, `training/base_trainer.py`, `viz/__init__.py` (all KEEP), conditionally |
-| `station_independence.py` | PORTED | `stec/analysis/station_independence.py` (Gate F: declared MATCH) | `build_all.py` |
-| `storm_stratification.py` | PORTED | `stec/analysis/storm_stratification.py` (Gate F: declared DIVERGED, rounding only ~4e-5 TECU; `by_regime.csv` excluded from the diff — reshaped, shares no column names) | `build_all.py` |
-| `stratified_comparison.py` | PORTED | `stec/analysis/stratified_comparison.py` — **has never completed a full run on either side**: times out at the 3600s subprocess limit even on the rebuilt side alone (~40s/day × 242 ≈ 2.7h). Declared-not-measured; see Blocker 5. | `build_all.py` |
-| `uncertainty_calibration.py` | PORTED | `stec/analysis/uncertainty_calibration.py` — the other analysis with a **confirmed, measured** Gate F result (declared DIVERGED by design: every row now scored under both Gaussian and Laplace) | `build_all.py` |
-| `uncertainty_error_relation.py` | PORTED | `stec/analysis/uncertainty_error_relation.py` (Gate F: declared DIVERGED — fixed TECU bins vs. first-day deciles, plus an `epistemic_share` redefinition found and fixed during audit) | `build_all.py` |
-| `weighting_ablation.py` | PORTED | `stec/analysis/weighting_ablation.py` (Gate F: declared MATCH) | `build_all.py` |
+| `activity_stratification.py` | PORTED | `stec/analysis/activity_stratification.py` — Gate F DIVERGED-as-declared (fixed F10.7 bands vs. terciles, by design) | stage `activity_stratification` |
+| `build_all.py` | PORTED | `stec.pipeline.runner` / `python -m stec.pipeline run` | **Still called** by `scripts/weekend_queue.sh:145,241` and `scripts/overnight_final.sh:44`, byte-identical duplicates of the data root's own copies — a live blocker, not a reason to keep this file; see `merge_plan.md` |
+| `cleanup_audit.py` | DEAD | none | `grep -rn "cleanup_audit" .` → only its own two `Usage:` docstring lines |
+| `common_set_positioning.py` | PORTED | `stec/analysis/common_set_positioning.py` — Gate F **MATCH** (corrects `507bcf2`'s "declared DIVERGED": the `<`/`<=` divergence never fires against real data) | stage `common_set_positioning` |
+| `common_set.py` | DEAD | none — distinct from `common_set_positioning.py`, a separate, never-wired module | `grep -rn "from analysis.common_set import\|import common_set\b" .` → only its own docstring example |
+| `computational_cost.py` | PORTED | `stec/analysis/computational_cost.py` — Gate F MATCH | stage `computational_cost` |
+| `daily_metrics.py` | PORTED | `stec/analysis/daily_metrics.py` — Gate F MATCH, delta 0.0 on RMSE_mean/pooled_RMSE/MAE_mean/R2_mean/day/observation counts, 7 model×dataset combos, 242 days; `canonical_for` Tables 3, 4 | stage `daily_metrics` |
+| `hyperparameter_search_summary.py` | KEEP (permanent) | Self-contained (`glob`/`yaml`/`json`/`pandas`, no `src/` dependency beyond its own args); not ported because its input (`wandb/`, ~606 MB, gitignored) does not exist in any fresh clone | stage `hyperparameter_search` still runs this script directly, with new `--output_dir`/`--wandb_dir` flags added by `2834737` |
+| `__init__.py` | KEEP | Re-exports `.metrics`; needed for `src/viz/{__init__,distributions,spatial}.py` (KEEP) | transitively via `src/viz/` |
+| `ionex_rms_benchmark.py` | PORTED | `stec/analysis/ionex_rms_benchmark.py` — Gate F MATCH (confirmed after the conditional `gim_stec` assertion was made unconditional in the gate itself) | stage `ionex_rms_benchmark` |
+| `madrigal_reference_offset.py` | PORTED | `stec/analysis/madrigal_reference_offset.py` — Gate F MATCH, all 5 outputs, 67 per-station rows exact | stage `madrigal_reference_offset` |
+| `mapping_function_consistency.py` | PORTED | `stec/analysis/mapping_function_consistency.py` — Gate F MATCH | stage `mapping_function_consistency` |
+| `metrics.py` | KEEP | `src/viz/{__init__,distributions,spatial}.py` (`from analysis.metrics import calc_rmse`) — distinct from `src/utils/metrics.py` and `positioning/positioning_eval/metrics.py` | `src/viz/*` |
+| `oracle_benchmark.py` | PORTED | `stec/analysis/oracle_benchmark.py` — Gate F MATCH | stage `oracle_benchmark` |
+| `paths.py` | KEEP (not ported) | `canonical_positioning_summary` is inlined into `stec/analysis/{positioning_summary,positioning_robustness,storm_stratification,common_set_positioning}.py`, each carrying a comment noting there is no shared `stec/analysis/paths.py` yet — confirmed still true: `ls stec/analysis/paths.py` → no such file | `common_set_positioning.py`, `positioning_summary.py`, `positioning_robustness.py`, `storm_stratification.py` (legacy side) |
+| `positioning_coverage.py` | PORTED | `stec/analysis/positioning_coverage.py` — strict superset (adds `collisions.csv`, `foreign_doy_rows.csv`, `canonical_gaps.csv`; fixes the sort-order variant-selection bug). Gate F **structurally excluded**: its inputs are being rewritten by the station-recovery sweep, so a comparison would measure the sweep, not the port | stage `positioning_coverage` |
+| `positioning_robustness.py` | PORTED | `stec/analysis/positioning_robustness.py` — Gate F MATCH | stage `positioning_robustness` |
+| `positioning_summary.py` | PORTED | `stec/analysis/positioning_summary.py` — Gate F MATCH, `canonical_for` Table 5 | stage `positioning_summary` |
+| `relative_error_metrics.py` | PORTED | `stec/analysis/relative_error_metrics.py` — Gate F MATCH | stage `relative_error_metrics` |
+| `repair_gim_baseline.py` | KEEP (permanent, by design) | Regression check for the GIM day-lookup repair; porting it would make the check share an implementation with what it checks | stage `repair_gim_baseline` runs this script directly, `--apply`, with `--store_root`/`--output_dir` now pointed at `paths.LEGACY_PREDICTIONS` / the new results layout |
+| `results_manifest.py` | PORTED | `stec/analysis/results_manifest.py` — genuine full port: writes `manifest.csv`, `superseded.csv`, `metrics_index.csv`, `disk_inventory.csv`, using `stec.runs.migrate` | stage `results_manifest` |
+| `scenario_evaluation.py` | KEEP (dormant) | `config["evaluation"]["enable_scenarios"]` defaults `False` in every checked-in config — reconfirmed: `grep -rn "enable_scenarios" config/*.yaml` → 9 files, all `False`/`false` | `inference_testset.py`, `training/base_trainer.py`, `viz/__init__.py`, conditionally |
+| `station_independence.py` | PORTED | `stec/analysis/station_independence.py` — Gate F MATCH | stage `station_independence` |
+| `storm_stratification.py` | PORTED | `stec/analysis/storm_stratification.py` — Gate F DIVERGED-as-declared, rounding only (`summarise()` rounds to 4 decimals, diffs 2e-5 to 1.5e-3) | stage `storm_stratification` |
+| `stratified_comparison.py` | PORTED | `stec/analysis/stratified_comparison.py` — Gate F MATCH; **now complete** (corrects `507bcf2`'s "never completed a run"): first run FAILed on a shortened `Method` label, fixed, re-run, all four outputs byte-identical | stage `stratified_comparison` |
+| `uncertainty_calibration.py` | PORTED | `stec/analysis/uncertainty_calibration.py` (+ `uncertainty_calibration_pretrained` stage) — Gate F DIVERGED-as-declared, every row scored under both Gaussian and Laplace | stages `uncertainty_calibration`, `uncertainty_calibration_pretrained` |
+| `uncertainty_error_relation.py` | PORTED | `stec/analysis/uncertainty_error_relation.py` — Gate F DIVERGED-as-declared (fixed TECU bins vs. first-day deciles, `epistemic_share` redefined) | stage `uncertainty_error_relation` |
+| `weighting_ablation.py` | PORTED | `stec/analysis/weighting_ablation.py` — Gate F MATCH | stage `weighting_ablation` |
 
 ### `src/` top level (9 files)
 
 | Module | Disposition | Replacement / reason | Callers |
 |---|---|---|---|
-| `compare_stec_vtec.py` | KEEP | No `stec/` driver | `scripts/compare_stec_vtec.sh:119`, `docs/USAGE_GUIDE.md` |
-| `compare_stec_vtec_gim.py` | KEEP | No `stec/` driver. `apply_mapping_function`'s thin-shell math was ported to `stec/baselines/vtec_mapping.py` (docstring: "Ported from `apply_mapping_function` in `src/compare_stec_vtec_gim.py`"), but the orchestration script — inference, GIM comparison, Madrigal comparison, plotting, prediction-store writes — is not. | `cli.py:370`, `src/multiday_evaluation.py:51`, `positioning/scripts/add_pretrained_baseline.py:40` (dead caller), `scripts/evaluate_model.sh:66` |
-| `evaluation.py` | **DEAD** (unreachable) | Shadowed by the `src/evaluation/` package. Empirically verified: `sys.path.insert(0,'.'); import evaluation` from inside `src/` resolves to `.../src/evaluation/__init__.py` and the resulting object has **no `main` attribute** (`hasattr(evaluation, 'main') == False`) — so `cli.py evaluate` (`cli.py:387`, `from evaluation import main`) raises `ImportError`, exactly as `docs/rebuild_plan.md:335` states: **"Defects 4 and 5 are unreachable — delete `src/evaluation.py`, do not port it."** `docs/USAGE_GUIDE.md:62` and `docs/CLI_GUIDE.md:91` still document `python src/evaluation.py` as if it worked — those doc lines are stale. (It *can* still be run as a bare script, `python src/evaluation.py`, bypassing the package shadowing — but that is not its designed entry point and CLAUDE.md's own gotcha says it's not the path used for paper numbers.) | none (via its designed path); own script execution only |
-| `finetune.py` | KEEP | No `stec/` driver | `src/main.py:106` |
-| `inference_map.py` | KEEP | No `stec/` driver | `cli.py:450`, `docs/USAGE_GUIDE.md:52` |
-| `inference_testset.py` | KEEP | No `stec/` driver; produces manuscript Figures 4–9 via `src/viz/` | `cli.py:407`, `scripts/overnight_final.sh:33`, `scripts/weekend_queue.sh:194,226`, `scripts/launch_slurm_inference.sh:22` |
-| `main.py` | KEEP | No `stec/` driver | `cli.py:364`, `hp_search/*.sh` (7 scripts), `scripts/launch_slurm.sh:22`, `scripts/cluster/*.sh` |
-| `multiday_evaluation.py` | KEEP | No `stec/` driver; produces manuscript Figures 10–11 (`generate_aggregate_plots`) | `cli.py:508`, `positioning/scripts/add_pretrained_baseline.py:47` (dead caller), `scripts/cluster/manage_cluster_jobs.sh:181` |
-| `pretrain.py` | KEEP | No `stec/` driver | `src/main.py:101` |
+| `compare_stec_vtec.py` | KEEP | No `stec/` orchestration driver | `scripts/compare_stec_vtec.sh:119` |
+| `compare_stec_vtec_gim.py` | KEEP | `stec/baselines/vtec_mapping.py` ports only `apply_mapping_function`'s thin-shell maths (docstring: "Ported from `apply_mapping_function` in `src/compare_stec_vtec_gim.py`… The VTEC model itself … lives outside this module and outside this port"); the orchestration (inference + GIM comparison + Madrigal comparison + plotting + store writes) is not ported. **This is the file that actually produces the Madrigal predictions the paper's R1.3 evidence reads** — `main()` runs the checkpoint over real Madrigal geometry (`data_loader.madrigal_dataset.get_madrigal_data_loader`, not a stub) and writes them to the store under `dataset="madrigal"` (`write_prediction_store`, branching to drop `sat`/`slipc`/`gfphase`) — `stec/pipeline/stages.py`'s `madrigal_reference_offset` stage reads exactly that store partition. `stec.inference.run_inference --dataset madrigal` is a gap in the *new* driver only; the KEEP driver already does this for real, in production, today | `cli.py:370` (`compare` subcommand), `scripts/evaluate_model.sh:66`, `src/multiday_evaluation.py:51` |
+| `evaluation.py` | DEAD (unreachable) | Shadowed by the `src/evaluation/` package. Re-verified by actually importing (not grepping): `cd src && python3 -c "import sys; sys.path.insert(0,'.'); import evaluation; print(hasattr(evaluation,'main'))"` → `hasattr main: False`, `module file: .../src/evaluation/__init__.py` — so `cli.py evaluate` (`from evaluation import main`) raises `ImportError` before it can even reach its other, deeper bug | none via its designed path |
+| `finetune.py` | KEEP | `Finetuner.initialize_model` loads a checkpoint and calls `freeze_model_body` (line 78) — exactly what `stec/training/run_training.py:260-265` refuses rather than silently skip; also drives ensemble training, entirely unported | `src/main.py:106,111,128` |
+| `inference_map.py` | KEEP | No `stec/` driver for spatial-grid inference | `cli.py:450` (`map` subcommand) |
+| `inference_testset.py` | KEEP | No `stec/` driver produces manuscript Figures 4-9 from real data yet (see `src/viz/` below) | `cli.py:407`, `scripts/overnight_final.sh:33`, `scripts/weekend_queue.sh:194,226`, `scripts/launch_slurm_inference.sh:22` |
+| `main.py` | KEEP | Mode dispatch, wandb-sweep integration, pretrain-folder auto-discovery — none ported | `cli.py:364`, `hp_search/*.sh` (7 scripts), `scripts/launch_slurm.sh:22`, `scripts/cluster/*.sh` |
+| `multiday_evaluation.py` | KEEP | No `stec/` driver produces manuscript Figures 10-11 from real data (the port exists in `stec/viz/manuscript_figures.py` but is not run against the real store — see `src/viz/` below) | `cli.py:508` |
+| `pretrain.py` | KEEP | Thin `BaseTrainer` subclass; inherits every training-layer gap below | `src/main.py:101,104` |
 
-### `src/data_loader/` (7 files: `collation.py`, `datasets.py`, `__init__.py`, `loaders.py`, `madrigal_dataset.py`, `multitemporal_inference_dataset.py`, `samplers.py`)
+### `src/data_loader/` (7 files)
 
-**KEEP, all 7.** Production dependency chain: `pretrain.py:2`/`finetune.py:16` →
-`from data_loader import get_data_loaders` → `data_loader/__init__.py` → `.loaders` →
-`.samplers` (`EpochRandomSampler`, `get_fixed_subset_indices` — the deterministic test
-ordering CLAUDE.md warns not to break) and `.collation`. `stec/data/{feature_layout,
-transforms,normalization,splits,day_reader}.py` is a **verified-equivalent library**
-(Gate A: bit-exact on real data, 1,591 configs) but nothing calls it from a runnable
-driver — see §1. Not PORTED because nothing is safe to delete: this is the only working
-data path.
+**KEEP, all 7** (`collation.py`, `datasets.py`, `__init__.py`, `loaders.py`,
+`madrigal_dataset.py`, `multitemporal_inference_dataset.py`, `samplers.py`). Production
+dependency chain unchanged since `507bcf2`: `pretrain.py`/`finetune.py` →
+`from data_loader import get_data_loaders`. `stec/data/{run_data_prep,day_reader,
+feature_layout,transforms,normalization,splits}.py` is a verified-equivalent library (Gate
+A: bit-exact on real data) but `stec/data/run_data_prep.py` is a narrower, single-config,
+per-day parquet writer — its own docstring: "deliberately narrower than the pre-rebuild
+`data_loader` package" — not a drop-in replacement for `CollateWithSH`'s assemble-at-batch-
+time contract that lets one aggregate serve every `feature_control` choice.
+`madrigal_dataset.py` is also, separately, the only thing in the entire repository that can
+turn Madrigal geometry into model *input* — see `merge_plan.md`'s Madrigal-inference gap.
 
 ### `src/data_processing/` (8 files)
 
 | Module | Disposition | Reason |
 |---|---|---|
-| `add_split_indices.py` | KEEP | No caller in code; documented by `docs/REPRODUCING.md:24-25` as part of the tooling that "assembles" the STEC database and derived splits — the rebuild's *own* reproducibility doc names `src/data_processing/` as this tooling's location, not a `stec/` replacement |
-| `download_solar_indices.py` | KEEP | `src/data_loader/loaders.py:16`: `from data_processing.download_solar_indices import OmniDownloader` — real, live dependency |
-| `eval_database.py` | KEEP | Same `docs/REPRODUCING.md` rationale as `add_split_indices.py` |
-| `h52h5sta.py` | KEEP | Same |
-| `h52parquet.py` | KEEP | Same |
-| `split_new.py` | KEEP | Generates manuscript **Figure 2** (`plot_station_distribution`) — confirmed by content read in `docs/revision/figure_coverage.md:20`, no `stec/` equivalent |
-| `visualize_split_sizes.py` | KEEP | Same `docs/REPRODUCING.md` rationale |
-| `visualize_temporal_splits.py` | KEEP | Generates manuscript **Figure 1** (`create_timeline_heatmap`) — `docs/revision/figure_coverage.md:19`, no `stec/` equivalent |
+| `add_split_indices.py` | KEEP (permanent) | Mutates the raw HDF5 in place (`h5py.File(path, "r+")`, writes `train_idx`/`val_idx`/`test_idx`) — a destructive write against the 740 GB immutable external tree. **Live**, not just historical: `stec/data/run_data_prep.py`'s own docstring names it explicitly — "`day_reader.read_day` already reads a raw day's `train_idx`/`val_idx`/`test_idx` — written once, historically, by `src/data_processing/add_split_indices.py`… Re-running it is out of scope here." Idempotent (skips a day whose indices already exist), so it stays the only tool that could extend coverage to a new raw day |
+| `download_solar_indices.py` | KEEP | `src/data_loader/loaders.py:16` (`from data_processing.download_solar_indices import OmniDownloader`). The *reading* side is independently ported — `stec/data/day_reader.py::read_space_weather` is a native reimplementation, Gate-A-verified bit-exact including the hourly join — but the *downloading/building* side of the OMNI archive has no port |
+| `eval_database.py` | **DEAD** (reclassified — see §0 item 7) | `grep -rln '\beval_database\b' . --include=*.py --include=*.sh --include=*.md --include=*.yaml` → zero hits outside itself and the stale `507bcf2`-era docs |
+| `h52h5sta.py` | **DEAD** (reclassified) | Same grep, zero hits |
+| `h52parquet.py` | **DEAD** (reclassified) | Same grep, zero hits |
+| `split_new.py` | KEEP | Computes and writes the station/date splits (`spatial_split`, `temporal_split`, `save_to_files` → all 6 `.list` files) — the only historical producer of the files `stec/config/paths.py:54` now points at. Its *plotting* half (`plot_station_distribution`, Figure 2) is separately PORTED into `stec/viz/manuscript_figures.py::fig_spatial_split`, wired into `FIGURE_BUILDERS` |
+| `visualize_split_sizes.py` | **DEAD** (reclassified) | Same grep, zero hits |
+| `visualize_temporal_splits.py` | **PORTED** (reclassified — see §0 item 8) | Pure plotting/statistics, no write path (confirmed by reading: `load_date_splits`/`create_timeline_heatmap`/`print_split_statistics`, no `.list` write). `stec/viz/manuscript_figures.py::fig_temporal_split` (Figure 1) covers it completely, wired into `FIGURE_BUILDERS` |
 
 ### `src/evaluation/` package (8 files)
 
 | Module | Disposition | Replacement / reason | Callers |
 |---|---|---|---|
-| `__init__.py` | KEEP | Lazy `__getattr__` package loader; required for every KEEP submodule below to be reachable | transitively |
-| `gim_mapper.py` | KEEP | `stec/baselines/gim.py` is a verified port (docstring: "Ported from `src/evaluation/gim_mapper.py`", 3 defects fixed: dead duplicate method, positional-arg footgun, `int()`-truncation day-lookup bug). Original still imported by `repair_gim_baseline.py:40` (permanent KEEP) and `compare_stec_vtec_gim.py` — not safe to delete. | `repair_gim_baseline.py`, `compare_stec_vtec_gim.py` |
-| `madrigal_builder.py` | KEEP | `scripts/build_madrigal_h5_sample.py:18` (`from src.evaluation.madrigal_builder import build_sample`) | `scripts/build_madrigal_h5_sample.py` (out of this audit's scope, but a real caller) |
-| `madrigal_loader.py` | KEEP | `stec/baselines/madrigal.py` is a verified port (docstring: "Ported from `src/evaluation/madrigal_loader.py`"; fixes an exact-integer-bin join defect). Original still imported by `compare_stec_vtec_gim.py`. | `compare_stec_vtec_gim.py` |
-| `plotter.py` | **DEAD** | Its only importer anywhere is `src/evaluation.py:41` (`from evaluation.plotter import create_stec_plots`), which is itself DEAD/unreachable (above). `grep -rln "create_stec_plots\|evaluation\.plotter" src/ positioning/` → only `src/evaluation.py` and its own package files. | none reachable |
-| `prediction_store.py` | KEEP | `stec/inference/prediction_store.py` is a verified port (`docs/rebuild_plan.md:41`: "Port `prediction_store` first; everything follows its shape"). Original still imported by `src/inference_testset.py:86`, `src/compare_stec_vtec_gim.py:53`, `repair_gim_baseline.py:39` — the authoritative store this worktree's real predictions are written through today. | `inference_testset.py`, `compare_stec_vtec_gim.py`, `repair_gim_baseline.py` |
-| `publication_plots.py` | KEEP | `src/compare_stec_vtec_gim.py:52`: `from evaluation.publication_plots import generate_all_plots` | `compare_stec_vtec_gim.py` |
-| `utils.py` | KEEP | `src/inference_testset.py:210`: `from evaluation.utils import get_solar_cycle_stats` | `inference_testset.py` |
+| `__init__.py` | KEEP | Lazy `__getattr__` loader for every submodule below | transitively |
+| `gim_mapper.py` | KEEP | `stec/baselines/gim.py` is a verified port (3 defects fixed). Original still imported by `repair_gim_baseline.py:40` and `compare_stec_vtec_gim.py` | `repair_gim_baseline.py`, `compare_stec_vtec_gim.py` |
+| `madrigal_builder.py` | KEEP | `scripts/build_madrigal_h5_sample.py:18` | out of this audit's scope but a real caller |
+| `madrigal_loader.py` | KEEP | `stec/baselines/madrigal.py` is a verified port (fixes the exact-integer-key join defect, replacing it with a tolerance-based match). Original still imported by `compare_stec_vtec_gim.py` | `compare_stec_vtec_gim.py` |
+| `plotter.py` | DEAD | Its only importer is `src/evaluation.py:41`, itself unreachable (above). Re-verified: `grep -rn "create_stec_plots\|evaluation\.plotter" src/ positioning/ stec/` → only `src/evaluation.py` and `src/evaluation/__init__.py`'s own lazy-getattr definition; nothing ever actually invokes `create_stec_plots` through that getattr | none reachable |
+| `prediction_store.py` | KEEP | `stec/inference/prediction_store.py` is a verified port. Original still imported by `inference_testset.py:86`, `compare_stec_vtec_gim.py:53`, `repair_gim_baseline.py:39` — the store this worktree's real predictions are written through today | `inference_testset.py`, `compare_stec_vtec_gim.py`, `repair_gim_baseline.py` |
+| `publication_plots.py` | KEEP | `compare_stec_vtec_gim.py:52` | `compare_stec_vtec_gim.py` |
+| `utils.py` | KEEP | `inference_testset.py:210` | `inference_testset.py` |
 
 ### `src/model/model.py` (1 file)
 
-**KEEP.** `BayesianResNetSTEC` (and the never-pretrained `ResNet_BNN_NLL`) imported by
-`finetune.py`, `pretrain.py`, `compare_stec_vtec.py`, `compare_stec_vtec_gim.py`,
-`inference_map.py`, `inference_testset.py`, `training/inference_manager.py`,
-`utils/model_utils.py`. `stec/models/architectures.py` + `stec/models/determinism.py` is a
-verified-equivalent library — Gate B: bit-exact on 7 real checkpoints — but not wired to
-any driver.
+**KEEP.** `BayesianResNetSTEC` (223-288) is ported byte-identical into
+`stec/models/architectures.py:64-101` (verified line-by-line: layer names, `bias_mu[0].
+fill_(STEC_MEAN_TECU)` init, forward pass all match; the port's own docstring: "changes no
+arithmetic … a checkpoint written by the old class into this one"). But `ResNet_BNN_NLL`
+(182-220, the fully-Bayesian variant) is **not ported at all** and is **actively configured
+and run**: `config/config_A4_fully_bayesian.yaml:76`, `config/wandb_sweep_config_
+ResNet_BNN_NLL.yaml:9`, invoked by `scripts/overnight_final.sh:25` and `scripts/
+weekend_queue.sh:212` for the R2.2 revision analysis. The other 27 model classes in the file
+(`ResNet_MSE`, `AttentionMLP_*`, `MLP*`, `Branch*`, `DeepEnsemble*`, `VTECFieldNet`,
+`GeomNet`, `FactorizedSTEC*`, `get_model`) have zero `stec/` equivalent.
 
 ### `src/pipeline/` (6 files: `fingerprint.py`, `__init__.py`, `__main__.py`, `provenance.py`, `runner.py`, `stages.py`)
 
-**PORTED**, all 6 — `stec/pipeline/` is a strict superset (adds `canonical_for`, `caveats`,
-`supersedes` fields; `docs/rebuild_plan.md:39`: "Fold into `stec/pipeline/`"). **Blocked**:
-`scripts/final_rebuild.sh:23,28,31` still runs `PYTHONPATH=src python -m pipeline
-run/status` — this worktree's own copy of that script, unmodified, invokes this exact old
-package. See Blocker 2.
+**PORTED, all 6** — `stec/pipeline/` is a strict superset (adds `canonical_for`, `caveats`,
+`supersedes`). **Still blocked**: `scripts/final_rebuild.sh` — read in full — still does
+`export PYTHONPATH=src` and `python -m pipeline run/status`, the old package, not
+`stec.pipeline`; unchanged from `507bcf2`'s finding. This package's own `stages.py` also
+still declares a `figures` Stage pointing at `src/viz/revision_figures.py` — see that file's
+row below.
 
-### `src/training/` (7 files: `base_trainer.py`, `data_transforms.py`, `inference_manager.py`, `__init__.py`, `training_utils.py`, `train_manager.py`, `validation_manager.py`)
+### `src/training/` (7 files)
 
-**KEEP, all 7.** `GaussianNLLLoss + kl_weight * BKLLoss` combined in `train_manager.py:109`;
-the 5-epoch linear KL anneal in `training_utils.py:45`. Directly imported by
-`gate_c_training_equivalence.py:126-131` from the **original's** absolute path (not this
-copy) for the equivalence measurement, and by `main.py`/`finetune.py`/`pretrain.py` for
-actual training. `stec/training/{fit,loss,schedulers}.py` is verified-equivalent (Gate C:
-bit-exact loss trajectory and every parameter, same seed/batches) but nothing calls it from
-a driver.
+**KEEP, all 7** (`base_trainer.py`, `data_transforms.py`, `inference_manager.py`,
+`__init__.py`, `training_utils.py`, `train_manager.py`, `validation_manager.py`). Each
+carries a specific, named, still-unported piece:
+
+| Module | What is not ported |
+|---|---|
+| `base_trainer.py` | Best-checkpoint tracking + early stopping (381-397: `if val_loss < best_val_loss ... else: patience_counter += 1 ... break`), wandb logging, ensemble dispatch, temporal interpolation/extrapolation analysis — `stec/training/run_training.py`'s `train()` stops after writing a checkpoint and `loss_history.csv` and does none of this |
+| `data_transforms.py` | `use_log_target` (log-normal target transform) — exactly what `stec/training/run_training.py:251-259` refuses rather than silently drops |
+| `inference_manager.py` | Ensemble decomposition, MC-Dropout, the log-target moment mapping (the core MC sampling *is* ported, but into `stec/inference/monte_carlo.py`, not into anything under `stec/training/`) |
+| `training_utils.py` | `save_checkpoint`, `plot_loss_curve`/`save_final_losses`, `split_test_data_by_date` (the one function that *is* ported, `get_current_kl_weight`, lives on in `stec/training/loss.py::KLWarmupSchedule`) |
+| `train_manager.py` | `FairCRPSLoss` branch, `train_epoch_ensemble`/`DE_MLP` (the Gaussian-NLL-plus-KL branch *is* ported, into `stec/training/loss.py`) |
+| `validation_manager.py` | `inverse_transform_features` (feature-registry-based azimuth/elevation reconstruction), `test_model` |
+
+Callers unchanged: `finetune.py`, `pretrain.py`, `compare_stec_vtec*.py`,
+`inference_testset.py`, `inference_map.py`, `evaluation.py`, plus
+`verification/gate_c_training_equivalence.py` importing from the *original* absolute path
+for the equivalence measurement, not this copy.
 
 ### `src/utils/` (12 files) + `src/utils/locationencoder/pe/` (9 files)
 
-**KEEP, all 21 — with one file group flagged as the single most concrete blocker in this
-inventory (Blocker 1).**
+**`src/utils/`: KEEP 11 of 12** (`config_parser.py`, `coordinate_transforms.py`,
+`feature_registry.py`, `feature_splitter.py`, `ionex_writer.py`, `loss_function.py`,
+`metrics.py`, `model_utils.py`, `optimizers.py`, `preprocessing.py`,
+`wandb_sweep_integration.py`). Every one of these 11 has a live caller in `src/training/` or
+the top-level drivers (all KEEP, above); none has a `stec/` equivalent except:
+- `loss_function.py`'s `GaussianNLLLoss`+`BKLLoss` combination is ported into `stec/
+  training/loss.py` — but `LaplacianNLLLoss` (needed for the canonical VTEC baseline),
+  `FairCRPSLoss`, `WeightedMSELoss`/`WeightedGaussianNLLLoss`, `LaplaceLoss` are not
+  (`grep -rln "LaplacianNLLLoss\|FairCRPS" stec/` → empty).
+- `optimizers.py`'s scheduler *bug* (both `finetune`/`pretrain` branches read
+  `config["pretrain"]`) is faithfully reproduced in `stec/training/schedulers.py`'s
+  `SchedulerCompat.LEGACY`, cited by file and line range in that module's own docstring.
+- `model_utils.py`'s `freeze_model_body`/`freeze_factorized_model` are explicitly not
+  ported — `stec/training/run_training.py:260-265` raises `NotImplementedError` naming this
+  file if a config asks for it.
+- `feature_splitter.py` and `wandb_sweep_integration.py` have zero references anywhere
+  under `stec/` (`grep -rn "FeatureSplitter" stec/` → none; `grep -n "wandb"
+  stec/training/run_training.py` → none) — no port attempted at all, but both are called by
+  live `src/` code (`feature_splitter.py` by `FactorizedSTECModelWrapper` in
+  `src/model/model.py`; `wandb_sweep_integration.py` by `src/main.py`/`base_trainer.py`).
 
-| Module | Callers |
-|---|---|
-| `config_parser.py` | 10 external callers in old tree |
-| `coordinate_transforms.py` | 3; also the reference implementation the STEC-DB `sm_lat_ipp` offset gotcha compares against |
-| `feature_registry.py` | 19; `FeatureRegistry` API pattern reused (not imported) by `stec/data/feature_layout.py` per `docs/rebuild_plan.md:46` |
-| `feature_splitter.py` | 1 (the `FactorizedSTEC*` model family) |
-| `ionex_writer.py` | 1 |
-| `loss_function.py` | 3 |
-| `metrics.py` | 5 — **a third, distinct `metrics.py`** (see `src/analysis/metrics.py` row above) |
-| `model_utils.py` | 1 |
-| `optimizers.py` | 1 |
-| `preprocessing.py` | 3 |
-| `swi_loader.py` | Zero callers *within* `src/`/`positioning/` (`grep -rn "swi_loader" src/ positioning/` outside its own file → empty). Its one real caller, `scripts/analyze_swi_distribution.py`, is a standalone diagnostic outside this audit's scope. Kept because CLAUDE.md documents it as *the* OMNI reader and nothing else fills that role for old code. |
-| `wandb_sweep_integration.py` | 2 |
-| `locationencoder/pe/*.py` (9 files: `__init__.py`, `cartesian3d.py`, `common.py`, `direct.py`, `grid_and_sphere.py`, `spherical_harmonics.py`, `spherical_harmonics_ylm_Arno.py`, `theory.py`, `wrap.py`) | `model.py`'s SH feature encoding (old production); **also a hard, unguarded dependency of `tests/test_clean_clone.py`, this worktree's own flagship rebuild test — see Blocker 1.** `stec/` has **no native spherical-harmonics implementation anywhere** (`grep -rn "SphericalHarmonics" stec/` → zero hits). `stec/data/feature_layout.py` only sizes the SH blocks (`legendre_polys**2` terms); the actual basis-function computation is designed to be *injected*, and the only implementation that exists to inject is this one. |
+**`src/utils/swi_loader.py` (the 12th file): DEAD — correcting an error made earlier in
+this same recompute.** `stec/data/day_reader.py::read_space_weather` independently
+reimplements OMNI-index *reading* (Gate-A bit-exact, including the hourly join), which is
+what led to an initial, wrong "KEEP, still called by `loaders.py`" note for this file — that
+call belongs to `download_solar_indices.py` (a different file, genuinely KEEP, above), not
+to `swi_loader.py`. Re-grepped specifically: `grep -rn "swi_loader" --include="*.py"
+--include="*.sh" .` outside its own file returns only a *comment* in
+`scripts/analyze_swi_distribution.py` ("Column indices based on swi_loader.py" — that script
+reimplements its own hardcoded index dict rather than importing this module) and one
+unrelated comment in `tests/fixtures/make_fixtures.py`. Zero actual `import`/`from`
+statements anywhere. `load_swi_data` is dead code in the pre-rebuild tree itself, not merely
+retired by the rebuild.
+
+**`src/utils/locationencoder/pe/` (9 files) — mixed, reclassified from `507bcf2`'s blanket
+KEEP now that Blocker 1 is resolved:**
+
+| File | Disposition | Reason |
+|---|---|---|
+| `__init__.py` | KEEP | Package entry point for the one live import, `from utils.locationencoder.pe import SphericalHarmonics` (`src/data_loader/collation.py:6`) |
+| `spherical_harmonics.py` | PORTED | Byte-identical forward-pass logic confirmed against `stec/data/spherical_harmonics.py:42-61`; the port's own docstring: "the single piece of that package `stec/` actually needs" |
+| `spherical_harmonics_ylm_Arno.py` | PORTED | Confirmed byte-for-byte identical (`diff`, 0 lines) to `stec/data/spherical_harmonics_ylm.py` after the differing docstring header |
+| `cartesian3d.py`, `common.py`, `direct.py`, `grid_and_sphere.py`, `theory.py`, `wrap.py` (6 files) | DEAD | None of `Theory`/`GridAndSphere`/`Direct`/`Cartesian3D`/`Wrap` is ever instantiated outside `pe/__init__.py`'s own import list — confirmed by `stec/data/spherical_harmonics.py`'s own docstring: "implement position-encoding schemes from other papers that nothing in this codebase ever calls; they were not ported" |
+
+`src/model/model.py` does **not** import `locationencoder` at all (`grep -n
+"locationencoder" src/model/model.py` → empty) — only `collation.py` does.
 
 ### `src/viz/` (7 files)
 
 | Module | Disposition | Reason |
 |---|---|---|
-| `base.py` | KEEP | `save_plot` (writes `X.png` + `X_notitle.png`) — used by every KEEP viz module below |
-| `distributions.py` | KEEP | Manuscript Figures 5, 7, 8 (`plot_residuals_vs_feature`, `plot_residuals_vs_local_time`, `plot_box_by_date`) |
-| `__init__.py` | KEEP | `plot_test_metrics_for_subset`/`plot_test_metrics`, the call chain `inference_testset.py` drives for Figures 4–9 |
-| `performance.py` | KEEP | Manuscript Figure 4 (`plot_prediction_density`) |
-| `revision_figures.py` | PORTED | `stec/viz/revision_figures.py` — audited clean on 5 axes (outputs, columns, constants, CLI, reference computations) per `docs/revision/port_completeness_audit.md`. Colour palette and `_notitle` convention additionally centralised in `stec/viz/style.py`. |
-| `spatial.py` | KEEP | Manuscript Figure 6 (`plot_box_by_lat`) |
-| `uncertainty.py` | KEEP | Manuscript Figure 9 (`plot_binned_uncertainty_error_analysis`) |
+| `base.py` | KEEP | `configure_plotting`/`save_plot` are ported to `stec/viz/style.py:48-90`, but `ensure_dir`, `get_scientific_label`, `create_temporal_metrics_summaries` are explicitly not (`stec/viz/style.py`'s own docstring: "serve other, unported analyses"), and all three are still called 15+ times from the still-live `src/viz/__init__.py`/`distributions.py`/`performance.py` |
+| `distributions.py` | KEEP | Produces Figures 5, 7, 8. Each `fig_*` counterpart in `manuscript_figures.py` names this file and function by line number in its own docstring, but is unwired (see below) — this file is the only thing that actually produces these figures from real data |
+| `__init__.py` | KEEP | `plot_test_metrics`/`plot_test_metrics_for_subset` — the umbrella `inference_testset.py` and `training/base_trainer.py` both call to reach every figure-producing submodule below. No `stec/` aggregator exists; `manuscript_figures.py` calls individual `fig_*` functions directly, never through an equivalent umbrella |
+| `performance.py` | KEEP | Produces Figure 4, same unwired-in-`stec/` situation as `distributions.py` |
+| `revision_figures.py` | PORTED, but **still actively called** | `stec/viz/revision_figures.py` is a verified superset port. The legacy file is not orphaned: `src/pipeline/stages.py`'s own (separate, still-present) `figures` Stage runs `"src/viz/revision_figures.py"` verbatim; `src/analysis/build_all.py:191-192` calls it too, and that script is CLAUDE.md's documented canonical command ("Rebuild every revision table and figure": `python src/analysis/build_all.py --figures`); `scripts/backfill_store.sh:155` invokes it a third way. All three callers are the same stale-automation blocker already flagged for `build_all.py`/`src/pipeline/*` above, not a new, independent reason to keep this specific file |
+| `spatial.py` | KEEP | Produces Figure 6, same unwired-in-`stec/` situation |
+| `uncertainty.py` | KEEP | Produces Figure 9, same unwired-in-`stec/` situation |
 
-**Confirmed via `docs/revision/figure_coverage.md` (independently re-checked, not just
-cited): 14 of the manuscript's 15 figures — everything except the hand-drawn Figure 3 — have
-zero `stec/` generator today.** `stec/viz/revision_figures.py` builds a disjoint set of ~19
-figures for the reviewer response letter; none corresponds to a numbered manuscript figure.
+**Precise state of the Figures 4-9/10-11 gap, corrected from `507bcf2`:**
+`stec/viz/manuscript_figures.py` now defines a `fig_*` function equivalent to every one of
+Figures 4-9 (ported, code-complete, unit-tested against synthetic frames —
+`tests/viz/test_manuscript_figures.py`). But `FIGURE_BUILDERS` (the module's own
+`build_all()`, read directly at the bottom of the file) wires only 5 of its 14 defined
+figures: `_build_temporal_split_figure` (1), `_build_spatial_split_figure` (2),
+`_build_improvement_by_date_figures` (10), `_build_mae_rmse_finetuned_figure` (11),
+`_build_positioning_figures` (12-15) — **8 real figures**. Figures 4-9's `fig_*` functions
+are never called with real data by anything; the module's own docstring says so: "ported but
+not wired into `build_all()`… no `_build_*_figure` here reads it… Wiring one in is a
+follow-up." Separately, the pipeline's `figures` Stage in `stec/pipeline/stages.py` runs
+`-m stec.viz.revision_figures` **only** — it does not call `stec.viz.manuscript_figures` at
+all, so even the 8 wired-up figures never run via `python -m stec.pipeline run` today; they
+require a manual `python -m stec.viz.manuscript_figures` invocation. **Net effect: `src/
+viz/{distributions,performance,spatial,uncertainty}.py` + `src/inference_testset.py` remain
+the only way to actually produce Figures 4-9 from real data, and `src/multiday_evaluation.py`
+remains the only way to actually produce Figures 10-11 from real data**, even though ported
+code for all of them now exists.
 
 ### `positioning/positioning_eval/` (7 files)
 
 | Module | Disposition | Reason |
 |---|---|---|
-| `download_products.py` | **KEEP** (deliberate — matches the brief's known item) | `run_positioning_evaluation.py:44`: `from download_products import download_products, find_igs_gim`. `docs/rebuild_plan.md:297-298`: "Reuse rather than rewrite" — `reuse_from_other_runs` symlinks products from sibling experiments since CODE's FTP is firewalled from this host. |
-| `download_rinex.py` | **KEEP** (deliberate) | `run_positioning_evaluation.py:45` | 
-| `generate_ini.py` | **KEEP** (deliberate — matches the brief's known item) | `run_positioning_evaluation.py:46`; `docs/rebuild_plan.md:296`: "Reuse rather than rewrite … including the SuiteSparse `LD_LIBRARY_PATH` shim" |
-| `metrics.py` | **KEEP** (deliberate) | `run_positioning_evaluation.py:47-52` imports `save_daily_summary` etc. directly. **Diverged from the original**: this worktree's copy already carries an in-place merge-safety fix (`_merge_daily_summary`, `SummaryShrinkError`, atomic temp-file write) that the original does not have — see Blocker 3, which is about this exact fix existing *twice*, independently. |
-| `plot_ppppos.py` | **DEAD** | `grep -rn "plot_ppppos" . --include=*.py --include=*.sh --include=*.md` → **zero hits** anywhere outside the file itself. No doc reference either. Standalone per-solution ECEF→geodetic diagnostic plotter with no caller. |
-| `plot_results.py` | **KEEP** (deliberate) | `run_positioning_evaluation.py:687`: `from plot_results import plot_positioning_results`. **Distinct file from `positioning/scripts/plot_results.py`** (different docstring, different purpose — confirmed by diff) — a same-filename trap the CLAUDE.md gotcha pattern already warns about elsewhere. |
-| `run_positioning_evaluation.py` | **KEEP** (deliberate, matches the brief's known "PPPx driver" item) | The PPPx driver. Diverged in place from the original (Blocker 3: single-method save path now also routes through the merge-safe `save_daily_summary`). |
+| `download_products.py` | KEEP (deliberate) | `run_positioning_evaluation.py:44`. `docs/rebuild_plan.md` §6: "Reuse rather than rewrite" — `reuse_from_other_runs` symlinks products since CODE's FTP is firewalled from this host. `stec/positioning/metrics.py`'s own docstring is explicit: "It does not port the PPPx driver, product download, or RINEX handling — those still run PPPx itself and stay where they are" | `run_positioning_evaluation.py:44`; `positioning/scripts/recompute_metrics.py:37` |
+| `download_rinex.py` | KEEP (deliberate) | Same — no `stec/` port | `run_positioning_evaluation.py:45`; `positioning/geometry/recover_day.py:174` |
+| `generate_ini.py` | KEEP (deliberate) | Same — no `stec/` port; PPPx invocation + SuiteSparse `LD_LIBRARY_PATH` shim | `run_positioning_evaluation.py:46` |
+| `metrics.py` | KEEP (deliberate) | `stec/positioning/metrics.py` ports only the pure computation (`xyz2blh`, `xyz2enu`, `load_sinex_coords`, `parse_pos_file`, `compute_metrics`, `aggregate_daily_metrics`) as independent functions, **not** by importing this module. `save_daily_summary` and its merge/atomic-write machinery are **fixed in this worktree's copy of this file directly** (commit `75d9375`; `SummaryShrinkError` at line 356, `_merge_daily_summary` at 364, atomic write at 386-441) — see the dedicated section below | `run_positioning_evaluation.py:47-52`; `positioning/scripts/recompute_metrics.py:38` |
+| `plot_ppppos.py` | DEAD | `grep -rn "plot_ppppos\|plot_pppx" --include="*.py" --include="*.sh" .` outside the file itself and `docs/` → nothing. Standalone `if __name__=="__main__"` CLI tool for one `.pos` file; its function `plot_pppx` is used only by its own `__main__` | none |
+| `plot_results.py` | KEEP (deliberate) | `run_positioning_evaluation.py:687`. Distinct file from `positioning/scripts/plot_results.py` — the same-filename trap CLAUDE.md warns about elsewhere | `run_positioning_evaluation.py:687` |
+| `run_positioning_evaluation.py` | KEEP (deliberate) | The PPPx driver, no `stec/` port. Both overwrite sites now fixed in this worktree (commit `75d9375`): the two-method branch and the formerly-bare `combined.to_csv(...)` single-method branch both route through the fixed `save_daily_summary` (lines 670-682) | `positioning/geometry/recover_day.py:119`; `positioning/scripts/run_full_positioning_coverage.sh:58,79`; `run_pipeline.sh:80`; `run_oracle_days.sh:40` |
 
 ### `positioning/scripts/` (9 files)
 
 | Module | Disposition | Reason |
 |---|---|---|
-| `add_pretrained_baseline.py` | **DEAD** | `grep -rn "add_pretrained_baseline" . --include=*.py --include=*.sh --include=*.md` → zero hits outside the file itself. Its own docstring's usage example even names a *different, non-existent* script (`src/add_pretrained_evaluation.py`), suggesting drift/abandonment. Its documented purpose — producing `multiday_results/with_pretrained_baseline/` — appears folded into `multiday_evaluation.py`'s own `--pretrained_baseline` flag (`cli.py` `create_multiday_parser`). |
-| `evaluate_dstec.py` | KEEP | Documented manual command, `README.md:135` |
-| `generate_fixed_variance_corrections.py` | KEEP | `run_full_positioning_coverage.sh:65` |
-| `generate_reference_corrections.py` | KEEP | `run_full_positioning_coverage.sh:52`, `run_oracle_days.sh:33`; cited as an external dependency by **both** `src/analysis/oracle_benchmark.py:10` and `stec/analysis/oracle_benchmark.py:13` |
-| `generate_stec_corrections.py` | KEEP | `run_pipeline.sh:67`; **`positioning/geometry/recover_day.py:113` calls it via subprocess — part of the currently-running station-recovery sweep** |
-| `plot_results.py` | KEEP | Generates manuscript **Figures 12–15** (confirmed by content read, `docs/revision/figure_coverage.md:30-33`); source of the canonical approach-colour palette, which is ported as *constants only* into `stec/viz/style.py` — the plotting code itself is not ported |
-| `recompute_metrics.py` | KEEP | Documented manual command, `README.md:140`, `CLAUDE.md:145`. Its pure-computation core is ported into `stec/positioning/metrics.py` (docstring names both `run_pipeline.py` and this file as the source of duplicated `plot_trends` logic, deliberately not re-created), but the driver script — directory walk + plotting — has no `stec/` equivalent |
-| `run_pipeline.py` | KEEP | `run_pretrained_elev_arm.sh:81` |
-| `submit_parallel.py` | KEEP | `submit_parallel.sh:80`, `README.md:159` |
+| `add_pretrained_baseline.py` | DEAD (superseded) | Zero current callers (`grep -rn "add_pretrained_baseline\|add_pretrained_evaluation"` → only its own file, whose docstring's usage example names a nonexistent path). Its purpose — regenerate the CLAUDE.md-canonical `with_pretrained_baseline/summary/` — is superseded by `stec/analysis/daily_metrics.py`, whose docstring says so explicitly: "The published `summary_statistics.csv` was aggregated from per-day metrics… this derives them directly [from the prediction store] — no GPU, and it picks up the repaired GIM automatically" | none |
+| `evaluate_dstec.py` | KEEP | Standalone dSTEC-metric diagnostic; `grep -in "dstec" stec/` finds no equivalent function (only unrelated substring matches inside `finetuned_stec`/`pretrained_stec`) | `README.md:135` |
+| `generate_fixed_variance_corrections.py` | KEEP | R2.5 evidence generator; no `stec/` equivalent | `run_full_positioning_coverage.sh:65` |
+| `generate_reference_corrections.py` | KEEP | R2.8 oracle-benchmark evidence generator; no `stec/` equivalent (only referenced as a prerequisite command in `stec/analysis/oracle_benchmark.py`'s docstring) | `run_oracle_days.sh:33`, `run_full_positioning_coverage.sh:52` |
+| `generate_stec_corrections.py` | KEEP | Runs model inference to produce PPPx STEC-correction CSVs; no `stec/` equivalent | `positioning/geometry/recover_day.py:113` (subprocess), `run_pipeline.sh:67` |
+| `plot_results.py` | KEEP | Generates manuscript Figures 12-15; `stec/viz/style.py` ports only its 4 hex colour constants (`STEC_COLOR`/`VTEC_COLOR`/`GIM_COLOR`/`PRETRAINED_COLOR`) — none of `plot_trends`/`plot_extended_analysis`/`plot_model_vs_gim_comparison`/`generate_comparative_table` is ported | CLAUDE.md:142, `README.md:143` |
+| `recompute_metrics.py` | KEEP | Its "pure computation core" *is* `positioning_eval.metrics` (it imports `aggregate_daily_metrics` from there rather than defining its own copy), which is what `stec/positioning/metrics.py` actually ports. Its own unique code — `setup_logging`, `find_finetune_experiment_by_config`, `plot_trends` (duplicated verbatim from `run_pipeline.py`, explicitly not re-created per `stec/positioning/metrics.py`'s docstring), `process_day`, `main` — has no `stec/` equivalent | CLAUDE.md:145, `README.md:140` |
+| `run_pipeline.py` | KEEP | Multi-day positioning driver; no `stec/` driver equivalent | `run_pretrained_elev_arm.sh:81` |
+| `submit_parallel.py` | KEEP | SLURM job-splitting wrapper; no `stec/` equivalent | `submit_parallel.sh:80`, `README.md:159` |
 
-## 3. Blockers, most serious first
+## 3. Import-reachability: does `stec/` or `tests/` reach into `src/` at import time?
 
-**1. This worktree's own flagship "clean clone" test depends on this worktree's own copy of
-`src/utils/locationencoder/`.** `tests/test_clean_clone.py` exists specifically to prove
-`stec/` "works with none of the 640 GB data tree mounted" (its own module docstring) and is
-showcased in `docs/REPRODUCING.md` as that proof. Its
-`test_feature_layout_and_assembler_run_end_to_end_on_the_fixture_day` runs a subprocess with
-`cwd=REPO_ROOT` (= this worktree's root, confirmed by reading the fixture/subprocess code)
-and, inside it, does an **unguarded** `sys.path.insert(0, "src")` followed by
-`from utils.locationencoder.pe import SphericalHarmonics` — no `skipif`, no absolute path to
-the permanent original. `stec/` has no native spherical-harmonics implementation at all
-(`grep -rn "SphericalHarmonics" stec/` → nothing); `stec/data/feature_layout.py` only sizes
-the SH blocks, the encoder is designed to be injected. **Deleting this worktree's
-`src/utils/locationencoder/` today would break the one test that is supposed to prove `stec/`
-does not need `src/`.** (Contrast: `tests/data/test_transforms.py`'s equivalent SH-dependent
-test uses `LEGACY_SRC = "/scratch2/arrueegg/WP4/PNN_STEC/src"` — the permanent original — and
-is `@pytest.mark.skipif`-guarded; that one is *not* a blocker on this worktree's copy.)
-Resolution: either port a native SH encoder into `stec/` (closing the gap for real), or
-change `test_clean_clone.py` to point at the permanent original's path the same way
-`test_transforms.py` does — the latter is a one-line, low-risk fix but only papers over the
-architectural gap, it doesn't close it.
+**No — verified by actually importing, not by grepping.** The specific risk the task named:
+`tests/data/test_transforms.py`'s `legacy_available()` does `sys.path.insert(0, LEGACY_SRC)`
+(`LEGACY_SRC = "/scratch2/arrueegg/WP4/PNN_STEC/src"`) as a **side effect at collection
+time** — it runs inside a `@pytest.mark.skipif(not legacy_available(), ...)` decorator
+argument, which Python evaluates when the module is imported/collected, not when the test
+runs. `tests/data/test_spherical_harmonics.py` does the identical thing. Grepped:
 
-**2. This worktree still contains live-runnable duplicates of the pre-rebuild production
-scripts, and they have already started to diverge.** `scripts/weekend_queue.sh`,
-`scripts/overnight_final.sh`, `scripts/backfill_store.sh` are **byte-identical** between the
-original and this worktree (`diff` → no output) and all three still invoke old code by path:
-`python src/analysis/build_all.py --figures`, `python cli.py multiday …`. `scripts/final_rebuild.sh`
-(new to this branch) does `export PYTHONPATH=src; python -m pipeline run` — the *old*
-`src/pipeline` package, not `stec.pipeline`, despite `docs/REPRODUCING.md` and
-`docs/rebuild_plan.md` both naming `python -m stec.pipeline run` as the sanctioned command.
-`rebuild_plan.md`'s own discipline ("work happens … in a separate git worktree — never in
-the live checkout … the protected jobs re-invoke python … from the live checkout") implies
-these scripts are meant to run only from the original, but nothing prevents someone from
-running `scripts/final_rebuild.sh` or `scripts/weekend_queue.sh` from inside *this*
-worktree, which would silently execute this worktree's own `src/`/`cli.py` copy against
-data pointed at by `.env.worktree`. **This is not hypothetical**: two files under
-`positioning/positioning_eval/` (`metrics.py`, `run_positioning_evaluation.py`) have
-*already* diverged from the original with an in-place bug fix (§Blocker 3) — proof the
-"never run it here" discipline is not self-enforcing.
+```
+grep -rlnE "^\s*(import|from)\s+(model|utils|data_loader|training|evaluation|pipeline|analysis|main)(\s|\.|$)" stec/
+→ (no output)
+grep -rlnE "same pattern" tests/
+→ tests/data/test_transforms.py
+  tests/data/test_spherical_harmonics.py
+```
 
-**3. The `save_daily_summary` merge-safety fix exists twice, independently, with no shared
-implementation.** This worktree's `positioning/positioning_eval/metrics.py` was edited
-in place to add `_merge_daily_summary`/`SummaryShrinkError`/an atomic temp-file write,
-fixing a real, already-realised data-loss bug (59 canonical `daily_summary*.csv` files fell
-from ~74–91 rows to 2–12 during the station-recovery sweep). Separately, `stec/positioning/
-summary_writer.py` implements the **same fix** as new, ported code. Checked: the live
-driver (`run_positioning_evaluation.py`) imports its fix from the local
-`positioning/positioning_eval/metrics.py` (`grep -n "^import\|^from" positioning/positioning_eval/
-metrics.py` → no `stec` import); `stec.positioning.summary_writer`'s only importers are its own
-tests (`tests/positioning/test_summary_writer.py`, `test_legacy_summary_merge.py`). If the two
-implementations diverge further, there is no way to know without reading both — the exact
-ambiguity this rebuild exists to remove, present today.
+Nothing under `stec/` does a bare top-level import of a name that collides with the legacy
+tree, and the only two `tests/` files that do are the two just named — both deliberately
+guarded, skip-conditional Gate-A equivalence checks.
 
-**4. Gate F has only measured 2 of 23 stages.** Per `docs/revision/stage_coverage.md`
-(independently re-derived from `verification/gate_f_analysis_equivalence.py`'s
-`COMPARISONS` and `stec/pipeline/stages.py`): only `daily_metrics` and
-`uncertainty_calibration` carry a confirmed, measured Gate F result. 14 more declare an
-*expected* MATCH/DIVERGED that has never been run against the real store in this state of
-the tree; `stratified_comparison` has **never completed a run at all** (times out at 1h even
-on the rebuilt side alone); 2 (`repair_gim_baseline`, `positioning_coverage`) are excluded
-by design; 4 (`paper_tables`, `hyperparameter_search`, `figures`, `results_manifest`) have
-no comparison defined. A `gate_f_analysis_equivalence.py --only stratified_comparison` run
-is in progress right now (PID 1055043, `cwd=/scratch2/arrueegg/WP4/PNN_STEC_rebuild`) — this
-is the resource-constrained "one streaming slot" this audit was told not to touch. **This is
-not a blocker on deleting this worktree's local `src/analysis/` copy** — Gate F's legacy
-side is hardcoded to `/scratch2/arrueegg/WP4/PNN_STEC` (the permanent original), confirmed
-by reading `LEGACY_SRC = Path("/scratch2/arrueegg/WP4/PNN_STEC")` at
-`gate_f_analysis_equivalence.py:44` — but it **is** a reason not to trust the 15
-not-yet-measured `stec.analysis` modules as sole source of truth for anything published
-until they are actually run and the result recorded, independent of what happens to `src/`.
+**Empirical proof the pollution is inert beyond those two files** — full `pytest tests/
+--collect-only -q` (635 tests) collects cleanly, then, in a fresh interpreter:
 
-**5. No production driver exists for training, inference, or multi-day orchestration.**
-Confirmed structurally, not just by absence: `grep -rln "stec\.training\|stec\.models\|stec\.
-inference\b\|stec\.data\b"` outside `tests/`, `verification/`, and `stec/` itself returns
-only two internal cross-references (`stec/baselines/madrigal.py`, `stec/positioning/
-store.py`) — no script, no CLI subcommand, nothing. `stec/cli.py`'s own docstring is explicit
-about scope: "Deliberately thin. Long-running work belongs to the pipeline runner" — and the
-pipeline runner only runs *analysis* stages. Gates B/C/D prove the library-level
-equivalence (bit-exact model forward pass, training step, inference) but nothing consumes
-it. This is the largest-scope blocker by file count (~60 KEEP files across
-`src/{main,finetune,pretrain,inference_testset,inference_map,compare_stec_vtec,compare_stec_vtec_gim,
-multiday_evaluation}.py`, `data_loader/`, `training/`, `model/`, most of `utils/`) and is not
-something this inventory can resolve — it is future work, not a checklist item.
+```python
+import stec, stec.data.transforms, stec.training.fit, stec.inference.monte_carlo, ...
+before = {name: mod.__file__ for name, mod in sys.modules.items() if name.startswith('stec')}
+# ... exec tests/data/test_transforms.py, exactly reproducing pytest's collection-time
+#     evaluation of legacy_available() ...
+data_loader = importlib.import_module('data_loader')
+print(data_loader.__file__)   # -> /scratch2/arrueegg/WP4/PNN_STEC/src/data_loader/__init__.py
+after = {name: mod.__file__ for name, mod in sys.modules.items() if name.startswith('stec')}
+print({k: (before[k], after[k]) for k in before if before[k] != after.get(k)})  # -> {}
+fresh = importlib.import_module('stec.baselines.gim')
+print(fresh.__file__)  # -> .../PNN_STEC_rebuild/stec/baselines/gim.py
+```
 
-**6. 14 of 15 manuscript figures have no `stec/` generator.** Independently re-confirmed
-against `docs/revision/figure_coverage.md`: everything except the hand-drawn Figure 3 is
-still produced only by `src/viz/*.py` + `src/inference_testset.py` (Figs 4–9),
-`src/multiday_evaluation.py` (Figs 10–11), `src/data_processing/{split_new,
-visualize_temporal_splits}.py` (Figs 1–2), and `positioning/scripts/plot_results.py`
-(Figs 12–15). None of `stec/pipeline/stages.py`'s `figures` stage touches any of them — it
-runs `stec.viz.revision_figures`, a disjoint set built for the reviewer response letter.
+Result: the mechanism is real (a bare `import data_loader` after collection genuinely
+resolves to the legacy tree — proving the risk is not hypothetical), but **zero already-
+imported `stec` modules changed identity**, and a **freshly-imported** `stec` module
+post-pollution still resolves inside the worktree, not the legacy tree. `tests/test_clean_
+clone.py` and `tests/positioning/test_gate_e.py` also reference `LEGACY_ROOT`/`LEGACY_SRC`,
+but only as a *config path value* (`monkeypatch.setattr(gate.paths, "LEGACY_ROOT", ...)`),
+never as a `sys.path` insertion — checked by grep, no further import risk there.
+`pytest tests/ -q` passes 635/635 in 35.5s; `ruff check`/`ruff format --check` are clean.
 
-## 4. Recommended deletion order
+## 4. `save_daily_summary`: fixed, prepared, and still-broken are three different places
 
-Nothing should be deleted from `/scratch2/arrueegg/WP4/PNN_STEC` (the original). Everything
-below is scoped to this worktree's own copies.
+This is worth its own section because the state changed *during this recompute* (commit
+`75d9375` landed while this document was being written) and because two existing docs
+(`docs/revision/save_daily_summary_fix.md`, `save_daily_summary.patch`) now describe a
+snapshot that is no longer current.
 
-1. **Resolve Blocker 2 first, structurally, not just by deleting.** Either update
-   `scripts/{weekend_queue,overnight_final,final_rebuild,backfill_store}.sh` in this
-   worktree to call `stec.pipeline`/`stec.cli` (and `cli.py` → nothing, since no `stec`
-   equivalent exists yet — see Blocker 5), or delete them from this worktree entirely and
-   rely on the original's copies for anything that must still run old code. Leaving them
-   present-but-stale is what let Blocker 3 happen.
-2. **Resolve Blocker 1** before touching `src/utils/locationencoder/`: either give
-   `stec/` a native spherical-harmonics encoder, or repoint `test_clean_clone.py` at the
-   permanent original the way `test_transforms.py` already does. Do this before any `src/`
-   deletion, not as part of it — it is a one-file fix that unblocks a specific, named test.
-3. **Resolve Blocker 3**: decide which `save_daily_summary` implementation is canonical
-   (most likely: make `positioning/positioning_eval/metrics.py` in *both* trees import
-   `stec.positioning.summary_writer` instead of carrying its own copy — but that reaches
-   `positioning/` back into `stec/`, which is a design decision, not a mechanical one)
-   before deleting either copy.
-4. **Run and record the 15 not-yet-measured Gate F comparisons** (Blocker 4) — cheap
-   relative to the risk, since Gate F's legacy side never touches this worktree's `src/`
-   copy anyway; this is about trusting the `stec.analysis` numbers, not about what's safe to
-   delete here.
-5. **Delete the 28 PORTED files** from this worktree only, once steps 1–2 are done:
-   `src/analysis/{activity_stratification,build_all,common_set_positioning,computational_cost,
-   daily_metrics,ionex_rms_benchmark,madrigal_reference_offset,mapping_function_consistency,
-   oracle_benchmark,paths,positioning_coverage,positioning_robustness,positioning_summary,
-   relative_error_metrics,results_manifest,station_independence,storm_stratification,
-   stratified_comparison,uncertainty_calibration,uncertainty_error_relation,weighting_ablation}.py`,
-   `src/pipeline/{fingerprint,__init__,__main__,provenance,runner,stages}.py`,
-   `src/viz/revision_figures.py`.
-6. **Delete the 6 DEAD files** from this worktree (and flag them to the maintainer for the
-   original, which is out of scope for this task to touch):
-   `src/analysis/cleanup_audit.py`, `src/analysis/common_set.py`, `src/evaluation.py`,
-   `src/evaluation/plotter.py`, `positioning/positioning_eval/plot_ppppos.py`,
-   `positioning/scripts/add_pretrained_baseline.py`.
-7. **Leave all 84 KEEP files in place.** They are not clutter — they are the only working
-   implementation of training, inference, multi-day orchestration, 14 of 15 manuscript
-   figures, the two permanent-by-design analyses, and the PPPx positioning driver. Retiring
-   them requires porting a production driver (Blocker 5) and manuscript-figure generators
-   (Blocker 6) that do not exist yet in `stec/` — out of scope for a retirement pass, and
-   the reason this repository cannot yet be "one ground-truth implementation" end to end.
+1. **Fixed** — this worktree's own copy of `positioning/positioning_eval/metrics.py` and
+   `run_positioning_evaluation.py`, commit `75d9375` ("the positioning writer destroyed a
+   day's summary on every partial re-run"), landed 08-21 14:45, on `pipeline-rebuild`,
+   already in HEAD. Confirmed by reading the code: `metrics.py:356` `SummaryShrinkError`,
+   `:364` `_merge_daily_summary` (keyed on `(station, method)`), `:386-441` `save_
+   daily_summary` (merge-then-atomic-write, refuses a shrinking result).
+   `run_positioning_evaluation.py:670-682` — both the two-method and single-method branches
+   now call `save_daily_summary`; the old bare `combined.to_csv(...)` overwrite is gone.
+   Regression test: `tests/positioning/test_legacy_summary_merge.py`.
+2. **Prepared five hours earlier, not consolidated** — `stec/positioning/summary_writer.py`
+   (commit `02e125b`, 08-21 09:52) is a separately-maintained, independently-tested
+   reference implementation of the same algorithm. It is not imported by anything except its
+   own test (`grep -rn "summary_writer" --include="*.py" .` → only `tests/positioning/
+   test_summary_writer.py`); `75d9375`'s fix duplicates the logic inline rather than
+   importing it, exactly as its own commit message says: "`positioning/positioning_eval/`
+   is the standalone PPPx driver, deliberately not ported into `stec/`, so it keeps its own
+   copy of the merge." `docs/revision/save_daily_summary.patch` targets the live checkout
+   specifically and was never meant to apply here.
+3. **Still completely unaddressed** — `/scratch2/arrueegg/WP4/PNN_STEC` (the data root,
+   `paper-revision-jgr-mlc`, where the actual station-recovery sweep runs). Directly
+   confirmed by reading the file there: `grep -n "SummaryShrinkError\|_merge_daily_summary\|
+   os.replace" /scratch2/arrueegg/WP4/PNN_STEC/positioning/positioning_eval/metrics.py` →
+   zero hits; `save_daily_summary` is still the original bare
+   `combined.to_csv(output_file, ...)`, and `run_positioning_evaluation.py`'s single-method
+   branch there still writes straight to CSV. `docs/revision/coverage_settled.md`'s account
+   of the damage (59 canonical `daily_summary_iono.csv` files corrupted, 212 of 242 recovery
+   days still outstanding) remains live and unresolved on that tree.
+
+**`docs/revision/save_daily_summary_fix.md` is stale in one specific respect**: it still
+frames the fix as "prepared, not applied" without the qualifier that it has since been
+applied — independently, not via its own patch — to this worktree. It correctly remains
+"not applied" for the tree it actually matters for operationally (the data root), which this
+recompute cannot change (read-only, out of scope). `merge_plan.md` states what porting this
+fix forward through a merge would and would not accomplish.
+
+## 5. `.pipeline/` provenance state (context for `merge_plan.md`)
+
+`python -m stec.pipeline status`, run now (metadata walk only — file size/mtime, no store
+rows read, no training/inference):
+
+```
+20 of 27 stage(s) would run
+```
+
+Most of the 20 are `command changed` / `inputs or parameters changed` — the results-layout
+restructure (`1072c8b`) moved every analysis stage's declared output path to `analyses/
+<name>/{rebuilt,pre_rebuild}/`, but the tree those paths point at has not been migrated
+(`stec/runs/restructure_results.py --apply` has never been run — `docs/revision/
+results_layout.md`'s own final line: "**Not applied.**"). This is a provenance-bookkeeping
+gap, not a correctness regression — the Gate F verdicts in §2 above were measured before the
+path convention changed and remain valid statements about the *logic*; see `merge_plan.md`
+for the sequencing this implies.
