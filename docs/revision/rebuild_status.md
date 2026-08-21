@@ -19,7 +19,7 @@ Updated 2026-08-20.
 | 4 — inference | **done — Gate D green, bit-exact on a real checkpoint** |
 | 5 — baselines | **done** — IGS GIM, VTEC mapping and Madrigal, five defects fixed between them |
 | 6 — positioning | metrics and all six positioning analyses ported; PPPx driver deliberately untouched |
-| 7 — analyses and figures | 20 analyses plus the figures ported; 2 stages stay on pre-rebuild scripts by choice |
+| 7 — analyses and figures | 20 analyses ported. **The manuscript's Figures 1-15 are NOT ported** - `stec/viz/revision_figures.py` builds the response-letter figures, a different set. 2 stages stay on pre-rebuild scripts by choice. |
 | 8 — divergences | not started (manuscript frozen until then) |
 | 9 — release package | **done** — pyproject, generated fixtures, clean-clone test, REPRODUCING.md |
 
