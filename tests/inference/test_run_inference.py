@@ -23,7 +23,11 @@ from stec.inference.run_inference import (
 )
 from stec.models.architectures import load_checkpoint
 from stec.training.run_training import build_layout_and_assembler, train
-from tests.fixtures.make_fixtures import build_space_weather, build_stec_database_day
+from tests.fixtures.make_fixtures import (
+    build_madrigal_day,
+    build_space_weather,
+    build_stec_database_day,
+)
 from tests.training.test_run_training import tiny_config
 
 YEAR, DOY = 2024, 132
@@ -159,23 +163,55 @@ def test_cli_main_runs_end_to_end(tmp_path):
     ).exists()
 
 
-def test_madrigal_dataset_is_refused(tmp_path):
+def test_madrigal_dataset_writes_the_store_without_satellite_identity(tmp_path):
+    """`--dataset madrigal` used to raise `NotImplementedError`; this is the wiring that
+    replaced it (`stec.data.madrigal_reader.read_madrigal_day`).
+
+    `split=None` disables the station-list filter on purpose: the synthetic fixture's
+    stations are not members of the real project's `test_station.list`, and this test is
+    about the driver wiring working end to end, not about the filter itself - that is
+    `tests/data/test_madrigal_reader.py`'s job, including the equivalence check against the
+    legacy `MadrigalSTECDataset`.
+    """
     database_root, space_weather = build_fixture(tmp_path)
     checkpoint_path = train_tiny_checkpoint(tmp_path, database_root, space_weather)
     config = tiny_config(tmp_path / "unused")
     model, _ = load_checkpoint(checkpoint_path)
 
-    with pytest.raises(NotImplementedError, match="madrigal"):
-        run_inference(
-            config,
-            model,
-            [(YEAR, DOY)],
-            model_variant="finetuned_stec",
-            dataset="madrigal",
-            store_root=tmp_path / "store",
-            database_root=database_root,
-            space_weather=space_weather,
-        )
+    madrigal_data_root = tmp_path / "madrigal_external"
+    build_madrigal_day(madrigal_data_root, year=YEAR, doy=DOY, n_rows=150)
+    madrigal_root = madrigal_data_root / "Madrigal_STEC"
+
+    store_root = tmp_path / "store"
+    manifest = run_inference(
+        config,
+        model,
+        [(YEAR, DOY)],
+        model_variant="pretrained_stec",
+        dataset="madrigal",
+        split=None,
+        samples=6,
+        seed=42,
+        madrigal_root=madrigal_root,
+        space_weather=space_weather,
+        store_root=store_root,
+        device=torch.device("cpu"),
+    )
+
+    assert len(manifest) == 1
+    assert manifest[0]["dataset"] == "madrigal"
+    assert manifest[0]["rows"] > 0
+
+    written = ps.read_predictions(
+        "pretrained_stec", "madrigal", doys=[DOY], root=store_root
+    )
+    assert len(written) == manifest[0]["rows"]
+    for column in ("true_stec", "stec_pred", "pred_total_unc", "satele", "station"):
+        assert column in written.columns
+    # The convention this reader follows throughout: no satellite identity means the
+    # column is absent, not a fabricated placeholder.
+    for column in ("sat", "slipc", "gfphase"):
+        assert column not in written.columns
 
 
 def test_unknown_dataset_is_rejected(tmp_path):
@@ -304,3 +340,6 @@ def test_build_arg_parser_defaults():
     assert args.dataset == "own"
     assert args.samples == 100
     assert args.split == "test"
+    # Divergence #12 (stec.analysis.divergences): "station" reproduces the published
+    # Table 4 numbers and the existing store partition; must not silently flip to "ipp".
+    assert args.madrigal_local_time_longitude == "station"

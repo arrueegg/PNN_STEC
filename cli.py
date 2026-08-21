@@ -11,23 +11,23 @@ Usage:
 Available commands:
     train       - Train models (pretrain/finetune)
     compare     - Comprehensive STEC vs baselines comparison
-    evaluate    - Evaluate model on test set
+    evaluate    - REMOVED, always broken - see 'inference' instead
     inference   - Run inference on test data
-    positioning - Evaluate positioning accuracy
+    positioning - REMOVED, never implemented - see positioning/scripts/run_pipeline.py
     map         - Generate spatial STEC maps
 
 Examples:
     # Train a model
     python cli.py train --config config/config.yaml
-    
+
     # Compare STEC model against baselines
     python cli.py compare \\
         --stec_experiment "Finetune_STEC_..." \\
         --vtec_experiment "Finetune_VTEC_..."
-    
-    # Quick evaluation
-    python cli.py evaluate --experiment "Finetune_STEC_..."
-    
+
+    # Evaluate on the test set (metrics + plots)
+    python cli.py inference --experiment "Finetune_STEC_..."
+
     # Get help for any command
     python cli.py train --help
     python cli.py compare --help
@@ -58,10 +58,14 @@ Examples:
   
   # VTEC baseline training
   python cli.py train --config config/config_vtec_mlp_baseline.yaml
-        """
+        """,
     )
-    parser.add_argument("--config", type=str, default="config/config.yaml",
-                       help="Path to configuration file (default: config/config.yaml)")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config/config.yaml",
+        help="Path to configuration file (default: config/config.yaml)",
+    )
     return parser
 
 
@@ -99,67 +103,88 @@ Automatic evaluation:
   - Madrigal independent test set (if available and model is finetuned)
   - VTEC+Mapping baseline (if --vtec_experiment provided)
   - IGS GIM baseline (enabled by default, use --no_gim to skip)
-        """
+        """,
     )
-    
+
     # Required arguments
-    parser.add_argument("--stec_experiment", type=str, required=True,
-                       help="STEC model experiment name or path")
-    parser.add_argument("--vtec_experiment", type=str, default=None,
-                       help="VTEC model experiment name or path (optional)")
-    
+    parser.add_argument(
+        "--stec_experiment",
+        type=str,
+        required=True,
+        help="STEC model experiment name or path",
+    )
+    parser.add_argument(
+        "--vtec_experiment",
+        type=str,
+        default=None,
+        help="VTEC model experiment name or path (optional)",
+    )
+
     # Inference parameters
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                       help="MC samples for Bayesian inference (default: 100)")
-    parser.add_argument("--test_size", default=None,
-                       help="Number of test samples (default: full)")
-    
+    parser.add_argument(
+        "--num_inference_samples",
+        type=int,
+        default=100,
+        help="MC samples for Bayesian inference (default: 100)",
+    )
+    parser.add_argument(
+        "--test_size", default=None, help="Number of test samples (default: full)"
+    )
+
     # Data sources
-    parser.add_argument("--madrigal_path", type=str,
-                       default="/home/space/data/iono/Madrigal_STEC",
-                       help="Path to Madrigal STEC data")
-    parser.add_argument("--no_gim", action="store_true",
-                       help="Skip IGS GIM baseline comparison")
-    parser.add_argument("--gim_path", type=str,
-                       default="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex",
-                       help="Path to GIM/IONEX data")
-    
+    parser.add_argument(
+        "--madrigal_path",
+        type=str,
+        default="/home/space/data/iono/Madrigal_STEC",
+        help="Path to Madrigal STEC data",
+    )
+    parser.add_argument(
+        "--no_gim", action="store_true", help="Skip IGS GIM baseline comparison"
+    )
+    parser.add_argument(
+        "--gim_path",
+        type=str,
+        default="/home/space/project/2022_shumao_IonoSpatialModeling/07_data/GNSS_ionex",
+        help="Path to GIM/IONEX data",
+    )
+
     # Other options
-    parser.add_argument("--mapping_function", type=str, default="MSLM",
-                       choices=["SLM", "MSLM"],
-                       help="Mapping function for VTEC→STEC (default: MSLM)")
-    parser.add_argument("--output_dir", type=str, default=None,
-                       help="Additional output directory")
-    
+    parser.add_argument(
+        "--mapping_function",
+        type=str,
+        default="MSLM",
+        choices=["SLM", "MSLM"],
+        help="Mapping function for VTEC→STEC (default: MSLM)",
+    )
+    parser.add_argument(
+        "--output_dir", type=str, default=None, help="Additional output directory"
+    )
+
     return parser
 
 
 def create_evaluate_parser(subparsers):
-    """Create parser for evaluation command."""
+    """Create parser for the removed evaluation command.
+
+    `from evaluation import main` (below, in `run_evaluate`) has resolved to the
+    *package* `src/evaluation/` (which has no `main`) rather than the flat module
+    `src/evaluation.py` it was written against, ever since `src/evaluation/` was added
+    - confirmed by import, not by reading: `hasattr(evaluation, "main")` is `False`.
+    This command has therefore always raised an `ImportError` before doing anything,
+    independent of and unrelated to the `src/` retirement; `inference_testset.py` (the
+    `inference` subcommand) is what real evaluation runs have used instead (CLAUDE.md:
+    "That path is not the one used for paper numbers"). Kept registered, rather than
+    removed outright, so `python cli.py evaluate --help`/`--help` still lists it with a
+    pointer to the working command, instead of argparse's opaque "invalid choice".
+    """
     parser = subparsers.add_parser(
         "evaluate",
-        help="Evaluate model on test set",
-        description="Basic model evaluation: compute metrics and generate plots",
+        help="Removed - always broken (see 'inference' instead)",
+        description="Removed: this command's target module was never reachable "
+        "(see run_evaluate's docstring). Use 'inference' - it already covers "
+        "'compute metrics and generate plots' via the same underlying driver.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Evaluate on test set
-  python cli.py evaluate --experiment "Finetune_STEC_..."
-  
-  # Quick evaluation on subset
-  python cli.py evaluate --experiment "Finetune_STEC_..." --test_size 10000
-        """
     )
-    
-    parser.add_argument("--experiment", type=str, required=True,
-                       help="Experiment name or path")
-    parser.add_argument("--test_size", type=int, default=None,
-                       help="Number of test samples (default: full)")
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                       help="MC samples for Bayesian models (default: 100)")
-    parser.add_argument("--checkpoint", type=str, default="best_checkpoint.pth",
-                       help="Checkpoint filename (default: best_checkpoint.pth)")
-    
     return parser
 
 
@@ -177,52 +202,63 @@ Examples:
   
   # Inference on subset
   python cli.py inference --experiment "Finetune_STEC_..." --test_size 10000
-        """
+        """,
     )
-    
-    parser.add_argument("--experiment", type=str, required=True,
-                       help="Experiment name or path")
-    parser.add_argument("--test_size", type=int, default=None,
-                       help="Number of test samples (default: full)")
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                       help="MC samples for Bayesian models (default: 100)")
-    parser.add_argument("--checkpoint", type=str, default="best_checkpoint.pth",
-                       help="Checkpoint filename (default: best_checkpoint.pth)")
-    parser.add_argument("--output_file", type=str, default=None,
-                       help="Output file path (default: experiment_dir/predictions.csv)")
-    
+
+    parser.add_argument(
+        "--experiment", type=str, required=True, help="Experiment name or path"
+    )
+    parser.add_argument(
+        "--test_size",
+        type=int,
+        default=None,
+        help="Number of test samples (default: full)",
+    )
+    parser.add_argument(
+        "--num_inference_samples",
+        type=int,
+        default=100,
+        help="MC samples for Bayesian models (default: 100)",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="best_checkpoint.pth",
+        help="Checkpoint filename (default: best_checkpoint.pth)",
+    )
+    parser.add_argument(
+        "--output_file",
+        type=str,
+        default=None,
+        help="Output file path (default: experiment_dir/predictions.csv)",
+    )
+
     return parser
 
 
 def create_positioning_parser(subparsers):
-    """Create parser for positioning evaluation command."""
+    """Create parser for the removed positioning command.
+
+    `run_positioning` (below) targeted `inference_positioning.py` - a module that does
+    not exist anywhere in this repository, under `src/` or otherwise (confirmed by
+    `find . -iname "inference_positioning*"`, zero hits). This command has therefore
+    never worked, on any branch, independent of the `src/` retirement: it is not a
+    module that got lost, it is a caller that was never wired up. The real positioning
+    driver is `positioning/positioning_eval/run_positioning_evaluation.py`, normally
+    invoked through `positioning/scripts/run_pipeline.py` (CLAUDE.md's documented
+    workflow) - both are deliberate, permanent `src/`-independent tooling, unaffected
+    by anything in this file. Kept registered, rather than removed outright, so
+    `python cli.py positioning --help` still lists it with a pointer to the real
+    driver, instead of argparse's opaque "invalid choice".
+    """
     parser = subparsers.add_parser(
         "positioning",
-        help="Evaluate positioning accuracy",
-        description="Evaluate STEC model impact on GNSS positioning accuracy",
+        help="Removed - never implemented (see positioning/scripts/run_pipeline.py)",
+        description="Removed: this command's target module (inference_positioning.py) "
+        "never existed. Use positioning/scripts/run_pipeline.py or "
+        "positioning/positioning_eval/run_positioning_evaluation.py directly.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Run positioning evaluation
-  python cli.py positioning --experiment "Finetune_STEC_..."
-  
-  # Specify date range
-  python cli.py positioning \\
-      --experiment "Finetune_STEC_..." \\
-      --start_date 2024-07-01 \\
-      --end_date 2024-07-07
-        """
     )
-    
-    parser.add_argument("--experiment", type=str, required=True,
-                       help="Experiment name or path")
-    parser.add_argument("--start_date", type=str, default=None,
-                       help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end_date", type=str, default=None,
-                       help="End date (YYYY-MM-DD)")
-    parser.add_argument("--checkpoint", type=str, default="best_checkpoint.pth",
-                       help="Checkpoint filename (default: best_checkpoint.pth)")
-    
     return parser
 
 
@@ -247,24 +283,38 @@ Examples:
       --date 2024-07-01 \\
       --time_series 00:00-23:59 \\
       --interval 1h
-        """
+        """,
     )
-    
-    parser.add_argument("--experiment", type=str, required=True,
-                       help="Experiment name or path")
-    parser.add_argument("--date", type=str, required=True,
-                       help="Date for map generation (YYYY-MM-DD)")
-    parser.add_argument("--time", type=str, default=None,
-                       help="Specific time (HH:MM)")
-    parser.add_argument("--time_series", type=str, default=None,
-                       help="Time range for series (HH:MM-HH:MM)")
-    parser.add_argument("--interval", type=str, default="1h",
-                       help="Time interval for series (default: 1h)")
-    parser.add_argument("--checkpoint", type=str, default="best_checkpoint.pth",
-                       help="Checkpoint filename (default: best_checkpoint.pth)")
-    parser.add_argument("--output_dir", type=str, default=None,
-                       help="Output directory for maps")
-    
+
+    parser.add_argument(
+        "--experiment", type=str, required=True, help="Experiment name or path"
+    )
+    parser.add_argument(
+        "--date", type=str, required=True, help="Date for map generation (YYYY-MM-DD)"
+    )
+    parser.add_argument("--time", type=str, default=None, help="Specific time (HH:MM)")
+    parser.add_argument(
+        "--time_series",
+        type=str,
+        default=None,
+        help="Time range for series (HH:MM-HH:MM)",
+    )
+    parser.add_argument(
+        "--interval",
+        type=str,
+        default="1h",
+        help="Time interval for series (default: 1h)",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="best_checkpoint.pth",
+        help="Checkpoint filename (default: best_checkpoint.pth)",
+    )
+    parser.add_argument(
+        "--output_dir", type=str, default=None, help="Output directory for maps"
+    )
+
     return parser
 
 
@@ -320,192 +370,251 @@ Date formats:
   - YYYY-MM-DD: "2024-07-01"  
   - Range: "2024-183:2024-192"
   - List: "2024-183,2024-184,2024-185"
-        """
+        """,
     )
-    
-    parser.add_argument("--dates", type=str,
-                       help="Date(s) to evaluate (single, list, or range)")
-    parser.add_argument("--stec_config", type=str,
-                       help="Base config file for STEC training")
-    parser.add_argument("--vtec_config", type=str,
-                       help="Base config file for VTEC training")
-    parser.add_argument("--output_dir", type=str, default="multiday_results",
-                       help="Output directory (default: multiday_results)")
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                       help="MC samples for Bayesian inference (default: 100)")
-    parser.add_argument("--test_size", type=int, default=None,
-                       help="Test set size (default: full)")
-    parser.add_argument("--pretrain_folder", type=str, default=None,
-                       help="Pretrain experiment folder to use for STEC model (optional)")
-    parser.add_argument("--pretrained_baseline", type=str, default=None,
-                       help="Pretrained model folder to use as a FIXED baseline in all plots")
-    parser.add_argument("--skip_training", action="store_true",
-                       help="Skip training, only run evaluation (experiments must exist)")
-    parser.add_argument("--update_vtec_only", action="store_true",
-                       help="Reuse existing STEC and GIM results and only update VTEC evaluation")
-    parser.add_argument("--skip_plots", action="store_true",
-                       help="Skip plot generation to save time")
-    parser.add_argument("--skip_existing", action="store_true",
-                       help="Skip training if experiment already exists")
-    parser.add_argument("--no_aggregate", action="store_true",
-                       help="Skip aggregate report generation (for parallel execution)")
-    parser.add_argument("--summary_only", action="store_true",
-                       help="Skip processing, only generate aggregate report from existing results")
-    parser.add_argument("--skip_comparison", action="store_true",
-                       help="Skip comparison evaluation (Step 3)")
-    parser.add_argument("--positioning", action="store_true",
-                       help="Run positioning evaluation for each day")
-    
+
+    parser.add_argument(
+        "--dates", type=str, help="Date(s) to evaluate (single, list, or range)"
+    )
+    parser.add_argument(
+        "--stec_config", type=str, help="Base config file for STEC training"
+    )
+    parser.add_argument(
+        "--vtec_config", type=str, help="Base config file for VTEC training"
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="multiday_results",
+        help="Output directory (default: multiday_results)",
+    )
+    parser.add_argument(
+        "--num_inference_samples",
+        type=int,
+        default=100,
+        help="MC samples for Bayesian inference (default: 100)",
+    )
+    parser.add_argument(
+        "--test_size", type=int, default=None, help="Test set size (default: full)"
+    )
+    parser.add_argument(
+        "--pretrain_folder",
+        type=str,
+        default=None,
+        help="Pretrain experiment folder to use for STEC model (optional)",
+    )
+    parser.add_argument(
+        "--pretrained_baseline",
+        type=str,
+        default=None,
+        help="Pretrained model folder to use as a FIXED baseline in all plots",
+    )
+    parser.add_argument(
+        "--skip_training",
+        action="store_true",
+        help="Skip training, only run evaluation (experiments must exist)",
+    )
+    parser.add_argument(
+        "--update_vtec_only",
+        action="store_true",
+        help="Reuse existing STEC and GIM results and only update VTEC evaluation",
+    )
+    parser.add_argument(
+        "--skip_plots", action="store_true", help="Skip plot generation to save time"
+    )
+    parser.add_argument(
+        "--skip_existing",
+        action="store_true",
+        help="Skip training if experiment already exists",
+    )
+    parser.add_argument(
+        "--no_aggregate",
+        action="store_true",
+        help="Skip aggregate report generation (for parallel execution)",
+    )
+    parser.add_argument(
+        "--summary_only",
+        action="store_true",
+        help="Skip processing, only generate aggregate report from existing results",
+    )
+    parser.add_argument(
+        "--skip_comparison",
+        action="store_true",
+        help="Skip comparison evaluation (Step 3)",
+    )
+    parser.add_argument(
+        "--positioning",
+        action="store_true",
+        help="Run positioning evaluation for each day",
+    )
+
     return parser
 
 
 def run_train(args):
     """Execute training workflow."""
     from main import main
+
     main(config_path=args.config)
 
 
 def run_compare(args):
     """Execute comparison workflow."""
     from compare_stec_vtec_gim import main
+
     main(args)
 
 
 def run_evaluate(args):
-    """Execute evaluation workflow."""
-    import sys
-    sys.argv = [
-        "evaluation.py",
-        "--experiment", args.experiment,
-        "--checkpoint", args.checkpoint,
-        "--num_inference_samples", str(args.num_inference_samples)
-    ]
-    
-    if args.test_size:
-        sys.argv.extend(["--test_size", str(args.test_size)])
-    
-    from evaluation import main
-    main()
+    """Removed: `from evaluation import main` has always resolved to the `src/evaluation/`
+    package (no `main` attribute) rather than the flat `src/evaluation.py` module this
+    command was written against - an ImportError on every invocation, unrelated to and
+    predating the `src/` retirement. See `create_evaluate_parser`'s docstring."""
+    print(
+        "cli.py evaluate has been removed: its target module was never actually "
+        "reachable (see cli.py's run_evaluate docstring for why). Use:\n"
+        "  python cli.py inference --experiment <name>\n"
+        "which already computes metrics and generates plots via the same underlying "
+        "driver (src/inference_testset.py).",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def run_inference(args):
     """Execute inference workflow."""
     import sys
+
     sys.argv = [
         "inference_testset.py",
-        "--experiment", args.experiment,
-        "--checkpoint", args.checkpoint,
-        "--num_inference_samples", str(args.num_inference_samples)
+        "--experiment",
+        args.experiment,
+        "--checkpoint",
+        args.checkpoint,
+        "--num_inference_samples",
+        str(args.num_inference_samples),
     ]
-    
+
     if args.test_size:
         sys.argv.extend(["--test_size", str(args.test_size)])
-    
+
     if args.output_file:
         sys.argv.extend(["--output_file", args.output_file])
-    
+
     from inference_testset import main
+
     main()
 
 
 def run_positioning(args):
-    """Execute positioning evaluation workflow."""
-    import sys
-    sys.argv = [
-        "inference_positioning.py",
-        "--experiment", args.experiment,
-        "--checkpoint", args.checkpoint
-    ]
-    
-    if args.start_date:
-        sys.argv.extend(["--start_date", args.start_date])
-    
-    if args.end_date:
-        sys.argv.extend(["--end_date", args.end_date])
-    
-    from inference_positioning import main
-    main()
+    """Removed: targeted `inference_positioning.py`, which does not exist anywhere in
+    this repository and never has - not a `src/` retirement casualty. See
+    `create_positioning_parser`'s docstring."""
+    print(
+        "cli.py positioning has been removed: it targeted inference_positioning.py, "
+        "which never existed in this repository. Use:\n"
+        "  positioning/scripts/run_pipeline.py\n"
+        "or, for one experiment/day directly:\n"
+        "  positioning/positioning_eval/run_positioning_evaluation.py\n"
+        "(see CLAUDE.md's positioning workflow and docs/revision/retirement_inventory.md).",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def run_map(args):
     """Execute map generation workflow."""
     import sys
+
     sys.argv = [
         "inference_map.py",
-        "--experiment", args.experiment,
-        "--date", args.date,
-        "--checkpoint", args.checkpoint
+        "--experiment",
+        args.experiment,
+        "--date",
+        args.date,
+        "--checkpoint",
+        args.checkpoint,
     ]
-    
+
     if args.time:
         sys.argv.extend(["--time", args.time])
-    
+
     if args.time_series:
         sys.argv.extend(["--time_series", args.time_series])
         sys.argv.extend(["--interval", args.interval])
-    
+
     if args.output_dir:
         sys.argv.extend(["--output_dir", args.output_dir])
-    
+
     from inference_map import main
+
     main()
 
 
 def run_multiday(args):
     """Execute multi-day evaluation workflow."""
     import sys
-    
+
     if args.summary_only:
         sys.argv = [
             "multiday_evaluation.py",
             "--summary_only",
-            "--output_dir", args.output_dir
+            "--output_dir",
+            args.output_dir,
         ]
     else:
         if not args.dates or not args.stec_config or not args.vtec_config:
-            print("Error: --dates, --stec_config, and --vtec_config are required unless --summary_only is used")
+            print(
+                "Error: --dates, --stec_config, and --vtec_config are required unless --summary_only is used"
+            )
             return
-        
+
         sys.argv = [
             "multiday_evaluation.py",
-            "--dates", args.dates,
-            "--stec_config", args.stec_config,
-            "--vtec_config", args.vtec_config,
-            "--output_dir", args.output_dir,
-            "--num_inference_samples", str(args.num_inference_samples)
+            "--dates",
+            args.dates,
+            "--stec_config",
+            args.stec_config,
+            "--vtec_config",
+            args.vtec_config,
+            "--output_dir",
+            args.output_dir,
+            "--num_inference_samples",
+            str(args.num_inference_samples),
         ]
-        
+
         if args.test_size:
             sys.argv.extend(["--test_size", str(args.test_size)])
-        
+
         if args.pretrain_folder:
             sys.argv.extend(["--pretrain_folder", args.pretrain_folder])
 
         if args.pretrained_baseline:
             sys.argv.extend(["--pretrained_baseline", args.pretrained_baseline])
-        
+
         if args.skip_training:
             sys.argv.extend(["--skip_training"])
-        
+
         if args.skip_comparison:
             sys.argv.extend(["--skip_comparison"])
-        
+
         if args.skip_existing:
             sys.argv.extend(["--skip_existing"])
 
         if args.update_vtec_only:
             sys.argv.extend(["--update_vtec_only"])
-        
+
         if args.skip_plots:
             sys.argv.extend(["--skip_plots"])
-        
+
         if args.no_aggregate:
             sys.argv.extend(["--no_aggregate"])
 
         if args.positioning:
             sys.argv.extend(["--positioning"])
-    
+
     from multiday_evaluation import main
+
     main()
 
 
@@ -519,25 +628,25 @@ def main():
 Commands:
   train       Train models (pretrain/finetune)
   compare     Compare STEC model against baselines (VTEC+Mapping, GIM)
-  evaluate    Evaluate model on test set
+  evaluate    REMOVED - always broken; use 'inference' instead
   inference   Run inference on test data
-  positioning Evaluate positioning accuracy
+  positioning REMOVED - never implemented; use positioning/scripts/run_pipeline.py
   map         Generate spatial STEC maps
   multiday    Multi-day evaluation for robust paper results (NEW!)
 
 Examples:
   python cli.py train --config config/config.yaml
   python cli.py compare --stec_experiment "Finetune_STEC_..." --vtec_experiment "Finetune_VTEC_..."
-  python cli.py evaluate --experiment "Finetune_STEC_..."
+  python cli.py inference --experiment "Finetune_STEC_..."
   python cli.py multiday --dates "2024-183:2024-189" --stec_config config/config.yaml --vtec_config config/config_vtec_mlp_baseline.yaml
 
 For detailed help on any command:
   python cli.py <command> --help
-        """
+        """,
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
-    
+
     # Create subparsers for each command
     create_train_parser(subparsers)
     create_compare_parser(subparsers)
@@ -546,10 +655,10 @@ For detailed help on any command:
     create_positioning_parser(subparsers)
     create_map_parser(subparsers)
     create_multiday_parser(subparsers)
-    
+
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Execute appropriate command
     if args.command == "train":
         run_train(args)

@@ -147,12 +147,19 @@ while true; do
   # rereads every stored day and grows with the store, so it is left to the
   # final rebuild in weekend_queue.sh.
   log "refreshing store-only results ($(( 242 - $(tr ',' '\n' <<<"$(missing_days)" | grep -c . ) )) day(s) covered)"
-  python src/analysis/repair_gim_baseline.py --apply >/dev/null 2>&1 \
-    || log "  GIM repair failed, continuing"
-  for analysis in daily_metrics uncertainty_error_relation activity_stratification; do
-    python "src/analysis/${analysis}.py" >/dev/null 2>&1 || log "  ${analysis} failed, continuing"
-  done
-  python src/viz/revision_figures.py >/dev/null 2>&1 || log "  figures failed, continuing"
+  # --force: this refresh must reflect the batch just written even if the pipeline's
+  # own size/mtime fingerprint of the store directory does not trip - matching the
+  # original loop, which reran these unconditionally every batch with no skip logic.
+  # Order matters and is spelled out here rather than left to registry order, because
+  # --only runs stages in the order given: repair_gim_baseline before daily_metrics
+  # before activity_stratification (stec/pipeline/stages.py's own docstring).
+  # ionex_rms_benchmark/oracle_benchmark and the rest are deliberately left out - they
+  # reread every stored day and grow with the store, so they stay in weekend_queue.sh's
+  # full rebuild rather than every backfill batch.
+  python -m stec.pipeline run --force --keep-going \
+    --only repair_gim_baseline daily_metrics uncertainty_error_relation \
+           activity_stratification figures \
+    >/dev/null 2>&1 || log "  store-only refresh failed, continuing"
 done
 
 log "backfill finished"

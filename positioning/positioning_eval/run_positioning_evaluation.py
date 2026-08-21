@@ -33,7 +33,6 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -60,8 +59,14 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 
-def load_test_stations(station_list_path="./src/data_processing/test_station.list"):
-    """Load test station list."""
+def load_test_stations(station_list_path="./stec/data/splits/test_station.list"):
+    """Load test station list.
+
+    The default used to point at ./src/data_processing/test_station.list - that file
+    was git-mv'd to stec/data/splits/ when stec/config/paths.py::SPLIT_LISTS was
+    repointed (docs/revision/merge_plan.md Phase 1a); this default was not updated at
+    the same time, so every --all_test_stations run has raised FileNotFoundError since.
+    """
     stations = np.loadtxt(station_list_path, dtype=str)
     return list(stations)
 

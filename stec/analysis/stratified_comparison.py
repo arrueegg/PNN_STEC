@@ -288,6 +288,15 @@ def main() -> None:
         help="Restrict to these day-of-year values; default is every day in the store.",
     )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--label",
+        type=str,
+        default=None,
+        help="rename 'Direct STEC' in the output, e.g. 'Pretrained Direct STEC' - the "
+        "flag that distinguishes a single-model (pretrained) stratification from the "
+        "four-way canonical comparison sharing the same 'Direct STEC' method name. "
+        "Ported from src/analysis/stratified_comparison.py's identical flag.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -296,6 +305,9 @@ def main() -> None:
 
     rows = collect(args.model_variant, args.dataset, args.store_root, doys=args.doys)
     tables = finalise(rows)
+    if args.label:
+        for table in tables.values():
+            table["Method"] = table["Method"].replace({"Direct STEC": args.label})
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for stratifier_name, table in tables.items():

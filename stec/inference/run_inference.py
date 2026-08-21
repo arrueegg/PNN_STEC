@@ -7,15 +7,22 @@ populated entirely by pre-rebuild `src/inference_testset.py` / `src/inference_ma
 `src/compare_stec_vtec_gim.py`. This module is that missing wiring: a checkpoint and a list
 of days in, one prediction-store parquet file per day out.
 
-Only the **own** dataset is wired up. "Madrigal" is a different kind of gap from the other
-"not ported" notes in this codebase: it is not that a Madrigal *reader* is missing, it is
-that nothing in `stec/` reads Madrigal geometry as model *input* at all -
-`stec.baselines.madrigal` only loads Madrigal's own reference STEC, to compare a prediction
-against, never to build the tensor a prediction is made from. That reader
-(`src/data_loader/madrigal_dataset.py`) is pre-rebuild code with no port, so `--dataset
-madrigal` raises rather than silently writing an empty or wrong store -
-`predictions/pretrained_stec/madrigal/` has no data today for exactly this reason
-(`docs/revision/task_board.md` S4).
+Both datasets are wired up. "Madrigal" was a different kind of gap from the other "not
+ported" notes in this codebase: it was not that a Madrigal *reader* was missing, it was that
+nothing in `stec/` read Madrigal geometry as model *input* at all - `stec.baselines.madrigal`
+only loads Madrigal's own reference STEC, to compare a prediction against, never to build
+the tensor a prediction is made from. `stec.data.madrigal_reader.read_madrigal_day` is that
+reader, ported from `src/data_loader/madrigal_dataset.py`'s `MadrigalSTECDataset` (see its
+own module docstring for what it does and does not reproduce from that reference). Its
+`local_time_hours` defaults to the legacy reference's station-longitude convention rather
+than this project's own `lon_ipp` convention (divergence #12, `stec.analysis.divergences`)
+- not because station longitude is Madrigal-specific or correct, but because the published
+Table 4 numbers and the 235 days already in `predictions/finetuned_stec/madrigal/` were
+produced under it, and a day driven through this module beside them must match, not
+introduce a second convention into the same store partition. Its output is shaped exactly
+like `read_day`'s, so the branch below is the only dataset-specific code in this driver;
+everything downstream of it - assembly, Monte Carlo sampling, the store write - does not
+know which dataset it is looking at.
 
 The zero-perturbation control runs once per process, before the first real sampling pass,
 because `BayesianResNetSTEC`'s output layer resamples weights on every forward call - this
@@ -25,10 +32,13 @@ its sampling loop (`determinism.monte_carlo`), so the check here is that the *pi
 machinery those samples rely on actually pins, not a repeat of the sampling seed.
 
 The prediction-store schema in `prediction_store.py` is authoritative. This driver passes
-the *entire* assembled frame - every raw column `read_day` returns plus the four prediction
-columns - into `write_predictions`, which does its own column selection against
-`STORE_COLUMNS`. Narrowing the frame here before that call would reintroduce exactly the
-whitelist-at-the-write-site defect the store's docstring exists to prevent.
+the *entire* assembled frame - every raw column the reader returns (`read_day` for "own",
+`read_madrigal_day` for "madrigal") plus the four prediction columns - into
+`write_predictions`, which does its own column selection against `STORE_COLUMNS`. Narrowing
+the frame here before that call would reintroduce exactly the whitelist-at-the-write-site
+defect the store's docstring exists to prevent - which for Madrigal specifically means never
+adding a `sat`/`slipc`/`gfphase` placeholder here either: `read_madrigal_day` simply does not
+produce those keys, so there is nothing to narrow away.
 
 Usage::
 
@@ -44,6 +54,7 @@ import csv
 import logging
 import sys
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -53,6 +64,7 @@ import yaml
 from ..config import paths
 from ..data.day_reader import read_day
 from ..data.feature_layout import FeatureLayout, layout_from_feature_control
+from ..data.madrigal_reader import DEFAULT_ELEVATION_THRESHOLD_DEG, read_madrigal_day
 from ..data.spherical_harmonics import SphericalHarmonics
 from ..data.transforms import FeatureAssembler
 from ..models import determinism
@@ -171,23 +183,26 @@ def run_inference(
     seed: int = 42,
     database_root: Path | None = None,
     space_weather: Path | None = None,
+    madrigal_root: Path | None = None,
+    madrigal_elevation_threshold: float = DEFAULT_ELEVATION_THRESHOLD_DEG,
+    madrigal_local_time_longitude: Literal["station", "ipp"] = "station",
     store_root: Path | None = None,
     device: torch.device = torch.device("cpu"),
 ) -> list[dict]:
     """Run `model` over `split` for every day in `days`, writing one store file each.
 
+    `split` means two different things depending on `dataset`, because the two datasets
+    have no shared notion of a row-level split. For "own" it selects the STEC database's
+    own precomputed `<split>_idx`. Madrigal has no such index, so for "madrigal" it selects
+    the station set in `stec.config.paths.station_list(split)` instead - the closest
+    analogue Madrigal has, and what `src/compare_stec_vtec_gim.py`'s Madrigal branch did by
+    filtering to `test_station.list`. See `stec.data.madrigal_reader`'s module docstring.
+
     Returns the manifest rows (one per day) the caller writes to CSV - the file `min_rows`
     is keyed on, since a parquet output carries no row count in the pipeline's provenance
     record (only a `.csv`'s does).
     """
-    if dataset == "madrigal":
-        raise NotImplementedError(
-            "the 'madrigal' dataset needs its own model-input loader - "
-            "stec.data.day_reader only reads the STEC database, and "
-            "stec.baselines.madrigal loads Madrigal's *reference* STEC for comparison, "
-            "never model inputs. See this module's docstring."
-        )
-    if dataset != "own":
+    if dataset not in ("own", "madrigal"):
         raise ValueError(f"unknown dataset {dataset!r}, expected 'own' or 'madrigal'")
 
     _layout, assembler = build_layout_and_assembler(config)
@@ -196,14 +211,26 @@ def run_inference(
     manifest: list[dict] = []
     checked_zero_perturbation = False
     for year, doy in days:
-        raw = read_day(
-            year,
-            doy,
-            split=split,
-            database_root=database_root,
-            space_weather=space_weather,
-            with_identity=True,
-        )
+        if dataset == "own":
+            raw = read_day(
+                year,
+                doy,
+                split=split,
+                database_root=database_root,
+                space_weather=space_weather,
+                with_identity=True,
+            )
+        else:
+            raw = read_madrigal_day(
+                year,
+                doy,
+                split=split,
+                madrigal_root=madrigal_root,
+                space_weather=space_weather,
+                elevation_threshold=madrigal_elevation_threshold,
+                with_identity=True,
+                local_time_longitude=madrigal_local_time_longitude,
+            )
         if len(raw.get("stec", [])) == 0:
             raise RuntimeError(f"{year}-{doy:03d} produced zero {split!r} rows")
 
@@ -285,6 +312,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-root", type=Path, default=None)
     parser.add_argument("--space-weather", type=Path, default=None)
     parser.add_argument(
+        "--madrigal-root",
+        type=Path,
+        default=None,
+        help="only used for --dataset madrigal",
+    )
+    parser.add_argument(
+        "--madrigal-elevation-threshold",
+        type=float,
+        default=DEFAULT_ELEVATION_THRESHOLD_DEG,
+        help="minimum elevation (degrees) for a Madrigal row; only used for --dataset madrigal",
+    )
+    parser.add_argument(
+        "--madrigal-local-time-longitude",
+        choices=["station", "ipp"],
+        default="station",
+        help=(
+            "longitude that feeds local_time_hours for --dataset madrigal; 'station' "
+            "(default) reproduces the published Table 4 numbers and the existing store "
+            "partition, 'ipp' matches the 'own' dataset's convention instead - see "
+            "divergence #12 in stec.analysis.divergences before switching an existing "
+            "store partition to it"
+        ),
+    )
+    parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
     return parser
@@ -321,6 +372,9 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         database_root=args.database_root,
         space_weather=args.space_weather,
+        madrigal_root=args.madrigal_root,
+        madrigal_elevation_threshold=args.madrigal_elevation_threshold,
+        madrigal_local_time_longitude=args.madrigal_local_time_longitude,
         store_root=args.store_root,
         device=device,
     )

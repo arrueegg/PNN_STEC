@@ -139,10 +139,8 @@ step "backfill finished"
 # store - Tables 3 and 4, R1.6, R2.4, the IONEX benchmark, calibration - can be
 # correct hours earlier, so it is built first and built again at the end once
 # the extras have landed.
-step "first rebuild: repairing the GIM baseline over all stored days"
-python src/analysis/repair_gim_baseline.py --apply || log "GIM repair failed, continuing"
-step "first rebuild: tables and figures on the complete store"
-python src/analysis/build_all.py --figures || log "build_all failed, continuing"
+step "first rebuild: every table and figure on the complete store"
+python -m stec.pipeline run --keep-going || log "pipeline rebuild failed, continuing"
 log "full-period tables and figures are now current in multiday_results/ and plots/revision/"
 
 # ---- 3. days missing the VTEC uncertainty column -------------------------
@@ -200,10 +198,10 @@ capped python src/inference_testset.py --config_path "$PRETRAIN_EXPERIMENT/confi
 # fine-tuned per day and exists for 2024 only, so there is nothing to compare
 # against over 2014-2023.
 step "stratifying the pretrained multi-year test set"
-capped python src/analysis/stratified_comparison.py \
-  --model_variant pretrained_stec \
+capped python -m stec.analysis.stratified_comparison \
+  --model-variant pretrained_stec \
   --label "Pretrained Direct STEC" \
-  --output_dir multiday_results/stratified_comparison_pretrained \
+  --output-dir multiday_results/stratified_comparison_pretrained \
   || log "pretrained stratification failed, continuing"
 
 # ---- 5. R2.2 fully-Bayesian ----------------------------------------------
@@ -225,19 +223,16 @@ if [[ -n "$FULLY_BAYESIAN" && -d "$FULLY_BAYESIAN/model" ]]; then
   log "evaluating $FULLY_BAYESIAN"
   capped python src/inference_testset.py --config_path "$FULLY_BAYESIAN/config.yaml" \
     || log "fully-Bayesian evaluation failed, continuing"
-  capped python src/analysis/uncertainty_error_relation.py \
-    --model_variant pretrained_stec \
-    --output_dir multiday_results/uncertainty_error_relation_fully_bayesian \
+  capped python -m stec.analysis.uncertainty_error_relation \
+    --model-variant pretrained_stec \
+    --output-dir multiday_results/uncertainty_error_relation_fully_bayesian \
     || log "fully-Bayesian uncertainty analysis failed, continuing"
 else
   log "⚠️  no fully-Bayesian experiment found - R2.2 has no evidence to report"
 fi
 
 # ---- 6. rebuild again, now including the GPU extras ----------------------
-step "final rebuild: repairing the GIM baseline over all stored days"
-python src/analysis/repair_gim_baseline.py --apply || log "GIM repair failed, continuing"
-
 step "final rebuild: all revision tables and figures"
-python src/analysis/build_all.py --figures || log "build_all failed"
+python -m stec.pipeline run --keep-going || log "pipeline rebuild failed"
 
 step "weekend queue complete"

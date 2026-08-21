@@ -74,21 +74,15 @@ python cli.py compare \
 
 ---
 
-### 3. Evaluate Model
+### 3. Evaluate Model — removed
 
-Basic model evaluation on test set.
-
-```bash
-# Full evaluation
-python cli.py evaluate --experiment "Finetune_STEC_..."
-
-# Quick evaluation on subset
-python cli.py evaluate \
-    --experiment "Finetune_STEC_..." \
-    --test_size 10000
-```
-
-**Equivalent to:** `python src/evaluation.py --experiment ...`
+`cli.py evaluate` did `from evaluation import main`, which has always resolved to the
+*package* `src/evaluation/` (no `main` attribute) rather than the flat module
+`src/evaluation.py` it was written against - an `ImportError` on every invocation, since
+before the `stec/` rebuild and unrelated to it. It has been removed rather than fixed:
+section 4 below (`cli.py inference`) already does "compute metrics and generate plots"
+via the same underlying driver (`src/inference_testset.py`) and has always been the
+command real evaluation runs used (CLAUDE.md: "not the one used for paper numbers").
 
 ---
 
@@ -111,22 +105,23 @@ python cli.py inference \
 
 ---
 
-### 5. Positioning Evaluation
+### 5. Positioning Evaluation — removed
 
-Evaluate STEC model impact on GNSS positioning accuracy.
+`cli.py positioning` targeted `inference_positioning.py`, a module that does not exist
+anywhere in this repository, under `src/` or otherwise, and never has - not a casualty
+of the `stec/` rebuild. Use the real positioning driver directly:
 
 ```bash
-# Run positioning evaluation
-python cli.py positioning --experiment "Finetune_STEC_..."
+# Full pipeline (products, RINEX, PPPx, metrics) for one experiment/day range
+positioning/scripts/run_pipeline.py --experiment "Finetune_STEC_..." \
+    --start_date 2024-07-01 --end_date 2024-07-07
 
-# Specify date range
-python cli.py positioning \
-    --experiment "Finetune_STEC_..." \
-    --start_date 2024-07-01 \
-    --end_date 2024-07-07
+# One experiment/day directly
+positioning/positioning_eval/run_positioning_evaluation.py \
+    --experiment "Finetune_STEC_..." --date 2024-07-01 --stations ZIMM BRUS WTZR
 ```
 
-**Equivalent to:** `python src/inference_positioning.py --experiment ...`
+See CLAUDE.md's positioning workflow and `docs/revision/retirement_inventory.md`.
 
 ---
 

@@ -10,8 +10,8 @@ instead of prose-only: every intentional source of divergence gets one `Divergen
 carrying its status and, where it can be quantified without retraining or re-solving,
 its measured effect.
 
-Ten entries, matching `docs/rebuild_plan.md` §9 one for one (methodology changes 1-4,
-`B`-classified defect fixes 5-8 from the §7 register, then 9-10):
+Twelve entries, matching `docs/rebuild_plan.md` §9 one for one (methodology changes 1-4,
+`B`-classified defect fixes 5-8 from the §7 register, then 9-12):
 
  1. IGS GIM day-lookup fix (Table 4 -> here Table 3/4, R1.4)          - measured
  2. Positioning population -> common set of the four `iono` arms      - unmeasurable now
@@ -23,6 +23,8 @@ Ten entries, matching `docs/rebuild_plan.md` §9 one for one (methodology change
  8. Defect 19, Madrigal join tolerance                                 - unmeasurable now
  9. The 10 m outlier boundary, `<` vs `<=`                              - measured
 10. The storm/quiet definition, daily vs per-observation                - measured
+11. Positioning-coverage canonical variant selection                    - measured
+12. Defect 21, Madrigal local_time_hours longitude source                - measured
 
 Two things this module deliberately does NOT do, both by design:
 
@@ -58,16 +60,22 @@ Two layers of measurement, kept separate on purpose:
 * **`Divergence.measure()`** is the harness itself: a zero-argument callable that re-derives
   the effect from the real, read-only trees this repo already resolves through
   `stec.config.paths` (the OMNI archive, the positioning summaries, the prediction store).
-  For the four measurable entries it is real and re-runnable - rerun it after the recovery
-  sweep finishes and the numbers may move. For the six that cannot be measured without
-  retraining, re-solving PPPx, or the running jobs finishing, it always returns the same
+  For the six measurable entries it is real and re-runnable - rerun it after the recovery
+  sweep finishes and the numbers may move. #12 is the one exception to "cheap": it re-runs
+  a real checkpoint over a real Madrigal day rather than reading a CSV, because no analysis
+  stage produces this specific comparison - gated on the checkpoint and Madrigal file being
+  present, falling back to the frozen snapshot when they are not (e.g. a worktree without
+  `STEC_LEGACY_ROOT` mounted). For the six that cannot be measured without retraining,
+  re-solving PPPx, or the running jobs finishing, it always returns the same
   `UnmeasurableEffect`, so calling it is never a silent no-op.
 
 `Divergence.recorded_effect` is the frozen snapshot: what `measure()` returned when this
 harness was built (2026-08-21), read directly off already-produced artifacts
 (`multiday_results/daily_metrics_rebuilt/summary.csv`,
 `multiday_results/uncertainty_calibration_rebuilt/finetuned_stec_own/`,
-`multiday_results/storm_stratification_rebuilt/`, and the three positioning summary trees).
+`multiday_results/storm_stratification_rebuilt/`, the three positioning summary trees, and
+- for #12 only - a live seeded run of the real `Finetune_STEC_2024_132` checkpoint over a
+real Madrigal day).
 It is what `docs/revision/divergences.md` and the tests read, so both stay fast and
 reproducible without depending on the 640 GB tree being mounted at import time.
 """
@@ -844,6 +852,178 @@ def _measure_variant_selection() -> Effect:
     )
 
 
+# --- #12: Madrigal local_time_hours longitude source (defect 21) -----------------------
+
+_MADRIGAL_LOCAL_TIME_CHECKPOINT = paths.LEGACY_EXPERIMENTS / (
+    "Finetune_STEC_2024_132_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr2e-4_bs512_"
+    "GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
+)
+_MADRIGAL_LOCAL_TIME_YEAR_DOY = (2024, 132)
+_MADRIGAL_LOCAL_TIME_SAMPLE_SIZE = 20_000
+_MADRIGAL_LOCAL_TIME_SEED = 42
+
+
+def _measure_madrigal_local_time_convention() -> Effect:
+    """Re-run the paper's real DOY-132 STEC checkpoint over a real Madrigal day, once under
+    each `local_time_hours` convention, and report how far the mean prediction moves.
+
+    Unlike the six `UnmeasurableEffect` entries, this needs no retraining or PPPx re-run -
+    the checkpoint and the Madrigal day file are both external, immutable data already on
+    disk in a full checkout, so it recomputes live rather than only ever returning the
+    frozen snapshot. Falls back to the snapshot when either file is absent (e.g. a worktree
+    without `STEC_LEGACY_ROOT` mounted) rather than failing, matching
+    `_measure_gim_day_lookup`'s fallback pattern.
+
+    Subsamples the day (`_MADRIGAL_LOCAL_TIME_SAMPLE_SIZE` of ~2.0 M rows) to keep this a
+    CPU forward pass rather than a full-day run, and pins the Bayesian output layer's
+    weights identically for both conventions (`stec.models.determinism.frozen`) so the
+    delta isolates the input change from sampling noise - checked by a same-input
+    zero-perturbation control that must return exactly 0.0 before anything below is
+    trusted (the CLAUDE.md Bayesian A/B invariant; a comparison built without it once
+    measured 1.4 TECU of pure sampling noise and used it to reject a correct approach).
+    """
+    checkpoint = (
+        _MADRIGAL_LOCAL_TIME_CHECKPOINT
+        / "model"
+        / ("finetune_BayesianResNetSTEC_seed42.pth")
+    )
+    config_path = _MADRIGAL_LOCAL_TIME_CHECKPOINT / "config.yaml"
+    year, doy = _MADRIGAL_LOCAL_TIME_YEAR_DOY
+    madrigal_file = paths.madrigal_day(year, 5, 11)  # 2024-05-11 == DOY 132
+    if not (checkpoint.exists() and config_path.exists() and madrigal_file.exists()):
+        return _MADRIGAL_LOCAL_TIME_EFFECT
+
+    import torch  # noqa: PLC0415 - heavy, optional dependency; keep module import light
+    import yaml  # noqa: PLC0415
+
+    from ..data.day_reader import compute_local_time_hours  # noqa: PLC0415
+    from ..data.madrigal_reader import read_madrigal_day  # noqa: PLC0415
+    from ..inference.run_inference import (  # noqa: PLC0415
+        _numeric_tensors,
+        build_layout_and_assembler,
+    )
+    from ..models import determinism  # noqa: PLC0415
+    from ..models.architectures import load_checkpoint  # noqa: PLC0415
+
+    config = yaml.safe_load(config_path.read_text())
+    layout, assembler = build_layout_and_assembler(config)
+    model, shape = load_checkpoint(checkpoint, map_location="cpu")
+    if shape["n_in"] != layout.total_dim:
+        return _MADRIGAL_LOCAL_TIME_EFFECT
+
+    raw = read_madrigal_day(year, doy, split="test", with_identity=False)
+    n_total = len(raw["stec"])
+    rng = np.random.default_rng(0)
+    sample_size = min(_MADRIGAL_LOCAL_TIME_SAMPLE_SIZE, n_total)
+    idx = np.sort(rng.choice(n_total, size=sample_size, replace=False))
+    sample = {name: values[idx] for name, values in raw.items()}
+
+    lt_ipp = compute_local_time_hours(
+        sample["sod"].astype(np.float64), sample["lon_ipp"].astype(np.float64)
+    ).astype(np.float32)
+    lt_station = compute_local_time_hours(
+        sample["sod"].astype(np.float64), sample["lon_sta"].astype(np.float64)
+    ).astype(np.float32)
+    inputs_ipp = assembler.assemble(
+        _numeric_tensors({**sample, "local_time_hours": lt_ipp})
+    )
+    inputs_station = assembler.assemble(
+        _numeric_tensors({**sample, "local_time_hours": lt_station})
+    )
+
+    seed = _MADRIGAL_LOCAL_TIME_SEED
+    with determinism.frozen(model, seed=seed):
+        torch.manual_seed(seed)
+        with torch.no_grad():
+            control_a, _ = model(inputs_ipp)
+        torch.manual_seed(seed)
+        with torch.no_grad():
+            control_b, _ = model(inputs_ipp)
+        control = float((control_a - control_b).abs().max())
+        if control != 0.0:
+            return _unmeasurable(
+                reason=(
+                    f"zero-perturbation control returned {control}, not exactly 0.0 in "
+                    "this environment - the pinned-weights invariant "
+                    "(stec.models.determinism.frozen) does not hold here"
+                ),
+                would_require="an environment where determinism.frozen pins weights exactly",
+            )
+
+        torch.manual_seed(seed)
+        with torch.no_grad():
+            mean_ipp, _ = model(inputs_ipp)
+        torch.manual_seed(seed)
+        with torch.no_grad():
+            mean_station, _ = model(inputs_station)
+
+    delta = (mean_ipp - mean_station).squeeze(-1).numpy()
+    return MeasuredEffect(
+        method=(
+            f"Ran the real Finetune_STEC_2024_{doy} (lr2e-4_bs512, paper variant) "
+            f"checkpoint over a {sample_size:,}-row seed-0 subsample of the real "
+            f"{year}-{doy:03d} Madrigal test-station day ({n_total:,} rows total, "
+            "elev >= 5 deg), once with local_time_hours from lon_ipp and once from "
+            f"lon_sta, weights pinned identically (seed {seed}) so the delta isolates the "
+            "input change; zero-perturbation control on identical input returned exactly "
+            "0.0."
+        ),
+        measurements=(
+            Measurement(
+                "predicted STEC, IPP-longitude minus station-longitude convention: mean",
+                new_value=round(float(delta.mean()), 4),
+                unit="TECU",
+                n=sample_size,
+            ),
+            Measurement(
+                "predicted STEC, IPP-longitude minus station-longitude convention: RMSE",
+                new_value=round(float(np.sqrt(np.mean(delta**2))), 4),
+                unit="TECU",
+                n=sample_size,
+            ),
+            Measurement(
+                "predicted STEC, IPP-longitude minus station-longitude convention: "
+                "max|delta|",
+                new_value=round(float(np.abs(delta).max()), 4),
+                unit="TECU",
+                n=sample_size,
+            ),
+        ),
+    )
+
+
+_MADRIGAL_LOCAL_TIME_EFFECT = MeasuredEffect(
+    method=(
+        "Ran the real Finetune_STEC_2024_132 (lr2e-4_bs512, paper variant) checkpoint over "
+        "a 20,000-row seed-0 subsample of the real 2024-05-11 (DOY 132) Madrigal "
+        "test-station day (2,036,669 rows total, elev >= 5 deg), once with "
+        "local_time_hours from lon_ipp and once from lon_sta, weights pinned identically "
+        "(seed 42) so the delta isolates the input change; zero-perturbation control on "
+        "identical input returned exactly 0.0. Recorded 2026-08-21."
+    ),
+    measurements=(
+        Measurement(
+            "predicted STEC, IPP-longitude minus station-longitude convention: mean",
+            new_value=0.0015,
+            unit="TECU",
+            n=20_000,
+        ),
+        Measurement(
+            "predicted STEC, IPP-longitude minus station-longitude convention: RMSE",
+            new_value=0.8011,
+            unit="TECU",
+            n=20_000,
+        ),
+        Measurement(
+            "predicted STEC, IPP-longitude minus station-longitude convention: max|delta|",
+            new_value=13.4411,
+            unit="TECU",
+            n=20_000,
+        ),
+    ),
+)
+
+
 # --- the registry ------------------------------------------------------------------------
 
 REGISTRY: tuple[Divergence, ...] = (
@@ -993,6 +1173,29 @@ REGISTRY: tuple[Divergence, ...] = (
         applied="applied",
         recorded_effect=_VARIANT_SELECTION_EFFECT,
         measure=_measure_variant_selection,
+    ),
+    Divergence(
+        id="12",
+        description=(
+            "Defect 21: MadrigalSTECDataset._add_local_time derives local_time_hours from "
+            "station longitude (lon_sta), not IPP longitude (lon_ipp) - the convention "
+            "src/data_loader/datasets.py established and commented two months earlier for "
+            "the 'own' dataset ('Use IPP longitude for local time'). No comment or commit "
+            "explains the Madrigal choice; it reads as an oversight, not a requirement. "
+            "stec.data.madrigal_reader.read_madrigal_day keeps lon_sta as the default "
+            "(local_time_longitude='station') to reproduce the published Table 4 numbers "
+            "and the 235 days already in predictions/finetuned_stec/madrigal/; "
+            "local_time_longitude='ipp' is the explicit, off-by-default path to the 'own' "
+            "dataset's convention for a future harmonised re-run."
+        ),
+        deliverable=(
+            "Table 4 (Madrigal dataset rows), predictions/finetuned_stec/madrigal/ "
+            "(235 days), any future Madrigal re-run"
+        ),
+        reviewer_comment=None,
+        applied="applied",
+        recorded_effect=_MADRIGAL_LOCAL_TIME_EFFECT,
+        measure=_measure_madrigal_local_time_convention,
     ),
 )
 

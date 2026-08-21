@@ -327,6 +327,7 @@ All line numbers below were verified against `paper-revision-jgr-mlc` HEAD on 20
 | 18 | N | `datetime(2024,5,1)` interpolation/extrapolation boundary buried in a training utility | `training_utils.py:181` |
 | 19 | **B** | Madrigal join is exact float equality on rounded integer keys (lat×1000, lon×1000, sod, elev, az), no tolerance; misses drop silently | `madrigal_loader.py:87-153`, join at `:145` |
 | 20 | N | `CollateWithSH` mutates shared registry state as a side effect (7 call sites share the registry object); consumers depend on construction order | `collation.py:190` |
+| 21 | **B** | `MadrigalSTECDataset._add_local_time` derives `local_time_hours` from station longitude (`lon_sta`), not IPP longitude (`lon_ipp`) — the convention `datasets.py` established and commented for the "own" dataset two months earlier, with nothing explaining the Madrigal difference. Feeds 3 of 127 model input columns; the published Table 4 and 235 stored Madrigal days were produced under it. | `src/data_loader/madrigal_dataset.py:196-202` vs `src/data_loader/datasets.py:126` |
 
 **Defects 4 and 5 are unreachable — delete `src/evaluation.py`, do not port it.** The package
 `src/evaluation/` shadows the module of the same name, so every `from evaluation import …`
@@ -502,6 +503,31 @@ missing from this list in the previous draft:
     and moves the published +31.9% / +26.3% to +32.2% / +29.1%. Keep them distinct; if a
     future reviewer asks for one definition, that is a divergence with a measured cost.
 
+11. **Positioning-coverage canonical variant selection.** The pre-rebuild glob matched
+    every hyperparameter variant on disk for a DOY and resolved collisions with
+    `drop_duplicates(keep='first')` on sorted order, so `lr1e-4` silently won over the
+    paper's `lr2e-4_bs512` on 31 DOYs purely because it sorts first — not the model that
+    was actually cited. `stec.analysis.positioning_coverage` selects the canonical variant
+    explicitly and reports what it excluded (`--all-variants` restores the broad glob).
+    Retroactively documented here — the fix landed in `stec/analysis/divergences.py` before
+    this entry did; both must list 12 from now on.
+
+12. **Defect 21, Madrigal `local_time_hours` longitude source.** `MadrigalSTECDataset.
+    _add_local_time` (`src/data_loader/madrigal_dataset.py`) derives it from station
+    longitude (`lon_sta`); `src/data_loader/datasets.py` established and explicitly
+    commented the IPP-longitude (`lon_ipp`) convention for the "own" dataset two months
+    earlier (commit `7153cfc`) and nothing explains the Madrigal difference — it reads as
+    an oversight, not a requirement. `local_time_hours` is a genuine model input (3 of 127
+    columns), and the published Table 4 Madrigal numbers plus all 235 stored
+    `predictions/finetuned_stec/madrigal/` days were produced under `lon_sta`.
+    `stec.data.madrigal_reader.read_madrigal_day` keeps `lon_sta` as the default
+    (`local_time_longitude="station"`) to reproduce them; `local_time_longitude="ipp"` is
+    the explicit, off-by-default path to the "own" dataset's convention. Measured on a real
+    DOY-132 day through the real checkpoint, seeded and zero-perturbation-controlled:
+    mean +0.0015 TECU, RMSE 0.80 TECU, max |Δ| 13.4 TECU (n=20,000) — not negligible
+    against an ~8–13 TECU headline RMSE, so switching the default would need a full
+    235-day Madrigal re-run, not a silent flip.
+
 ---
 
 ## 10. Execution phases
@@ -537,7 +563,7 @@ Each phase ends with its gate green and its stages declared.
    - **`elev` pass over the recovered station-days** (~17 h; geometry is already built and shared),
      which the 8-arm appendix table and the expanded weighting ablation both require.
 7. **Analyses and figures → Gate F** — all reviewer deliverables, VLBI K-band, Madrigal.
-8. **Divergences applied** (all eight in §9), effects measured, manuscript updated — into the
+8. **Divergences applied** (all twelve in §9), effects measured, manuscript updated — into the
    copy declared canonical in §5, which must be version-controlled before this phase starts.
 9. **Release package** — small fixtures, documented data acquisition, one entry point, `.pipeline/`
    provenance published.

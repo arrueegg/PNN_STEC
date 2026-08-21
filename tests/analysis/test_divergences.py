@@ -12,10 +12,11 @@ Two things are pinned separately, matching the module's own split:
   checked against small synthetic inputs with hand-computed answers, independent of the
   registry and of any real data tree.
 
-Deliberately not exercised here: `Divergence.measure()` for the four measured entries
-does real I/O against the read-only legacy trees (`stec.config.paths`), which is what
-makes it a genuine, re-runnable harness rather than a frozen constant - but that also
-makes it environment-dependent, so it does not belong in a hermetic unit test. The
+Deliberately not exercised here: `Divergence.measure()` for the six measured entries
+does real I/O against the read-only legacy trees (`stec.config.paths`) - #12 goes further
+and loads a real checkpoint for a live forward pass - which is what makes it a genuine,
+re-runnable harness rather than a frozen constant, but that also makes it
+environment-dependent, so it does not belong in a hermetic unit test. The
 `recorded_effect` snapshot each carries is what stays fast and reproducible, and is what
 this suite pins.
 """
@@ -33,7 +34,7 @@ from stec.analysis import divergences as dv
 
 
 def test_every_divergence_has_id_description_deliverable_and_status():
-    assert len(dv.REGISTRY) == 11
+    assert len(dv.REGISTRY) == 12
     for divergence in dv.REGISTRY:
         assert divergence.id
         assert divergence.description
@@ -63,7 +64,7 @@ def test_duplicate_id_is_rejected():
 
 def test_measured_divergence_carries_numeric_effect():
     measured = [d for d in dv.REGISTRY if d.status == "measured"]
-    assert {d.id for d in measured} == {"1", "4", "9", "10", "11"}
+    assert {d.id for d in measured} == {"1", "4", "9", "10", "11", "12"}
     for divergence in measured:
         effect = divergence.recorded_effect
         assert isinstance(effect, dv.MeasuredEffect)

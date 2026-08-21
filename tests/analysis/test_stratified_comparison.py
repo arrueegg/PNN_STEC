@@ -217,3 +217,32 @@ def test_r2_is_one_for_perfect_predictor_and_zero_for_predicting_the_mean():
 
     assert elevation.loc["Direct STEC", "R2"] == pytest.approx(1.0)
     assert elevation.loc["VTEC + Mapping", "R2"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_label_renames_only_direct_stec():
+    """`main()`'s `--label` override (ported from the pre-rebuild script's identical
+    flag) renames the 'Direct STEC' row so a pretrained-only, single-model
+    stratification is distinguishable in its output from the four-way canonical
+    comparison - both would otherwise share the same 'Direct STEC' method name in
+    weekend_queue.sh's step 4b. Every other Method label must be left untouched."""
+    rows = 50
+    rng = np.random.default_rng(3)
+    truth = rng.uniform(0, 60, rows)
+    frame = pd.DataFrame(
+        {
+            "satele": rng.uniform(41, 49, rows),
+            "true_stec": truth,
+            "stec_pred": truth + 1.0,
+            "vtec_model_stec": truth + 2.0,
+        }
+    )
+    tables = sc.finalise(sc.accumulate_day(frame, doy=100))
+    for table in tables.values():
+        table["Method"] = table["Method"].replace(
+            {"Direct STEC": "Pretrained Direct STEC"}
+        )
+
+    elevation = tables["elevation"]
+    assert "Direct STEC" not in set(elevation["Method"])
+    assert "Pretrained Direct STEC" in set(elevation["Method"])
+    assert "VTEC + Mapping" in set(elevation["Method"])
