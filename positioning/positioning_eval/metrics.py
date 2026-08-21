@@ -6,9 +6,18 @@ Parses PPPx .pos output files and computes positioning accuracy metrics.
 Supports both single-station analysis and daily aggregation across multiple stations.
 """
 
+import os
+import tempfile
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+# save_daily_summary keys rows on (station, method) when merging onto whatever CSV
+# is already at output_path - see that function's docstring for why a plain
+# to_csv() overwrite destroyed 59 daily_summary*.csv files during the station-day
+# recovery sweep.
+_SUMMARY_KEY_COLUMNS = ['station', 'method']
 
 
 def xyz2blh(xyz):
@@ -344,23 +353,93 @@ def aggregate_daily_metrics(results_dir, year, doy, method_name, stations=None, 
     return metrics_df
 
 
+class SummaryShrinkError(RuntimeError):
+    """A merge would leave fewer rows on disk than were already there.
+
+    That is the shape of the bug this fixes (a partial re-run destroying previously
+    solved stations), so it is refused rather than written.
+    """
+
+
+def _merge_daily_summary(new_rows, existing):
+    """Merge `new_rows` onto `existing`, keyed on `_SUMMARY_KEY_COLUMNS`.
+
+    A (station, method) present in both keeps the *new* row - a re-run of a station
+    updates its metrics in place. Every (station, method) present only in `existing` is
+    carried through unchanged.
+    """
+    if existing is None or existing.empty:
+        return new_rows.reset_index(drop=True)
+
+    columns = list(existing.columns)
+    for column in new_rows.columns:
+        if column not in columns:
+            columns.append(column)
+
+    combined = pd.concat([existing, new_rows], ignore_index=True)
+    # keep='last' means a (station, method) present in both keeps the new_rows copy,
+    # since new_rows was concatenated second.
+    combined = combined.drop_duplicates(subset=_SUMMARY_KEY_COLUMNS, keep='last')
+    return combined[columns].reset_index(drop=True)
+
+
 def save_daily_summary(metrics_model, metrics_gim, output_path):
     """
     Save daily summary comparing model and GIM results.
-    
+
+    Merges onto whatever is already at output_path instead of replacing it, keyed on
+    (station, method): `recover_day.py` calls this once per recovery run with metrics
+    for only the handful of stations it just recovered, and a plain to_csv() overwrite
+    here previously destroyed the rows for every station already solved that day (59
+    canonical daily_summary*.csv files fell from ~74-91 rows to between 2 and 12). See
+    docs/revision/save_daily_summary_fix.md.
+
+    Either frame may be None: a run that solved only one method still has to merge
+    rather than overwrite, and that single-method path is the one the recovery sweep
+    takes, so it is the more dangerous of the two.
+
     Args:
-        metrics_model: DataFrame with model metrics
-        metrics_gim: DataFrame with GIM metrics
+        metrics_model: DataFrame with model metrics, or None
+        metrics_gim: DataFrame with GIM metrics, or None
         output_path: Path to save summary CSV
     """
-    # Combine both DataFrames
-    combined = pd.concat([metrics_model, metrics_gim], ignore_index=True)
-    
-    # Save to CSV
+    frames = [f for f in (metrics_model, metrics_gim) if f is not None]
+    if not frames:
+        raise ValueError(
+            'save_daily_summary: metrics_model and metrics_gim are both None'
+        )
+    new_rows = pd.concat(frames, ignore_index=True)
+
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_csv(output_file, index=False, float_format='%.4f')
-    
+
+    existing = None
+    if output_file.exists() and output_file.stat().st_size > 0:
+        existing = pd.read_csv(output_file)
+    rows_before = 0 if existing is None else len(existing)
+
+    combined = _merge_daily_summary(new_rows, existing)
+    if len(combined) < rows_before:
+        raise SummaryShrinkError(
+            f"{output_file}: merge would shrink {rows_before} -> {len(combined)} rows; "
+            "refusing to write. This is the failure save_daily_summary now guards "
+            "against - check the caller before overriding."
+        )
+
+    # Write to a temp file in the same directory and atomically replace, so a process
+    # killed mid-write cannot leave a truncated summary on disk.
+    fd, tmp_name = tempfile.mkstemp(
+        dir=output_file.parent, prefix=f".{output_file.name}.", suffix=".tmp"
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, 'w') as handle:
+            combined.to_csv(handle, index=False, float_format='%.4f')
+        os.replace(tmp_path, output_file)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
     # Print summary statistics
     print("\n" + "="*80)
     print(f"DAILY SUMMARY: {metrics_model['year'].iloc[0]}/{metrics_model['doy'].iloc[0]:03d}")

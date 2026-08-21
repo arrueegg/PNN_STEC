@@ -673,13 +673,13 @@ def main():
             if metrics_gim is not None:
                 metrics_list.append(metrics_gim)
 
-            if len(metrics_list) == 2:
-                save_daily_summary(metrics_model, metrics_gim, summary_file)
-            else:
-                # Save single method
-                combined = pd.concat(metrics_list, ignore_index=True)
-                combined.to_csv(summary_file, index=False, float_format="%.4f")
-                logger.info(f"\n✓ Summary saved to: {summary_file}")
+            # Both branches go through save_daily_summary, which merges onto the
+            # existing file. The single-method branch used to write straight to CSV,
+            # which silently discarded every station already solved for that day - the
+            # same defect as the two-method path, on the branch the recovery sweep
+            # actually takes.
+            save_daily_summary(metrics_model, metrics_gim, summary_file)
+            logger.info(f"\n✓ Summary saved to: {summary_file}")
 
             # Generate plots from summary
             logger.info("\n📊 Step 7b: Generating plots...")
