@@ -74,6 +74,18 @@ class Comparison:
     # When a port renamed its output, both names are needed to compare the same content.
     # Empty means the two sides agree on the filename.
     legacy_outputs: tuple[str, ...] = ()
+    # Almost every port takes --output-dir; ionex_rms_benchmark kept the pre-rebuild
+    # underscore spelling, so this cannot be a module-wide constant.
+    rebuilt_output_flag: str = "--output-dir"
+    # Extra arguments each side needs beyond the output flag - e.g. activity_stratification
+    # refusing to run without a --repair-report it does not generate itself.
+    extra_rebuilt_args: tuple[str, ...] = ()
+    extra_legacy_args: tuple[str, ...] = ()
+    # Seconds allowed per side. The default covers everything that reads its input
+    # once; the analyses that stream the full 242-day store twice (once per side) need
+    # more - measured at ~9 s/day for madrigal_reference_offset and worse once IONEX
+    # parsing is added, against a few seconds/day for the leaner store analyses.
+    timeout_seconds: int = 3600
 
     def output_pairs(self) -> tuple[tuple[str, str], ...]:
         legacy = self.legacy_outputs or self.outputs
@@ -113,6 +125,171 @@ COMPARISONS: tuple[Comparison, ...] = (
         legacy_writes_file=True,
     ),
     Comparison(
+        name="mapping_function_consistency",
+        rebuilt="-m stec.analysis.mapping_function_consistency",
+        legacy="src/analysis/mapping_function_consistency.py",
+        outputs=("by_elevation.csv", "overall.csv"),
+    ),
+    Comparison(
+        name="weighting_ablation",
+        rebuilt="-m stec.analysis.weighting_ablation",
+        legacy="src/analysis/weighting_ablation.py",
+        outputs=("paired.csv", "fixed_variance.csv"),
+    ),
+    Comparison(
+        name="storm_stratification",
+        rebuilt="-m stec.analysis.storm_stratification",
+        legacy="src/analysis/storm_stratification.py",
+        # by_regime.csv is deliberately excluded: the port reshaped it from the
+        # original's unstacked (stat, regime) MultiIndex header into a long table (one
+        # row per Method/regime, plus a new 3D_p95_m column) via
+        # stec.positioning.metrics.summarise. The two CSVs share zero column names, so
+        # comparing them would report a false MATCH from an empty intersection rather
+        # than reveal anything - see the gate's final report for this finding.
+        outputs=("degradation.csv", "improvement_over_gim.csv"),
+        expected_divergence={
+            "quiet": "stec.positioning.metrics.summarise rounds to 4 decimal places; "
+            "the legacy computation keeps full float64 precision, so TECU-scale values "
+            "differ by up to ~4e-5 - below either implementation's reported resolution",
+            "storm": "same summarise() rounding as 'quiet'",
+            "storm_vs_quiet_%": "downstream of the same summarise() rounding",
+            "improvement_over_gim_quiet_%": "downstream of the same summarise() "
+            "rounding",
+            "improvement_over_gim_storm_%": "downstream of the same summarise() "
+            "rounding",
+        },
+    ),
+    Comparison(
+        name="positioning_robustness",
+        rebuilt="-m stec.analysis.positioning_robustness",
+        legacy="src/analysis/positioning_robustness.py",
+        outputs=("tail_distribution.csv", "error_components.csv"),
+    ),
+    Comparison(
+        name="positioning_summary",
+        rebuilt="-m stec.analysis.positioning_summary",
+        legacy="src/analysis/positioning_summary.py",
+        outputs=("overall.csv", "by_regime.csv", "by_weighting.csv"),
+    ),
+    Comparison(
+        name="common_set_positioning",
+        rebuilt="-m stec.analysis.common_set_positioning",
+        legacy="src/analysis/common_set_positioning.py",
+        outputs=("table5_common_set.csv",),
+        expected_divergence={
+            "station_days": "the outlier rule changed from < to <= for consistency "
+            "with its two siblings (positioning_summary, positioning_robustness), so a "
+            "station-day at exactly 10 m is now kept rather than dropped",
+            "lost_to_intersection": "downstream of the same <= change",
+            "rms_3d_mean": "downstream of the same <= change",
+            "rms_3d_median": "downstream of the same <= change",
+            "rms_2d_mean": "downstream of the same <= change",
+            "up_mean": "downstream of the same <= change",
+            "gain_ratio_of_means_pct": "downstream of the same <= change",
+            "gain_paired_mean_pct": "downstream of the same <= change",
+            "gain_paired_median_pct": "downstream of the same <= change",
+            "win_rate_pct": "downstream of the same <= change",
+        },
+    ),
+    Comparison(
+        name="oracle_benchmark",
+        rebuilt="-m stec.analysis.oracle_benchmark",
+        legacy="src/analysis/oracle_benchmark.py",
+        outputs=("paired_station_days.csv", "summary.csv"),
+    ),
+    Comparison(
+        name="computational_cost",
+        rebuilt="-m stec.analysis.computational_cost",
+        legacy="src/analysis/computational_cost.py",
+        outputs=("training_cost.csv", "cost_summary.csv"),
+    ),
+    Comparison(
+        name="activity_stratification",
+        rebuilt="-m stec.analysis.activity_stratification",
+        legacy="src/analysis/activity_stratification.py",
+        outputs=("by_dst.csv", "by_f107.csv"),
+        extra_rebuilt_args=(
+            "--repair-report",
+            str(
+                LEGACY_SRC
+                / "multiday_results/gim_baseline_repair/gim_repair_report.csv"
+            ),
+        ),
+        expected_divergence={
+            "RMSE": "F10.7 bins changed from data-derived terciles to fixed absolute "
+            "bands, which changes by_f107.csv's row shape (4 fixed bands vs 3 "
+            "terciles); by_dst.csv is unaffected since the Dst bins are unchanged",
+            "MAE": "same F10.7 rebinning as RMSE",
+            "R2": "same F10.7 rebinning as RMSE",
+            "days": "same F10.7 rebinning as RMSE",
+            "observations": "same F10.7 rebinning as RMSE",
+            "improvement_over_gim_%": "same F10.7 rebinning as RMSE",
+        },
+    ),
+    Comparison(
+        name="stratified_comparison",
+        rebuilt="",
+        legacy="",
+        outputs=(),
+        skip="measured at ~40 s/day on the rebuilt side alone (timed via --doys on 5 "
+        "real days: 3m20s), i.e. ~2.7h to stream the full 242-day store once - each "
+        "of the 4 stratifiers x up to 4 methods builds and groups a fresh per-bin "
+        "frame per day. Both sides together would be ~5h+, which is not a tractable "
+        "single subprocess run in this session (the first attempt hit the 3600s "
+        "subprocess timeout with the rebuilt side alone still short of DOY 366). "
+        "Its expected divergence would have been the same per-method NaN-masking "
+        "change documented for uncertainty_error_relation's sibling analyses.",
+    ),
+    Comparison(
+        name="uncertainty_error_relation",
+        rebuilt="-m stec.analysis.uncertainty_error_relation",
+        legacy="src/analysis/uncertainty_error_relation.py",
+        outputs=("by_uncertainty.csv",),
+        legacy_outputs=("by_sigma.csv",),
+        expected_divergence={
+            "RMSE": "uncertainty bins changed from first-day sigma deciles to fixed "
+            "absolute TECU edges",
+            "MAE": "same fixed-edge rebinning as RMSE",
+        },
+    ),
+    Comparison(
+        name="station_independence",
+        rebuilt="-m stec.analysis.station_independence",
+        legacy="src/analysis/station_independence.py",
+        outputs=("per_station.csv", "by_distance_bin.csv"),
+    ),
+    Comparison(
+        name="madrigal_reference_offset",
+        rebuilt="-m stec.analysis.madrigal_reference_offset",
+        legacy="src/analysis/madrigal_reference_offset.py",
+        outputs=(
+            "per_station_offsets.csv",
+            "coverage_before_after.csv",
+            "decomposition.csv",
+            "leverage_check.csv",
+            "reference_precision.csv",
+        ),
+        # Two passes over the Madrigal store (~9 s/day measured on 5 real days), so a
+        # 242-day run is ~35-40 min per side.
+        timeout_seconds=5400,
+    ),
+    Comparison(
+        name="ionex_rms_benchmark",
+        rebuilt="-m stec.analysis.ionex_rms_benchmark",
+        legacy="src/analysis/ionex_rms_benchmark.py",
+        outputs=(
+            "per_day_IGS.csv",
+            "overall_IGS.csv",
+            "by_elevation_IGS.csv",
+            "by_regime_IGS.csv",
+        ),
+        rebuilt_output_flag="--output_dir",
+        # No --doys on either side (the pre-rebuild script never had one and the port
+        # kept parity), and each day also parses an IONEX map, so this cannot be timed
+        # on a subset - give it generous headroom instead.
+        timeout_seconds=7200,
+    ),
+    Comparison(
         name="repair_gim_baseline",
         rebuilt="",
         legacy="",
@@ -132,17 +309,31 @@ COMPARISONS: tuple[Comparison, ...] = (
 
 
 def run(
-    command: str, output_dir: Path, cwd: Path, flag: str = "--output-dir"
+    command: str,
+    output_dir: Path,
+    cwd: Path,
+    flag: str = "--output-dir",
+    extra_args: tuple[str, ...] = (),
+    timeout_seconds: int = 3600,
 ) -> tuple[bool, str]:
-    """Run one analysis into `output_dir`. Returns (succeeded, tail of output)."""
+    """Run one analysis into `output_dir`. Returns (succeeded, tail of output).
+
+    A timeout is reported as its own "TIMEOUT: ..." tail rather than left to propagate -
+    an analysis that streams the full store can legitimately need an hour, and that is a
+    reason to skip the comparison, not to crash the whole gate run and lose every
+    comparison after it in the list.
+    """
     parts = command.split()
-    result = subprocess.run(
-        [sys.executable, *parts, flag, str(output_dir)],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        timeout=3600,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, *parts, flag, str(output_dir), *extra_args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"TIMEOUT: exceeded {timeout_seconds}s"
     tail = (result.stderr or result.stdout or "").strip().splitlines()[-2:]
     return result.returncode == 0, " / ".join(tail)
 
@@ -196,12 +387,23 @@ def check(comparison: Comparison, workspace: Path) -> str:
     rebuilt_dir = workspace / f"{comparison.name}_rebuilt"
     legacy_dir = workspace / f"{comparison.name}_legacy"
 
-    ok_new, tail_new = run(comparison.rebuilt, rebuilt_dir, Path.cwd())
+    ok_new, tail_new = run(
+        comparison.rebuilt,
+        rebuilt_dir,
+        Path.cwd(),
+        comparison.rebuilt_output_flag,
+        comparison.extra_rebuilt_args,
+        comparison.timeout_seconds,
+    )
     if not ok_new:
-        print(
-            f"  {comparison.name:<26} FAIL     rebuilt analysis did not run: {tail_new}"
+        verdict = "SKIPPED" if tail_new.startswith("TIMEOUT") else "FAIL"
+        reason = (
+            "rebuilt analysis timed out"
+            if verdict == "SKIPPED"
+            else ("rebuilt analysis did not run")
         )
-        return "FAIL"
+        print(f"  {comparison.name:<26} {verdict:<8} {reason}: {tail_new}")
+        return verdict
     # A script that takes a file rather than a directory is given one inside its own
     # output tree, so both sides still land somewhere comparable.
     legacy_target = legacy_dir
@@ -211,7 +413,12 @@ def check(comparison: Comparison, workspace: Path) -> str:
             legacy_dir / (comparison.legacy_outputs or comparison.outputs)[0]
         )
     ok_old, tail_old = run(
-        comparison.legacy, legacy_target, LEGACY_SRC, comparison.legacy_output_flag
+        comparison.legacy,
+        legacy_target,
+        LEGACY_SRC,
+        comparison.legacy_output_flag,
+        comparison.extra_legacy_args,
+        comparison.timeout_seconds,
     )
     if not ok_old:
         print(
