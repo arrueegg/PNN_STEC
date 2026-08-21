@@ -447,7 +447,19 @@ def main() -> None:
             frame["lon_ipp"].to_numpy(),
             frame["satele"].to_numpy(),
         )
-        if args.gim_type == "IGS" and "gim_stec" in frame.columns:
+        if args.gim_type == "IGS":
+            # A missing gim_stec is a reason to stop, not a reason to skip the check.
+            # This assertion is what would catch a recurrence of the DOY-truncation bug
+            # that loaded the previous day's IONEX map and inflated the published GIM
+            # baseline, so making it conditional on the column being present would
+            # disable it exactly on the days something is wrong with the store.
+            if "gim_stec" not in frame.columns:
+                raise RuntimeError(
+                    f"{year}-{doy:03d}: the store has no gim_stec column, so the "
+                    "recomputed IGS GIM cannot be checked against it. Re-run inference "
+                    "for this day, or pass --gim-type CODE, which has no stored arm to "
+                    "reproduce."
+                )
             drift = np.nanmax(np.abs(frame["gim_mean"] - frame["gim_stec"]))
             if drift > GIM_REPRODUCTION_TOLERANCE:
                 raise RuntimeError(

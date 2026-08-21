@@ -216,6 +216,10 @@ COMPARISONS: tuple[Comparison, ...] = (
             ),
         ),
         expected_divergence={
+            "f107_bin": "the bin labels themselves change under the same rebinning - "
+            "e.g. legacy 'low\\n(137-181)' vs rebuilt 'moderate\\n(100-150)' - since "
+            "compare_frames now compares text columns as exact strings and this label "
+            "is the most direct evidence of the rebin, not a separate divergence",
             "RMSE": "F10.7 bins changed from data-derived terciles to fixed absolute "
             "bands, which changes by_f107.csv's row shape (4 fixed bands vs 3 "
             "terciles); by_dst.csv is unaffected since the Dst bins are unchanged",
