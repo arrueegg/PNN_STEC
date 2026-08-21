@@ -232,17 +232,30 @@ COMPARISONS: tuple[Comparison, ...] = (
     ),
     Comparison(
         name="stratified_comparison",
-        rebuilt="",
-        legacy="",
-        outputs=(),
-        skip="measured at ~40 s/day on the rebuilt side alone (timed via --doys on 5 "
-        "real days: 3m20s), i.e. ~2.7h to stream the full 242-day store once - each "
-        "of the 4 stratifiers x up to 4 methods builds and groups a fresh per-bin "
-        "frame per day. Both sides together would be ~5h+, which is not a tractable "
-        "single subprocess run in this session (the first attempt hit the 3600s "
-        "subprocess timeout with the rebuilt side alone still short of DOY 366). "
-        "Its expected divergence would have been the same per-method NaN-masking "
-        "change documented for uncertainty_error_relation's sibling analyses.",
+        rebuilt="-m stec.analysis.stratified_comparison",
+        legacy="src/analysis/stratified_comparison.py",
+        outputs=(
+            "by_elevation.csv",
+            "by_geomagnetic_latitude.csv",
+            "by_local_time.csv",
+            "by_season.csv",
+        ),
+        # ~40 s/day per side: each of the 4 stratifiers x up to 4 methods builds and
+        # groups a fresh per-bin frame for every one of the 242 days, so a full run is
+        # ~2.7 h per side and ~5.5 h for the pair. That is a reason to run it unattended
+        # with a timeout that fits, not a reason to leave the last comparison unmeasured -
+        # an untested analysis is exactly what this gate exists to prevent.
+        timeout_seconds=28800,
+        expected_divergence={
+            "R2": "NaN is now masked per method rather than dropping the whole row, so "
+            "each method is scored on every observation it actually predicted; the "
+            "original's shared mask silently reduced n for every method whenever any "
+            "one of them was missing",
+            "RMSE": "same per-method NaN masking",
+            "MAE": "same per-method NaN masking",
+            "n": "same per-method NaN masking - counts now differ per method by "
+            "construction",
+        },
     ),
     Comparison(
         name="uncertainty_error_relation",
