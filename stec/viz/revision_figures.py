@@ -95,6 +95,23 @@ SOURCE_DIRS = {
 }
 
 
+def analysis_dir(results_dir: Path, analysis: str) -> Path:
+    """Where `analysis` left its output, preferring the rebuilt run over its predecessor.
+
+    The ported analyses write to `<name>_rebuilt` so a rebuild cannot clobber the results
+    the paper was submitted from. Without this the figures would be built from the
+    pre-rebuild CSVs while every table came from the rebuilt ones - two implementations
+    behind one manuscript, which is the ambiguity this package exists to remove.
+
+    The two stages that deliberately stay on pre-rebuild scripts have no `_rebuilt`
+    directory, so they resolve to the plain name. That fallback is not silent: every figure
+    carries a provenance footnote naming the CSV it was drawn from, so which of the two was
+    used is visible in the artifact itself.
+    """
+    rebuilt = results_dir / f"{analysis}_rebuilt"
+    return rebuilt if rebuilt.is_dir() else results_dir / analysis
+
+
 def _save(
     fig: plt.Figure,
     name: str,
@@ -251,7 +268,14 @@ def fig_relative_error_normalised(
 
 
 def _build_relative_error_figures(args: argparse.Namespace, output_dir: Path) -> None:
-    path = args.results_dir / "relative_error_metrics.csv"
+    # The one analysis whose port changed both the location and the filename: the
+    # predecessor wrote a flat relative_error_metrics.csv, the port writes
+    # relative_error_metrics_rebuilt/yearly_metrics.csv. analysis_dir cannot express that,
+    # so the two candidates are named here rather than papered over.
+    rebuilt = args.results_dir / "relative_error_metrics_rebuilt" / "yearly_metrics.csv"
+    path = (
+        rebuilt if rebuilt.exists() else args.results_dir / "relative_error_metrics.csv"
+    )
     if not path.exists():
         logger.warning(f"{path} not found")
         return
@@ -329,7 +353,7 @@ def fig_storm_positioning_improvement(
 def _build_storm_positioning_figures(
     args: argparse.Namespace, output_dir: Path
 ) -> None:
-    path = args.results_dir / "storm_stratification" / "degradation.csv"
+    path = analysis_dir(args.results_dir, "storm_stratification") / "degradation.csv"
     if not path.exists():
         logger.warning(f"{path} not found")
         return
@@ -373,7 +397,7 @@ def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -
 def _build_weighting_ablation_figure(
     args: argparse.Namespace, output_dir: Path
 ) -> None:
-    path = args.results_dir / "weighting_ablation" / "paired.csv"
+    path = analysis_dir(args.results_dir, "weighting_ablation") / "paired.csv"
     if not path.exists():
         logger.warning(f"{path} not found")
         return
@@ -431,7 +455,7 @@ def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
 
 
 def _build_oracle_benchmark_figure(args: argparse.Namespace, output_dir: Path) -> None:
-    path = args.results_dir / "oracle_benchmark" / "summary.csv"
+    path = analysis_dir(args.results_dir, "oracle_benchmark") / "summary.csv"
     if not path.exists():
         logger.warning(f"{path} not found - run src/analysis/oracle_benchmark.py")
         return
@@ -483,7 +507,7 @@ def fig_architecture_search(d: pd.DataFrame, output_dir: Path, provenance: str) 
 def _build_architecture_search_figure(
     args: argparse.Namespace, output_dir: Path
 ) -> None:
-    path = args.results_dir / "hyperparameter_search" / "architectures.csv"
+    path = analysis_dir(args.results_dir, "hyperparameter_search") / "architectures.csv"
     if not path.exists():
         logger.warning(f"{path} not found")
         return
@@ -568,7 +592,7 @@ def _activity_figures(
 
 
 def _build_activity_figures(args: argparse.Namespace, output_dir: Path) -> None:
-    activity_dir = args.results_dir / "activity_stratification"
+    activity_dir = analysis_dir(args.results_dir, "activity_stratification")
     for stem, filename, bin_col, axis_label in _ACTIVITY_STRATA:
         path = activity_dir / filename
         if not path.exists():
@@ -777,7 +801,7 @@ def fig_uncertainty_vs_error(
 def _build_uncertainty_vs_error_figure(
     args: argparse.Namespace, output_dir: Path
 ) -> None:
-    path = args.results_dir / "uncertainty_error_relation" / "by_sigma.csv"
+    path = analysis_dir(args.results_dir, "uncertainty_error_relation") / "by_sigma.csv"
     if not path.exists():
         logger.warning(
             f"{path} not found - run src/analysis/uncertainty_error_relation.py"
@@ -878,7 +902,7 @@ def fig_ionex_crps_skill(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
 
 
 def _build_ionex_figures(args: argparse.Namespace, output_dir: Path) -> None:
-    benchmark_dir = args.results_dir / "ionex_rms_benchmark"
+    benchmark_dir = analysis_dir(args.results_dir, "ionex_rms_benchmark")
     overall = benchmark_dir / "overall_IGS.csv"
     if not overall.exists():
         logger.warning(f"{overall} not found - run src/analysis/ionex_rms_benchmark.py")
@@ -1040,7 +1064,7 @@ def fig_reference_precision(
 
 
 def _build_madrigal_offset_figures(args: argparse.Namespace, output_dir: Path) -> None:
-    offset_dir = args.results_dir / "madrigal_reference_offset"
+    offset_dir = analysis_dir(args.results_dir, "madrigal_reference_offset")
     offsets_path = offset_dir / "per_station_offsets.csv"
     if not offsets_path.exists():
         logger.warning(f"{offsets_path} not found - run madrigal_reference_offset.py")
@@ -1185,7 +1209,7 @@ def fig_calibration_pit(
 
 
 def _build_calibration_figures(args: argparse.Namespace, output_dir: Path) -> None:
-    calibration_dir = args.results_dir / "uncertainty_calibration"
+    calibration_dir = analysis_dir(args.results_dir, "uncertainty_calibration")
     own_cov = calibration_dir / "finetuned_stec_own" / "coverage_all.csv"
     if not own_cov.exists():
         logger.warning(f"{own_cov} not found - run uncertainty_calibration.py")
@@ -1194,7 +1218,8 @@ def _build_calibration_figures(args: argparse.Namespace, output_dir: Path) -> No
     own_pit = calibration_dir / "finetuned_stec_own" / "pit_all.csv"
     mad_pit = calibration_dir / "finetuned_stec_madrigal" / "pit_all.csv"
     coverage_path = (
-        args.results_dir / "madrigal_reference_offset" / "coverage_before_after.csv"
+        analysis_dir(args.results_dir, "madrigal_reference_offset")
+        / "coverage_before_after.csv"
     )
 
     prov = f"{calibration_dir} - daily fine-tuned models, prediction store"
@@ -1277,7 +1302,7 @@ def fig_station_independence(
 def _build_station_independence_figure(
     args: argparse.Namespace, output_dir: Path
 ) -> None:
-    station_dir = args.results_dir / "station_independence"
+    station_dir = analysis_dir(args.results_dir, "station_independence")
     per_station = station_dir / "per_station.csv"
     binned = station_dir / "by_distance_bin.csv"
     if not (per_station.exists() and binned.exists()):
@@ -1338,7 +1363,10 @@ def fig_positioning_tail(
 
 
 def _build_positioning_tail_figure(args: argparse.Namespace, output_dir: Path) -> None:
-    path = args.results_dir / "positioning_robustness" / "tail_distribution.csv"
+    path = (
+        analysis_dir(args.results_dir, "positioning_robustness")
+        / "tail_distribution.csv"
+    )
     if not path.exists():
         logger.warning(f"{path} not found - run positioning_robustness.py")
         return
