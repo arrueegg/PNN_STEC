@@ -16,6 +16,7 @@ import pytest
 import torch
 
 from stec.data.feature_layout import SHConvention, layout_from_feature_control
+from stec.data.spherical_harmonics import SphericalHarmonics
 from stec.data.transforms import (
     FeatureAssembler,
     cyclical_columns,
@@ -80,8 +81,6 @@ def raw_batch(rows: int = 64, seed: int = 0) -> dict[str, torch.Tensor]:
 
 
 def sh_encoder_for(layout):
-    from utils.locationencoder.pe import SphericalHarmonics  # noqa: PLC0415
-
     return SphericalHarmonics(
         legendre_polys=layout.sh_convention.legendre_polys(layout.sh_degree)
     )

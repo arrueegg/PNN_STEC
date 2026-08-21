@@ -88,19 +88,16 @@ def test_feature_layout_and_assembler_run_end_to_end_on_the_fixture_day(
     clean_clone_env,
 ):
     # The spherical-harmonics encoder is injected, not owned by stec.data.transforms (see
-    # its module docstring), so this reaches into src/ for the same encoder the existing
-    # tests use - that source tree ships with the repository and is not part of the 640 GB
-    # external data this test is proving independence from.
+    # its module docstring) - but stec.data.spherical_harmonics now provides its own, so
+    # this no longer needs src/ to supply one.
     code = f"""
-        import sys
-        sys.path.insert(0, "src")
         import os
         import torch
         from stec.config import paths
         from stec.data.day_reader import read_day
         from stec.data.feature_layout import layout_from_feature_control
         from stec.data.transforms import FeatureAssembler
-        from utils.locationencoder.pe import SphericalHarmonics
+        from stec.data.spherical_harmonics import SphericalHarmonics
 
         assert str(paths.DATA_ROOT) == os.environ["STEC_DATA_ROOT"]
 

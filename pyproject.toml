@@ -11,9 +11,12 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 # Every third-party name actually imported under stec/ (checked by walking the AST, not
 # grepping - a docstring line starting "from a real config" is not an import). torch_harmonics
-# is in requirements.txt but nothing under stec/ imports it; the spherical-harmonics encoder
-# is injected by the caller (stec.data.transforms.FeatureAssembler(sh_encoder=...)) rather than
-# constructed here, so it is not a dependency of this package.
+# is in requirements.txt but nothing under stec/ imports it: stec.data.spherical_harmonics
+# is a native port of the hand-derived analytic Yl_m formulas (needs only torch, already
+# listed below), not the torch_harmonics package. FeatureAssembler
+# (stec.data.transforms.FeatureAssembler(sh_encoder=...)) still takes its encoder by
+# injection rather than constructing one itself, so a caller can substitute a different
+# implementation, but stec/ now ships one to inject.
 dependencies = [
     "numpy>=2.2",
     "pandas>=2.2",
