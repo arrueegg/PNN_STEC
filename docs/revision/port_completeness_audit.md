@@ -307,3 +307,67 @@ compares files both sides write, and a file only one side writes is invisible to
 drops were found by reading the two implementations side by side. That is the argument for
 finishing the audit rather than trusting the green gates: the rate of discovery has not yet
 fallen off.
+
+---
+
+## The audit is now complete (2026-08-21)
+
+Every analysis in `stec/analysis/` has been compared against its predecessor, plus
+`stec/viz/revision_figures.py`. Each pair was checked on five axes: output files, columns
+within each output, module-level constants (values, not just presence), CLI arguments, and
+reference/baseline computations that a port might drop as "unused".
+
+### Clean
+
+`relative_error_metrics`, `station_independence`, `computational_cost`,
+`mapping_function_consistency`, `activity_stratification`, `ionex_rms_benchmark`,
+`madrigal_reference_offset`, `weighting_ablation`, `positioning_robustness`,
+`common_set_positioning`, `positioning_summary`, `oracle_benchmark`, `positioning_coverage`,
+`revision_figures`.
+
+Several ports are strictly stronger than what they replace and were confirmed as such rather
+than assumed: `positioning_coverage` adds `collisions.csv`, `foreign_doy_rows.csv` and
+`canonical_gaps.csv` and fixes the sort-order variant bug; `activity_stratification` replaces
+a silent fallback to the contaminated pre-repair GIM baseline with a hard failure;
+`mapping_function_consistency` raises on empty input where the original reached an
+`IndexError` later.
+
+### No predecessor, correctly
+
+`common_set.py` and `cleanup_audit.py` have no callers anywhere in the original (dead library
+code). `scenario_evaluation.py` is gated behind `evaluation.enable_scenarios`, which defaults
+`False` and is never enabled. `hyperparameter_search_summary` and `repair_gim_baseline` stay
+on pre-rebuild code deliberately. `paper_tables` and `divergences` are genuinely new.
+
+### Fixed
+
+- **`results_manifest`** was a redefinition rather than a port — it had stopped reading the
+  disk entirely. Restored; see the commit and the section above.
+- **`ionex_rms_benchmark`** made its IGS reproduction assertion conditional on the column it
+  checks being present, so a day missing `gim_stec` skipped the check silently where the
+  predecessor crashed. That assertion is what would catch a recurrence of the DOY-truncation
+  bug. Now an error.
+
+### Recorded, not changed
+
+- **`computational_cost`** converts a crash on zero VTEC logs into a warning and a shorter
+  table. Inert against the real tree (169 VTEC logs present) and it does warn, but it is the
+  opposite direction from this repo's fail-loud rule. Left as the port has it, flagged here.
+- **`storm_stratification`'s `by_regime.csv`** is reshaped from the original's unstacked
+  `(stat, regime)` MultiIndex header into a long table, and gains `2D_mean_m`, `Up_mean_m`
+  and `3D_p95_m`. No number is lost — it is a superset, transposed — but anything that parsed
+  the original's `('mean','storm')` header will break.
+- **`revision_figures`** dropped 13 per-CSV path overrides in favour of a single
+  `--results_dir`. No pipeline run passes them, so nothing automated changes; an operator can
+  no longer point one figure at a draft CSV without relocating files.
+- **`madrigal_reference_offset`** filters `iter_days` by DOY without a `years=` filter.
+  Harmless while the store holds one year; it would over-include rather than drop if a second
+  year is ever added.
+
+### Final count
+
+**Eight accidental drops, all restored.** Six were found on 2026-08-21. **None was caught by
+a gate** — a gate compares files both sides write, so a file only one side writes is
+invisible to it, and every one of these was found by reading the two implementations side by
+side. That asymmetry is the single most useful thing this audit established, and it is the
+reason the audit had to be exhaustive rather than sampled.
