@@ -33,7 +33,7 @@ from stec.analysis import divergences as dv
 
 
 def test_every_divergence_has_id_description_deliverable_and_status():
-    assert len(dv.REGISTRY) == 10
+    assert len(dv.REGISTRY) == 11
     for divergence in dv.REGISTRY:
         assert divergence.id
         assert divergence.description
@@ -63,7 +63,7 @@ def test_duplicate_id_is_rejected():
 
 def test_measured_divergence_carries_numeric_effect():
     measured = [d for d in dv.REGISTRY if d.status == "measured"]
-    assert {d.id for d in measured} == {"1", "4", "9", "10"}
+    assert {d.id for d in measured} == {"1", "4", "9", "10", "11"}
     for divergence in measured:
         effect = divergence.recorded_effect
         assert isinstance(effect, dv.MeasuredEffect)

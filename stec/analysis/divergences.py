@@ -756,6 +756,75 @@ _DEFECT19_MADRIGAL_TOLERANCE_EFFECT = _unmeasurable(
 )
 
 
+_VARIANT_SELECTION_EFFECT = MeasuredEffect(
+    method=(
+        "Ran stec.analysis.positioning_coverage against the repaired tree with no sweep "
+        "writing to it, 2026-08-21, and read the collision table it writes."
+    ),
+    measurements=(
+        Measurement(
+            "DOYs matched by more than one experiment directory",
+            new_value=0,
+            unit="DOYs",
+            old_value=31,
+        ),
+        Measurement(
+            "station-days solved by all methods, iono weighting",
+            new_value=7885,
+            unit="station-days",
+            old_value=8003,
+            n=10851,
+        ),
+    ),
+)
+
+
+def _measure_variant_selection() -> Effect:
+    """Read the collision table `positioning_coverage` writes, if a run is on disk.
+
+    The number that matters is how many station-days were attributed to a model that did
+    not produce them, and that is exactly what `collisions.csv` counts. Recomputing it
+    here would mean re-globbing every experiment tree, so this reads the artifact instead
+    and says so when there is none.
+    """
+    import pandas as pd
+
+    from ..config import paths
+
+    # The rebuilt stage writes to the _rebuilt directory; the pre-rebuild script wrote to
+    # the bare one. Prefer the rebuilt table, since it is the one that selects the
+    # canonical variant at all.
+    candidates = (
+        paths.LEGACY_MULTIDAY / "positioning_coverage_rebuilt" / "collisions.csv",
+        paths.LEGACY_MULTIDAY / "positioning_coverage" / "collisions.csv",
+    )
+    collisions = next((c for c in candidates if c.exists()), None)
+    if collisions is None:
+        return UnmeasurableEffect(
+            reason=f"no collision table on disk; looked in {[str(c) for c in candidates]}",
+            would_require="a run of stec.analysis.positioning_coverage",
+        )
+    table = pd.read_csv(collisions)
+    doys = int(table["doy"].nunique()) if len(table) else 0
+    return MeasuredEffect(
+        method=f"Read {collisions}, written by stec.analysis.positioning_coverage.",
+        measurements=(
+            Measurement(
+                "station-days attributed to a non-canonical variant",
+                new_value=float(len(table)),
+                unit="station-days",
+                old_value=None,
+            ),
+            Measurement(
+                "DOYs matched by more than one experiment directory",
+                new_value=float(doys),
+                unit="DOYs",
+                old_value=31.0,
+            ),
+        ),
+    )
+
+
 # --- the registry ------------------------------------------------------------------------
 
 REGISTRY: tuple[Divergence, ...] = (
@@ -889,6 +958,22 @@ REGISTRY: tuple[Divergence, ...] = (
         applied="applied",
         recorded_effect=_STORM_DEFINITION_EFFECT,
         measure=_measure_storm_definition,
+    ),
+    Divergence(
+        id="11",
+        description=(
+            "Canonical variant selection in positioning coverage: the pre-rebuild glob "
+            "matched every hyperparameter variant on disk and resolved collisions with "
+            "drop_duplicates(keep='first') on sorted order, so 'lr1e-4' won over the "
+            "paper's 'lr2e-4_bs512' purely alphabetically. "
+            "stec.analysis.positioning_coverage selects the canonical variant explicitly "
+            "and reports what it excluded (--all-variants restores the broad glob)."
+        ),
+        deliverable="R1.5 station-day coverage counts",
+        reviewer_comment="R1.5",
+        applied="applied",
+        recorded_effect=_VARIANT_SELECTION_EFFECT,
+        measure=_measure_variant_selection,
     ),
 )
 
