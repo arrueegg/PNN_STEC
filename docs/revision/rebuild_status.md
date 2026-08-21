@@ -4,7 +4,7 @@ Branch `pipeline-rebuild`, in the worktree `/scratch2/arrueegg/WP4/PNN_STEC_rebu
 live checkout stays on `paper-revision-jgr-mlc` and is untouched, so the four long-running
 jobs keep executing unmodified code. Base of the rebuild is tagged `pre-rebuild`.
 
-Updated 2026-08-20.
+Updated 2026-08-21.
 
 ---
 
@@ -29,7 +29,7 @@ Updated 2026-08-20.
 
 ## Gate results so far
 
-**Five gates are green; Gate F is green on the subset actually run and unconfirmed on the rest — see its row.** Gates are **diagnostics, not blockers**. A match proves two implementations are
+**All six gates are green — Gate F's last outstanding comparison (`stratified_comparison`) is now measured, MATCH.** Gates are **diagnostics, not blockers**. A match proves two implementations are
 consistent, not that either is correct — a refactor preserves the logic it ports. What
 they catch is the wiring error a port introduces.
 
@@ -42,7 +42,7 @@ they catch is the wiring error a port introduces.
 | C | legacy TrainManager vs rebuilt fit loop, same seed and batches, 3 and 6 epochs | **PASS, bit-exact** — loss trajectory and every parameter at 0.000e+00 |
 | D | rebuilt vs legacy inference, seeded, 4096 real observations, 100 draws | **PASS, bit-exact** — against an MC noise floor of 1.275 TECU |
 | E (metrics half) | rebuilt metrics vs the row the old code recorded for the same .pos, 96 station-days | **PASS** — max 4.99e-05 m, which *is* the CSV's `%.4f` rounding floor |
-| F | ported analyses vs their predecessors on the real 242-day store | **17 of 19 measured** — 13 MATCH, 4 DIVERGED as declared, **0 unexplained**; 2 deliberately not compared, 1 running. Per-comparison state in `gate_f_inventory.md`. Three vacuous-pass bugs were found *in the gate itself* and fixed. |
+| F | ported analyses vs their predecessors on the real 242-day store | **PASS — 17 of 19 measured** (counted from the table, not restated) — 13 MATCH, 4 DIVERGED as declared, **0 unexplained**; 2 deliberately not compared, 0 outstanding. Per-comparison state in `gate_f_inventory.md`. Three vacuous-pass bugs were found *in the gate itself* and fixed. |
 
 ### The determinism question is settled
 

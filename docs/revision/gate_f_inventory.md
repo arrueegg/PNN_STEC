@@ -12,23 +12,25 @@ nothing about the science.
 
 ## Confirmed by an actual run
 
-17 of the 19 now carry a verdict measured against the real 242-day store, rather than
-an expectation written when the comparison was authored.
+All 17 of the 19 declared comparisons that can be run (the other 2 are structural
+skips, see below) now carry a verdict measured against the real 242-day store, rather
+than an expectation written when the comparison was authored. Counted from the table
+rows below, not restated: 13 MATCH + 4 DIVERGED = 17.
 
 | Comparison | Verdict |
 |---|---|
 | common_set_positioning | MATCH — the declared `<`/`<=` outlier divergence never fires; 0 station-days sit at the 10.000 m boundary |
 | computational_cost | MATCH — genuine only since text columns became comparable |
 | daily_metrics | MATCH |
-| ionex_rms_benchmark | MATCH |
+| ionex_rms_benchmark | MATCH — confirmed after the conditional `gim_stec` assertion was made unconditional |
 | madrigal_reference_offset | MATCH — all five outputs, 67 per-station rows exact |
 | mapping_function_consistency | MATCH |
 | oracle_benchmark | MATCH |
 | positioning_robustness | MATCH |
 | positioning_summary | MATCH |
-| ionex_rms_benchmark | MATCH — confirmed after the conditional `gim_stec` assertion was made unconditional |
 | relative_error_metrics | MATCH |
 | station_independence | MATCH |
+| stratified_comparison | MATCH — the last of the 19. First run FAILed on the `Method` column: the port had shortened two labels ("IGS GIM + Mapping" → "IGS GIM", "Pretrained Direct STEC" → "Pretrained"), which are exactly the keys of `stec.viz.style.APPROACH_COLORS`, so a figure built from the table would have lost the colour binding for half its series (`22997f8`). Restored to the predecessor's labels and re-run: all four outputs (`by_elevation.csv`, `by_geomagnetic_latitude.csv`, `by_local_time.csv`, `by_season.csv`) byte-identical. |
 | weighting_ablation | MATCH |
 | activity_stratification | DIVERGED — declared, after a genuine FAIL was found and fixed |
 | storm_stratification | DIVERGED — declared; `summarise()` rounds to 4 decimals, diffs 2e-5 to 1.5e-3 |
@@ -40,13 +42,14 @@ an expectation written when the comparison was authored.
 `activity_stratification` is worth naming: it came back FAIL under the text-comparing gate
 because its `f107_bin` label column changes under the already-declared rebinning and had
 never been declared. The label text is the most direct evidence of the rebin, and it was
-invisible while text went uncompared.
+invisible while text went uncompared. `stratified_comparison`'s `Method` FAIL (above) is
+the second and, so far, last instance of the same failure mode — an undeclared text
+difference that the numeric-only gate would have missed entirely.
 
 ## Outstanding
 
-| Comparison | State |
-|---|---|
-| stratified_comparison | **running** — ~40 s/day per side, so ~5.5 h for the pair. It had been marked a permanent skip for overrunning the 1-hour subprocess timeout; slowness is a reason to run it unattended, not a reason to leave the only untested analysis untested. |
+None. All 17 runnable comparisons carry a measured verdict; the other 2 are permanent
+structural skips (below), not pending work.
 
 ## Deliberately not compared
 

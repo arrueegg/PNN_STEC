@@ -1,5 +1,33 @@
 # Gate F results — comparison by comparison, this pass
 
+**Superseded by `docs/revision/gate_f_inventory.md` — read that file for the current
+state.** This file is a snapshot of one session; three things below have since moved:
+
+1. `stratified_comparison`, listed here as SKIPPED ("not attempted — too slow"), has
+   since been run to completion and returned MATCH (`docs/revision/gate_f_inventory.md`).
+   Its first attempt actually FAILed, on the `Method` column — the port had shortened two
+   labels that are `stec.viz.style.APPROACH_COLORS` keys — fixed in `22997f8` and
+   confirmed MATCH on re-run, all four output files byte-identical.
+2. `ionex_rms_benchmark` and `uncertainty_calibration`, listed here as `MATCH` / a result
+   not reconfirmed after the concurrent session's fixes, were explicitly re-run against
+   the current code (commit `5560ef8`): `ionex_rms_benchmark` MATCHes after its
+   conditional `gim_stec` assertion was made unconditional; `uncertainty_calibration`
+   still DIVERGES exactly as declared, now measured against the restored storm/quiet
+   split, 0.99 coverage level and constant-scale reference rather than the code that
+   preceded them.
+3. `daily_metrics`, flagged below as stale because `c554c00` touched
+   `stec/analysis/daily_metrics.py` after this pass cached its comparison: checked that
+   diff directly — the only change is a new `vs_published.csv` output (diffing the
+   recomputed summary against the pre-rebuild `summary_statistics.csv`), added
+   additively: `per_day.csv`/`summary.csv`, the files Gate F actually compares, are
+   untouched by it. The cached MATCH still stands; nothing needed re-running.
+
+All 19 comparisons now have a settled state: 17 measured (13 MATCH, 4 DIVERGED as
+declared, 0 unexplained) and 2 permanently, structurally skipped. See
+`gate_f_inventory.md` for the authoritative per-comparison table.
+
+---
+
 Stage 7 task: convert as many of `verification/gate_f_analysis_equivalence.py`'s 19
 declared comparisons as possible from "expectation written when the comparison was
 authored" into "measured this session." This file records what was actually run, the
