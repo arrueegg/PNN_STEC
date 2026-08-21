@@ -1,0 +1,31 @@
+{
+  "answers": "R2.8",
+  "canonical_for": null,
+  "caveats": [
+    "NOT comparable with Table 5, by design and permanently. It uses elev weighting - the reference STEC carries only a placeholder sigma, so iono would weight by a constant - and is restricted to station-days solved by all four methods.",
+    "Read ratios to the floor within this table. Take absolute positioning numbers from Table 5."
+  ],
+  "code": {
+    "commit": "22997f86c3c5936f79bf90b34b242f588d7e45c6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.oracle_benchmark --output-dir multiday_results/oracle_benchmark_rebuilt",
+  "description": "positioning floor from reference STEC, on its own restricted set",
+  "duration_s": 79.1,
+  "fingerprint": "95217d2c063296db6a8f1322261f3fcdc988e8bed879c68d737e03b4c46b1491",
+  "inputs": {
+    "multiday_results/positioning_full_coverage/multiday_summary.csv": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/oracle_benchmark_rebuilt": {
+      "present": true,
+      "size": 68
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T14:14:05.592185+00:00",
+  "stage": "oracle_benchmark",
+  "supersedes": []
+}

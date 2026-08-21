@@ -1,0 +1,48 @@
+{
+  "answers": "-",
+  "canonical_for": null,
+  "caveats": [
+    "Runs against the same tiny fixture training_smoke does, and against the checkpoint training_smoke just produced from it - not the paper's real checkpoints or test set. See training_smoke's caveats for why.",
+    "Only the 'own' dataset is wired up. '--dataset madrigal' raises NotImplementedError: Madrigal geometry has no stec/ model-input reader - stec.baselines.madrigal loads Madrigal's reference STEC for comparison, never model inputs. predictions/pretrained_stec/madrigal/ has no data for exactly this reason (docs/revision/task_board.md S4).",
+    "Writes under artifacts/predictions/, the default prediction_store.DEFAULT_STORE_ROOT - a different tree from the legacy predictions/ every analysis stage above reads (STORE_OWN etc.), so this stage's output is never picked up by daily_metrics or any other analysis.",
+    "Runs the zero-perturbation control (stec/models/determinism.py) before any real sampling and fails loudly if it is not exactly 0.0 - the Bayesian A/B invariant CLAUDE.md requires for every comparison built on this model."
+  ],
+  "code": {
+    "commit": "2e2597eeebc72a12d2652d848abff1b9159d4530",
+    "dirty": true
+  },
+  "command": "-m stec.inference.run_inference --config tests/fixtures/pipeline_smoke/config.yaml --checkpoint artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth --model-variant finetuned_stec --dataset own --doys 2024:132 --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --output-dir artifacts/predictions/pipeline_smoke_inference --device cpu",
+  "description": "proves stec.inference.run_inference wires monte_carlo into the prediction store end to end, on the same tiny checked-in fixture day",
+  "duration_s": 1.7,
+  "fingerprint": "90e7eac91edd350acb573da5e611d29c6a15a506c515a3a793c3936695b3278a",
+  "inputs": {
+    "artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth": {
+      "kind": "file",
+      "sha256": "5b3143817c1e1d649d2983327ea00e9dd10da6056ec92556893eeae6e149f77e",
+      "size": 7317
+    },
+    "tests/fixtures/pipeline_smoke": {
+      "files": 3,
+      "kind": "tree",
+      "mtime_ns": 1787326881907002412,
+      "size": 30410
+    }
+  },
+  "outputs": {
+    "artifacts/predictions/finetuned_stec/own/year=2024/doy=132.parquet": {
+      "present": true,
+      "sha256": "2b6d5662bf91a39ef724f672e70fbbc7596d108830bcd4b9a65d30d0e94ccb1c",
+      "size": 20096
+    },
+    "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv": {
+      "present": true,
+      "rows": 1,
+      "sha256": "0499a7f8f09ec4551f05af26aff6b7ab6dda23eccf399ff912d12b8927b94be3",
+      "size": 81
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T15:43:28.887869+00:00",
+  "stage": "inference_smoke",
+  "supersedes": []
+}

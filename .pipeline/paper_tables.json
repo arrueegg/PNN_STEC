@@ -2,26 +2,27 @@
   "answers": "Tables 1, 2",
   "canonical_for": "Tables 1 and 2",
   "caveats": [
-    "Generated from a resolved run config. Point it at a stored experiment's config.yaml to describe what actually trained, not at a template.",
+    "Generated from the paper's own stored run config, not from a template in config/. The template disagreed with it on 7 of 8 fields - architecture, prior sigma, learning rate, batch size, scheduler, SH degree and KL weight - so the table it produced described a different model entirely.",
+    "Both training stages are reported. The paper pretrains and then fine-tunes daily at a different learning rate, batch size and epoch count; a table carrying one of them describes half the training.",
     "Table 2 includes three hyperparameters the submitted manuscript omits: the KL warmup (0 to 0.1 over 5 epochs), the variance floor, and the output bias initialisation."
   ],
   "code": {
-    "commit": "80dea2c58be6197eac97d76b1f792f787af6d9a2",
-    "dirty": true
+    "commit": "22997f86c3c5936f79bf90b34b242f588d7e45c6",
+    "dirty": false
   },
-  "command": "-m stec.analysis.paper_tables --config config/config_BNN.yaml",
+  "command": "-m stec.analysis.paper_tables --config /scratch2/arrueegg/WP4/PNN_STEC/experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/config.yaml --output-dir multiday_results/paper_tables",
   "description": "input feature list and hyperparameters, generated from the model rather than maintained beside it",
-  "duration_s": 0.9,
+  "duration_s": 1.1,
   "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
   "inputs": {},
   "outputs": {
     "multiday_results/paper_tables": {
       "present": true,
-      "size": 180
+      "size": 204
     }
   },
   "params": {},
-  "recorded_at": "2026-08-20T15:37:45.063982+00:00",
+  "recorded_at": "2026-08-21T14:12:44.662796+00:00",
   "stage": "paper_tables",
   "supersedes": []
 }

@@ -1,0 +1,28 @@
+{
+  "answers": "R1.3",
+  "canonical_for": null,
+  "caveats": [],
+  "code": {
+    "commit": "603ff13633c79fc0831c47f967507ce736250025",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.mapping_function_consistency --output-dir multiday_results/mapping_function_consistency_rebuilt",
+  "description": "cost of the mapping-function convention mismatch",
+  "duration_s": 47.2,
+  "fingerprint": "c0c4eccc2cf65c4aa01bcd62d37fee7663985e5a7ea4e96057cfece14be1297e",
+  "inputs": {
+    "predictions/finetuned_stec/own": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/mapping_function_consistency_rebuilt": {
+      "present": true,
+      "size": 54
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T14:57:06.770655+00:00",
+  "stage": "mapping_function_consistency",
+  "supersedes": []
+}

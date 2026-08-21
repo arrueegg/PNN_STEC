@@ -1,0 +1,34 @@
+{
+  "answers": "R1.6, R2.6",
+  "canonical_for": null,
+  "caveats": [
+    "Only 'Direct STEC' scores here - pretrained_stec/own carries stec_pred and pred_total_unc but no vtec_model_stec column, so 'VTEC + Mapping' is absent from this variant's coverage.csv/scores.csv. Expected, not a bug: VTEC + Mapping is a separate baseline, not a per-STEC-variant one.",
+    "Scores a different model from uncertainty_calibration's Direct STEC - the pretrained checkpoint before daily fine-tuning, not a second reading of the same predictions."
+  ],
+  "code": {
+    "commit": "ab34769d70618bbebf7f7cc377ea2f916638a0d5",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/analyses/uncertainty_calibration/rebuilt --model-variant pretrained_stec --dataset own",
+  "description": "coverage, PIT and CRPS for the pretrained variant, same likelihoods and regimes",
+  "duration_s": 4.0,
+  "fingerprint": "bcec23441b93b3d34061daae04c815fb4802b2f6639b47f389fe7de5642e5b32",
+  "inputs": {
+    "data/omni_hourly_2010-2025.h5": {
+      "kind": "missing"
+    },
+    "predictions/pretrained_stec/own": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/uncertainty_calibration/rebuilt/pretrained_stec_own": {
+      "present": true,
+      "size": 462
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T16:43:52.309666+00:00",
+  "stage": "uncertainty_calibration_pretrained",
+  "supersedes": []
+}

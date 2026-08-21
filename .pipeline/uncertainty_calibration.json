@@ -1,0 +1,35 @@
+{
+  "answers": "R1.6, R2.6",
+  "canonical_for": null,
+  "caveats": [
+    "The VTEC baseline is a Laplace, and its stored vtec_model_stec_total_unc is already a standard deviation (sqrt(2) * scale), not the raw scale - recover the scale as std / sqrt(2) before any Laplace formula sees it.",
+    "Scored as a Gaussian the same data reads 90% coverage at nominal 50% against 82% under Laplace; both scorings are emitted side by side, tagged by which likelihood is native to each model.",
+    "The storm/quiet split uses the daily minimum-Dst rule at -50 nT, matching storm_stratification.STORM_DST_THRESHOLD_NT - not the per-observation rule in scenario_evaluation.py."
+  ],
+  "code": {
+    "commit": "1072c8bbb52616fc57bd4d254712e78e441e938b",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/analyses/uncertainty_calibration/rebuilt --model-variant finetuned_stec --dataset own",
+  "description": "coverage, PIT and CRPS for Direct STEC and VTEC + Mapping, each under its own likelihood and regime",
+  "duration_s": 469.2,
+  "fingerprint": "cc80fdee2667d0dacf5f59de2b156a901d375ba44113ad3a5348fef8e7326113",
+  "inputs": {
+    "data/omni_hourly_2010-2025.h5": {
+      "kind": "missing"
+    },
+    "predictions/finetuned_stec/own": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/uncertainty_calibration/rebuilt/finetuned_stec_own": {
+      "present": true,
+      "size": 868
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T17:00:54.568519+00:00",
+  "stage": "uncertainty_calibration",
+  "supersedes": []
+}

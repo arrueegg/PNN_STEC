@@ -298,3 +298,27 @@ error. That is the property that makes them expensive to find and cheap to ship.
 The port is byte-identical to the source run against the same tree at the same moment, so
 this is a property of the data, not the code — but R1.5's 8,003 / 2,311 / 510 should be
 quoted from a post-sweep run, not from the current one.
+
+---
+
+## A note on commit 1072c8b
+
+That commit's message describes the results-layout restructure. It also contains three
+unrelated fixes that were in the working tree at the time, because two efforts were running
+uncoordinated in one worktree and the commit staged everything:
+
+- `repair_gim_baseline` and `hyperparameter_search` reaching the real store and W&B history
+  through `paths.LEGACY_PREDICTIONS` / `paths.LEGACY_WANDB`, fixed in the stage declarations
+  rather than in the frozen scripts;
+- `uncertainty_calibration` split into two stages so the pretrained variant is actually
+  scored, and `accumulate()` gaining a `years` parameter after
+  `predictions/pretrained_stec/own` turned out to hold 544 day-files spanning 2014-2024
+  rather than a 2024 partition - a DOY filter cannot exclude a year, so the obvious second
+  invocation pooled eleven years and labelled them with 2024's storm/quiet Dst.
+
+The content is verified; the attribution in that message is not. Recorded here rather than
+rewritten, since the history is shared and the fix is knowing what is in it.
+
+**Working rule adopted after this:** stage a commit only when no agent is mid-edit, and
+check `git status` for concurrent work before staging. A commit whose message does not
+match its contents is exactly the provenance failure this pipeline exists to prevent.
