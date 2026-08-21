@@ -80,6 +80,18 @@ STAGES: list[Stage] = [
         "architecture comparison and hyperparameter sweep from the W&B history",
         inputs=["wandb"],
         outputs=["multiday_results/hyperparameter_search"],
+        caveats=[
+            "Stays on the pre-rebuild script for a data reason, not a code one: the "
+            "script itself is self-contained (only glob/yaml/json/pandas over local "
+            "wandb/run-*/files/{config.yaml,wandb-summary.json} pairs, no W&B API call "
+            "and no network access) and has no dependency on the rest of src/, so "
+            "porting it would be mechanical. It has not been ported because its input "
+            "is not reachable here: wandb/ is untracked (.gitignore'd, ~606 MB, ~1,526 "
+            "run directories in the live checkout) and does not exist in this worktree "
+            "or in any fresh clone.",
+            "Cannot run at all without a populated local wandb/ directory from the "
+            "training host.",
+        ],
     ),
     Stage(
         "station_independence",
@@ -111,7 +123,10 @@ STAGES: list[Stage] = [
         caveats=[
             "Repairs the 12 days of 2024 where a truncating cast on a float32-denormalised "
             "doy loaded the previous day's IONEX map. Unaffected days must reproduce to "
-            "~1e-5 TECU; that agreement is the regression check."
+            "~1e-5 TECU; that agreement is the regression check.",
+            "Must stay on the pre-rebuild script, permanently: this stage is the "
+            "regression check for the GIM day-lookup repair, and porting it into stec/ "
+            "would mean the check and the thing it checks share an implementation.",
         ],
     ),
     Stage(
@@ -143,6 +158,14 @@ STAGES: list[Stage] = [
         "predicted uncertainty against realised error, pooled over the test period",
         inputs=[STORE_OWN],
         outputs=["multiday_results/uncertainty_error_relation_rebuilt"],
+        caveats=[
+            "Bins are now fixed TECU intervals (0-1-2-3-4-5-7-10-15-20-30-inf), not the "
+            "previous first-day sigma deciles. Those deciles were computed from "
+            "DOY 122's pred_total_unc distribution alone and reused unchanged for the "
+            "other 241 days, so a bin labelled 'top decile' held 6.88%-18.80% of the "
+            "full-year population rather than 10% - a 'decile' meant something "
+            "different on every day but the first.",
+        ],
     ),
     Stage(
         "stratified_comparison",
@@ -161,7 +184,13 @@ STAGES: list[Stage] = [
         outputs=["multiday_results/activity_stratification_rebuilt"],
         caveats=[
             "Reads the repaired GIM values. Run after repair_gim_baseline: the "
-            "un-repaired baseline reversed this comparison's conclusion."
+            "un-repaired baseline reversed this comparison's conclusion.",
+            "F10.7 bins are now fixed absolute bands (0/100/150/200/1000 sfu), not the "
+            "previous data-derived terciles. The terciles split the test period 81/81/80 "
+            "by construction - three equal-population groups regardless of what F10.7 "
+            "actually did - while the real distribution against the fixed bands is "
+            "7/108/127: the old bins ranked the sample rather than the activity level, "
+            "and would label a different third of any other period 'high'.",
         ],
     ),
     Stage(
@@ -223,6 +252,14 @@ STAGES: list[Stage] = [
         "positioning accuracy on storm against quiet days",
         inputs=[POSITIONING, SWI],
         outputs=["multiday_results/storm_stratification_rebuilt"],
+        caveats=[
+            "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This "
+            "is a different, deliberately kept-separate threshold from the STEC-domain "
+            "scenario_evaluation.py, which classifies individual hours as storm at "
+            "Kp>=37 or Dst<=-33: the daily rule finds 39 storm days over the 242-day "
+            "positioning test period against 102 under the per-observation rule applied "
+            "at the day level. Do not port one rule's day count into the other's table.",
+        ],
     ),
     Stage(
         "positioning_robustness",
@@ -240,6 +277,18 @@ STAGES: list[Stage] = [
         inputs=["experiments"],
         outputs=["multiday_results/positioning_full_coverage"],
         canonical_for="positioning station-day coverage",
+        caveats=[
+            "Canonical variant selection is explicit: it matches the canonical "
+            "directory name directly rather than de-duplicating multiple "
+            "Finetune_STEC_2024_<DOY>_* matches by sort order. Sort-order dedup let "
+            "lr1e-4_bs2048/lr1e-4_bs10000 win over the paper's lr2e-4_bs512 for 31 DOYs "
+            "once the station-recovery sweep created a second directory per day.",
+            "Quoting R1.5 needs the pre-sweep 8,003 / 2,311 / 510 of 10,824 "
+            "(database-only, iono weighting) until the station-recovery sweep has run "
+            "all 242 days with both overwrite sites fixed (metrics.py, patched but not "
+            "applied, and run_positioning_evaluation.py:681, unpatched) - a run against "
+            "the partially-swept tree corresponds to no coherent configuration.",
+        ],
     ),
     Stage(
         "common_set_positioning",
