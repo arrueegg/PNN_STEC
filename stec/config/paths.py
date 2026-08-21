@@ -105,3 +105,13 @@ LEGACY_ROOT = _root("STEC_LEGACY_ROOT", REPO_ROOT)
 LEGACY_PREDICTIONS = LEGACY_ROOT / "predictions"
 LEGACY_MULTIDAY = LEGACY_ROOT / "multiday_results"
 LEGACY_EXPERIMENTS = LEGACY_ROOT / "experiments"
+
+# The paper's pretrained run. Its config.yaml is the authoritative description of what
+# trained - it carries the architecture plus both the `pretrain` and `finetune` blocks -
+# and is what Table 2 must be generated from. A template in `config/` describes an
+# intention; only a stored run config describes a model that exists.
+PAPER_PRETRAINED_RUN = LEGACY_EXPERIMENTS / (
+    "Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam"
+    "_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
+)
+PAPER_PRETRAINED_CONFIG = PAPER_PRETRAINED_RUN / "config.yaml"

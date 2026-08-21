@@ -109,8 +109,6 @@ def hyperparameter_table(config: dict) -> list[dict[str, Any]]:
     """Table 2: the hyperparameters, including the three the manuscript omits."""
     model = config.get("model", {})
     training = config.get("training", {})
-    mode = str(config.get("mode", "finetune"))
-    block = config.get(mode, {})
     annealing = training.get("kl_annealing", {})
 
     rows: list[tuple[str, Any, str]] = [
@@ -121,10 +119,24 @@ def hyperparameter_table(config: dict) -> list[dict[str, Any]]:
         ("Dropout", model.get("dropout_rate", ""), ""),
         ("Loss", training.get("loss_function", ""), ""),
         ("Optimiser", training.get("optimizer", ""), ""),
-        ("Learning rate", block.get("learning_rate", ""), mode),
-        ("Batch size", block.get("batchsize", ""), mode),
-        ("Epochs", block.get("epochs", ""), mode),
-        ("Scheduler", block.get("scheduler", ""), mode),
+    ]
+
+    # Both stages, not just whichever `mode` this config happens to be set to. The paper
+    # trains in two: a multi-year pretrain and a daily fine-tune, with different learning
+    # rates, batch sizes and epoch counts. Reporting one of them silently describes half
+    # the training, and which half depended on a key that is incidental to the run.
+    for stage in ("pretrain", "finetune"):
+        block = config.get(stage, {})
+        if not isinstance(block, dict) or not block:
+            continue
+        rows += [
+            ("Learning rate", block.get("learning_rate", ""), stage),
+            ("Batch size", block.get("batchsize", ""), stage),
+            ("Epochs", block.get("epochs", ""), stage),
+            ("Scheduler", block.get("scheduler", ""), stage),
+        ]
+
+    rows += [
         ("Weight decay", training.get("weight_decay", ""), ""),
         ("Random seed", config.get("random_seed", ""), ""),
         ("SH degree", config.get("data", {}).get("SH_degree", ""), ""),

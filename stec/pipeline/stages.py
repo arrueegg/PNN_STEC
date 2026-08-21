@@ -26,6 +26,7 @@ rewrite: a stage's command changes when its analysis moves, and nothing else doe
 
 from __future__ import annotations
 
+from ..config import paths
 from .stage import Stage
 
 STORE_OWN = "predictions/finetuned_stec/own"
@@ -51,15 +52,21 @@ MADRIGAL_CAVEAT = [
 STAGES: list[Stage] = [
     Stage(
         "paper_tables",
-        "-m stec.analysis.paper_tables --config config/config_BNN.yaml",
+        f"-m stec.analysis.paper_tables --config {paths.PAPER_PRETRAINED_CONFIG} "
+        "--output-dir multiday_results/paper_tables",
         "Tables 1, 2",
         "input feature list and hyperparameters, generated from the model rather than "
         "maintained beside it",
         outputs=["multiday_results/paper_tables"],
         canonical_for="Tables 1 and 2",
         caveats=[
-            "Generated from a resolved run config. Point it at a stored experiment's "
-            "config.yaml to describe what actually trained, not at a template.",
+            "Generated from the paper's own stored run config, not from a template in "
+            "config/. The template disagreed with it on 7 of 8 fields - architecture, "
+            "prior sigma, learning rate, batch size, scheduler, SH degree and KL weight - "
+            "so the table it produced described a different model entirely.",
+            "Both training stages are reported. The paper pretrains and then fine-tunes "
+            "daily at a different learning rate, batch size and epoch count; a table "
+            "carrying one of them describes half the training.",
             "Table 2 includes three hyperparameters the submitted manuscript omits: the "
             "KL warmup (0 to 0.1 over 5 epochs), the variance floor, and the output bias "
             "initialisation.",
