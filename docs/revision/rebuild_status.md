@@ -29,7 +29,7 @@ Updated 2026-08-20.
 
 ## Gate results so far
 
-**All six gates are green.** Gates are **diagnostics, not blockers**. A match proves two implementations are
+**Five gates are green; Gate F is green on the subset actually run and unconfirmed on the rest — see its row.** Gates are **diagnostics, not blockers**. A match proves two implementations are
 consistent, not that either is correct — a refactor preserves the logic it ports. What
 they catch is the wiring error a port introduces.
 
@@ -42,7 +42,7 @@ they catch is the wiring error a port introduces.
 | C | legacy TrainManager vs rebuilt fit loop, same seed and batches, 3 and 6 epochs | **PASS, bit-exact** — loss trajectory and every parameter at 0.000e+00 |
 | D | rebuilt vs legacy inference, seeded, 4096 real observations, 100 draws | **PASS, bit-exact** — against an MC noise floor of 1.275 TECU |
 | E (metrics half) | rebuilt metrics vs the row the old code recorded for the same .pos, 96 station-days | **PASS** — max 4.99e-05 m, which *is* the CSV's `%.4f` rounding floor |
-| F | ported analyses vs their predecessors on the real 242-day store | **PASS** — 2 MATCH, 1 declared DIVERGED, 2 skipped with stated reasons, 0 unexplained |
+| F | ported analyses vs their predecessors on the real 242-day store | **PARTIAL** — 19 comparisons declared, **only 3 actually run** (2 MATCH, 1 declared DIVERGED, 0 unexplained). The other 14 record an expectation written when the comparison was authored, **not a confirmed diff**. Each streams the store, so they must be run one at a time. |
 
 ### The determinism question is settled
 
