@@ -331,10 +331,14 @@ So there are two defensible numbers and the choice is a real one:
 
 - **7,885 / 2,241 / 725 of 10,851** — what the repaired tree actually contains today, with
   the variant selection explicit. Reproducible from the current tree by anyone.
-- **8,003 / 2,311 / 510 of 10,824** — the pre-sweep baseline, which is what the manuscript
-  currently carries.
+- **8,003 / 2,311 / 510 of 10,824** — the pre-sweep baseline.
 
-Quoting the pre-sweep number remains correct until `recovery-models` runs, but it should
-stop being described as "the coverage" and start being described as what it is: the
-pre-recovery baseline. Once the 212 days are solved the number moves up rather than down,
-and that is the version worth reporting.
+**Correction (2026-08-21).** An earlier version of this section said the pre-sweep triple is
+"what the manuscript currently carries". It is not: the submitted manuscript quotes no
+station-day coverage triple at all. It says only "station-days solved under both schemes",
+with no counts. So this is not a choice between a number in the paper and a number on disk -
+it is a decision about what to report for the first time, which makes the newer, unambiguous
+figure the easier one to defend.
+
+Once `recovery-models` runs the number moves up rather than down, so quoting it is not a
+concession either way.
