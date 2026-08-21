@@ -13,6 +13,33 @@ tail -20 logs/station_recovery_models.log
 tail -20 logs/merge_watcher.log
 ```
 
+## Read this first: your training was OOM-killed and lost progress
+
+`systemd-oomd` killed `overnight-final.service` at **2026-08-21 20:46** (13.8 GB peak, 1.2 GB
+swap). It restarted three minutes later **from epoch 1**, discarding roughly 137 epochs -
+`loss_history.csv` still holds them, but the run itself began again.
+
+This happened while six analysis agents were running in parallel for the rebuild, with load
+above 12. That is very likely the cause. The machine is quiet again (load ~4.5, 18 GB
+available), so the restarted run should finish, but the lost epochs are lost.
+
+At ~5.5 min/epoch it needs roughly 12-13 h from 21:55, so it should complete Saturday
+morning. Everything else is queued behind it:
+
+    training finishes  ->  recovery starts (~25 h)  ->  merge
+
+If the training OOMs again it restarts from scratch again, and nothing downstream runs. If
+you find on Monday that nothing has progressed, check `NRestarts`:
+
+```bash
+systemctl --user show overnight-final -p NRestarts -p ActiveEnterTimestamp
+journalctl --user -u overnight-final --since today | grep -i oom
+```
+
+The recovery sweep deliberately does **not** run alongside training - it waits for the unit
+to be quiet on two checks 180 s apart. That protects the training from exactly the pressure
+that killed it, at the cost of the whole chain stalling if training never completes.
+
 ## What is running
 
 **`weekend-recovery`** — the station-day positioning recovery, `STAGES=models`, ~212
