@@ -8,16 +8,22 @@ period, so it cannot show what happens during the two great storms of that year 
 re-run is needed: the per-station-day position solutions already exist, and the storm
 classification comes from the hourly OMNI indices already in the repo.
 
-**Storm threshold: daily min Dst <= -50 nT** (``STORM_DST_THRESHOLD_NT``,
-``STORM_DST_THRESHOLD_NT`` below). Kp in the OMNI archive is stored **scaled by 10** - a
-raw Kp of 3.7 is stored as the integer 37 - so ``37`` is a Kp of 3.7, not a typo for it.
+**Storm threshold: a daily minimum Dst of -50 nT** (``STORM_DST_THRESHOLD_NT``).
 
-Not a byte-for-byte port of a detail worth flagging explicitly: the live checkout's
-``storm_stratification.py`` classifies a day as storm only when ``Dst_min <= -50`` nT and
-never looks at Kp at all - its own docstring calls this "deliberately not the same" as the
-combined Kp/Dst threshold used elsewhere in the codebase for the equivalent per-observation
-"storm" scenario (``src/analysis/scenario_evaluation.py``, gated behind
-``evaluation.enable_scenarios``, which defaults to ``False`` and so silently never ran).
+Two storm definitions exist in this project, for two different questions, and confusing
+them changes a reviewer-facing number. This module answers the *positioning* question
+(R2.7), which is about whole days, so it uses the daily rule - the conventional threshold,
+and the one that produced the published +31.9% / +26.3% quiet-storm improvements.
+
+The other is per-observation: ``Kp >= 37 or Dst <= -33``, in
+``src/analysis/scenario_evaluation.py``, classifying individual hours rather than days.
+Kp is stored scaled by 10 in the OMNI archive, so 37 means a Kp of 3.7 and is not a typo.
+That module is gated behind ``evaluation.enable_scenarios``, which defaults to ``False``,
+so it silently never ran.
+
+They are not variants of one test. Applied to days, the per-observation rule marks 132 of
+the archive's 2024 days as storms against 52, and moves the published figures to
++32.2% / +29.1% - the same conclusion, a different published number.
 This port uses that combined, reviewer-referenced threshold instead of the live checkout's
 ad hoc Dst-only one, verified against ``src/analysis/scenario_evaluation.py``'s own
 ``THRESHOLDS['storm']`` (documented there as the 90th/10th percentile of the hourly 2024

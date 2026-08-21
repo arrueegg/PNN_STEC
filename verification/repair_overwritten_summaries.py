@@ -87,7 +87,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experiments", type=Path, default=paths.LEGACY_EXPERIMENTS)
     parser.add_argument(
-        "--since", default="2026-08-21 00:00", help="rebuild summaries rewritten after this"
+        "--since",
+        default="2026-08-21 00:00",
+        help="rebuild summaries rewritten after this",
     )
     parser.add_argument("--apply", action="store_true", help="write; otherwise dry run")
     parser.add_argument("--limit", type=int, default=0)
@@ -96,7 +98,9 @@ def main() -> int:
     targets = summary_dirs(args.experiments, args.since)
     if args.limit:
         targets = targets[: args.limit]
-    print(f"{'APPLY' if args.apply else 'DRY RUN'}: {len(targets)} damaged summary/summaries\n")
+    print(
+        f"{'APPLY' if args.apply else 'DRY RUN'}: {len(targets)} damaged summary/summaries\n"
+    )
 
     repaired = skipped = refused = 0
     for results_dir in targets:
@@ -117,7 +121,9 @@ def main() -> int:
             refused += 1
             continue
 
-        print(f"  {'repair' if args.apply else 'would':7s} {label}  {before} -> {after} rows")
+        print(
+            f"  {'repair' if args.apply else 'would':7s} {label}  {before} -> {after} rows"
+        )
         if args.apply:
             backup = summary_path.with_suffix(summary_path.suffix + BACKUP_SUFFIX)
             if not backup.exists():
