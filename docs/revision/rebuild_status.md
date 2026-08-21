@@ -21,9 +21,9 @@ Updated 2026-08-20.
 | 6 — positioning | metrics and all six positioning analyses ported; PPPx driver deliberately untouched |
 | 7 — analyses and figures | 20 analyses plus the figures ported; 2 stages stay on pre-rebuild scripts by choice |
 | 8 — divergences | not started (manuscript frozen until then) |
-| 9 — release package | not started |
+| 9 — release package | **done** — pyproject, generated fixtures, clean-clone test, REPRODUCING.md |
 
-419 tests pass. **Twenty-one of the 23 declared stages now run rebuilt code.** `ruff check` and `ruff format --check` are clean.
+435 tests pass. **Twenty-one of the 23 declared stages now run rebuilt code**, and the package is proven to run with no access to the 640 GB. `ruff check` and `ruff format --check` are clean.
 
 ---
 
@@ -41,7 +41,8 @@ they catch is the wiring error a port introduces.
 | B | 7 real checkpoints: the paper's pretrained model + 6 fine-tuned days | **PASS, bit-exact** (mean and variance both 0.0e+00) |
 | C | legacy TrainManager vs rebuilt fit loop, same seed and batches, 3 and 6 epochs | **PASS, bit-exact** — loss trajectory and every parameter at 0.000e+00 |
 | D | rebuilt vs legacy inference, seeded, 4096 real observations, 100 draws | **PASS, bit-exact** — against an MC noise floor of 1.275 TECU |
-| E–F | not yet run | — |
+| E (metrics half) | rebuilt metrics vs the row the old code recorded for the same .pos, 96 station-days | **PASS** — max 4.99e-05 m, which *is* the CSV's `%.4f` rounding floor |
+| F | ported analyses vs their predecessors on real inputs | see `gate_f_analysis_equivalence.py`; declared divergences are not failures |
 
 ### The determinism question is settled
 
