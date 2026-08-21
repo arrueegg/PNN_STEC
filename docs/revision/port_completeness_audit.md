@@ -260,3 +260,50 @@ scripts" accounting.
    needing that hand table, and the rebuilt one does not yet do that job.
 6. **`storm_stratification` docstring fix** — no code change needed, just deleting or
    correcting the stale opening paragraph so it agrees with the rest of the module and the code.
+
+---
+
+## Resolution status (2026-08-21)
+
+| # | Item | State |
+|---|---|---|
+| 1 | `uncertainty_calibration` storm/quiet split | **restored** — as a `regime` column and `_<regime>`-suffixed PIT files, on the port's own axis convention rather than the original's six files. Accumulated in the same single pass, so `quiet.n + storm.n == all.n` exactly. Regime rule is the original's daily-minimum Dst of −50 nT. |
+| 2 | `uncertainty_error_relation` by-elevation view | **restored**, with `rmse_over_sigma` and `mean_aleatoric` |
+| 3 | `stratified_comparison` `R2` | **restored** — recomputed from running sums; the pooling identity was checked against a direct whole-frame computation and agrees to 1.1e-16, with the two edge cases (perfect predictor → 1.0, predict-the-mean → 0.0) exact |
+| 4 | `daily_metrics` `vs_published.csv` | **restored** — diffs against the published summary CSV rather than hardcoded constants, as the original did |
+| 5 | `results_manifest` disk inventory | outstanding |
+| 6 | `storm_stratification` docstring | **fixed** |
+
+## Two further drops, found while restoring the first four
+
+Neither was in the original audit; both were found by diffing the port against its
+predecessor rather than by any gate, which is the same way the first four surfaced.
+
+- **`NOMINAL_LEVELS` lost `0.99`.** The port reports coverage at 50/68/90/95%; the original
+  also reported 99%. That is the level at which an over-confident model is most visible, so
+  its loss weakens the calibration claim precisely where the evidence is strongest.
+  Restored, and every level now tracks a calibrated synthetic sample to within 0.0005 under
+  both Gaussian and Laplace.
+- **`CRPS_constant_sigma` was dropped entirely.** This is the reference that makes `CRPS`
+  interpretable — it answers "would a single constant uncertainty have scored as well?",
+  which is the whole claim the uncertainty head exists to support. Without it a reader has a
+  CRPS and nothing to compare it to. Restored as `CRPS_constant_scale`, evaluated over an
+  accumulated residual histogram because the residuals are not Gaussian.
+
+  The port scores every product under both families, so unlike the original the reference is
+  family-aware — and that raised a choice the original never faced. A Laplace's standard
+  deviation is `sqrt(2)*b`, so matching its scale to RMSE would give the reference a
+  needlessly wide distribution and flatter the model against it. The scale is matched to RMSE
+  for a Gaussian and RMSE/sqrt(2) for a Laplace; the Laplace test fails by ~8% under the
+  naive choice, which is what pins it.
+
+Still recorded rather than changed: `scores()` omits the original's residual-histogram
+diagnostics beyond the reference score.
+
+## What this says about the audit
+
+Six accidental drops so far, **four of them found today**, none caught by a gate — a gate
+compares files both sides write, and a file only one side writes is invisible to it. The
+drops were found by reading the two implementations side by side. That is the argument for
+finishing the audit rather than trusting the green gates: the rate of discovery has not yet
+fallen off.
