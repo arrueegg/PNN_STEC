@@ -346,20 +346,33 @@ def run(
 
 
 def compare_frames(a: pd.DataFrame, b: pd.DataFrame) -> dict[str, float]:
-    """Max relative difference per shared numeric column."""
+    """Max relative difference per shared column.
+
+    Numeric columns are compared on their values. Text columns are compared as exact
+    strings and reported as 0.0 or infinity, because a label is either the same label or
+    a different one - there is no tolerance to express. Skipping them, which this function
+    used to do, made every non-numeric artifact invisible to the gate: computational_cost's
+    cost_summary.csv has no numeric column at all, so the whole file went uncompared while
+    the comparison reported a match.
+    """
     differences: dict[str, float] = {}
     for column in sorted(set(a.columns) & set(b.columns)):
         left, right = a[column], b[column]
-        if not (
-            pd.api.types.is_numeric_dtype(left) and pd.api.types.is_numeric_dtype(right)
-        ):
-            continue
         if len(left) != len(right):
             differences[column] = float("inf")
             continue
-        scale = np.maximum(np.abs(right.to_numpy(dtype=float)), 1.0)
-        delta = np.abs(left.to_numpy(dtype=float) - right.to_numpy(dtype=float)) / scale
-        differences[column] = float(np.nanmax(delta)) if len(delta) else 0.0
+        if pd.api.types.is_numeric_dtype(left) and pd.api.types.is_numeric_dtype(right):
+            scale = np.maximum(np.abs(right.to_numpy(dtype=float)), 1.0)
+            delta = (
+                np.abs(left.to_numpy(dtype=float) - right.to_numpy(dtype=float)) / scale
+            )
+            differences[column] = float(np.nanmax(delta)) if len(delta) else 0.0
+            continue
+        # NaN != NaN, so an all-empty column would otherwise read as a difference.
+        unequal = (left.astype(str) != right.astype(str)) & ~(
+            left.isna() & right.isna()
+        )
+        differences[column] = float("inf") if bool(unequal.any()) else 0.0
     return differences
 
 
@@ -480,6 +493,23 @@ def main() -> int:
         if unknown:
             raise SystemExit(f"unknown analysis: {sorted(unknown)}")
         selected = tuple(c for c in COMPARISONS if c.name in set(args.only))
+
+    # Both sides read the store through paths.LEGACY_PREDICTIONS, which falls back to this
+    # checkout when STEC_LEGACY_ROOT is unset. In a worktree that directory is empty, and
+    # the two sides then agree perfectly about nothing - a vacuous PASS of exactly the kind
+    # this gate exists to catch. Forgetting `source .env.worktree` is the ordinary way to
+    # arrive here, so refuse rather than compare.
+    stored_days = (
+        len(list(paths.LEGACY_PREDICTIONS.glob("*/*/year=*/doy=*.parquet")))
+        if paths.LEGACY_PREDICTIONS.exists()
+        else 0
+    )
+    if stored_days == 0:
+        raise SystemExit(
+            f"no prediction store under {paths.LEGACY_PREDICTIONS} - refusing to compare "
+            "two analyses that would both read nothing. Set STEC_LEGACY_ROOT "
+            "(`source .env.worktree`) and re-run."
+        )
 
     if args.workspace.exists() and not args.keep:
         shutil.rmtree(args.workspace)
