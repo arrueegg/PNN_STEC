@@ -247,9 +247,16 @@ COMPARISONS: tuple[Comparison, ...] = (
         outputs=("by_uncertainty.csv",),
         legacy_outputs=("by_sigma.csv",),
         expected_divergence={
-            "RMSE": "uncertainty bins changed from first-day sigma deciles to fixed "
-            "absolute TECU edges",
-            "MAE": "same fixed-edge rebinning as RMSE",
+            "*": "three declared changes, not one. (1) bins are fixed absolute TECU "
+            "intervals rather than the first day's deciles, which held 6.88-18.80% of the "
+            "population instead of 10%. (2) epistemic_share is redefined: the original "
+            "computed mean_epistemic**2 / (mean_epistemic**2 + mean_aleatoric**2), the "
+            "square of the means, where the variance decomposition calls for the mean of "
+            "the squares - the rebuilt sum_epistemic_sq / sum_total_sq. The original is "
+            "biased by Jensen and compresses the range: 4.94-6.66% against 3.07-16.39%. "
+            "The rebuilt statistic is the correct one, but the change was undeclared until "
+            "a port audit found it. (3) it is now a fraction, not a percentage, and the "
+            "column lost its % suffix - read the units before quoting it.",
         },
     ),
     Comparison(
@@ -359,6 +366,14 @@ def compare_frames(a: pd.DataFrame, b: pd.DataFrame) -> dict[str, float]:
 def verdict_for(
     comparison: Comparison, differences: dict[str, float]
 ) -> tuple[str, list[str]]:
+    # Two frames sharing no numeric column produce an empty difference map, and an empty
+    # map trivially satisfies every "nothing exceeds tolerance" test below. That is a pass
+    # earned by comparing nothing - the same vacuous success this gate exists to detect,
+    # occurring inside the detector. storm_stratification's by_regime.csv hits it exactly:
+    # the port reshaped a MultiIndex header into a long table, so the two share zero column
+    # names.
+    if not differences:
+        return "FAIL", ["no numeric column in common - nothing was actually compared"]
     if "*" in comparison.expected_divergence:
         return "DIVERGED", [comparison.expected_divergence["*"]]
 
