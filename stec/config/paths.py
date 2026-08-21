@@ -68,6 +68,18 @@ def station_list(split: str) -> Path:
     return SPLIT_LISTS / f"{split}_station.list"
 
 
+def date_list(split: str) -> Path:
+    """`split` is one of train, val, test. One `YYYY-MM` token per line."""
+    return SPLIT_LISTS / f"{split}_dates.list"
+
+
+# The IGS station metadata (name, lat, lon, ...) that `split`'s lists were carved out of -
+# a cached snapshot of https://files.igs.org/pub/station/general/IGSNetwork.csv, not
+# re-downloaded here: this host cannot reach it (see CLAUDE.md), and the coordinates a
+# station had when the split was made are the ones the split figure must show.
+IGS_STATION_COORDINATES = SPLIT_LISTS / "IGSNetwork.csv"
+
+
 # --- artifacts (written by stages) --------------------------------------------------
 
 ARTIFACT_ROOT = _root("STEC_ARTIFACT_ROOT", REPO_ROOT / "artifacts")
