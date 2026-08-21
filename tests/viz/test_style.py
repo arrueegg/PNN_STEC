@@ -77,3 +77,23 @@ def test_save_plot_notitle_has_no_title_artist(tmp_path):
     style.save_plot(fig, "demo.png", tmp_path)
 
     assert titles_when_saved == ["A Title", ""]
+
+
+def test_analysis_method_labels_are_palette_keys():
+    """An approach's colour is looked up by its name, so a rename silently unbinds it.
+
+    `stratified_comparison` shipped with "IGS GIM" and "Pretrained" where its predecessor
+    and the palette both say "IGS GIM + Mapping" and "Pretrained Direct STEC". Gate F only
+    caught it once text columns became comparable; this catches it at import time.
+
+    `daily_metrics` is deliberately excluded: it uses the short spellings, but so does the
+    analysis it replaces, so changing it would break a confirmed equivalence. That
+    inconsistency is inherited, not introduced, and is recorded rather than silently fixed.
+    """
+    from stec.analysis import stratified_comparison as sc
+
+    from stec.viz.style import APPROACH_COLORS
+
+    unmatched = set(sc.METHODS.values()) - set(APPROACH_COLORS)
+    assert not unmatched, f"labels with no colour: {sorted(unmatched)}"
+    assert sc.BASELINE in APPROACH_COLORS

@@ -49,13 +49,18 @@ from ..config import paths
 
 logger = logging.getLogger(__name__)
 
+# These strings are the join key between an analysis and the figure palette: an approach's
+# colour is looked up by its name in `stec.viz.style.APPROACH_COLORS`, and green must only
+# ever mean IGS GIM. The port had shortened two of them to "IGS GIM" and "Pretrained",
+# which match neither the predecessor nor the palette, so a figure built from this table
+# would have lost the colour binding for half its series.
 METHODS = {
     "stec_pred": "Direct STEC",
     "vtec_model_stec": "VTEC + Mapping",
-    "gim_stec": "IGS GIM",
-    "pretrained_stec_pred": "Pretrained",
+    "gim_stec": "IGS GIM + Mapping",
+    "pretrained_stec_pred": "Pretrained Direct STEC",
 }
-BASELINE = "IGS GIM"
+BASELINE = "IGS GIM + Mapping"
 TRUTH_COLUMN = "true_stec"
 
 ELEVATION_BINS = [5, 20, 30, 40, 50, 60, 70, 90]
