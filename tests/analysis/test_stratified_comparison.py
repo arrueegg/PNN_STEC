@@ -151,3 +151,69 @@ def test_nans_are_excluded_pairwise_not_row_wise():
 
     assert rows_out["Direct STEC"]["n"] == rows
     assert rows_out["VTEC + Mapping"]["n"] == rows - 10
+
+
+def test_r2_streaming_matches_whole_frame_direct_computation(tmp_path):
+    """R2 from streamed per-day accumulation must equal R2 computed directly on the
+    days concatenated into one frame - the property that makes it safe to pool the
+    running sums (`sum_truth`, `sum_truth_sq`) across days instead of holding every
+    observation in memory. The denominator is the truth's variance *within the bin*,
+    not over the whole day."""
+    days = [(2024, 130, 500, 42), (2024, 131, 700, 7), (2024, 132, 200, 99)]
+    frames = {}
+    for year, doy, rows, seed in days:
+        frame = day_frame(rows, seed)
+        frames[doy] = frame
+        ps.write_predictions(frame, "finetuned_stec", "own", year, doy, root=tmp_path)
+
+    rows_accumulated = sc.collect("finetuned_stec", "own", tmp_path)
+    tables = sc.finalise(rows_accumulated)
+
+    whole = pd.concat(frames.values(), ignore_index=True)
+    binned = pd.cut(
+        whole["satele"], bins=sc.ELEVATION_BINS, include_lowest=True
+    ).astype(str)
+    for method_column, method in sc.METHODS.items():
+        error = whole[method_column].to_numpy(float) - whole["true_stec"].to_numpy(
+            float
+        )
+        direct = pd.DataFrame(
+            {"bin": binned, "_sq": error**2, "_truth": whole["true_stec"]}
+        )
+        method_table = tables["elevation"][
+            tables["elevation"].Method == method
+        ].set_index("bin")
+        for bin_label, group in direct.groupby("bin", observed=True):
+            ss_res = group["_sq"].sum()
+            ybar = group["_truth"].mean()
+            ss_tot = ((group["_truth"] - ybar) ** 2).sum()
+            expected_r2 = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
+            got = method_table.loc[bin_label, "R2"]
+            # float32 round trip through the parquet store costs ~1e-7 relative.
+            if np.isnan(expected_r2):
+                assert np.isnan(got)
+            else:
+                assert got == pytest.approx(expected_r2, rel=1e-5)
+
+
+def test_r2_is_one_for_perfect_predictor_and_zero_for_predicting_the_mean():
+    """R2 is 1 when a method's prediction matches the truth exactly, and 0 when it
+    always predicts the bin's own mean truth - the two reference points that pin the
+    formula, independent of the running-sum bookkeeping used to compute it."""
+    rows = 200
+    rng = np.random.default_rng(11)
+    truth = rng.uniform(0, 60, rows)
+    frame = pd.DataFrame(
+        {
+            "satele": rng.uniform(41, 49, rows),  # single elevation bin, (40, 50]
+            "true_stec": truth,
+            "stec_pred": truth,  # perfect predictor
+            "vtec_model_stec": np.full(rows, truth.mean()),  # predicts the bin mean
+        }
+    )
+
+    tables = sc.finalise(sc.accumulate_day(frame, doy=100))
+    elevation = tables["elevation"].set_index("Method")
+
+    assert elevation.loc["Direct STEC", "R2"] == pytest.approx(1.0)
+    assert elevation.loc["VTEC + Mapping", "R2"] == pytest.approx(0.0, abs=1e-9)

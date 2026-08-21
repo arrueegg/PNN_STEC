@@ -49,6 +49,15 @@ Days are streamed one at a time via ``prediction_store.iter_days`` /
 the store holds ~580 M rows over 242 days, which is what OOM-killed the
 original driver when it read the whole thing at once.
 
+On top of the model x family axes above, every accumulation is additionally split by
+geomagnetic regime (R1.6 asks explicitly for "uncertainty behaviour under ... disturbed
+conditions"). ``"all"`` is always accumulated; ``"quiet"`` and ``"storm"`` split the same
+day-by-day pass rather than re-reading the store, using the daily minimum-Dst rule at
+``STORM_DST_THRESHOLD`` - the same -50 nT threshold as
+``stec.analysis.storm_stratification.STORM_DST_THRESHOLD_NT``, so a day classified as
+storm here is a storm there too (see that module's docstring for why the unrelated
+per-observation rule in ``scenario_evaluation.py`` is a different test and not used here).
+
 Usage::
 
     python -m stec.analysis.uncertainty_calibration --dataset own
@@ -62,6 +71,7 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
@@ -73,8 +83,13 @@ from ..config import paths
 logger = logging.getLogger(__name__)
 
 # Central-interval levels to report coverage for.
-NOMINAL_LEVELS = (0.50, 0.68, 0.90, 0.95)
+NOMINAL_LEVELS = (0.50, 0.68, 0.90, 0.95, 0.99)
 PIT_BINS = 20
+
+# Residual histogram backing the constant-scale reference score. 0.1 TECU bins over a
+# range that comfortably covers the observed error distribution.
+RESIDUAL_RANGE_TECU = 200.0
+RESIDUAL_BINS = 4000
 
 # Both predictive families a product might be scored under. Every product below is
 # accumulated under both, tagged with which is native to its training loss.
@@ -83,6 +98,11 @@ FAMILIES = ("gaussian", "laplace")
 # Guard against division by a vanishing scale; both models have a variance floor, so
 # anything at or below this is a degenerate prediction rather than a real one.
 MIN_SCALE_TECU = 1e-3
+
+# Daily minimum Dst at or below this marks a storm day - the same daily rule and value
+# as `stec.analysis.storm_stratification.STORM_DST_THRESHOLD_NT` (not the unrelated
+# per-observation rule in `scenario_evaluation.py`; see the module docstring).
+STORM_DST_THRESHOLD = -50.0
 
 TRUTH_COLUMN = "true_stec"
 
@@ -105,6 +125,33 @@ PRODUCTS: dict[str, tuple[str, str, str]] = {
     "Direct STEC": ("stec_pred", "pred_total_unc", "gaussian"),
     "VTEC + Mapping": ("vtec_model_stec", "vtec_model_stec_total_unc", "laplace"),
 }
+
+
+def load_storm_doys(swi_path: Path, year: int) -> set[int] | None:
+    """Day-of-year values whose minimum Dst reaches `STORM_DST_THRESHOLD`.
+
+    Returns `None` rather than raising when the OMNI archive is unavailable: the
+    regime split is a bonus axis on top of the unconditional "all" accumulation, not a
+    precondition for it, so a missing archive should degrade to unstratified output
+    rather than stop the analysis.
+    """
+    if not swi_path.exists():
+        logger.warning(f"{swi_path} not found - skipping the storm/quiet split")
+        return None
+    with h5py.File(swi_path, "r") as handle:
+        group = handle[str(year)]
+        doys = sorted(group.keys(), key=int)
+        columns = [
+            c.decode() if isinstance(c, bytes) else c
+            for c in group[doys[0]].attrs["columns"]
+        ]
+        dst_col = columns.index("Dst-index,_nT")
+        return {
+            int(doy)
+            for doy in doys
+            if float(np.nanmin(np.asarray(group[doy])[:, dst_col]))
+            <= STORM_DST_THRESHOLD
+        }
 
 
 def gaussian_crps(y: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> np.ndarray:
@@ -178,6 +225,7 @@ class CalibrationAccumulator:
         self.crps_sum = 0.0
         self.squared_error_sum = 0.0
         self.scale_sum = 0.0
+        self.residual_counts = np.zeros(RESIDUAL_BINS, dtype=np.int64)
 
     def update(self, y: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> None:
         keep = (
@@ -202,6 +250,11 @@ class CalibrationAccumulator:
         self.crps_sum += float(crps_values(self.family, y, mu, sigma).sum())
         self.squared_error_sum += float(np.sum((y - mu) ** 2))
         self.scale_sum += float(np.sum(sigma))
+        self.residual_counts += np.histogram(
+            np.clip(y - mu, -RESIDUAL_RANGE_TECU, RESIDUAL_RANGE_TECU),
+            bins=RESIDUAL_BINS,
+            range=(-RESIDUAL_RANGE_TECU, RESIDUAL_RANGE_TECU),
+        )[0]
 
     def coverage_table(self) -> pd.DataFrame:
         return pd.DataFrame(
@@ -240,12 +293,45 @@ class CalibrationAccumulator:
         deviation_at_left_edge = np.abs(cumulative_left - edges[:-1])
         return float(max(deviation_at_right_edge.max(), deviation_at_left_edge.max()))
 
+    def constant_scale_crps(self, rmse: float) -> float:
+        """CRPS of a predictor that emits one constant scale for every observation.
+
+        This is the reference that makes `CRPS` interpretable: it answers "would a single
+        number have scored as well as the per-observation uncertainty?", which is the whole
+        claim the uncertainty head exists to support. Evaluated over the accumulated
+        residual histogram rather than assumed analytically, because the residuals are not
+        Gaussian.
+
+        The constant scale is chosen so the reference predictor is as sharp as the data
+        allow - matched to RMSE for a Gaussian, and to RMSE/sqrt(2) for a Laplace, whose
+        standard deviation is `sqrt(2) * b`. Scoring a Laplace reference at scale = RMSE
+        would hand it a needlessly wide distribution and flatter the model by comparison.
+        """
+        edges = np.linspace(
+            -RESIDUAL_RANGE_TECU, RESIDUAL_RANGE_TECU, RESIDUAL_BINS + 1
+        )
+        centres = 0.5 * (edges[:-1] + edges[1:])
+        weights = self.residual_counts / self.residual_counts.sum()
+        scale = rmse if self.family == "gaussian" else rmse / np.sqrt(2.0)
+        return float(
+            np.sum(
+                weights
+                * crps_values(
+                    self.family,
+                    centres,
+                    np.zeros_like(centres),
+                    np.full_like(centres, scale),
+                )
+            )
+        )
+
     def scores(self) -> dict[str, float | int]:
         rmse = float(np.sqrt(self.squared_error_sum / self.n))
         mean_scale = self.scale_sum / self.n
         return {
             "observations": self.n,
             "CRPS": self.crps_sum / self.n,
+            "CRPS_constant_scale": self.constant_scale_crps(rmse),
             "RMSE": rmse,
             "mean_scale": mean_scale,
             "scale_to_rmse_ratio": mean_scale / rmse,
@@ -264,27 +350,41 @@ def _wanted_columns(path: Path, needed: Sequence[str]) -> list[str]:
     return [column for column in needed if column in present]
 
 
+# regime -> product name -> family -> accumulator. "all" is always present; "quiet" and
+# "storm" are added on top of it when a storm/quiet split was requested - an additional
+# axis over the same accumulation, not a replacement for the unstratified one.
+RegimeResults = dict[str, dict[str, dict[str, CalibrationAccumulator]]]
+
+
 def accumulate(
     model_variant: str,
     dataset: str,
     store_root: Path,
     doys: Sequence[int] | None = None,
-) -> dict[str, dict[str, CalibrationAccumulator]]:
+    storm_doys: set[int] | None = None,
+) -> RegimeResults:
     """Stream the store day by day, scoring every product in `PRODUCTS` under both
-    predictive families.
+    predictive families, and under every requested geomagnetic regime.
 
-    Returns `{product_name: {"gaussian": accumulator, "laplace": accumulator}}`,
-    restricted to products that had usable data in at least one requested day. Scoring
-    under both families - not only the native one - is what makes the effect of the
-    family choice auditable rather than a silent, one-sided decision.
+    Returns `{regime: {product_name: {"gaussian": accumulator, "laplace": accumulator}}}`,
+    restricted to (regime, product) combinations that had usable data in at least one
+    requested day. Passing `storm_doys` (see `load_storm_doys`) adds "quiet"/"storm"
+    entries alongside "all" by re-using the same per-day frame already read for "all" -
+    it does not read any file twice. Scoring under both families - not only the native
+    one - is what makes the effect of the family choice auditable rather than a silent,
+    one-sided decision.
     """
     needed = sorted(
         {TRUTH_COLUMN, *(col for cols in PRODUCTS.values() for col in cols[:2])}
     )
 
-    results = {
-        name: {family: CalibrationAccumulator(family) for family in FAMILIES}
-        for name in PRODUCTS
+    regimes = ("all",) if storm_doys is None else ("all", "quiet", "storm")
+    results: RegimeResults = {
+        regime: {
+            name: {family: CalibrationAccumulator(family) for family in FAMILIES}
+            for name in PRODUCTS
+        }
+        for regime in regimes
     }
 
     paths = ps.day_paths(model_variant, dataset, doys=doys, root=store_root)
@@ -314,20 +414,34 @@ def accumulate(
             )
         )
         truth = frame[TRUTH_COLUMN].to_numpy(dtype=np.float64)
+        if storm_doys is None:
+            day_regimes = ("all",)
+        elif doy in storm_doys:
+            day_regimes = ("all", "storm")
+        else:
+            day_regimes = ("all", "quiet")
+
         for name, (mean_col, scale_col, _native) in PRODUCTS.items():
             if mean_col not in frame.columns or scale_col not in frame.columns:
                 continue
             mu = frame[mean_col].to_numpy(dtype=np.float64)
             sigma = frame[scale_col].to_numpy(dtype=np.float64)
             for family in FAMILIES:
-                results[name][family].update(truth, mu, sigma)
+                for regime in day_regimes:
+                    results[regime][name][family].update(truth, mu, sigma)
 
     results = {
-        name: per_family
-        for name, per_family in results.items()
-        if per_family["gaussian"].n > 0
+        regime: {
+            name: per_family
+            for name, per_family in per_product.items()
+            if per_family["gaussian"].n > 0
+        }
+        for regime, per_product in results.items()
     }
-    if not results:
+    results = {
+        regime: per_product for regime, per_product in results.items() if per_product
+    }
+    if "all" not in results:
         raise RuntimeError(
             f"None of {list(PRODUCTS)} had usable columns in {model_variant}/{dataset} "
             f"under {store_root}"
@@ -335,38 +449,43 @@ def accumulate(
     return results
 
 
-def coverage_table(
-    results: dict[str, dict[str, CalibrationAccumulator]],
-) -> pd.DataFrame:
-    """One row per (model, family, nominal level), tagged with whether `family` is
-    that model's native one - so the native and mis-specified rows sit side by side."""
+def coverage_table(results: RegimeResults) -> pd.DataFrame:
+    """One row per (regime, model, family, nominal level), tagged with whether `family`
+    is that model's native one - so the native and mis-specified rows sit side by side,
+    and "all" sits alongside any "quiet"/"storm" split rather than being replaced by
+    it."""
     rows = []
-    for name, per_family in results.items():
-        native = PRODUCTS[name][2]
-        for family, accumulator in per_family.items():
-            table = accumulator.coverage_table()
-            table.insert(0, "native", family == native)
-            table.insert(0, "family", family)
-            table.insert(0, "model", name)
-            rows.append(table)
+    for regime, per_product in results.items():
+        for name, per_family in per_product.items():
+            native = PRODUCTS[name][2]
+            for family, accumulator in per_family.items():
+                table = accumulator.coverage_table()
+                table.insert(0, "native", family == native)
+                table.insert(0, "family", family)
+                table.insert(0, "model", name)
+                table.insert(0, "regime", regime)
+                rows.append(table)
     return pd.concat(rows, ignore_index=True)
 
 
-def scores_table(results: dict[str, dict[str, CalibrationAccumulator]]) -> pd.DataFrame:
-    """One row per (model, family): CRPS, RMSE, sharpness and PIT calibration,
-    native and mis-specified side by side."""
+def scores_table(results: RegimeResults) -> pd.DataFrame:
+    """One row per (regime, model, family): CRPS, RMSE, sharpness and PIT calibration,
+    native and mis-specified side by side, with "all" alongside any "quiet"/"storm"
+    split."""
     rows = []
-    for name, per_family in results.items():
-        native = PRODUCTS[name][2]
-        for family, accumulator in per_family.items():
-            rows.append(
-                {
-                    "model": name,
-                    "family": family,
-                    "native": family == native,
-                    **accumulator.scores(),
-                }
-            )
+    for regime, per_product in results.items():
+        for name, per_family in per_product.items():
+            native = PRODUCTS[name][2]
+            for family, accumulator in per_family.items():
+                rows.append(
+                    {
+                        "regime": regime,
+                        "model": name,
+                        "family": family,
+                        "native": family == native,
+                        **accumulator.scores(),
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -389,6 +508,18 @@ def main() -> None:
         default=None,
         help="Restrict to these day-of-year values; default is every day in the store.",
     )
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=2024,
+        help="Year the OMNI storm/quiet split is read for.",
+    )
+    parser.add_argument(
+        "--swi-path",
+        type=Path,
+        default=paths.OMNI_INDICES,
+        help="Hourly OMNI archive used for the storm/quiet split.",
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
 
@@ -396,8 +527,13 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
+    storm_doys = load_storm_doys(args.swi_path, args.year)
     results = accumulate(
-        args.model_variant, args.dataset, args.store_root, doys=args.doys
+        args.model_variant,
+        args.dataset,
+        args.store_root,
+        doys=args.doys,
+        storm_doys=storm_doys,
     )
 
     out = args.output_dir / f"{args.model_variant}_{args.dataset}"
@@ -409,25 +545,48 @@ def main() -> None:
     scores = scores_table(results)
     scores.to_csv(out / "scores.csv", index=False)
 
-    for name, per_family in results.items():
-        for family, accumulator in per_family.items():
-            accumulator.pit_table().to_csv(
-                out / f"pit_{_slug(name)}_{family}.csv", index=False
-            )
+    pit_file_count = 0
+    for regime, per_product in results.items():
+        for name, per_family in per_product.items():
+            for family, accumulator in per_family.items():
+                accumulator.pit_table().to_csv(
+                    out / f"pit_{_slug(name)}_{family}_{regime}.csv", index=False
+                )
+                pit_file_count += 1
 
     print(
         f"=== Proper scoring, native family vs the mis-specified alternative ({args.model_variant} / {args.dataset}) ==="
     )
-    print(scores.round(4).to_string(index=False))
+    print(
+        scores[scores["regime"] == "all"]
+        .drop(columns="regime")
+        .round(4)
+        .to_string(index=False)
+    )
 
-    print("\n=== Interval coverage: native vs mis-specified quantiles ===")
-    pivoted = coverage.pivot(
+    print(
+        "\n=== Interval coverage: native vs mis-specified quantiles (all observations) ==="
+    )
+    pivoted = coverage[coverage["regime"] == "all"].pivot(
         index=["model", "nominal"], columns="family", values="empirical"
     )
     print(pivoted.round(4).to_string())
 
+    if {"quiet", "storm"} <= set(results.keys()):
+        print(
+            f"\n=== Coverage by geomagnetic regime (native family, "
+            f"Dst_min <= {STORM_DST_THRESHOLD:.0f} nT marks storm) ==="
+        )
+        native_by_regime = coverage[
+            coverage["native"] & coverage["regime"].isin(["quiet", "storm"])
+        ]
+        regime_pivot = native_by_regime.pivot(
+            index=["model", "nominal"], columns="regime", values="empirical"
+        )
+        print(regime_pivot.round(4).to_string())
+
     logger.info(
-        f"wrote coverage.csv, scores.csv and {sum(len(v) for v in results.values())} pit_*.csv files to {out}"
+        f"wrote coverage.csv, scores.csv and {pit_file_count} pit_*.csv files to {out}"
     )
 
 

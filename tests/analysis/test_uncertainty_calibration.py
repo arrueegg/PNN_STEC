@@ -7,6 +7,7 @@ nominal 50%, while scoring it as the Laplace it actually is does not.
 
 from __future__ import annotations
 
+import h5py
 import numpy as np
 import pandas as pd
 import pytest
@@ -192,7 +193,8 @@ def test_streaming_accumulation_matches_whole_frame_computation(tmp_path):
             direct = uc.CalibrationAccumulator(family)
             direct.update(y, mu, sigma)
 
-            streamed = results[name][family]
+            # No storm_doys was passed, so "all" is the only regime accumulated.
+            streamed = results["all"][name][family]
             assert streamed.n == direct.n == len(whole)
             # rel tolerance loosened to float32 precision: the store casts numeric
             # columns to float32 on write, so the round trip alone costs ~1e-7 relative
@@ -216,8 +218,8 @@ def test_missing_product_column_is_skipped_not_errored(tmp_path):
     ps.write_predictions(frame, "finetuned_stec", "own", 2024, 132, root=tmp_path)
 
     results = uc.accumulate("finetuned_stec", "own", tmp_path)
-    assert "VTEC + Mapping" not in results
-    assert "Direct STEC" in results
+    assert "VTEC + Mapping" not in results["all"]
+    assert "Direct STEC" in results["all"]
 
 
 def test_accumulate_raises_when_store_is_empty(tmp_path):
@@ -234,6 +236,8 @@ def test_coverage_table_tags_native_family(tmp_path):
     results = uc.accumulate("finetuned_stec", "own", tmp_path)
 
     coverage = uc.coverage_table(results)
+    # No storm_doys was passed, so "all" is the only regime in the output.
+    assert set(coverage["regime"]) == {"all"}
     direct_stec_native = coverage[
         (coverage["model"] == "Direct STEC") & coverage["native"]
     ]
@@ -242,3 +246,144 @@ def test_coverage_table_tags_native_family(tmp_path):
     assert set(vtec_native["family"]) == {"laplace"}
     # Every (model, family) pair reports all four required nominal levels.
     assert set(uc.NOMINAL_LEVELS) <= set(coverage["nominal"])
+
+
+# --- Storm/quiet regime split (R1.6: "uncertainty behaviour under ... disturbed
+# conditions"), restored on top of the model x family axes above -------------------------
+
+
+def _write_swi_fixture(path, doy_to_dst_min: dict[int, float]) -> None:
+    """A minimal OMNI-shaped archive: one hourly row per day, holding only the daily
+    minimum Dst `load_storm_doys` actually reads (real files carry 24 rows and more
+    columns; a single row reproduces the same `nanmin` result more simply)."""
+
+    with h5py.File(path, "w") as handle:
+        group = handle.create_group("2024")
+        for doy, dst_min in doy_to_dst_min.items():
+            dataset = group.create_dataset(f"{doy:03d}", data=np.array([[dst_min]]))
+            dataset.attrs["columns"] = ["Dst-index,_nT"]
+
+
+def test_load_storm_doys_applies_the_daily_minimum_dst_threshold(tmp_path):
+    swi_path = tmp_path / "omni.h5"
+    _write_swi_fixture(
+        swi_path,
+        {
+            130: -49.9,  # quiet: just above (less negative than) the threshold
+            131: -50.0,  # storm: exactly at the threshold
+            132: -80.0,  # storm: well past it
+        },
+    )
+
+    storm_doys = uc.load_storm_doys(swi_path, 2024)
+
+    assert storm_doys == {131, 132}
+    # Matches storm_stratification.STORM_DST_THRESHOLD_NT so a day classified as storm
+    # here is a storm there too.
+    assert uc.STORM_DST_THRESHOLD == -50.0
+
+
+def test_load_storm_doys_returns_none_when_archive_missing(tmp_path):
+    assert uc.load_storm_doys(tmp_path / "does_not_exist.h5", 2024) is None
+
+
+def regime_day_frame(rows: int, seed: int) -> pd.DataFrame:
+    """Same shape as `day_frame`, but every mean is offset by `seed` so quiet-day and
+    storm-day accumulators are trivially distinguishable in the assertions below."""
+    frame = day_frame(rows, seed)
+    frame["stec_pred"] += seed
+    return frame
+
+
+def test_regime_split_is_an_additional_axis_not_a_replacement(tmp_path):
+    """Passing storm_doys must add "quiet"/"storm" entries alongside "all", and the
+    quiet + storm accumulators must partition "all" exactly - same rows, split by day,
+    not a second, independent pass over the store."""
+    quiet_frame = regime_day_frame(3_000, seed=1)
+    storm_frame = regime_day_frame(2_000, seed=2)
+    ps.write_predictions(quiet_frame, "finetuned_stec", "own", 2024, 130, root=tmp_path)
+    ps.write_predictions(storm_frame, "finetuned_stec", "own", 2024, 131, root=tmp_path)
+
+    results = uc.accumulate("finetuned_stec", "own", tmp_path, storm_doys={131})
+
+    assert set(results.keys()) == {"all", "quiet", "storm"}
+    all_acc = results["all"]["Direct STEC"]["gaussian"]
+    quiet_acc = results["quiet"]["Direct STEC"]["gaussian"]
+    storm_acc = results["storm"]["Direct STEC"]["gaussian"]
+
+    assert quiet_acc.n == len(quiet_frame)
+    assert storm_acc.n == len(storm_frame)
+    assert all_acc.n == quiet_acc.n + storm_acc.n == len(quiet_frame) + len(storm_frame)
+
+
+def test_regime_split_is_absent_when_storm_doys_not_given(tmp_path):
+    frame = day_frame(1_000, seed=5)
+    ps.write_predictions(frame, "finetuned_stec", "own", 2024, 132, root=tmp_path)
+
+    results = uc.accumulate("finetuned_stec", "own", tmp_path, storm_doys=None)
+
+    assert set(results.keys()) == {"all"}
+
+
+def test_coverage_and_scores_tables_carry_a_regime_column(tmp_path):
+    quiet_frame = regime_day_frame(1_500, seed=1)
+    storm_frame = regime_day_frame(1_500, seed=2)
+    ps.write_predictions(quiet_frame, "finetuned_stec", "own", 2024, 130, root=tmp_path)
+    ps.write_predictions(storm_frame, "finetuned_stec", "own", 2024, 131, root=tmp_path)
+
+    results = uc.accumulate("finetuned_stec", "own", tmp_path, storm_doys={131})
+    coverage = uc.coverage_table(results)
+    scores = uc.scores_table(results)
+
+    assert set(coverage["regime"]) == {"all", "quiet", "storm"}
+    assert set(scores["regime"]) == {"all", "quiet", "storm"}
+    # Every regime still reports every (model, family) combination.
+    for regime in ("all", "quiet", "storm"):
+        assert set(scores.loc[scores["regime"] == regime, "model"]) == set(uc.PRODUCTS)
+
+
+def _calibrated_sample(family: str, n: int = 200_000, seed: int = 7):
+    """Residuals drawn from exactly the family they will be scored under."""
+    rng = np.random.default_rng(seed)
+    sigma = rng.uniform(0.5, 6.0, n)
+    if family == "gaussian":
+        return rng.normal(0.0, sigma), sigma
+    return rng.laplace(0.0, sigma / np.sqrt(2.0)), sigma
+
+
+@pytest.mark.parametrize("family", ["gaussian", "laplace"])
+def test_nominal_levels_include_99_and_track_a_calibrated_sample(family):
+    # 0.99 is the level at which an over-confident model is most visible, and it was
+    # dropped from NOMINAL_LEVELS during the port.
+    assert 0.99 in uc.NOMINAL_LEVELS
+    y, sigma = _calibrated_sample(family)
+    accumulator = uc.CalibrationAccumulator(family)
+    accumulator.update(y, np.zeros_like(y), sigma)
+    coverage = accumulator.coverage_table().set_index("nominal")["empirical"]
+    for level in uc.NOMINAL_LEVELS:
+        assert abs(coverage[level] - level) < 0.005
+
+
+@pytest.mark.parametrize("family", ["gaussian", "laplace"])
+def test_per_observation_uncertainty_beats_the_constant_scale_reference(family):
+    """The reference is what makes CRPS interpretable, so it must be beatable."""
+    y, sigma = _calibrated_sample(family)
+    accumulator = uc.CalibrationAccumulator(family)
+    accumulator.update(y, np.zeros_like(y), sigma)
+    scores = accumulator.scores()
+    assert scores["CRPS"] < scores["CRPS_constant_scale"]
+
+
+@pytest.mark.parametrize("family", ["gaussian", "laplace"])
+def test_a_constant_scale_predictor_scores_its_own_reference(family):
+    """A model emitting one scale everywhere *is* the reference, so the two must agree.
+
+    This is what pins the reference to the right parameterisation: a Laplace scored at
+    scale = RMSE rather than RMSE/sqrt(2) fails here by roughly 8%.
+    """
+    y, sigma = _calibrated_sample(family)
+    constant = np.full_like(y, float(np.sqrt(np.mean(sigma**2))))
+    accumulator = uc.CalibrationAccumulator(family)
+    accumulator.update(y, np.zeros_like(y), constant)
+    scores = accumulator.scores()
+    assert scores["CRPS"] == pytest.approx(scores["CRPS_constant_scale"], rel=1e-3)

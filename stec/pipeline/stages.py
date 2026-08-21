@@ -203,12 +203,15 @@ STAGES: list[Stage] = [
     ),
     Stage(
         # Ported. Scores every model under both Gaussian and Laplace, tagging which is
-        # native, so the mis-specified number sits beside the correct one.
+        # native, so the mis-specified number sits beside the correct one. Also
+        # restratifies every (model, family) accumulation by geomagnetic regime -
+        # "all" plus the daily-Dst "quiet"/"storm" split from the pre-rebuild source,
+        # answering R1.6's "uncertainty behaviour under ... disturbed conditions".
         "uncertainty_calibration",
         "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/uncertainty_calibration_rebuilt",
         "R1.6, R2.6",
-        "coverage, PIT and CRPS for every model, each under its own likelihood",
-        inputs=[STORE_OWN, STORE_PRETRAINED],
+        "coverage, PIT and CRPS for every model, each under its own likelihood and regime",
+        inputs=[STORE_OWN, STORE_PRETRAINED, SWI],
         outputs=["multiday_results/uncertainty_calibration_rebuilt"],
         caveats=[
             "The VTEC baseline is a Laplace, and its stored vtec_model_stec_total_unc is "
@@ -217,6 +220,9 @@ STAGES: list[Stage] = [
             "Scored as a Gaussian the same data reads 90% coverage at nominal 50% against "
             "82% under Laplace; both scorings are emitted side by side, tagged by which "
             "likelihood is native to each model.",
+            "The storm/quiet split uses the daily minimum-Dst rule at -50 nT, matching "
+            "storm_stratification.STORM_DST_THRESHOLD_NT - not the per-observation rule "
+            "in scenario_evaluation.py.",
         ],
     ),
     Stage(

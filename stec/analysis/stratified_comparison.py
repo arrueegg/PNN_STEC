@@ -17,6 +17,11 @@ regardless of how many days the store holds; every quantity reported is a sum or
 count, so the accumulation is exact. Bin edges are fixed module constants, not derived
 from any day's data, so every day is binned into the same partition.
 
+Alongside RMSE and MAE, each (bin, Method) also reports R2 - the coefficient of
+determination of the truth *within that bin* (not over the whole day), computed from
+running sums of the truth and its square (``sum_truth``, ``sum_truth_sq``) so it pools
+across days exactly rather than being derived from the already-aggregated RMSE.
+
 NaNs are excluded **pairwise per method**: a method with a missing or invalid
 prediction for one observation must not remove that observation from another method's
 tally. The original driver computed ``error = frame[method] - truth`` without an
@@ -139,6 +144,9 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
             # method) pair - 16 per day over 242 days - which is what made this port
             # exceed a one-hour timeout where its predecessor finished in eleven
             # minutes. groupby consumes a Categorical directly and far faster.
+            # sum_truth / sum_truth_sq carry the running sum of squares of the truth
+            # actually scored by this method (masked the same as the error itself),
+            # so R2 is poolable across days without holding any observation in memory.
             part = pd.DataFrame(
                 {
                     "bin": binned.iloc[valid].to_numpy()
@@ -146,12 +154,18 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
                     else binned.iloc[valid],
                     "_sq": error[valid] ** 2,
                     "_abs": np.abs(error[valid]),
+                    "_truth": truth[valid],
+                    "_truth_sq": truth[valid] ** 2,
                 }
             ).dropna(subset=["bin"])
             if part.empty:
                 continue
             grouped = part.groupby("bin", observed=True).agg(
-                n=("_sq", "size"), sum_sq=("_sq", "sum"), sum_abs=("_abs", "sum")
+                n=("_sq", "size"),
+                sum_sq=("_sq", "sum"),
+                sum_abs=("_abs", "sum"),
+                sum_truth=("_truth", "sum"),
+                sum_truth_sq=("_truth_sq", "sum"),
             )
             for bin_value, row in grouped.iterrows():
                 rows.append(
@@ -191,6 +205,13 @@ def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
     )
     pooled["RMSE"] = np.sqrt(pooled.sum_sq / pooled.n)
     pooled["MAE"] = pooled.sum_abs / pooled.n
+    # SST from the running sums: sum((y - ybar)^2) = sum(y^2) - n*ybar^2. Variance is
+    # of the truth *within this bin*, not over the whole day - sum_truth/sum_truth_sq
+    # are already pooled per (stratifier, bin, Method) at this point.
+    total_sum_squares = pooled.sum_truth_sq - pooled.sum_truth**2 / pooled.n
+    pooled["R2"] = np.where(
+        total_sum_squares > 0, 1 - pooled.sum_sq / total_sum_squares, np.nan
+    )
     pooled = pooled.rename(columns={"n": "observations"})
 
     tables = {}
@@ -212,6 +233,7 @@ def finalise(rows: list[dict]) -> dict[str, pd.DataFrame]:
                 "observations",
                 "RMSE",
                 "MAE",
+                "R2",
                 "improvement_over_gim_pct",
             ]
         ].reset_index(drop=True)

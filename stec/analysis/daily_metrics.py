@@ -56,6 +56,17 @@ DATASET_LABELS = {"own": "own_vtec_gim", "madrigal": "madrigal_vtec_gim"}
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
 DEFAULT_OUTPUT_DIR = Path("multiday_results/daily_metrics_rebuilt")
 
+# The aggregation this analysis supersedes (see the module docstring for why it is no
+# longer the right source - it predates the GIM day-lookup repair and cannot be
+# recomputed without re-running inference). Diffing against it is what turns "the GIM
+# column changed" into a checkable number instead of an implicit claim.
+PUBLISHED_SUMMARY = (
+    paths.LEGACY_MULTIDAY
+    / "with_pretrained_baseline"
+    / "summary"
+    / "summary_statistics.csv"
+)
+
 
 def day_metrics(truth: np.ndarray, prediction: np.ndarray) -> dict | None:
     """RMSE/MAE/R2/Bias/Std for one model on one day, pairwise-excluding NaNs."""
@@ -170,11 +181,40 @@ def summarise(per_day: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def compare_to_published(
+    summary: pd.DataFrame, published: pd.DataFrame
+) -> pd.DataFrame:
+    """Diff the recomputed summary against the pre-rebuild `summary_statistics.csv`.
+
+    `delta` is the recomputed RMSE_mean minus the published one, so a change caused by
+    the GIM day-lookup repair (or any other correction this module picks up
+    automatically) is a checkable number rather than an implicit claim. Joined on
+    (dataset, Model); `published`'s own column names (`Dataset`, capitalised) are
+    renamed to match `summary`'s.
+    """
+    reference = published[["Dataset", "Model", "RMSE_mean", "Num_days"]].rename(
+        columns={
+            "Dataset": "dataset",
+            "RMSE_mean": "RMSE_published",
+            "Num_days": "days_published",
+        }
+    )
+    comparison = summary.merge(reference, on=["dataset", "Model"], how="left")
+    comparison["delta"] = comparison["RMSE_mean"] - comparison["RMSE_published"]
+    return comparison
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store-root", type=Path, default=DEFAULT_STORE_ROOT)
     parser.add_argument("--model-variant", type=str, default="finetuned_stec")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--published",
+        type=Path,
+        default=PUBLISHED_SUMMARY,
+        help="pre-rebuild summary_statistics.csv to diff the recomputed RMSE against.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -196,6 +236,30 @@ def main() -> None:
         .round(4)
         .to_string(index=False)
     )
+
+    if args.published.exists():
+        published = pd.read_csv(args.published)
+        comparison = compare_to_published(summary, published)
+        comparison.to_csv(args.output_dir / "vs_published.csv", index=False)
+        print("\n=== against the published table ===")
+        print(
+            comparison[
+                ["dataset", "Model", "RMSE_published", "RMSE_mean", "delta", "Num_days"]
+            ]
+            .round(4)
+            .to_string(index=False)
+        )
+        incomplete = comparison[comparison["Num_days"] < comparison["days_published"]]
+        if not incomplete.empty:
+            logger.warning(
+                "the store covers fewer days than the published table - these "
+                "numbers are not yet the final correction"
+            )
+    else:
+        logger.info(
+            f"no published summary at {args.published} - skipping vs_published.csv"
+        )
+
     logger.info(f"wrote per_day.csv and summary.csv to {args.output_dir}")
 
 

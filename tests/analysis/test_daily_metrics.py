@@ -128,3 +128,95 @@ def test_day_metrics_returns_none_when_nothing_is_finite():
     truth = np.array([np.nan, np.nan])
     prediction = np.array([1.0, 2.0])
     assert dm.day_metrics(truth, prediction) is None
+
+
+# --- compare_to_published: the diff against the pre-rebuild summary_statistics.csv -----
+
+
+def test_compare_to_published_computes_delta_and_carries_day_counts():
+    """`published` uses the pre-rebuild file's own column names (`Dataset`, capitalised
+    `RMSE_mean`/`Num_days`) - the rename inside compare_to_published must land on
+    `summary`'s lowercase `dataset` so the merge key actually matches."""
+    summary = pd.DataFrame(
+        {
+            "dataset": ["own_vtec_gim", "own_vtec_gim"],
+            "Model": ["Direct STEC Model", "IGS GIM"],
+            "RMSE_mean": [6.90, 8.30],
+            "Num_days": [242, 242],
+        }
+    )
+    published = pd.DataFrame(
+        {
+            "Dataset": ["own_vtec_gim", "own_vtec_gim"],
+            "Model": ["Direct STEC Model", "IGS GIM"],
+            "RMSE_mean": [6.92, 8.56],
+            "Num_days": [242, 242],
+        }
+    )
+
+    comparison = dm.compare_to_published(summary, published)
+
+    direct_stec = comparison[comparison["Model"] == "Direct STEC Model"].iloc[0]
+    assert direct_stec["RMSE_published"] == pytest.approx(6.92)
+    assert direct_stec["delta"] == pytest.approx(6.90 - 6.92)
+
+    # The repaired GIM baseline is the case this comparison exists to surface: the
+    # recomputed RMSE is below the published, contaminated one.
+    gim = comparison[comparison["Model"] == "IGS GIM"].iloc[0]
+    assert gim["RMSE_published"] == pytest.approx(8.56)
+    assert gim["delta"] == pytest.approx(8.30 - 8.56)
+    assert gim["delta"] < 0
+
+
+def test_compare_to_published_flags_incomplete_day_coverage():
+    """A store that has not caught up to the published day count must be detectable
+    from the comparison frame - `days_published` alongside the recomputed `Num_days` is
+    what main() checks before treating a number as final."""
+    summary = pd.DataFrame(
+        {
+            "dataset": ["own_vtec_gim"],
+            "Model": ["Direct STEC Model"],
+            "RMSE_mean": [6.90],
+            "Num_days": [100],
+        }
+    )
+    published = pd.DataFrame(
+        {
+            "Dataset": ["own_vtec_gim"],
+            "Model": ["Direct STEC Model"],
+            "RMSE_mean": [6.92],
+            "Num_days": [242],
+        }
+    )
+
+    comparison = dm.compare_to_published(summary, published)
+
+    assert (comparison["Num_days"] < comparison["days_published"]).all()
+
+
+def test_compare_to_published_keeps_unmatched_models_with_nan_reference():
+    """A model recomputed here but absent from the published table (or vice versa) must
+    survive the left join rather than be silently dropped - the whole point is to make a
+    missing comparison visible, not to hide it."""
+    summary = pd.DataFrame(
+        {
+            "dataset": ["own_vtec_gim"],
+            "Model": ["Pretrained STEC"],
+            "RMSE_mean": [13.4],
+            "Num_days": [242],
+        }
+    )
+    published = pd.DataFrame(
+        {
+            "Dataset": ["own_vtec_gim"],
+            "Model": ["Direct STEC Model"],
+            "RMSE_mean": [6.92],
+            "Num_days": [242],
+        }
+    )
+
+    comparison = dm.compare_to_published(summary, published)
+
+    assert len(comparison) == 1
+    assert np.isnan(comparison.iloc[0]["RMSE_published"])
+    assert np.isnan(comparison.iloc[0]["delta"])
