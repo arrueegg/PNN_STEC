@@ -134,9 +134,16 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
             valid = np.isfinite(error)
             if not valid.any():
                 continue
+            # Index the binned Series positionally and keep it categorical. Calling
+            # .to_numpy() here instead materialises ~1.6 M objects per (stratifier,
+            # method) pair - 16 per day over 242 days - which is what made this port
+            # exceed a one-hour timeout where its predecessor finished in eleven
+            # minutes. groupby consumes a Categorical directly and far faster.
             part = pd.DataFrame(
                 {
-                    "bin": binned.to_numpy()[valid],
+                    "bin": binned.iloc[valid].to_numpy()
+                    if labels is not None
+                    else binned.iloc[valid],
                     "_sq": error[valid] ** 2,
                     "_abs": np.abs(error[valid]),
                 }
