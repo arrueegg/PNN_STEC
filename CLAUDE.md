@@ -315,6 +315,16 @@ Two evaluations that are **not** what they look like:
   a hard-limit-only cap OOM-kills a job that is not actually using the memory. Set
   `MemoryHigh` ~2/3 of `MemoryMax` so the kernel reclaims continuously, and read the split from
   `memory.stat` (`anon` / `file`) before concluding a job is memory-hungry.
+- **Never edit a shell script while it is running.** `bash` reads a script incrementally by
+  file offset, so an in-place edit makes the running shell resume at a byte position that no
+  longer means what it did, and it dies with a syntax error somewhere it never reached before.
+  `run_station_recovery.sh` was committed 12 minutes into a 14-hour geometry sweep (37ff008,
+  mtime 14:36 against a 14:23 start) and died at 04:49 with `line 93: syntax error near
+  unexpected token 'then'`. `bash -n` reports the file clean, because the file is fine - it is
+  the *running* shell that was corrupted. 13h 27min of CPU was lost. Copy the script to a
+  temporary path and edit that, or wait. Note the systemd unit then reported
+  `Result=success`: the restart re-read the now-valid file and completed in 2.4 s, so the
+  final state is success and the failure is only visible in `journalctl`.
 - **Give unattended queues `Restart=on-failure`.** Every step of `weekend_queue.sh` is idempotent
   or resumable, so a crash should cost the in-flight step, not the night.
 - **A/B input comparisons must seed the weight draws.** `BayesianResNetSTEC`'s output layer
