@@ -77,8 +77,16 @@ STAGES: list[Stage] = [
         "-m stec.analysis.relative_error_metrics --output-dir multiday_results/relative_error_metrics_rebuilt",
         "R2.1, R2.2",
         "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
-        outputs=["multiday_results/relative_error_metrics_rebuilt"],
-        min_rows={"multiday_results/relative_error_metrics_rebuilt": 5},
+        outputs=[
+            "multiday_results/relative_error_metrics_rebuilt",
+            "multiday_results/relative_error_metrics_rebuilt/yearly_metrics.csv",
+        ],
+        # Keyed on the CSV, not the directory: a tree digest carries files/size/mtime but
+        # no row count, so a min_rows on a directory can never be satisfied and the stage
+        # fails however well it ran.
+        min_rows={
+            "multiday_results/relative_error_metrics_rebuilt/yearly_metrics.csv": 5
+        },
     ),
     Stage(
         "hyperparameter_search",
@@ -288,7 +296,10 @@ STAGES: list[Stage] = [
         "R1.5",
         "which station-days each method solved, and why the rest are missing",
         inputs=["experiments"],
-        outputs=["multiday_results/positioning_full_coverage"],
+        # The command writes positioning_coverage_rebuilt; positioning_full_coverage is
+        # the pre-rebuild tree this stage reads alongside, and declaring it here claimed
+        # ownership of output this stage never produces.
+        outputs=["multiday_results/positioning_coverage_rebuilt"],
         canonical_for="positioning station-day coverage",
         caveats=[
             "Canonical variant selection is explicit: it matches the canonical "
