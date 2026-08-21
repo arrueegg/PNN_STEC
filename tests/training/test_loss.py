@@ -174,3 +174,42 @@ def test_from_config_builds_a_working_loss():
     model, mean, variance, targets = _model_and_batch()
     total, _ = loss_fn(mean, targets, variance, model, epoch=1)
     assert torch.isfinite(total)
+
+
+def test_disagreeing_kl_weights_are_refused():
+    """The legacy trainer annealed to loss_weight; this one uses end_weight.
+
+    config/config_BNN.yaml ships with 1.0 against 0.1, so silently preferring either key
+    would train a model tenfold different from the one the other implementation gives.
+    """
+    config = {
+        "training": {
+            "loss_weight": 1.0,
+            "kl_annealing": {"enabled": True, "end_weight": 0.1, "warmup_epochs": 5},
+        }
+    }
+    with pytest.raises(ValueError, match="disagree"):
+        KLWarmupSchedule.from_config(config)
+
+
+def test_agreeing_kl_weights_are_accepted():
+    """Every one of the 853 shipped configs sets both to the same value."""
+    config = {
+        "training": {
+            "loss_weight": 0.1,
+            "kl_annealing": {"enabled": True, "end_weight": 0.1, "warmup_epochs": 5},
+        }
+    }
+    assert KLWarmupSchedule.from_config(config).end_weight == pytest.approx(0.1)
+
+
+def test_a_disabled_schedule_does_not_police_the_weights():
+    """With annealing off the legacy code returned loss_weight and never annealed, so
+    there is no second key to disagree with."""
+    config = {
+        "training": {
+            "loss_weight": 1.0,
+            "kl_annealing": {"enabled": False, "end_weight": 0.1},
+        }
+    }
+    assert KLWarmupSchedule.from_config(config).enabled is False

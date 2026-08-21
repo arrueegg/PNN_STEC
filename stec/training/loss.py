@@ -24,6 +24,7 @@ uses it.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,14 +54,49 @@ class KLWarmupSchedule:
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> KLWarmupSchedule:
         """Read `training.kl_annealing` (keys: `enabled`, `start_weight`, `end_weight`,
-        `warmup_epochs`). Defaults match the paper's `config_BNN.yaml`."""
-        block = config.get("training", {}).get("kl_annealing", {})
-        return cls(
+        `warmup_epochs`). Defaults match the paper's `config_BNN.yaml`.
+
+        Raises:
+            ValueError: if `training.loss_weight` and `training.kl_annealing.end_weight`
+                disagree. The pre-rebuild trainer annealed the KL term towards
+                `training.loss_weight` and never read `end_weight` at all - that key
+                exists in the config only to name the experiment directory. This class
+                reads `end_weight`, the key whose name says what it does, so the two
+                implementations agree only for as long as the two values do.
+
+                Every checkpoint that shipped kept them equal at 0.1, so the paper's
+                models are unaffected. The checked-in templates do not:
+                `config/config_BNN.yaml` carries `loss_weight: 1.0` against
+                `end_weight: 0.1`, a tenfold disagreement for every epoch after warmup -
+                and the comment on that very line reads "should match loss_weight above".
+                Running the documented `cli.py train --config config/config_BNN.yaml`
+                through the old and the new code would train genuinely different models.
+                Refusing is the only safe reading: silently preferring either key hands
+                somebody a model they did not ask for.
+        """
+        training = config.get("training", {})
+        block = training.get("kl_annealing", {})
+        schedule = cls(
             enabled=block.get("enabled", False),
             start_weight=block.get("start_weight", 0.0),
             end_weight=block.get("end_weight", 0.1),
             warmup_epochs=block.get("warmup_epochs", 5),
         )
+        loss_weight = training.get("loss_weight")
+        if (
+            schedule.enabled
+            and loss_weight is not None
+            and not math.isclose(float(loss_weight), schedule.end_weight, rel_tol=1e-9)
+        ):
+            raise ValueError(
+                f"training.loss_weight ({loss_weight}) and "
+                f"training.kl_annealing.end_weight ({schedule.end_weight}) disagree. "
+                "The pre-rebuild trainer annealed towards loss_weight; this one uses "
+                "end_weight, so the two would train different models from one config. "
+                "Set both to the KL weight you intend - every shipped checkpoint used "
+                "0.1 for both."
+            )
+        return schedule
 
     def weight(self, epoch: int) -> float:
         """The KL weight to use for `epoch` (0-indexed, matching the training loop)."""

@@ -24,24 +24,9 @@ so it silently never ran.
 They are not variants of one test. Applied to days, the per-observation rule marks 132 of
 the archive's 2024 days as storms against 52, and moves the published figures to
 +32.2% / +29.1% - the same conclusion, a different published number.
-This port uses that combined, reviewer-referenced threshold instead of the live checkout's
-ad hoc Dst-only one, verified against ``src/analysis/scenario_evaluation.py``'s own
-``THRESHOLDS['storm']`` (documented there as the 90th/10th percentile of the hourly 2024
-test distribution) applied to each day's *extremes* rather than to individual hours - the
-same "one storm hour marks the whole day" convention the live Dst-only rule already used.
-
-This is a real behavioural difference, not a cosmetic one: of the 242 days actually
-covered by ``positioning_full_coverage/multiday_summary.csv``, the live Dst-only rule
-marks 39 as storm; the combined rule used here marks 102. The published R1.7 numbers in
-``docs/revision/evidence_summary.md`` (+31.9% / +26.3% Direct-STEC-over-GIM improvement in
-quiet/storm) were computed under the Dst-only rule and will **not** reproduce from this
-module - run against the live data this module instead gives +32.2% / +29.1%, the same
-qualitative conclusion (Direct STEC degrades least under storm) with different magnitudes.
-A sibling module written independently during the same rebuild,
-``stec/analysis/positioning_summary.py``, also computes a storm/quiet split for R1.7 and
-kept the live checkout's Dst-only ``-50`` threshold - see this port's final report for the
-reconciliation this leaves outstanding; per the porting brief, existing files are not
-edited here to fix it.
+``stec/analysis/positioning_summary.py`` computes a storm/quiet split for R1.7 from
+the same daily Dst rule and the same threshold (-50 nT), so the two modules agree by
+construction rather than by coincidence.
 
 Unlike ``evaluation.enable_scenarios`` in the pre-rebuild config - which defaults to
 ``False`` and so silently skips the equivalent per-observation stratification even though
