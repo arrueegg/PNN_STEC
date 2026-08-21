@@ -1,6 +1,8 @@
-"""Exercises the manuscript figure builders (Figures 1, 2, 10, 12-15) against synthetic
-frames, mirroring `tests/viz/test_revision_figures.py`: a `_save`-plumbing check, then one
-end-to-end CSV/list -> PNG path per figure family.
+"""Exercises the manuscript figure builders (all 14 code-generated figures) against
+synthetic frames, mirroring `tests/viz/test_revision_figures.py`: a `_save`-plumbing
+check, then one end-to-end CSV/list -> PNG path per figure family. Figures 4-9 use
+deterministic residual/uncertainty offsets (not noise) wherever an exact MAE/RMSE value
+makes the assertion tighter than a mere "the file exists" check.
 
 Kept synthetic throughout - no read of `multiday_results/` or the prediction store, per
 the resource limits this port was built under.
@@ -114,6 +116,177 @@ def test_fig_spatial_split_builds_end_to_end_from_synthetic_stations(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# Figures 4-9 - per-observation residual/uncertainty diagnostics
+# --------------------------------------------------------------------------
+
+
+def _synthetic_observation_frame(
+    rows: int = 3400, seed: int = 0, offset: float = 3.0
+) -> pd.DataFrame:
+    """A per-observation frame shaped like the prediction store's own column names, with
+    a *constant* prediction offset rather than noise - so a bin's MAE and RMSE are both
+    exactly `offset`, an exact assertion rather than a statistical one."""
+    rng = np.random.default_rng(seed)
+    true_stec = rng.uniform(0, 60, rows)
+    total_unc = np.abs(rng.normal(3.0, 1.0, rows)) + 0.5
+    return pd.DataFrame(
+        {
+            "true_stec": true_stec,
+            "stec_pred": true_stec + offset,
+            "satele": rng.uniform(5, 90, rows),
+            "sm_lat_ipp": rng.uniform(-90, 90, rows),
+            "local_time_hours": rng.uniform(0, 24, rows),
+            "sod": rng.uniform(0, 86400, rows),
+            "lon_ipp": rng.uniform(-180, 180, rows),
+            "year": rng.integers(2020, 2021, rows),
+            "doy": rng.integers(1, 366, rows),
+            "pred_total_unc": total_unc,
+            "pred_epistemic_unc": total_unc * 0.3,
+            "pred_aleatoric_unc": total_unc * 0.7,
+        }
+    )
+
+
+def test_fig_pred_density_writes_hexbin_and_the_underlying_points(tmp_path):
+    style.configure_plotting()
+    df = _synthetic_observation_frame()
+    mf.fig_pred_density(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    assert (target / "pred_density.png").exists()
+    assert (target / "pred_density_notitle.png").exists()
+    plotted = pd.read_csv(target / "pred_density.csv")
+    assert len(plotted) == len(df)
+
+
+def test_fig_pred_density_max_limit_uses_a_distinct_filename(tmp_path):
+    """The 300 TECU zoomed variant must not overwrite the full-range plot - the source
+    wrote them as two separate files for the same reason."""
+    style.configure_plotting()
+    df = _synthetic_observation_frame()
+    mf.fig_pred_density(df, tmp_path, "synthetic")
+    mf.fig_pred_density(df, tmp_path, "synthetic", max_limit=300.0)
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    assert (target / "pred_density.png").exists()
+    assert (target / "pred_density_limited.png").exists()
+
+
+def test_fig_residuals_elev_reports_the_exact_constant_offset(tmp_path):
+    style.configure_plotting()
+    df = _synthetic_observation_frame(offset=3.0)
+    mf.fig_residuals_elev(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    assert (target / "residuals_elev.png").exists()
+    plotted = pd.read_csv(target / "residuals_elev.csv")
+    assert len(plotted) == mf._ELEVATION_NUM_BINS
+    assert plotted["mae"].apply(lambda v: v == pytest.approx(3.0)).all()
+    assert plotted["rmse"].apply(lambda v: v == pytest.approx(3.0)).all()
+
+
+def test_fig_residuals_lat_keeps_empty_bins_as_nan_not_dropped(tmp_path):
+    """Ported from `plot_box_by_lat`'s `reindex(all_bins)`: a latitude band with no
+    observations must still appear as a bin (NaN MAE/RMSE), not vanish from the axis."""
+    style.configure_plotting()
+    df = _synthetic_observation_frame(rows=3400, offset=2.0)
+    df = df[~df["sm_lat_ipp"].between(60, 70)]  # empty the [60, 70) bin deliberately
+
+    mf.fig_residuals_lat(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    plotted = pd.read_csv(target / "residuals_lat.csv")
+    assert len(plotted) == len(mf._GEOMAGNETIC_LAT_BIN_EDGES) - 1
+    empty_bin = plotted[plotted["lat_bin_center"] == 65.0]
+    assert empty_bin["mae"].isna().all()
+    populated = plotted[plotted["lat_bin_center"] != 65.0]
+    assert populated["mae"].apply(lambda v: v == pytest.approx(2.0)).all()
+
+
+def test_fig_residuals_localtime_derives_time_from_sod_and_longitude(tmp_path):
+    """The pretrained model was not configured with `local_time_hours` as an input, so
+    its store rows lack the column; the figure must derive it via
+    `stratified_comparison.add_local_time` rather than skip."""
+    style.configure_plotting()
+    df = _synthetic_observation_frame(rows=3400, offset=1.5).drop(
+        columns=["local_time_hours"]
+    )
+    mf.fig_residuals_localtime(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    assert (target / "residuals_localtime.png").exists()
+    plotted = pd.read_csv(target / "residuals_localtime.csv")
+    assert len(plotted) == 24
+    assert plotted["mae"].dropna().apply(lambda v: v == pytest.approx(1.5)).all()
+
+
+def test_fig_residuals_localtime_skips_without_time_information(tmp_path, caplog):
+    style.configure_plotting()
+    df = _synthetic_observation_frame().drop(
+        columns=["local_time_hours", "sod", "lon_ipp"]
+    )
+    with caplog.at_level(logging.WARNING):
+        mf.fig_residuals_localtime(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    assert not target.exists()
+    assert "local_time_hours" in caplog.text
+
+
+def test_fig_residuals_year_month_reports_the_exact_constant_offset(tmp_path):
+    style.configure_plotting()
+    df = _synthetic_observation_frame(rows=600, offset=4.0)
+    df["year"] = 2024
+    df["doy"] = np.random.default_rng(1).integers(1, 366, len(df))
+
+    mf.fig_residuals_year_month(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    assert (target / "residuals_year_month.png").exists()
+    plotted = pd.read_csv(target / "residuals_year_month.csv")
+    assert plotted["mae"].apply(lambda v: v == pytest.approx(4.0)).all()
+    assert plotted["rmse"].apply(lambda v: v == pytest.approx(4.0)).all()
+    # `order = sorted(year_month.unique())`, not `.unique()`'s own (insertion) order.
+    assert list(plotted["year_month"]) == sorted(plotted["year_month"])
+
+
+def test_fig_uncertainty_builds_with_all_four_curves(tmp_path):
+    style.configure_plotting()
+    df = _synthetic_observation_frame(rows=3400, offset=2.0)
+    mf.fig_uncertainty(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    assert (target / "uncertainty.png").exists()
+    plotted = pd.read_csv(target / "uncertainty.csv")
+    assert plotted["mean_abs_error"].apply(lambda v: v == pytest.approx(2.0)).all()
+    assert plotted["mean_epistemic_unc"].notna().all()
+    assert plotted["mean_aleatoric_unc"].notna().all()
+
+
+def test_fig_uncertainty_skips_without_pred_total_unc(tmp_path, caplog):
+    style.configure_plotting()
+    df = _synthetic_observation_frame().drop(columns=["pred_total_unc"])
+    with caplog.at_level(logging.WARNING):
+        mf.fig_uncertainty(df, tmp_path, "synthetic")
+
+    assert not (tmp_path / mf.SOURCE_DIRS["pretrained"]).exists()
+    assert "pred_total_unc" in caplog.text
+
+
+def test_fig_uncertainty_skips_when_uncertainty_is_degenerate(tmp_path, caplog):
+    """A deterministic model (uncertainty ~ 0 everywhere) cannot be binned by
+    uncertainty value - the source's own guard, ported unchanged."""
+    style.configure_plotting()
+    df = _synthetic_observation_frame()
+    df["pred_total_unc"] = 0.0
+    with caplog.at_level(logging.WARNING):
+        mf.fig_uncertainty(df, tmp_path, "synthetic")
+
+    assert not (tmp_path / mf.SOURCE_DIRS["pretrained"]).exists()
+    assert "too small to bin" in caplog.text
+
+
+# --------------------------------------------------------------------------
 # Figure 10 - daily % improvement over VTEC/GIM baselines
 # --------------------------------------------------------------------------
 
@@ -174,6 +347,95 @@ def test_build_improvement_by_date_figures_end_to_end_from_synthetic_per_day_csv
     target = output_dir / mf.SOURCE_DIRS["finetuned"]
     assert (target / "improvements_rmse.png").exists()
     assert (target / "improvements_mae.png").exists()
+
+
+# --------------------------------------------------------------------------
+# Figure 11 - RMSE/MAE vs. elevation, mean +/- across-day std
+# --------------------------------------------------------------------------
+
+
+def _synthetic_daily_by_elevation() -> pd.DataFrame:
+    """Three days x two elevation bins x two methods, with Direct STEC's RMSE/MAE fixed
+    across days (std = 0, exactly) and VTEC + Mapping's varying (std > 0) - so the
+    across-day aggregation `fig_mae_rmse_finetuned` computes internally is checkable
+    exactly rather than just "did it run"."""
+    rows = []
+    for doy, vtec_rmse in ((130, 4.0), (131, 6.0), (132, 8.0)):
+        for elevation_bin in (20.0, 40.0):
+            rows.append(
+                {
+                    "doy": doy,
+                    "elevation_bin": elevation_bin,
+                    "Method": "Direct STEC",
+                    "n": 500,
+                    "RMSE": 2.0,
+                    "MAE": 1.5,
+                }
+            )
+            rows.append(
+                {
+                    "doy": doy,
+                    "elevation_bin": elevation_bin,
+                    "Method": "VTEC + Mapping",
+                    "n": 500,
+                    "RMSE": vtec_rmse,
+                    "MAE": vtec_rmse,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_fig_mae_rmse_finetuned_computes_mean_and_std_across_days(tmp_path):
+    style.configure_plotting()
+    daily = _synthetic_daily_by_elevation()
+    mf.fig_mae_rmse_finetuned(daily, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["finetuned"]
+    assert (target / "mae_rmse_finetuned.png").exists()
+    assert (target / "mae_rmse_finetuned_notitle.png").exists()
+    plotted = pd.read_csv(target / "mae_rmse_finetuned.csv").set_index(
+        ["elevation_bin", "Method"]
+    )
+
+    direct = plotted.loc[(20.0, "Direct STEC")]
+    assert direct["RMSE_mean"] == pytest.approx(2.0)
+    assert direct["RMSE_std"] == pytest.approx(0.0)
+    assert direct["days"] == 3
+    assert direct["observations"] == 1500
+
+    vtec = plotted.loc[(20.0, "VTEC + Mapping")]
+    assert vtec["RMSE_mean"] == pytest.approx(6.0)  # mean(4, 6, 8)
+    assert vtec["RMSE_std"] == pytest.approx(2.0)  # sample std of (4, 6, 8)
+
+
+def test_build_mae_rmse_finetuned_figure_is_scoped_to_the_own_dataset(tmp_path):
+    """The manuscript figure is the own test set; a Madrigal slice in the same CSV must
+    not silently overwrite it under the shared `mae_rmse_finetuned` filename."""
+    results_dir = tmp_path / "results"
+    (results_dir / "elevation_metrics_finetuned_rebuilt").mkdir(parents=True)
+    own = _synthetic_daily_by_elevation().assign(dataset="own")
+    madrigal = _synthetic_daily_by_elevation().assign(
+        dataset="madrigal", RMSE=lambda d: d["RMSE"] * 10
+    )
+    pd.concat([own, madrigal], ignore_index=True).to_csv(
+        results_dir
+        / "elevation_metrics_finetuned_rebuilt"
+        / "per_day_by_elevation.csv",
+        index=False,
+    )
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    mf._build_mae_rmse_finetuned_figure(args, output_dir)
+
+    target = output_dir / mf.SOURCE_DIRS["finetuned"]
+    plotted = pd.read_csv(target / "mae_rmse_finetuned.csv").set_index(
+        ["elevation_bin", "Method"]
+    )
+    # own's Direct STEC RMSE is 2.0 everywhere; madrigal's would be 20.0 - a mixed read
+    # would show it in the mean.
+    assert plotted.loc[(20.0, "Direct STEC"), "RMSE_mean"] == pytest.approx(2.0)
 
 
 # --------------------------------------------------------------------------
