@@ -36,6 +36,26 @@ POSITIONING = "multiday_results/positioning_full_coverage/multiday_summary.csv"
 WEIGHTING_RUN = "multiday_results/positioning_20260216_2052/multiday_summary.csv"
 SWI = "data/omni_hourly_2010-2025.h5"
 
+# stec.training.run_training / stec.inference.run_inference are the driver layer itself -
+# every stage above this point reads results that pre-rebuild src/ code produced, because
+# nothing under stec/training or stec/inference had a runnable entry point
+# (docs/revision/task_board.md S1-4). These two stages exercise that driver for real, but
+# deliberately against a tiny checked-in fixture rather than the paper's actual training
+# data: a declared stage runs unattended, by default, as part of `pipeline run`, and
+# pointing one at the real ~640 GB tree or a GPU-scale training job would make an ordinary
+# `pipeline run` silently start hours of compute. The paper's real checkpoints are still
+# produced by the unmodified pre-rebuild `src/main.py` (CLAUDE.md's canonical-results
+# table); running the same stec/ driver against real data is a deliberate, manual
+# invocation with different flags, not something this registry does on its own.
+SMOKE_FIXTURE_DIR = "tests/fixtures/pipeline_smoke"
+SMOKE_CONFIG = f"{SMOKE_FIXTURE_DIR}/config.yaml"
+SMOKE_DATABASE_ROOT = f"{SMOKE_FIXTURE_DIR}/external_data/STEC_DB_CASDCB"
+SMOKE_SWI = f"{SMOKE_FIXTURE_DIR}/repo_data/omni_hourly_2010-2025.h5"
+SMOKE_CHECKPOINT = (
+    "artifacts/models/pipeline_smoke_finetune/model/"
+    "finetune_BayesianResNetSTEC_seed42.pth"
+)
+
 # Reused verbatim wherever a Madrigal number is produced. The comparison changes two things
 # at once - the model is out of distribution *and* the reference comes from a different
 # processing chain - and 45% of the Madrigal RMSE variance is a per-station reference
@@ -50,6 +70,80 @@ MADRIGAL_CAVEAT = [
 
 
 STAGES: list[Stage] = [
+    Stage(
+        "training_smoke",
+        f"-m stec.training.run_training --config {SMOKE_CONFIG} "
+        f"--database-root {SMOKE_DATABASE_ROOT} --space-weather {SMOKE_SWI} "
+        "--device cpu",
+        "-",
+        "proves stec.training.run_training wires fit/loss/schedulers into a real "
+        "checkpoint end to end, on a tiny checked-in fixture day",
+        inputs=[SMOKE_FIXTURE_DIR],
+        outputs=[
+            SMOKE_CHECKPOINT,
+            "artifacts/models/pipeline_smoke_finetune/loss_history.csv",
+        ],
+        # 1 row = the fixture config's single fine-tune epoch (finetune.epochs: 1).
+        min_rows={"artifacts/models/pipeline_smoke_finetune/loss_history.csv": 1},
+        caveats=[
+            "Runs the real driver against a tiny checked-in fixture "
+            "(tests/fixtures/pipeline_smoke, 200 synthetic observations, hidden_dim=8), "
+            "not the paper's actual training data - deliberately, so this stage stays "
+            "safe to run unattended (CPU, sub-second) rather than starting a GPU-scale "
+            "job the moment it is declared. The paper's checkpoints come from "
+            "src/main.py, unmodified; retraining them through this driver against real "
+            "data is a separate, manual invocation - see the module docstring.",
+            "fit() runs every configured epoch and returns the final weights: no "
+            "best-checkpoint selection, no early stopping. Every shipped checkpoint was "
+            "instead selected by BaseTrainer.run_training's best-val-loss tracking, so "
+            "a checkpoint this driver produces from real data would not be a byte-for-"
+            "byte reproduction of one already on disk - only the loss trajectory is "
+            "gate-verified equivalent (Gate C).",
+            "training.log_target and <mode>.freeze_body are refused, not silently "
+            "ignored, if a config sets them: neither transform is ported.",
+            "Writes under artifacts/models/, not experiments/ - isolated from every "
+            "checkpoint any other stage or analysis reads.",
+        ],
+    ),
+    Stage(
+        "inference_smoke",
+        f"-m stec.inference.run_inference --config {SMOKE_CONFIG} "
+        f"--checkpoint {SMOKE_CHECKPOINT} --model-variant finetuned_stec --dataset own "
+        f"--doys 2024:132 --database-root {SMOKE_DATABASE_ROOT} "
+        f"--space-weather {SMOKE_SWI} "
+        "--output-dir artifacts/predictions/pipeline_smoke_inference --device cpu",
+        "-",
+        "proves stec.inference.run_inference wires monte_carlo into the prediction "
+        "store end to end, on the same tiny checked-in fixture day",
+        inputs=[SMOKE_CHECKPOINT, SMOKE_FIXTURE_DIR],
+        outputs=[
+            "artifacts/predictions/finetuned_stec/own/year=2024/doy=132.parquet",
+            "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv",
+        ],
+        # Keyed on the manifest, not the parquet: a parquet output carries no row count
+        # in the pipeline's provenance record (output_record only counts rows for .csv),
+        # which is why this stage writes a manifest CSV alongside the store file at all.
+        min_rows={
+            "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv": 1
+        },
+        caveats=[
+            "Runs against the same tiny fixture training_smoke does, and against the "
+            "checkpoint training_smoke just produced from it - not the paper's real "
+            "checkpoints or test set. See training_smoke's caveats for why.",
+            "Only the 'own' dataset is wired up. '--dataset madrigal' raises "
+            "NotImplementedError: Madrigal geometry has no stec/ model-input reader - "
+            "stec.baselines.madrigal loads Madrigal's reference STEC for comparison, "
+            "never model inputs. predictions/pretrained_stec/madrigal/ has no data for "
+            "exactly this reason (docs/revision/task_board.md S4).",
+            "Writes under artifacts/predictions/, the default "
+            "prediction_store.DEFAULT_STORE_ROOT - a different tree from the legacy "
+            "predictions/ every analysis stage above reads (STORE_OWN etc.), so this "
+            "stage's output is never picked up by daily_metrics or any other analysis.",
+            "Runs the zero-perturbation control (stec/models/determinism.py) before any "
+            "real sampling and fails loudly if it is not exactly 0.0 - the Bayesian A/B "
+            "invariant CLAUDE.md requires for every comparison built on this model.",
+        ],
+    ),
     Stage(
         "paper_tables",
         f"-m stec.analysis.paper_tables --config {paths.PAPER_PRETRAINED_CONFIG} "
@@ -210,7 +304,7 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "ionex_rms_benchmark",
-        "-m stec.analysis.ionex_rms_benchmark --output-dir multiday_results/ionex_rms_benchmark_rebuilt",
+        "-m stec.analysis.ionex_rms_benchmark --output_dir multiday_results/ionex_rms_benchmark_rebuilt",
         "R1.6b",
         "model uncertainty against the IGS and CODE GIM RMS maps",
         inputs=[STORE_OWN],
