@@ -47,3 +47,36 @@ Actual per-bin share ranges 6.88%-18.80% against an ideal 10.0% each - the day-1
 **Note (out of scope for this fix, flagged for the record):** the rebuilt module also dropped the `by_elevation.csv` view entirely (mean predicted sigma vs realised error, by elevation bin) - only the uncertainty-axis table survived the port. There is nothing to compare on that view because the rebuilt side does not produce it; `stratified_comparison`'s own elevation table reports per-method RMSE by elevation, which is a different quantity (no sigma column), so it does not substitute for the dropped view.
 
 **Conclusion:** because the two partitions do not share bin identity (deciles of one day vs fixed TECU ranges), there is no row-for-row "how much did this number move" answer - the honest description of the binning change's cost is the population-imbalance table above: the reused deciles silently stopped meaning "10% of observations" for all but the first day. The paper does not quote a specific decile-bin RMSE number, so no manuscript number changes; the substantive R1.2 claim (small epistemic share) is unaffected, confirmed above by recomputing it independent of either binning. **NOT YET APPLIED to the manuscript.**
+
+---
+
+## Fix 1 (measured 2026-08-21): `stratified_comparison` NaN poisoning — **zero numerical effect**
+
+The defect is real: the original computed `error = frame[method] - truth` with no finiteness
+check before summing, so a NaN in one method's column propagated through the sum and
+corrupted that bin's aggregate for **every** method sharing the bin. The port masks per
+method.
+
+Run against the full 242-day store, both sides, joined on `(bin, Method)`:
+
+| stratifier | rows | max abs difference |
+|---|---|---|
+| by_elevation | 14 | RMSE **0.000e+00**, MAE 0.000e+00, improvement% 0.000e+00, counts 0 |
+| by_geomagnetic_latitude | 18 | all **0.000e+00** |
+| by_local_time | 12 | all **0.000e+00** |
+| by_season | 8 | all **0.000e+00** |
+
+**Nothing moves.** The store carries no NaN in a position that would have triggered the
+poisoning, so the published stratified numbers are unaffected. The fix is defensive rather
+than corrective: it removes a way this analysis *could* silently corrupt itself, which
+matters for future data, not for the current tables.
+
+Worth recording how nearly this was mis-reported. A first comparison joined the two frames
+on `bin` alone — the model column is named `Method`, and omitting it produced a Cartesian
+product of every model against every other, which read as differences above 100% in
+`improvement_over_gim_pct`. The numbers looked alarming and meant nothing. Joining on the
+real key gives exact agreement.
+
+**One genuine difference, unrelated to the fix:** the rebuilt output drops the `R2` column
+the original emitted. That is a port omission, not a decision, and should be restored
+before this analysis replaces its predecessor.
