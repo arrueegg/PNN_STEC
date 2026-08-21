@@ -12,7 +12,7 @@ nothing about the science.
 
 ## Confirmed by an actual run
 
-15 of the 19 now carry a verdict measured against the real 242-day store, rather than
+17 of the 19 now carry a verdict measured against the real 242-day store, rather than
 an expectation written when the comparison was authored.
 
 | Comparison | Verdict |
@@ -26,12 +26,14 @@ an expectation written when the comparison was authored.
 | oracle_benchmark | MATCH |
 | positioning_robustness | MATCH |
 | positioning_summary | MATCH |
+| ionex_rms_benchmark | MATCH — confirmed after the conditional `gim_stec` assertion was made unconditional |
 | relative_error_metrics | MATCH |
 | station_independence | MATCH |
 | weighting_ablation | MATCH |
 | activity_stratification | DIVERGED — declared, after a genuine FAIL was found and fixed |
 | storm_stratification | DIVERGED — declared; `summarise()` rounds to 4 decimals, diffs 2e-5 to 1.5e-3 |
-| uncertainty_error_relation | DIVERGED — declared |
+| uncertainty_calibration | DIVERGED — declared; every model is now scored under both Gaussian and Laplace and tagged with which is native, so the frame carries rows the original did not. Re-run after the storm/quiet split, the 0.99 level and the constant-scale reference were restored. |
+| uncertainty_error_relation | DIVERGED — declared, three changes: fixed TECU bins, `epistemic_share` redefined, and reported as a fraction |
 
 **0 unexplained differences.**
 
@@ -44,8 +46,7 @@ invisible while text went uncompared.
 
 | Comparison | State |
 |---|---|
-| uncertainty_calibration | re-running — the port was rewritten today to restore the storm/quiet split, the 0.99 coverage level and the constant-scale reference CRPS, so any earlier verdict is stale |
-| stratified_comparison | measured directly at 0.000e+00, but wants a gate run now that `R2` is restored |
+| stratified_comparison | **running** — ~40 s/day per side, so ~5.5 h for the pair. It had been marked a permanent skip for overrunning the 1-hour subprocess timeout; slowness is a reason to run it unattended, not a reason to leave the only untested analysis untested. |
 
 ## Deliberately not compared
 
