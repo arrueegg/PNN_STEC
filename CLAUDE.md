@@ -18,6 +18,17 @@ sections below say which artifacts are current.** Read them before trusting any 
 | Weighting ablation (elev vs iono) | `multiday_results/positioning_20260216_2052/` | All six arms: `STEC_elev/iono`, `VTEC_elev/iono`, `gim_elev/iono`. |
 | Per-observation predictions | `predictions/` (parquet store, see below) | Authoritative going forward. |
 
+**Working output — not results, and not superseded results either.** The 26
+`multiday_results/positioning_with_pretrain_2026*` trees are intermediate snapshots written
+every 30-90 minutes by a sweep on 19-20 August, not distinct evaluations. Checked
+2026-08-21: each holds ~2,000 rows against the canonical tree's 35,652, covers 20 days and
+47 stations rather than 242 days, uses **elev** weighting, and carries only three arms -
+`gim_elev`, `Pretrained_STEC_elev`, `VTEC_elev`, with **no `STEC_elev` at all**, so the
+headline method is absent. Two of them (`20260819_1627`, `20260820_1354`) are aborted stubs
+of under 220 rows. Nothing in the paper may be drawn from any of them; they are kept only
+as a record of the sweep's progress. A third category exists because "superseded" would
+imply they once were results.
+
 **Superseded — do not cite, do not delete:** `multiday_results/summary/`, `summary_May/`,
 `summary_122_250/`, `mao_evaluation/`, and the positioning trees `positioning/`,
 `positioning_iono/`, `positioning_mean/`, `positioning_snx/`, `positioning_2026*`. They are
