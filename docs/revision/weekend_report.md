@@ -6,39 +6,48 @@ One file to read on Monday. Two systemd units are running unattended; both are
 ## Check everything in one command
 
 ```bash
-for u in weekend-recovery weekend-merge-watcher; do
+for u in overnight-final weekend-recovery weekend-merge-watcher checkpoint-snapshotter; do
   printf '%-24s %s\n' "$u" "$(systemctl --user show $u -p ActiveState --value)"
 done
 tail -20 logs/station_recovery_models.log
 tail -20 logs/merge_watcher.log
 ```
 
-## Read this first: your training was OOM-killed and lost progress
+## Read this first: the OOM hit evaluation, not training - and the restart destroyed the model
 
-`systemd-oomd` killed `overnight-final.service` at **2026-08-21 20:46** (13.8 GB peak, 1.2 GB
-swap). It restarted three minutes later **from epoch 1**, discarding roughly 137 epochs -
-`loss_history.csv` still holds them, but the run itself began again.
+The first diagnosis in this file was wrong and is corrected here.
 
-This happened while six analysis agents were running in parallel for the rebuild, with load
-above 12. That is very likely the cause. The machine is quiet again (load ~4.5, 18 GB
-available), so the restarted run should finish, but the lost epochs are lost.
+`systemd-oomd` killed `overnight-final.service` at **2026-08-21 20:46** (13.8 GB peak). It
+did **not** interrupt training. Training reached **epoch 136** and finished: the last epoch
+was written at 19:12, and `test_metrics/` plots (spatial, temporal, uncertainty analyses)
+were still being written at 20:13 - an hour later. The kill landed in the *evaluation*
+phase.
 
-At ~5.5 min/epoch it needs roughly 12-13 h from 21:55, so it should complete Saturday
-morning. Everything else is queued behind it:
+The damage was done by the automatic restart, not the crash. Training began again from
+epoch 1, and at 21:54 it **overwrote the converged 203 MB checkpoint** (epoch 136,
+val_loss 3.67) with an epoch-12 one (val_loss 7.46). The trainer keeps a single
+"best so far" file, and a fresh run's best-so-far starts at infinity, so the good model is
+destroyed by the first checkpoint the new run saves. No backup existed.
 
-    training finishes  ->  recovery starts (~25 h)  ->  merge
+**It is recoverable.** The retrain is reproducing the original trajectory exactly - epoch 11
+val 7.4558 against 7.46, epoch 12 val 8.0769 against 8.08, seed 42 - so the converged model
+returns around 11 h from 22:00, Saturday morning. The cost is time, not the model.
 
-If the training OOMs again it restarts from scratch again, and nothing downstream runs. If
-you find on Monday that nothing has progressed, check `NRestarts`:
+**This can no longer happen.** `checkpoint-snapshotter.service` copies every new checkpoint
+aside, tagged with the validation loss the log reported, keeping the newest 12 per
+experiment under `experiments/_checkpoint_snapshots/`. It stops if free disk falls below
+60 GB and writes to a temp name before renaming, so a snapshot is never half-written.
+
+The likely trigger: six analysis agents were running in parallel for the rebuild at load
+12+ when the kill happened. The machine is quiet again (load ~4.5, 18 GB available).
+
+If evaluation OOMs again the cycle repeats, and nothing downstream runs. Check on Monday:
 
 ```bash
 systemctl --user show overnight-final -p NRestarts -p ActiveEnterTimestamp
 journalctl --user -u overnight-final --since today | grep -i oom
+ls -la experiments/_checkpoint_snapshots/*/          # the insurance
 ```
-
-The recovery sweep deliberately does **not** run alongside training - it waits for the unit
-to be quiet on two checks 180 s apart. That protects the training from exactly the pressure
-that killed it, at the cost of the whole chain stalling if training never completes.
 
 ## What is running
 
