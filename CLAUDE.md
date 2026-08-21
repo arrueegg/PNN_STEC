@@ -315,6 +315,16 @@ Two evaluations that are **not** what they look like:
   a hard-limit-only cap OOM-kills a job that is not actually using the memory. Set
   `MemoryHigh` ~2/3 of `MemoryMax` so the kernel reclaims continuously, and read the split from
   `memory.stat` (`anon` / `file`) before concluding a job is memory-hungry.
+- **Logical independence is not resource independence.** Analyses that share no files can
+  still saturate the machine, because each one streams the same 70 GB store. Five concurrent
+  store-reading analyses plus a GPU inference measurement drove this box to a **load average
+  of 131 on 24 cores** with 28 of 30 GB used and 12 GB of swap, dropped the interactive
+  session, and slowed a running pretrain from 3.06 it/s to 0.40 it/s - a factor of 7.6 - for
+  several hours. Nothing was corrupted and nothing conflicted; the work was correctly
+  parallel and still wrong to run. Before starting anything long: read `uptime` and `free`,
+  cap concurrency at **two** analyses with **at most one** streaming the store, `nice -n 10`
+  every one of them, and never add GPU work while a training run holds the card - it is
+  compute-bound at 100% on 1.9 of 12 GB, so contention is for SMs, not memory.
 - **Never edit a shell script while it is running.** `bash` reads a script incrementally by
   file offset, so an in-place edit makes the running shell resume at a byte position that no
   longer means what it did, and it dies with a syntax error somewhere it never reached before.
