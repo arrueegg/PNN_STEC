@@ -12,35 +12,40 @@ nothing about the science.
 
 ## Confirmed by an actual run
 
+Thirteen of the nineteen now carry a verdict measured against the real 242-day store, rather
+than an expectation written when the comparison was authored.
+
 | Comparison | Verdict |
 |---|---|
-| common_set_positioning | MATCH |
-| computational_cost | MATCH — genuine only since text columns became comparable, see below |
+| common_set_positioning | MATCH — the declared `<`/`<=` outlier divergence never fires; 0 station-days sit at the 10.000 m boundary |
+| computational_cost | MATCH — genuine only since text columns became comparable |
+| daily_metrics | MATCH |
+| ionex_rms_benchmark | MATCH |
 | madrigal_reference_offset | MATCH — all five outputs, 67 per-station rows exact |
 | mapping_function_consistency | MATCH |
 | oracle_benchmark | MATCH |
 | positioning_robustness | MATCH |
 | positioning_summary | MATCH |
 | relative_error_metrics | MATCH |
+| station_independence | MATCH |
 | weighting_ablation | MATCH |
+| activity_stratification | DIVERGED — declared, after a genuine FAIL was found and fixed |
+| storm_stratification | DIVERGED — declared; `summarise()` rounds to 4 decimals, diffs 2e-5 to 1.5e-3 |
+| uncertainty_error_relation | DIVERGED — declared |
 
-## Divergences declared and explained
+**0 unexplained differences.**
 
-| Comparison | Why it differs |
-|---|---|
-| activity_stratification | reads the repaired GIM baseline; the predecessor read the pre-repair values |
-| storm_stratification | the port reshaped a MultiIndex header into a long table, so `by_regime.csv` shares no column name with its predecessor — structural, not numeric |
-| uncertainty_error_relation | three declared changes: fixed TECU bins, `epistemic_share` redefined from the square of means to the mean of squares, and reported as a fraction rather than a percentage |
+`activity_stratification` is worth naming: it came back FAIL under the text-comparing gate
+because its `f107_bin` label column changes under the already-declared rebinning and had
+never been declared. The label text is the most direct evidence of the rebin, and it was
+invisible while text went uncompared.
 
-## Not yet confirmed
+## Outstanding
 
 | Comparison | State |
 |---|---|
-| daily_metrics | running |
-| station_independence | running |
-| ionex_rms_benchmark | never attempted; streams the store, so it queues behind the two above |
-| stratified_comparison | measured directly at 0.000e+00, but needs a gate run now that `R2` has been restored |
-| uncertainty_calibration | blocked until the dropped storm/quiet outputs are restored |
+| uncertainty_calibration | re-running — the port was rewritten today to restore the storm/quiet split, the 0.99 coverage level and the constant-scale reference CRPS, so any earlier verdict is stale |
+| stratified_comparison | measured directly at 0.000e+00, but wants a gate run now that `R2` is restored |
 
 ## Deliberately not compared
 
