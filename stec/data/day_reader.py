@@ -13,9 +13,13 @@ Three details are not obvious from the schema and are wrong in quiet ways if gue
 * **`local_time_hours` is derived**, from second-of-day and the IPP *longitude* - not the
   station longitude.
 * **Space weather is hourly and joined by `sod // 3600`**, from a separate file whose
-  column order is recovered from an attribute and masked to drop YEAR, DOY and HR. A
-  feature the file does not carry contributes 0.0 rather than failing, which is the legacy
-  behaviour and is preserved here.
+  column order is recovered from an attribute and masked to drop YEAR, DOY and HR. The
+  legacy dataset filled a registry SWI name the file did not carry with 0.0
+  (`if in_idx is None: value = 0.0`); that fallback is **not** preserved here. A name
+  `read_space_weather` cannot find in the file's own column list is simply absent from the
+  returned dict, and `FeatureAssembler.assemble` then raises `KeyError` for it if the
+  layout needs it, rather than silently training on a zero. In practice this path is dead:
+  `data/omni_hourly_2010-2025.h5`'s column attributes carry all six registry SWI names.
 
 The legacy dataset reads one row per `__getitem__`. This reads whole columns, because every
 consumer here wants a day at a time and a 2 M-row day fetched row-wise is minutes rather

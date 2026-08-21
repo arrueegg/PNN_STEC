@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import h5py
 import numpy as np
 import pytest
 
-from stec.data.day_reader import HOURS_PER_DAY, compute_local_time_hours, read_day
+from stec.data.day_reader import (
+    HOURS_PER_DAY,
+    compute_local_time_hours,
+    read_day,
+    read_space_weather,
+)
 from stec.config import paths
 
 DATABASE_AVAILABLE = paths.stec_database_day(2024, 132).exists()
@@ -57,8 +63,6 @@ def test_year_and_doy_come_from_the_file_not_the_rows():
 @pytest.mark.skipif(not DATABASE_AVAILABLE, reason="STEC database not available")
 def test_row_count_matches_the_split_index():
     """File order and count must be preserved: index joins back to the table depend on it."""
-    import h5py  # noqa: PLC0415
-
     columns = read_day(2024, 132, split="test")
     with h5py.File(paths.stec_database_day(2024, 132), "r") as handle:
         expected = len(handle["2024/132/test_idx"])
@@ -75,3 +79,32 @@ def test_a_missing_day_is_an_error_not_an_empty_frame():
 def test_an_unknown_split_is_an_error():
     with pytest.raises(KeyError):
         read_day(2024, 132, split="not_a_split")
+
+
+def write_swi_day(path, year: int, doy: int, column_names: list[str]) -> None:
+    """A minimal synthetic OMNI file: one day's 24 hourly rows, given column order.
+
+    `read_space_weather` indexes `handle[f"{year}/{doy:03d}"]` directly as the dataset
+    (h5py creates the intermediate groups implicitly from the slashed name), with the
+    column order recovered from its `columns` attribute - mirroring the real file.
+    """
+    with h5py.File(path, "w") as handle:
+        table = handle.create_dataset(
+            f"{year}/{doy:03d}",
+            data=np.arange(24 * len(column_names)).reshape(24, len(column_names)),
+        )
+        table.attrs["columns"] = column_names
+
+
+def test_a_registry_column_the_file_does_not_carry_is_simply_absent(tmp_path):
+    """Not a 0.0 fallback: the legacy per-row `if in_idx is None: value = 0.0` is not
+    preserved here. `f107_index` is a real registry SWI name, deliberately left out of
+    this file's own column list to stand in for "genuinely missing"."""
+    swi_path = tmp_path / "omni.h5"
+    write_swi_day(swi_path, 2024, 132, ["YEAR", "DOY", "HR", "Kp_index"])
+
+    columns = read_space_weather(2024, 132, path=swi_path)
+
+    assert "Kp_index" in columns
+    assert "f107_index" not in columns
+    assert "YEAR" not in columns, "the index columns are masked out, not just unfound"
