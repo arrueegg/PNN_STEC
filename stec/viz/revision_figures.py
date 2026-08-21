@@ -71,6 +71,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ..config import paths
 from .style import (
     APPROACH_COLORS,
     CODE_GIM_COLOR,
@@ -98,18 +99,27 @@ SOURCE_DIRS = {
 def analysis_dir(results_dir: Path, analysis: str) -> Path:
     """Where `analysis` left its output, preferring the rebuilt run over its predecessor.
 
-    The ported analyses write to `<name>_rebuilt` so a rebuild cannot clobber the results
-    the paper was submitted from. Without this the figures would be built from the
-    pre-rebuild CSVs while every table came from the rebuilt ones - two implementations
-    behind one manuscript, which is the ambiguity this package exists to remove.
+    Mirrors `stec.config.paths.analysis_result_dir`, but resolved against a caller-given
+    `results_dir` rather than the fixed `paths.RESULTS_ROOT` - the same reason
+    `stec.runs.restructure_results.classify` takes its root as a parameter instead of
+    importing the destination directly, so this also works against a caller pointing
+    `--results_dir` at an alternate tree.
 
-    The two stages that deliberately stay on pre-rebuild scripts have no `_rebuilt`
-    directory, so they resolve to the plain name. That fallback is not silent: every figure
-    carries a provenance footnote naming the CSV it was drawn from, so which of the two was
-    used is visible in the artifact itself.
+    The ported analyses write to `analyses/<name>/rebuilt/` so a rebuild cannot clobber
+    the results the paper was submitted from. Without this the figures would be built
+    from the pre-rebuild CSVs while every table came from the rebuilt ones - two
+    implementations behind one manuscript, which is the ambiguity this package exists to
+    remove.
+
+    The stages that deliberately stay on pre-rebuild scripts (`repair_gim_baseline`,
+    `hyperparameter_search`) have no `rebuilt/` sibling, so they resolve to
+    `pre_rebuild/`. That fallback is not silent: every figure carries a provenance
+    footnote naming the CSV it was drawn from, so which of the two was used is visible in
+    the artifact itself.
     """
-    rebuilt = results_dir / f"{analysis}_rebuilt"
-    return rebuilt if rebuilt.is_dir() else results_dir / analysis
+    base = results_dir / paths.ANALYSES_RESULTS.name / analysis
+    rebuilt = base / "rebuilt"
+    return rebuilt if rebuilt.is_dir() else base / "pre_rebuild"
 
 
 def _save(
@@ -379,8 +389,8 @@ def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -
         # Two bars only: elevation weighting is the operational default, so it is the
         # comparison a reader needs. The fixed-variance arm answers a different,
         # mechanistic question and is reported as a number in
-        # multiday_results/weighting_ablation/fixed_variance.csv rather than as a bar
-        # for a scheme nobody actually uses.
+        # multiday_results/analyses/weighting_ablation/rebuilt/fixed_variance.csv rather
+        # than as a bar for a scheme nobody actually uses.
         ["Elevation weighting", "Predicted-uncertainty weighting"],
         {
             "Elevation weighting": d["elev_mean"].values,
@@ -1411,7 +1421,7 @@ def main() -> None:
     parser.add_argument(
         "--results_dir",
         type=Path,
-        default=Path("multiday_results"),
+        default=paths.RESULTS_ROOT,
         help="Root that all figure inputs below are resolved against.",
     )
     args = parser.parse_args()

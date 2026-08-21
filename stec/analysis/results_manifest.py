@@ -370,7 +370,9 @@ def disk_inventory_rows(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("multiday_results/results_manifest")
+        "--output-dir",
+        type=Path,
+        default=paths.analysis_result_dir("results_manifest", rebuilt=True),
     )
     parser.add_argument("--legacy-multiday", type=Path, default=paths.LEGACY_MULTIDAY)
     parser.add_argument(

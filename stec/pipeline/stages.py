@@ -26,17 +26,38 @@ rewrite: a stage's command changes when its analysis moves, and nothing else doe
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..config import paths
 from .stage import Stage
+
+
+def _rel(path: Path) -> Path:
+    """A `paths.py` result path, relative to `REPO_ROOT`.
+
+    `paths.py` itself always returns absolute paths - correct, since `REPO_ROOT` is
+    resolved once, in one place. But every other declared path in this file (`STORE_OWN`,
+    `SWI`, `"experiments"`, `"wandb"`) is repository-relative, and `.pipeline/*.json` is
+    documented as "the provenance record meant to be published alongside the code" - an
+    absolute path baked into a stage's recorded `command`/`outputs` would make that record
+    specific to whichever machine happened to run it. This is the one place that turns a
+    `paths.py` result back into what a stage command actually needs.
+    """
+    return path.relative_to(paths.REPO_ROOT)
+
+
+def _analysis_dir(name: str, *, rebuilt: bool) -> Path:
+    return _rel(paths.analysis_result_dir(name, rebuilt=rebuilt))
+
 
 STORE_OWN = "predictions/finetuned_stec/own"
 STORE_PRETRAINED = "predictions/pretrained_stec/own"
 STORE_MADRIGAL = "predictions/finetuned_stec/madrigal"
 POSITIONING = str(
-    paths.positioning_result_dir("full_coverage") / "multiday_summary.csv"
+    _rel(paths.positioning_result_dir("full_coverage")) / "multiday_summary.csv"
 )
 WEIGHTING_RUN = str(
-    paths.positioning_result_dir("20260216_2052") / "multiday_summary.csv"
+    _rel(paths.positioning_result_dir("20260216_2052")) / "multiday_summary.csv"
 )
 SWI = "data/omni_hourly_2010-2025.h5"
 
@@ -45,65 +66,41 @@ SWI = "data/omni_hourly_2010-2025.h5"
 # `paths.analysis_result_dir` is the one place the `analyses/<name>/{rebuilt,
 # pre_rebuild}` layout is spelled out (docs/revision/results_layout.md) - nothing below
 # builds a `multiday_results/...` string by hand.
-PAPER_TABLES_DIR = paths.analysis_result_dir("paper_tables", rebuilt=True)
-RELATIVE_ERROR_METRICS_DIR = paths.analysis_result_dir(
-    "relative_error_metrics", rebuilt=True
-)
-HYPERPARAMETER_SEARCH_DIR = paths.analysis_result_dir(
-    "hyperparameter_search", rebuilt=False
-)
-STATION_INDEPENDENCE_DIR = paths.analysis_result_dir(
-    "station_independence", rebuilt=True
-)
-COMPUTATIONAL_COST_DIR = paths.analysis_result_dir("computational_cost", rebuilt=True)
+PAPER_TABLES_DIR = _analysis_dir("paper_tables", rebuilt=True)
+RELATIVE_ERROR_METRICS_DIR = _analysis_dir("relative_error_metrics", rebuilt=True)
+HYPERPARAMETER_SEARCH_DIR = _analysis_dir("hyperparameter_search", rebuilt=False)
+STATION_INDEPENDENCE_DIR = _analysis_dir("station_independence", rebuilt=True)
+COMPUTATIONAL_COST_DIR = _analysis_dir("computational_cost", rebuilt=True)
 # "repair_gim_baseline" is the stage name; "gim_baseline_repair" is the directory name
 # the frozen script has always written - the one irregular case `paths.py`'s docstring
 # and `stec.runs.restructure_results` both call out by name.
-GIM_BASELINE_REPAIR_DIR = paths.analysis_result_dir(
-    "repair_gim_baseline", rebuilt=False
-)
-DAILY_METRICS_DIR = paths.analysis_result_dir("daily_metrics", rebuilt=True)
-UNCERTAINTY_ERROR_RELATION_DIR = paths.analysis_result_dir(
+GIM_BASELINE_REPAIR_DIR = _analysis_dir("repair_gim_baseline", rebuilt=False)
+DAILY_METRICS_DIR = _analysis_dir("daily_metrics", rebuilt=True)
+UNCERTAINTY_ERROR_RELATION_DIR = _analysis_dir(
     "uncertainty_error_relation", rebuilt=True
 )
-STRATIFIED_COMPARISON_DIR = paths.analysis_result_dir(
-    "stratified_comparison", rebuilt=True
-)
-ACTIVITY_STRATIFICATION_DIR = paths.analysis_result_dir(
-    "activity_stratification", rebuilt=True
-)
-IONEX_RMS_BENCHMARK_DIR = paths.analysis_result_dir("ionex_rms_benchmark", rebuilt=True)
-UNCERTAINTY_CALIBRATION_DIR = paths.analysis_result_dir(
-    "uncertainty_calibration", rebuilt=True
-)
-MAPPING_FUNCTION_CONSISTENCY_DIR = paths.analysis_result_dir(
+STRATIFIED_COMPARISON_DIR = _analysis_dir("stratified_comparison", rebuilt=True)
+ACTIVITY_STRATIFICATION_DIR = _analysis_dir("activity_stratification", rebuilt=True)
+IONEX_RMS_BENCHMARK_DIR = _analysis_dir("ionex_rms_benchmark", rebuilt=True)
+UNCERTAINTY_CALIBRATION_DIR = _analysis_dir("uncertainty_calibration", rebuilt=True)
+MAPPING_FUNCTION_CONSISTENCY_DIR = _analysis_dir(
     "mapping_function_consistency", rebuilt=True
 )
-MADRIGAL_REFERENCE_OFFSET_DIR = paths.analysis_result_dir(
-    "madrigal_reference_offset", rebuilt=True
-)
-WEIGHTING_ABLATION_DIR = paths.analysis_result_dir("weighting_ablation", rebuilt=True)
-STORM_STRATIFICATION_DIR = paths.analysis_result_dir(
-    "storm_stratification", rebuilt=True
-)
-POSITIONING_ROBUSTNESS_DIR = paths.analysis_result_dir(
-    "positioning_robustness", rebuilt=True
-)
-POSITIONING_COVERAGE_DIR = paths.analysis_result_dir(
-    "positioning_coverage", rebuilt=True
-)
-COMMON_SET_POSITIONING_DIR = paths.analysis_result_dir(
-    "common_set_positioning", rebuilt=True
-)
-POSITIONING_SUMMARY_DIR = paths.analysis_result_dir("positioning_summary", rebuilt=True)
-ORACLE_BENCHMARK_DIR = paths.analysis_result_dir("oracle_benchmark", rebuilt=True)
-RESULTS_MANIFEST_DIR = paths.analysis_result_dir("results_manifest", rebuilt=True)
+MADRIGAL_REFERENCE_OFFSET_DIR = _analysis_dir("madrigal_reference_offset", rebuilt=True)
+WEIGHTING_ABLATION_DIR = _analysis_dir("weighting_ablation", rebuilt=True)
+STORM_STRATIFICATION_DIR = _analysis_dir("storm_stratification", rebuilt=True)
+POSITIONING_ROBUSTNESS_DIR = _analysis_dir("positioning_robustness", rebuilt=True)
+POSITIONING_COVERAGE_DIR = _analysis_dir("positioning_coverage", rebuilt=True)
+COMMON_SET_POSITIONING_DIR = _analysis_dir("common_set_positioning", rebuilt=True)
+POSITIONING_SUMMARY_DIR = _analysis_dir("positioning_summary", rebuilt=True)
+ORACLE_BENCHMARK_DIR = _analysis_dir("oracle_benchmark", rebuilt=True)
+RESULTS_MANIFEST_DIR = _analysis_dir("results_manifest", rebuilt=True)
 
 # The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
 # full evaluation tree, not a `stec.analysis` output, so it lives under
 # `stec_evaluation/`, not `analyses/` - see docs/revision/results_layout.md.
 WITH_PRETRAINED_BASELINE_SUMMARY = (
-    paths.STEC_EVALUATION_RESULTS / "with_pretrained_baseline" / "summary"
+    _rel(paths.STEC_EVALUATION_RESULTS) / "with_pretrained_baseline" / "summary"
 )
 
 # stec.training.run_training / stec.inference.run_inference are the driver layer itself -

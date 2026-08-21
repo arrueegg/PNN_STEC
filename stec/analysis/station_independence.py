@@ -63,7 +63,7 @@ DEFAULT_NETWORK = paths.SPLIT_LISTS / "IGSNetwork.csv"
 # copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
 # reader of the published code can point it elsewhere without editing source.
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
-DEFAULT_OUTPUT_DIR = Path("multiday_results/station_independence_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("station_independence", rebuilt=True)
 
 # Distance bands, chosen so the first covers "a training station essentially on
 # top of this one", where correlated conditions would be strongest.

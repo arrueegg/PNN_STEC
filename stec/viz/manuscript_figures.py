@@ -1431,7 +1431,7 @@ def main() -> None:
     parser.add_argument(
         "--results_dir",
         type=Path,
-        default=Path("multiday_results"),
+        default=paths.RESULTS_ROOT,
         help="Root that all figure inputs below are resolved against.",
     )
     args = parser.parse_args()

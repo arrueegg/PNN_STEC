@@ -110,7 +110,7 @@ TRUTH_COLUMN = "true_stec"
 # copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
 # reader of the published code can point it elsewhere without editing source.
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
-DEFAULT_OUTPUT_DIR = Path("multiday_results/uncertainty_calibration_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("uncertainty_calibration", rebuilt=True)
 
 # Which store columns hold each product's mean and uncertainty, and which family its
 # training loss assumes. Both uncertainty columns are stored as a standard deviation
@@ -361,6 +361,7 @@ def accumulate(
     dataset: str,
     store_root: Path,
     doys: Sequence[int] | None = None,
+    years: Sequence[int] | None = None,
     storm_doys: set[int] | None = None,
 ) -> RegimeResults:
     """Stream the store day by day, scoring every product in `PRODUCTS` under both
@@ -373,6 +374,14 @@ def accumulate(
     it does not read any file twice. Scoring under both families - not only the native
     one - is what makes the effect of the family choice auditable rather than a silent,
     one-sided decision.
+
+    `years` matters because `doys` alone is not enough to scope a store partition to one
+    test period: `finetuned_stec/own` happens to hold only 2024, but `pretrained_stec/own`
+    also carries 302 days from 2014-2023 (a separate, longer-run evaluation of the
+    pretrained checkpoint), and a bare DOY like 200 matches a file in every one of those
+    years. Leaving `years` unset there would silently pool eleven years of unrelated days
+    into "the" result, and would apply `storm_doys` - computed for one specific year - to
+    days it was never computed for.
     """
     needed = sorted(
         {TRUTH_COLUMN, *(col for cols in PRODUCTS.values() for col in cols[:2])}
@@ -387,11 +396,13 @@ def accumulate(
         for regime in regimes
     }
 
-    paths = ps.day_paths(model_variant, dataset, doys=doys, root=store_root)
+    paths = ps.day_paths(
+        model_variant, dataset, years=years, doys=doys, root=store_root
+    )
     if not paths:
         raise FileNotFoundError(
-            f"No prediction files matched for {model_variant}/{dataset} (doys={doys}) "
-            f"under {store_root}"
+            f"No prediction files matched for {model_variant}/{dataset} "
+            f"(years={years}, doys={doys}) under {store_root}"
         )
     logger.info(f"{len(paths)} day(s) to accumulate for {model_variant}/{dataset}")
 
@@ -512,7 +523,10 @@ def main() -> None:
         "--year",
         type=int,
         default=2024,
-        help="Year the OMNI storm/quiet split is read for.",
+        help="Year to score: both which store partition is read (see accumulate()'s "
+        "docstring on why a store spanning multiple years needs this) and which year "
+        "the OMNI storm/quiet split is read for - the two must agree, since a "
+        "storm/quiet label computed for one year is meaningless applied to another.",
     )
     parser.add_argument(
         "--swi-path",
@@ -533,6 +547,7 @@ def main() -> None:
         args.dataset,
         args.store_root,
         doys=args.doys,
+        years=[args.year],
         storm_doys=storm_doys,
     )
 

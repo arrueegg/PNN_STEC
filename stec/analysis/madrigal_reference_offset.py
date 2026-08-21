@@ -72,7 +72,9 @@ MIN_OBSERVATIONS_PER_STATION = 5000
 # copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
 # reader of the published code can point it elsewhere without editing source.
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
-DEFAULT_OUTPUT_DIR = Path("multiday_results/madrigal_reference_offset_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir(
+    "madrigal_reference_offset", rebuilt=True
+)
 
 MADRIGAL_COLUMNS = ["station", "true_stec", "stec_pred", "gim_stec", "pred_total_unc"]
 

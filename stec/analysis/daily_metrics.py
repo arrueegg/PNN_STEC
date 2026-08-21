@@ -54,7 +54,7 @@ DATASET_LABELS = {"own": "own_vtec_gim", "madrigal": "madrigal_vtec_gim"}
 # copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
 # reader of the published code can point it elsewhere without editing source.
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
-DEFAULT_OUTPUT_DIR = Path("multiday_results/daily_metrics_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("daily_metrics", rebuilt=True)
 
 # The aggregation this analysis supersedes (see the module docstring for why it is no
 # longer the right source - it predates the GIM day-lookup repair and cannot be

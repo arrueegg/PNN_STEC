@@ -70,7 +70,7 @@ DISPLAY_ORDER = [
 DEFAULT_ORACLE_RESULTS = (
     paths.LEGACY_EXPERIMENTS / "Reference_STEC_Oracle" / "positioning" / "results"
 )
-DEFAULT_OUTPUT_DIR = Path("multiday_results/oracle_benchmark_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("oracle_benchmark", rebuilt=True)
 
 
 def load_oracle(results_root: Path) -> pd.DataFrame:

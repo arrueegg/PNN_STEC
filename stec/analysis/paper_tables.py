@@ -32,6 +32,7 @@ from typing import Any
 
 import yaml
 
+from ..config import paths
 from ..data.feature_layout import FeatureGroup, layout_from_feature_control
 from ..models.architectures import STEC_MEAN_TECU, VARIANCE_FLOOR
 
@@ -208,7 +209,9 @@ def main() -> int:
         help="a run's resolved config.yaml - use a stored experiment config, not a template",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("multiday_results/paper_tables")
+        "--output-dir",
+        type=Path,
+        default=paths.analysis_result_dir("paper_tables", rebuilt=True),
     )
     args = parser.parse_args()
 

@@ -64,7 +64,7 @@ DEFAULT_PRETRAIN_LOSS_HISTORY = paths.LEGACY_EXPERIMENTS / (
     "Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_"
     "Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/loss_history.csv"
 )
-DEFAULT_OUTPUT_DIR = Path("multiday_results/computational_cost_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("computational_cost", rebuilt=True)
 
 
 def parse_training_log(path: Path) -> dict | None:

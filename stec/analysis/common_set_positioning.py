@@ -88,7 +88,7 @@ DEFAULT_EXPERIMENT = paths.LEGACY_EXPERIMENTS / (
     "Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_"
     "lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
 )
-DEFAULT_OUTPUT_DIR = Path("multiday_results/common_set_positioning_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("common_set_positioning", rebuilt=True)
 
 
 def load_tree(path: Path) -> pd.DataFrame:

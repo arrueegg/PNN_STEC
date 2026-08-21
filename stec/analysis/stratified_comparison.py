@@ -86,7 +86,7 @@ STRATIFIERS = {
 # copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
 # reader of the published code can point it elsewhere without editing source.
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
-DEFAULT_OUTPUT_DIR = Path("multiday_results/stratified_comparison_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("stratified_comparison", rebuilt=True)
 
 
 def add_local_time(frame: pd.DataFrame) -> pd.DataFrame:

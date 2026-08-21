@@ -97,7 +97,7 @@ later run can skip the stage. A real one from this repository:
 ```json
 {
   "stage": "daily_metrics",
-  "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/daily_metrics_rebuilt",
+  "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
   "canonical_for": "Tables 3 and 4",
   "caveats": [
     "The published RMSE is RMSE_mean - the mean of per-day RMSEs ...",
@@ -106,7 +106,7 @@ later run can skip the stage. A real one from this repository:
   "code": { "commit": "65328cc5...", "dirty": true },
   "fingerprint": "c716840b...",
   "inputs": { "predictions/finetuned_stec/own": { "kind": "missing" } },
-  "outputs": { "multiday_results/daily_metrics_rebuilt": { "present": true, "size": 44 } },
+  "outputs": { "multiday_results/analyses/daily_metrics/rebuilt": { "present": true, "size": 44 } },
   "duration_s": 122.6,
   "recorded_at": "2026-08-20T18:53:57Z"
 }
@@ -129,8 +129,9 @@ they need to survive being read out of context:
   CSV so a caveat isn't lost the moment someone copies the file out of `multiday_results/`.
 - **Superseded markers** — `<name>.superseded.json` — stamp an older artifact as replaced
   without deleting it (storage was never the constraint; an unlabelled stale number sitting
-  next to a current one is). `stec.analysis.results_manifest` (`multiday_results/results_manifest/`)
-  is the standing index of which result trees are canonical and which are marked.
+  next to a current one is). `stec.analysis.results_manifest`
+  (`multiday_results/analyses/results_manifest/rebuilt/`) is the standing index of which
+  result trees are canonical and which are marked.
 
 ## What you can verify without any of the external data
 

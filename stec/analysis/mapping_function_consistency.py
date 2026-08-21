@@ -125,7 +125,7 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("multiday_results/mapping_function_consistency_rebuilt"),
+        default=paths.analysis_result_dir("mapping_function_consistency", rebuilt=True),
     )
     args = parser.parse_args()
 

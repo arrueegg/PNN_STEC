@@ -102,7 +102,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
 DEFAULT_GIM_ROOT = paths.GIM_IONEX_ROOT
 DEFAULT_SWI_PATH = paths.OMNI_INDICES
-DEFAULT_OUTPUT_DIR = Path("multiday_results/ionex_rms_benchmark_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("ionex_rms_benchmark", rebuilt=True)
 
 NOMINAL_LEVELS = (0.50, 0.68, 0.90, 0.95)
 ELEVATION_BINS = [0, 20, 40, 60, 90]

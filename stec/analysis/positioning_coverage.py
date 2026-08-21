@@ -111,7 +111,7 @@ SOME_ML_MISSING = "some ML methods missing (per-method failure)"
 ALL_ML_MISSING = "all ML methods missing (station absent from STEC DB)"
 UNCLASSIFIED = "unclassified"
 
-DEFAULT_OUTPUT_DIR = Path("multiday_results/positioning_coverage_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("positioning_coverage", rebuilt=True)
 
 
 def find_collisions(combined: pd.DataFrame) -> pd.DataFrame:

@@ -240,7 +240,11 @@ verbatim by every stage that touches Madrigal data, so the same warning cannot d
    analysis has a caveat, that caveat belongs on the `Stage`, not as a code comment only.
 
 2. **Declare a `Stage`** in `stec/pipeline/stages.py`. At minimum: `name`, `command` (the
-   module invocation, e.g. `-m stec.analysis.<name> --output-dir multiday_results/<name>`),
+   module invocation, e.g. `-m stec.analysis.<name> --output-dir <NAME>_DIR`, where
+   `<NAME>_DIR = paths.analysis_result_dir("<name>", rebuilt=True)` is a module-level
+   constant so the command string and `outputs` below can never disagree — see
+   `docs/revision/results_layout.md` for the `analyses/<name>/{rebuilt,pre_rebuild}`
+   layout this resolves into),
    `answers` (which reviewer comment or table this settles), `description`, `inputs` (declared
    at the granularity that actually changes — a store directory, not 242 individual parquet
    files), `outputs`, and `min_rows` for any CSV that would be a silent failure if it came out

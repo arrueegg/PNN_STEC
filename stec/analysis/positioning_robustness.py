@@ -69,7 +69,7 @@ FULL_COVERAGE_SUMMARY = (
 PUBLISHED_SUMMARY = (
     paths.LEGACY_MULTIDAY / "positioning_comparison_3way" / "multiday_summary.csv"
 )
-DEFAULT_OUTPUT_DIR = Path("multiday_results/positioning_robustness_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("positioning_robustness", rebuilt=True)
 
 
 def canonical_positioning_summary(prefer: Path | None = None) -> Path:

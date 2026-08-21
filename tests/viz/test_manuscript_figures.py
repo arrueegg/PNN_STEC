@@ -325,7 +325,8 @@ def test_build_improvement_by_date_figures_end_to_end_from_synthetic_per_day_csv
     """Exercises the Model-name normalisation (`daily_metrics`'s "Direct STEC Model"/
     "IGS GIM" spellings) and the dataset/metric loop through the registered builder."""
     results_dir = tmp_path / "results"
-    (results_dir / "daily_metrics_rebuilt").mkdir(parents=True)
+    daily_metrics_dir = mf.analysis_dir(results_dir, "daily_metrics")
+    daily_metrics_dir.mkdir(parents=True)
     per_day = pd.DataFrame(
         {
             "date": ["2024-122"] * 3 + ["2024-123"] * 3,
@@ -337,7 +338,7 @@ def test_build_improvement_by_date_figures_end_to_end_from_synthetic_per_day_csv
             "MAE": [3.0, 4.0, 4.5, 3.1, 4.1, 4.4],
         }
     )
-    per_day.to_csv(results_dir / "daily_metrics_rebuilt" / "per_day.csv", index=False)
+    per_day.to_csv(daily_metrics_dir / "per_day.csv", index=False)
 
     output_dir = tmp_path / "plots"
     args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
@@ -412,15 +413,14 @@ def test_build_mae_rmse_finetuned_figure_is_scoped_to_the_own_dataset(tmp_path):
     """The manuscript figure is the own test set; a Madrigal slice in the same CSV must
     not silently overwrite it under the shared `mae_rmse_finetuned` filename."""
     results_dir = tmp_path / "results"
-    (results_dir / "elevation_metrics_finetuned_rebuilt").mkdir(parents=True)
+    elevation_metrics_dir = mf.analysis_dir(results_dir, "elevation_metrics_finetuned")
+    elevation_metrics_dir.mkdir(parents=True)
     own = _synthetic_daily_by_elevation().assign(dataset="own")
     madrigal = _synthetic_daily_by_elevation().assign(
         dataset="madrigal", RMSE=lambda d: d["RMSE"] * 10
     )
     pd.concat([own, madrigal], ignore_index=True).to_csv(
-        results_dir
-        / "elevation_metrics_finetuned_rebuilt"
-        / "per_day_by_elevation.csv",
+        elevation_metrics_dir / "per_day_by_elevation.csv",
         index=False,
     )
 
@@ -483,9 +483,10 @@ def test_load_positioning_frame_maps_methods_and_drops_10m_outliers(tmp_path):
 
 def test_build_positioning_figures_end_to_end_from_synthetic_multiday_summary(tmp_path):
     results_dir = tmp_path / "results"
-    (results_dir / "positioning_coverage_rebuilt").mkdir(parents=True)
+    positioning_coverage_dir = mf.analysis_dir(results_dir, "positioning_coverage")
+    positioning_coverage_dir.mkdir(parents=True)
     _synthetic_positioning_frame().to_csv(
-        results_dir / "positioning_coverage_rebuilt" / "multiday_summary.csv",
+        positioning_coverage_dir / "multiday_summary.csv",
         index=False,
     )
 

@@ -42,7 +42,7 @@ DEFAULT_EXPERIMENT = paths.LEGACY_EXPERIMENTS / (
     "Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_"
     "bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
 )
-DEFAULT_OUTPUT_DIR = Path("multiday_results/relative_error_metrics_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("relative_error_metrics", rebuilt=True)
 
 # The interpolation/extrapolation boundary the pretrained-model evaluation split its
 # test set on. This was previously a bare `datetime(2024, 5, 1)` literal buried inside

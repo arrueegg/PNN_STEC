@@ -65,7 +65,9 @@ MIN_OBSERVATIONS_PER_DAY_BIN = 100
 # of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a reader
 # of the published code can point it elsewhere without editing source.
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
-DEFAULT_OUTPUT_DIR = Path("multiday_results/elevation_metrics_finetuned_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir(
+    "elevation_metrics_finetuned", rebuilt=True
+)
 
 
 def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:

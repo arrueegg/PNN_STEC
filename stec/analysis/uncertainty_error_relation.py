@@ -113,7 +113,9 @@ ELEVATION_BIN_ORDER = {
 # copy of an absolute path. paths.py honours STEC_DATA_ROOT / STEC_ARTIFACT_ROOT, so a
 # reader of the published code can point it elsewhere without editing source.
 DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
-DEFAULT_OUTPUT_DIR = Path("multiday_results/uncertainty_error_relation_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir(
+    "uncertainty_error_relation", rebuilt=True
+)
 
 
 def _wanted_columns(path: Path) -> list[str]:

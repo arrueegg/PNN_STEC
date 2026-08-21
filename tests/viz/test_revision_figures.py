@@ -67,7 +67,8 @@ def test_weighting_ablation_figure_builds_end_to_end_from_synthetic_csv(tmp_path
     """One full CSV -> PNG path through a registered builder, using the smallest input
     shape (`weighting_ablation/paired.csv`) rather than the real store."""
     results_dir = tmp_path / "results"
-    (results_dir / "weighting_ablation").mkdir(parents=True)
+    weighting_ablation_dir = rf.analysis_dir(results_dir, "weighting_ablation")
+    weighting_ablation_dir.mkdir(parents=True)
     paired = pd.DataFrame(
         {
             "method": ["Direct STEC", "IGS GIM + Mapping"],
@@ -76,7 +77,7 @@ def test_weighting_ablation_figure_builds_end_to_end_from_synthetic_csv(tmp_path
             "paired_station_days": [48, 48],
         }
     ).set_index("method")
-    paired.to_csv(results_dir / "weighting_ablation" / "paired.csv")
+    paired.to_csv(weighting_ablation_dir / "paired.csv")
 
     output_dir = tmp_path / "plots"
     args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)

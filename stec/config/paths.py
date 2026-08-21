@@ -105,6 +105,59 @@ def model_run(run_id: str) -> Path:
     return MODELS / run_id
 
 
+# --- results layout (multiday_results/) -----------------------------------------------
+#
+# `multiday_results/` is the paper-facing results tree: every `stec.analysis` output,
+# every positioning run, every day's evaluation sweep. Before this layout existed it held
+# 312 directories at depth 1 - per-day `2024_DOY_*` trees, positioning runs, analysis
+# outputs and superseded records all as siblings - so which directory answered which
+# question was not visible from the listing itself. `docs/revision/results_layout.md` is
+# the design; the constants and functions below are its single implementation, so no
+# analysis, stage or figure builder hardcodes a results path again.
+#
+# `RESULTS_ROOT` intentionally sits beside `ARTIFACT_ROOT` rather than under it:
+# `ARTIFACT_ROOT` holds what a *run* produces (datasets, models, predictions), keyed by
+# run id, while `RESULTS_ROOT` holds what an *analysis of those runs* concludes, keyed by
+# reviewer question. Conflating the two would mean a 300 KB metric CSV and a 70 GB
+# prediction-store partition answer to the same root for unrelated reasons.
+RESULTS_ROOT = REPO_ROOT / "multiday_results"
+
+PER_DAY_RESULTS = RESULTS_ROOT / "per_day"
+STEC_EVALUATION_RESULTS = RESULTS_ROOT / "stec_evaluation"
+ANALYSES_RESULTS = RESULTS_ROOT / "analyses"
+# Named "positioning_runs", not "positioning": the legacy tree has a real, superseded
+# directory literally named `positioning` (CLAUDE.md's oldest positioning tree), and a
+# bucket sharing that exact name would make the migration's idempotency check - "a
+# top-level entry already named like one of the layout's own buckets is the layout, skip
+# it" - silently swallow that one legacy tree forever instead of moving it.
+POSITIONING_RESULTS = RESULTS_ROOT / "positioning_runs"
+SUPERSEDED_RESULTS = RESULTS_ROOT / "superseded"
+UNCLASSIFIED_RESULTS = RESULTS_ROOT / "unclassified"
+
+
+def per_day_result_dir(year: int, doy: int) -> Path:
+    """One day's payload directory - replaces the old top-level `<year>_DOY_<doy>`."""
+    return PER_DAY_RESULTS / str(year) / f"{doy:03d}"
+
+
+def analysis_result_dir(name: str, *, rebuilt: bool) -> Path:
+    """Where one `stec.analysis` module's output lives.
+
+    Replaces the flat `<name>_rebuilt` / `<name>` naming convention: the distinction
+    between the ported `stec/` implementation and its pre-rebuild predecessor moves from
+    the leaf directory's *name* into the path, so `analyses/<name>/` alone answers "what
+    is this" and the child answers "which code produced it." An analysis that has only
+    ever run one of the two still gets the qualified child directory - self-documenting
+    beats collapsing the common case, and the cost is one directory level.
+    """
+    return ANALYSES_RESULTS / name / ("rebuilt" if rebuilt else "pre_rebuild")
+
+
+def positioning_result_dir(tag: str) -> Path:
+    """One positioning run's tree - replaces the old top-level `positioning_<tag>`."""
+    return POSITIONING_RESULTS / tag
+
+
 # --- legacy trees (read for migration, never written) --------------------------------
 
 # These are the pre-rebuild result trees: ~640 GB of predictions, experiments and
@@ -117,6 +170,10 @@ LEGACY_ROOT = _root("STEC_LEGACY_ROOT", REPO_ROOT)
 LEGACY_PREDICTIONS = LEGACY_ROOT / "predictions"
 LEGACY_MULTIDAY = LEGACY_ROOT / "multiday_results"
 LEGACY_EXPERIMENTS = LEGACY_ROOT / "experiments"
+# ~606 MB of local W&B run history (config.yaml + wandb-summary.json per run), read
+# directly by src/analysis/hyperparameter_search_summary.py - gitignored, so a worktree
+# has none of it either.
+LEGACY_WANDB = LEGACY_ROOT / "wandb"
 
 # The paper's pretrained run. Its config.yaml is the authoritative description of what
 # trained - it carries the architecture plus both the `pretrain` and `finetune` blocks -

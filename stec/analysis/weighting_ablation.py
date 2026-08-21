@@ -66,7 +66,7 @@ DEFAULT_SUMMARY = (
 FIXED_VARIANCE_RESULTS = (
     paths.LEGACY_EXPERIMENTS / "Fixed_Variance_STEC" / "positioning" / "results"
 )
-DEFAULT_OUTPUT_DIR = Path("multiday_results/weighting_ablation_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("weighting_ablation", rebuilt=True)
 
 
 def load_fixed_variance(results_dir: Path) -> pd.DataFrame:

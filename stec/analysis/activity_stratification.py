@@ -70,8 +70,9 @@ DEFAULT_DAILY_METRICS_CSV = DAILY_METRICS_DIR / "per_day.csv"
 # docstring), one row per stored day, regardless of whether that day needed a fix. Its
 # mere presence is the evidence the check ran; an empty "repaired" column after a full
 # repair is the *expected*, healthy outcome; it is not itself a failure signal.
-DEFAULT_REPAIR_REPORT = Path(
-    "multiday_results/gim_baseline_repair/gim_repair_report.csv"
+DEFAULT_REPAIR_REPORT = (
+    paths.analysis_result_dir("repair_gim_baseline", rebuilt=False)
+    / "gim_repair_report.csv"
 )
 
 # Conventional geomagnetic storm classification on the daily minimum Dst.
@@ -231,7 +232,7 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("multiday_results/activity_stratification_rebuilt"),
+        default=paths.analysis_result_dir("activity_stratification", rebuilt=True),
     )
     args = parser.parse_args()
 

@@ -85,7 +85,7 @@ PUBLISHED_SUMMARY = (
 DEFAULT_WEIGHTING_SUMMARY = (
     paths.LEGACY_MULTIDAY / "positioning_20260216_2052" / "multiday_summary.csv"
 )
-DEFAULT_OUTPUT_DIR = Path("multiday_results/positioning_summary_rebuilt")
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("positioning_summary", rebuilt=True)
 
 
 def canonical_positioning_summary(prefer: Path | None = None) -> Path:

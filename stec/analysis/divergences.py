@@ -262,13 +262,13 @@ def _unmeasurable(reason: str, would_require: str) -> UnmeasurableEffect:
 
 def _measure_gim_day_lookup() -> Effect:
     """Recompute which days the bug hits (cheap, pure), and read the already-recomputed
-    Table 3/4 IGS GIM rows from `daily_metrics_rebuilt/summary.csv` if that artifact is
-    on disk; otherwise fall back to the recorded snapshot below, since re-running
-    `daily_metrics` from scratch is a store-scale operation, not a read.
+    Table 3/4 IGS GIM rows from `analyses/daily_metrics/rebuilt/summary.csv` if that
+    artifact is on disk; otherwise fall back to the recorded snapshot below, since
+    re-running `daily_metrics` from scratch is a store-scale operation, not a read.
     """
     affected = [d for d in range(1, 367) if doy_lookup_disagrees(d)]
     summary_path = (
-        paths.REPO_ROOT / "multiday_results" / "daily_metrics_rebuilt" / "summary.csv"
+        paths.analysis_result_dir("daily_metrics", rebuilt=True) / "summary.csv"
     )
     table3, table4 = (
         8.2826,
@@ -345,16 +345,14 @@ _GIM_DAY_LOOKUP_EFFECT = MeasuredEffect(
 
 def _measure_vtec_family() -> Effect:
     """Read the already-produced coverage table
-    (`multiday_results/uncertainty_calibration_rebuilt/finetuned_stec_own/coverage.csv`) if
+    (`analyses/uncertainty_calibration/rebuilt/finetuned_stec_own/coverage.csv`) if
     present; otherwise fall back to the recorded snapshot. Recomputing from scratch means
     streaming the 9.5 M-row `own` test-set partition of the prediction store, which is
     cheap enough to do (`python -m stec.analysis.uncertainty_calibration`) but not
     something this function does implicitly on every call.
     """
     coverage_path = (
-        paths.REPO_ROOT
-        / "multiday_results"
-        / "uncertainty_calibration_rebuilt"
+        paths.analysis_result_dir("uncertainty_calibration", rebuilt=True)
         / "finetuned_stec_own"
         / "coverage.csv"
     )

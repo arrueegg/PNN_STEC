@@ -269,8 +269,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--samples", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
+    # A run manifest, not an analysis result - it belongs beside the store output it
+    # describes (as inference_smoke's stage explicitly does with an override), not in
+    # multiday_results/, which is reserved for stec.analysis outputs and evaluation
+    # sweeps (docs/revision/results_layout.md).
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("multiday_results/inference_run")
+        "--output-dir", type=Path, default=paths.PREDICTIONS / "inference_run"
     )
     parser.add_argument(
         "--store-root",
