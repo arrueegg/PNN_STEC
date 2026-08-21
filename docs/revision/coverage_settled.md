@@ -263,3 +263,33 @@ live `paper-revision-jgr-mlc` checkout's copy before being run
 src/analysis/positioning_coverage.py` — empty), so running it from the worktree is
 equivalent to running it from the live tree. All three temp output directories live under
 the session scratchpad, outside both repositories.
+
+---
+
+## Correction and resolution (2026-08-21, after the repair)
+
+Two claims in the section above were wrong and are corrected here.
+
+**The Direct STEC canonical arm was never damaged.** Of the 91 rewritten summaries, 59 were
+canonical (29 VTEC, 30 Pretrained) and have been repaired from their intact `.pos` files.
+The other 32 sit in non-canonical recovery directories where a short summary correctly
+describes the few solutions they hold — those were never damage. The paper's fine-tune
+(`lr2e-4_bs512`) was not touched at all; its day-122 summary still carries its original
+February mtime.
+
+**The residual coverage gap is not damage — it is a latent glob defect the sweep activated.**
+After repair, iono coverage reads 7,928 / 2,229 / 694 of 10,851 against the pre-sweep
+8,003 / 2,311 / 510 of 10,824. The gap is that `positioning_coverage` globs
+`Finetune_STEC_2024_*_BayesianResNetSTEC_*_SWI` and de-duplicates with `keep="first"` on
+sorted order. **31 DOYs are now matched by two directories**, and the winner is
+`lr1e-4_bs2048` or `lr1e-4_bs10000` — not the canonical `lr2e-4_bs512` — purely because
+`lr1e-4` sorts before `lr2e-4`. For those 31 days the audit describes the wrong model.
+
+Before the sweep only one directory per DOY held positioning results, so the ambiguity was
+latent and an earlier check in this session correctly found none. The sweep created results
+in further directories and made it live. **Fixing it means selecting the canonical variant
+explicitly rather than by sort order** — a change to how a reviewer-facing number is
+computed, so it belongs in the divergence register, not in a quiet edit.
+
+**R1.5 should still quote the pre-sweep 8,003 / 2,311 / 510** until that selection is made
+explicit and `recovery-models` has run the remaining 212 days.
