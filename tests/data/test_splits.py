@@ -111,3 +111,30 @@ def test_every_index_is_visited_once_per_epoch():
     sampler = EpochRandomSampler(FakeDataset(50), base_seed=42)
     sampler.set_epoch(0)
     assert sorted(sampler) == list(range(50))
+
+
+def test_epoch_random_sampler_oversamples_with_replacement_for_pretrain():
+    """The pretrain config draws 500,000 observations per epoch, with replacement, from a
+    15-year train split - which is smaller than 500,000 rows on any single day but not
+    necessarily across 15 years, so what actually matters is that oversampling itself works:
+    more draws than the dataset has rows, every epoch a fresh draw. Exercised at a scale a
+    test can run in milliseconds (5,000 draws from 200 rows) rather than the real 500,000
+    from however many rows 15 years of `train_dates.list` resolves to - see
+    `stec.data.run_data_prep`'s module docstring for why building that real corpus is out of
+    this driver's scope.
+    """
+    sampler = EpochRandomSampler(
+        FakeDataset(200), replacement=True, num_samples=5000, base_seed=42
+    )
+
+    sampler.set_epoch(0)
+    first_epoch = list(sampler)
+    assert len(first_epoch) == 5000
+    assert min(first_epoch) >= 0
+    assert max(first_epoch) < 200
+    # 5,000 draws from 200 rows cannot be a permutation - replacement is the point.
+    assert len(set(first_epoch)) <= 200
+
+    sampler.set_epoch(1)
+    second_epoch = list(sampler)
+    assert second_epoch != first_epoch

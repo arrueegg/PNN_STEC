@@ -191,6 +191,37 @@ def test_a_layout_needing_harmonics_refuses_to_build_without_an_encoder():
         FeatureAssembler(layout, sh_encoder=None)
 
 
+def test_sh_degree_zero_is_a_valid_no_harmonics_layout():
+    """SH_degree: 0 with both members of a coordinate pair enabled used to crash.
+
+    `sh_locations` named the pair as a location regardless of degree, so `blocks()` added a
+    zero-width `sh_*` block; `sh_width` (locations * terms-per-location) was correctly 0, so
+    `FeatureAssembler.__init__` did not require an encoder - but `assemble` still reached the
+    zero-width block and called the unbuilt `sh_encoder(...)`, raising
+    `TypeError: 'NoneType' object is not callable`. Degree 0 is a legitimate ablation (train
+    with the raw lat/lon scalars but no harmonic expansion of them), not a contradiction, so
+    the fix is that `sh_locations` is empty whenever the degree collapses the expansion to
+    zero terms - see `FeatureLayout.sh_locations`'s docstring for the reasoning.
+    """
+    control = {"year": True, "lat_sta": True, "lon_sta": True}
+    layout = layout_from_feature_control(control, sh_degree=0)
+
+    assert layout.sh_locations == ()
+    assert layout.sh_width == 0
+    assert all(block.group != "spherical_harmonics" for block in layout.blocks())
+
+    # No sh_width means no encoder is required at construction (unchanged behaviour).
+    assembler = FeatureAssembler(layout, sh_encoder=None)
+    batch = {
+        "year": torch.tensor([2024.0]),
+        "lat_sta": torch.tensor([10.0]),
+        "lon_sta": torch.tensor([20.0]),
+    }
+    assembled = assembler.assemble(batch)
+    # year_norm + lat_sta_norm + lon_sta_norm, no harmonics.
+    assert assembled.shape == (1, 3)
+
+
 def test_legendre_polys_follows_the_convention():
     assert SHConvention.SQUARED.legendre_polys(5) == 5
     assert SHConvention.PLUS_ONE_SQUARED.legendre_polys(15) == 16

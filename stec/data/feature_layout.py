@@ -171,6 +171,20 @@ class FeatureLayout:
 
     @property
     def sh_locations(self) -> tuple[str, ...]:
+        """Coordinate pairs with a spherical-harmonic expansion.
+
+        `sh_degree` is one number for the whole layout, not a per-pair toggle, so degree 0
+        means "no harmonics anywhere" - a legitimate, valid configuration (e.g. an ablation
+        that keeps lat/lon as plain scalars but drops their harmonic expansion), not an error.
+        Both members of a pair being enabled describes the *scalar* features (they are listed
+        separately in `GROUP_MEMBERS` and already produce their own blocks above); it is not
+        a promise that some other block will be added for them. Gating on
+        `sh_terms_per_location` here is what keeps that promise from being made when there is
+        nothing to fill it: without this check, `blocks()` would add a named but zero-width
+        `sh_*` block, and `FeatureAssembler` would call its (unbuilt, `None`) encoder on it.
+        """
+        if self.sh_terms_per_location <= 0:
+            return ()
         return tuple(
             name
             for name, (first, second) in SH_COORDINATE_PAIRS

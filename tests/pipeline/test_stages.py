@@ -62,8 +62,20 @@ def test_gim_repair_precedes_the_metrics_that_read_it():
 
 
 def test_figures_run_last():
+    """Last among the stages that actually feed it: `figures` reads the metric CSVs every
+    analysis stage above it writes to `multiday_results`, so it must follow all of them.
+
+    `results_manifest` and `data_prep_smoke` are excluded, not exempted from a real
+    invariant: neither reads `multiday_results` nor is read by `figures` - the former is a
+    standalone provenance index, the latter the data-preparation driver's self-contained
+    smoke stage (`stec/data` has no analysis output for `figures` to depend on). Their
+    position relative to `figures` is therefore not load-bearing, only a consequence of
+    `stages.py`'s "append only" convention: new stages are added at the end of the
+    registry, not inserted.
+    """
+    trailing_stages = {"results_manifest", "data_prep_smoke"}
     assert position("figures") == max(
-        position(s.name) for s in STAGES if s.name != "results_manifest"
+        position(s.name) for s in STAGES if s.name not in trailing_stages
     )
 
 

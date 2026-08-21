@@ -32,9 +32,79 @@ from .stage import Stage
 STORE_OWN = "predictions/finetuned_stec/own"
 STORE_PRETRAINED = "predictions/pretrained_stec/own"
 STORE_MADRIGAL = "predictions/finetuned_stec/madrigal"
-POSITIONING = "multiday_results/positioning_full_coverage/multiday_summary.csv"
-WEIGHTING_RUN = "multiday_results/positioning_20260216_2052/multiday_summary.csv"
+POSITIONING = str(
+    paths.positioning_result_dir("full_coverage") / "multiday_summary.csv"
+)
+WEIGHTING_RUN = str(
+    paths.positioning_result_dir("20260216_2052") / "multiday_summary.csv"
+)
 SWI = "data/omni_hourly_2010-2025.h5"
+
+# Every stec.analysis output directory, named once so a stage's command string,
+# `outputs`, `inputs` and `supersedes` can never disagree about where it writes.
+# `paths.analysis_result_dir` is the one place the `analyses/<name>/{rebuilt,
+# pre_rebuild}` layout is spelled out (docs/revision/results_layout.md) - nothing below
+# builds a `multiday_results/...` string by hand.
+PAPER_TABLES_DIR = paths.analysis_result_dir("paper_tables", rebuilt=True)
+RELATIVE_ERROR_METRICS_DIR = paths.analysis_result_dir(
+    "relative_error_metrics", rebuilt=True
+)
+HYPERPARAMETER_SEARCH_DIR = paths.analysis_result_dir(
+    "hyperparameter_search", rebuilt=False
+)
+STATION_INDEPENDENCE_DIR = paths.analysis_result_dir(
+    "station_independence", rebuilt=True
+)
+COMPUTATIONAL_COST_DIR = paths.analysis_result_dir("computational_cost", rebuilt=True)
+# "repair_gim_baseline" is the stage name; "gim_baseline_repair" is the directory name
+# the frozen script has always written - the one irregular case `paths.py`'s docstring
+# and `stec.runs.restructure_results` both call out by name.
+GIM_BASELINE_REPAIR_DIR = paths.analysis_result_dir(
+    "repair_gim_baseline", rebuilt=False
+)
+DAILY_METRICS_DIR = paths.analysis_result_dir("daily_metrics", rebuilt=True)
+UNCERTAINTY_ERROR_RELATION_DIR = paths.analysis_result_dir(
+    "uncertainty_error_relation", rebuilt=True
+)
+STRATIFIED_COMPARISON_DIR = paths.analysis_result_dir(
+    "stratified_comparison", rebuilt=True
+)
+ACTIVITY_STRATIFICATION_DIR = paths.analysis_result_dir(
+    "activity_stratification", rebuilt=True
+)
+IONEX_RMS_BENCHMARK_DIR = paths.analysis_result_dir("ionex_rms_benchmark", rebuilt=True)
+UNCERTAINTY_CALIBRATION_DIR = paths.analysis_result_dir(
+    "uncertainty_calibration", rebuilt=True
+)
+MAPPING_FUNCTION_CONSISTENCY_DIR = paths.analysis_result_dir(
+    "mapping_function_consistency", rebuilt=True
+)
+MADRIGAL_REFERENCE_OFFSET_DIR = paths.analysis_result_dir(
+    "madrigal_reference_offset", rebuilt=True
+)
+WEIGHTING_ABLATION_DIR = paths.analysis_result_dir("weighting_ablation", rebuilt=True)
+STORM_STRATIFICATION_DIR = paths.analysis_result_dir(
+    "storm_stratification", rebuilt=True
+)
+POSITIONING_ROBUSTNESS_DIR = paths.analysis_result_dir(
+    "positioning_robustness", rebuilt=True
+)
+POSITIONING_COVERAGE_DIR = paths.analysis_result_dir(
+    "positioning_coverage", rebuilt=True
+)
+COMMON_SET_POSITIONING_DIR = paths.analysis_result_dir(
+    "common_set_positioning", rebuilt=True
+)
+POSITIONING_SUMMARY_DIR = paths.analysis_result_dir("positioning_summary", rebuilt=True)
+ORACLE_BENCHMARK_DIR = paths.analysis_result_dir("oracle_benchmark", rebuilt=True)
+RESULTS_MANIFEST_DIR = paths.analysis_result_dir("results_manifest", rebuilt=True)
+
+# The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
+# full evaluation tree, not a `stec.analysis` output, so it lives under
+# `stec_evaluation/`, not `analyses/` - see docs/revision/results_layout.md.
+WITH_PRETRAINED_BASELINE_SUMMARY = (
+    paths.STEC_EVALUATION_RESULTS / "with_pretrained_baseline" / "summary"
+)
 
 # stec.training.run_training / stec.inference.run_inference are the driver layer itself -
 # every stage above this point reads results that pre-rebuild src/ code produced, because
@@ -147,11 +217,11 @@ STAGES: list[Stage] = [
     Stage(
         "paper_tables",
         f"-m stec.analysis.paper_tables --config {paths.PAPER_PRETRAINED_CONFIG} "
-        "--output-dir multiday_results/paper_tables",
+        f"--output-dir {PAPER_TABLES_DIR}",
         "Tables 1, 2",
         "input feature list and hyperparameters, generated from the model rather than "
         "maintained beside it",
-        outputs=["multiday_results/paper_tables"],
+        outputs=[str(PAPER_TABLES_DIR)],
         canonical_for="Tables 1 and 2",
         caveats=[
             "Generated from the paper's own stored run config, not from a template in "
@@ -168,27 +238,33 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "relative_error_metrics",
-        "-m stec.analysis.relative_error_metrics --output-dir multiday_results/relative_error_metrics_rebuilt",
+        f"-m stec.analysis.relative_error_metrics --output-dir {RELATIVE_ERROR_METRICS_DIR}",
         "R2.1, R2.2",
         "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
         outputs=[
-            "multiday_results/relative_error_metrics_rebuilt",
-            "multiday_results/relative_error_metrics_rebuilt/yearly_metrics.csv",
+            str(RELATIVE_ERROR_METRICS_DIR),
+            str(RELATIVE_ERROR_METRICS_DIR / "yearly_metrics.csv"),
         ],
         # Keyed on the CSV, not the directory: a tree digest carries files/size/mtime but
         # no row count, so a min_rows on a directory can never be satisfied and the stage
         # fails however well it ran.
-        min_rows={
-            "multiday_results/relative_error_metrics_rebuilt/yearly_metrics.csv": 5
-        },
+        min_rows={str(RELATIVE_ERROR_METRICS_DIR / "yearly_metrics.csv"): 5},
     ),
     Stage(
         "hyperparameter_search",
-        "src/analysis/hyperparameter_search_summary.py",
+        # --wandb_dir passed explicitly: the frozen script's default (`Path("wandb")`)
+        # resolves against cwd, and the runner's cwd is REPO_ROOT, which has no wandb/ in
+        # this worktree - the run history lives only in the primary checkout.
+        # paths.LEGACY_WANDB honours STEC_LEGACY_ROOT, same as repair_gim_baseline's
+        # --store_root above. --output_dir is the script's own existing flag (not a new
+        # one added for this), so redirecting it into the new layout needs no edit to the
+        # frozen script.
+        f"src/analysis/hyperparameter_search_summary.py "
+        f"--wandb_dir {paths.LEGACY_WANDB} --output_dir {HYPERPARAMETER_SEARCH_DIR}",
         "R2.5, R2.8b",
         "architecture comparison and hyperparameter sweep from the W&B history",
         inputs=["wandb"],
-        outputs=["multiday_results/hyperparameter_search"],
+        outputs=[str(HYPERPARAMETER_SEARCH_DIR)],
         caveats=[
             "Stays on the pre-rebuild script for a data reason, not a code one: the "
             "script itself is self-contained (only glob/yaml/json/pandas over local "
@@ -204,11 +280,11 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "station_independence",
-        "-m stec.analysis.station_independence --output-dir multiday_results/station_independence_rebuilt",
+        f"-m stec.analysis.station_independence --output-dir {STATION_INDEPENDENCE_DIR}",
         "R2.3",
         "test-station error against distance to the nearest training station",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/station_independence_rebuilt"],
+        outputs=[str(STATION_INDEPENDENCE_DIR)],
         caveats=[
             "Limited by n = 55 test stations, not by observation count. Adding days "
             "sharpens each point but does not sharpen the Spearman coefficient.",
@@ -217,18 +293,24 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "computational_cost",
-        "-m stec.analysis.computational_cost --output-dir multiday_results/computational_cost_rebuilt",
+        f"-m stec.analysis.computational_cost --output-dir {COMPUTATIONAL_COST_DIR}",
         "R2.8h",
         "training and inference cost",
-        outputs=["multiday_results/computational_cost_rebuilt"],
+        outputs=[str(COMPUTATIONAL_COST_DIR)],
     ),
     Stage(
         "repair_gim_baseline",
-        "src/analysis/repair_gim_baseline.py --apply",
+        # --store_root passed explicitly: the frozen script's default (`Path("predictions")`)
+        # resolves against cwd, and the runner's cwd is REPO_ROOT - which has no predictions/
+        # in a worktree that does not carry the 640 GB data tree. paths.LEGACY_PREDICTIONS
+        # already honours STEC_LEGACY_ROOT, so this points at the real store without editing
+        # the frozen script itself. --output_dir is likewise the script's own existing flag.
+        f"src/analysis/repair_gim_baseline.py --apply "
+        f"--store_root {paths.LEGACY_PREDICTIONS} --output_dir {GIM_BASELINE_REPAIR_DIR}",
         "Table 4, R1.4",
         "recompute the IGS GIM baseline against the correct day's IONEX map",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/gim_baseline_repair"],
+        outputs=[str(GIM_BASELINE_REPAIR_DIR)],
         caveats=[
             "Repairs the 12 days of 2024 where a truncating cast on a float32-denormalised "
             "doy loaded the previous day's IONEX map. Unaffected days must reproduce to "
@@ -243,11 +325,11 @@ STAGES: list[Stage] = [
         # on RMSE_mean, pooled_RMSE, MAE_mean, R2_mean, day and observation counts, across
         # all seven model/dataset combinations over 242 days and 475,111,413 observations.
         "daily_metrics",
-        "-m stec.analysis.daily_metrics --output-dir multiday_results/daily_metrics_rebuilt",
+        f"-m stec.analysis.daily_metrics --output-dir {DAILY_METRICS_DIR}",
         "Tables 3, 4",
         "per-day and pooled STEC metrics recomputed from the prediction store",
-        inputs=[STORE_OWN, STORE_PRETRAINED, "multiday_results/gim_baseline_repair"],
-        outputs=["multiday_results/daily_metrics_rebuilt"],
+        inputs=[STORE_OWN, STORE_PRETRAINED, str(GIM_BASELINE_REPAIR_DIR)],
+        outputs=[str(DAILY_METRICS_DIR)],
         min_rows={},
         canonical_for="Tables 3 and 4",
         caveats=[
@@ -256,17 +338,15 @@ STAGES: list[Stage] = [
             "is consistently higher; the two are not interchangeable.",
             "Madrigal rows carry the madrigal_reference_offset caveat.",
         ],
-        supersedes=[
-            "multiday_results/with_pretrained_baseline/summary/summary_statistics.csv"
-        ],
+        supersedes=[str(WITH_PRETRAINED_BASELINE_SUMMARY / "summary_statistics.csv")],
     ),
     Stage(
         "uncertainty_error_relation",
-        "-m stec.analysis.uncertainty_error_relation --output-dir multiday_results/uncertainty_error_relation_rebuilt",
+        f"-m stec.analysis.uncertainty_error_relation --output-dir {UNCERTAINTY_ERROR_RELATION_DIR}",
         "R2.6, R1.2",
         "predicted uncertainty against realised error, pooled over the test period",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/uncertainty_error_relation_rebuilt"],
+        outputs=[str(UNCERTAINTY_ERROR_RELATION_DIR)],
         caveats=[
             "Bins are now fixed TECU intervals (0-1-2-3-4-5-7-10-15-20-30-inf), not the "
             "previous first-day sigma deciles. Those deciles were computed from "
@@ -278,19 +358,19 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "stratified_comparison",
-        "-m stec.analysis.stratified_comparison --output-dir multiday_results/stratified_comparison_rebuilt",
+        f"-m stec.analysis.stratified_comparison --output-dir {STRATIFIED_COMPARISON_DIR}",
         "R1.4",
         "all four methods by elevation, geomagnetic latitude, local time and season",
         inputs=[STORE_OWN, STORE_PRETRAINED],
-        outputs=["multiday_results/stratified_comparison_rebuilt"],
+        outputs=[str(STRATIFIED_COMPARISON_DIR)],
     ),
     Stage(
         "activity_stratification",
-        "-m stec.analysis.activity_stratification --output-dir multiday_results/activity_stratification_rebuilt",
+        f"-m stec.analysis.activity_stratification --output-dir {ACTIVITY_STRATIFICATION_DIR}",
         "R1.4",
         "STEC error stratified by Dst and F10.7",
-        inputs=["multiday_results/daily_metrics_rebuilt", SWI],
-        outputs=["multiday_results/activity_stratification_rebuilt"],
+        inputs=[str(DAILY_METRICS_DIR), SWI],
+        outputs=[str(ACTIVITY_STRATIFICATION_DIR)],
         caveats=[
             "Reads the repaired GIM values. Run after repair_gim_baseline: the "
             "un-repaired baseline reversed this comparison's conclusion.",
@@ -304,11 +384,11 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "ionex_rms_benchmark",
-        "-m stec.analysis.ionex_rms_benchmark --output_dir multiday_results/ionex_rms_benchmark_rebuilt",
+        f"-m stec.analysis.ionex_rms_benchmark --output_dir {IONEX_RMS_BENCHMARK_DIR}",
         "R1.6b",
         "model uncertainty against the IGS and CODE GIM RMS maps",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/ionex_rms_benchmark_rebuilt"],
+        outputs=[str(IONEX_RMS_BENCHMARK_DIR)],
     ),
     Stage(
         # Ported. Scores every model under both Gaussian and Laplace, tagging which is
@@ -316,12 +396,25 @@ STAGES: list[Stage] = [
         # restratifies every (model, family) accumulation by geomagnetic regime -
         # "all" plus the daily-Dst "quiet"/"storm" split from the pre-rebuild source,
         # answering R1.6's "uncertainty behaviour under ... disturbed conditions".
+        #
+        # main() scores exactly one --model-variant per invocation, so covering the
+        # pretrained variant this stage's docstring promises ("scored by pointing
+        # --model-variant at its own store partition") takes a second Stage below,
+        # not a second inputs entry here - a single stage issuing two invocations
+        # would blur "what produced this output" back into the ambiguity the
+        # provenance record exists to remove (one command, one fingerprint, one
+        # duration per stage.json). Each stage's outputs is scoped to the
+        # <variant>_<dataset>/ subdirectory its own invocation writes, per the
+        # registry's one-owner-per-output check.
         "uncertainty_calibration",
-        "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/uncertainty_calibration_rebuilt",
+        f"-m stec.analysis.uncertainty_calibration "
+        f"--output-dir {UNCERTAINTY_CALIBRATION_DIR} "
+        "--model-variant finetuned_stec --dataset own",
         "R1.6, R2.6",
-        "coverage, PIT and CRPS for every model, each under its own likelihood and regime",
-        inputs=[STORE_OWN, STORE_PRETRAINED, SWI],
-        outputs=["multiday_results/uncertainty_calibration_rebuilt"],
+        "coverage, PIT and CRPS for Direct STEC and VTEC + Mapping, each under its "
+        "own likelihood and regime",
+        inputs=[STORE_OWN, SWI],
+        outputs=[str(UNCERTAINTY_CALIBRATION_DIR / "finetuned_stec_own")],
         caveats=[
             "The VTEC baseline is a Laplace, and its stored vtec_model_stec_total_unc is "
             "already a standard deviation (sqrt(2) * scale), not the raw scale - recover "
@@ -335,38 +428,61 @@ STAGES: list[Stage] = [
         ],
     ),
     Stage(
+        # The pretrained model's own uncertainty is not carried alongside stec_pred in
+        # the finetuned_stec store (see ionex_rms_benchmark.py's PRODUCTS comment), so
+        # scoring it means reading pretrained_stec/own directly, via the second
+        # invocation the module docstring documents.
+        "uncertainty_calibration_pretrained",
+        f"-m stec.analysis.uncertainty_calibration "
+        f"--output-dir {UNCERTAINTY_CALIBRATION_DIR} "
+        "--model-variant pretrained_stec --dataset own",
+        "R1.6, R2.6",
+        "coverage, PIT and CRPS for the pretrained variant, same likelihoods and regimes",
+        inputs=[STORE_PRETRAINED, SWI],
+        outputs=[str(UNCERTAINTY_CALIBRATION_DIR / "pretrained_stec_own")],
+        caveats=[
+            "Only 'Direct STEC' scores here - pretrained_stec/own carries stec_pred and "
+            "pred_total_unc but no vtec_model_stec column, so 'VTEC + Mapping' is absent "
+            "from this variant's coverage.csv/scores.csv. Expected, not a bug: VTEC + "
+            "Mapping is a separate baseline, not a per-STEC-variant one.",
+            "Scores a different model from uncertainty_calibration's Direct STEC - the "
+            "pretrained checkpoint before daily fine-tuning, not a second reading of the "
+            "same predictions.",
+        ],
+    ),
+    Stage(
         "mapping_function_consistency",
-        "-m stec.analysis.mapping_function_consistency --output-dir multiday_results/mapping_function_consistency_rebuilt",
+        f"-m stec.analysis.mapping_function_consistency --output-dir {MAPPING_FUNCTION_CONSISTENCY_DIR}",
         "R1.3",
         "cost of the mapping-function convention mismatch",
         inputs=[STORE_OWN],
-        outputs=["multiday_results/mapping_function_consistency_rebuilt"],
+        outputs=[str(MAPPING_FUNCTION_CONSISTENCY_DIR)],
     ),
     Stage(
         "madrigal_reference_offset",
-        "-m stec.analysis.madrigal_reference_offset --output-dir multiday_results/madrigal_reference_offset_rebuilt",
+        f"-m stec.analysis.madrigal_reference_offset --output-dir {MADRIGAL_REFERENCE_OFFSET_DIR}",
         "R1.3",
         "how much of the Madrigal error is a per-station reference offset",
         inputs=[STORE_MADRIGAL],
-        outputs=["multiday_results/madrigal_reference_offset_rebuilt"],
+        outputs=[str(MADRIGAL_REFERENCE_OFFSET_DIR)],
         canonical_for="Madrigal reference-offset decomposition",
         caveats=MADRIGAL_CAVEAT,
     ),
     Stage(
         "weighting_ablation",
-        "-m stec.analysis.weighting_ablation --output-dir multiday_results/weighting_ablation_rebuilt",
+        f"-m stec.analysis.weighting_ablation --output-dir {WEIGHTING_ABLATION_DIR}",
         "R2.5",
         "elevation against predicted-uncertainty weighting, paired station-days",
         inputs=[WEIGHTING_RUN],
-        outputs=["multiday_results/weighting_ablation_rebuilt"],
+        outputs=[str(WEIGHTING_ABLATION_DIR)],
     ),
     Stage(
         "storm_stratification",
-        "-m stec.analysis.storm_stratification --output-dir multiday_results/storm_stratification_rebuilt",
+        f"-m stec.analysis.storm_stratification --output-dir {STORM_STRATIFICATION_DIR}",
         "R2.7",
         "positioning accuracy on storm against quiet days",
         inputs=[POSITIONING, SWI],
-        outputs=["multiday_results/storm_stratification_rebuilt"],
+        outputs=[str(STORM_STRATIFICATION_DIR)],
         caveats=[
             "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This "
             "is a different, deliberately kept-separate threshold from the STEC-domain "
@@ -378,22 +494,22 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "positioning_robustness",
-        "-m stec.analysis.positioning_robustness --output-dir multiday_results/positioning_robustness_rebuilt",
+        f"-m stec.analysis.positioning_robustness --output-dir {POSITIONING_ROBUSTNESS_DIR}",
         "R2.7b",
         "tail behaviour and convergence of the positioning solutions",
         inputs=[POSITIONING],
-        outputs=["multiday_results/positioning_robustness_rebuilt"],
+        outputs=[str(POSITIONING_ROBUSTNESS_DIR)],
     ),
     Stage(
         "positioning_coverage",
-        "-m stec.analysis.positioning_coverage --output-dir multiday_results/positioning_coverage_rebuilt",
+        f"-m stec.analysis.positioning_coverage --output-dir {POSITIONING_COVERAGE_DIR}",
         "R1.5",
         "which station-days each method solved, and why the rest are missing",
         inputs=["experiments"],
-        # The command writes positioning_coverage_rebuilt; positioning_full_coverage is
-        # the pre-rebuild tree this stage reads alongside, and declaring it here claimed
-        # ownership of output this stage never produces.
-        outputs=["multiday_results/positioning_coverage_rebuilt"],
+        # POSITIONING (positioning_result_dir("full_coverage")) is the pre-rebuild tree
+        # this stage reads alongside, not something it writes - declaring it here would
+        # claim ownership of output this stage never produces.
+        outputs=[str(POSITIONING_COVERAGE_DIR)],
         canonical_for="positioning station-day coverage",
         caveats=[
             "Canonical variant selection is explicit: it matches the canonical "
@@ -410,11 +526,11 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "common_set_positioning",
-        "-m stec.analysis.common_set_positioning --output-dir multiday_results/common_set_positioning_rebuilt",
+        f"-m stec.analysis.common_set_positioning --output-dir {COMMON_SET_POSITIONING_DIR}",
         "R1.5, Table A1",
         "positioning recomputed on the station-days every method solved",
         inputs=[POSITIONING, WEIGHTING_RUN],
-        outputs=["multiday_results/common_set_positioning_rebuilt"],
+        outputs=[str(COMMON_SET_POSITIONING_DIR)],
         canonical_for="Table A1",
         caveats=[
             "A different station-day population from Table 5, by design: requiring both "
@@ -423,20 +539,20 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "positioning_summary",
-        "-m stec.analysis.positioning_summary --output-dir multiday_results/positioning_summary_rebuilt",
+        f"-m stec.analysis.positioning_summary --output-dir {POSITIONING_SUMMARY_DIR}",
         "Table 5",
         "headline positioning table, four methods on iono weighting",
         inputs=[POSITIONING],
-        outputs=["multiday_results/positioning_summary_rebuilt"],
+        outputs=[str(POSITIONING_SUMMARY_DIR)],
         canonical_for="Table 5",
     ),
     Stage(
         "oracle_benchmark",
-        "-m stec.analysis.oracle_benchmark --output-dir multiday_results/oracle_benchmark_rebuilt",
+        f"-m stec.analysis.oracle_benchmark --output-dir {ORACLE_BENCHMARK_DIR}",
         "R2.8",
         "positioning floor from reference STEC, on its own restricted set",
         inputs=[POSITIONING],
-        outputs=["multiday_results/oracle_benchmark_rebuilt"],
+        outputs=[str(ORACLE_BENCHMARK_DIR)],
         caveats=[
             "NOT comparable with Table 5, by design and permanently. It uses elev "
             "weighting - the reference STEC carries only a placeholder sigma, so iono "
@@ -452,7 +568,7 @@ STAGES: list[Stage] = [
         "-m stec.viz.revision_figures",
         "all",
         "one PNG per revision figure, plus the _notitle manuscript variants",
-        inputs=["multiday_results"],
+        inputs=[str(paths.RESULTS_ROOT)],
         outputs=["plots/revision"],
         caveats=[
             "The _notitle and _no_legend variants are the manuscript figures; the titled "
@@ -467,7 +583,48 @@ STAGES: list[Stage] = [
         "-m stec.analysis.results_manifest",
         "-",
         "which result trees are canonical and which are superseded",
-        outputs=["multiday_results/results_manifest"],
+        outputs=[str(RESULTS_MANIFEST_DIR)],
         canonical_for="provenance index",
+    ),
+    Stage(
+        "data_prep_smoke",
+        f"-m stec.data.run_data_prep --config {SMOKE_CONFIG} --split test "
+        f"--days 2024:132 --database-root {SMOKE_DATABASE_ROOT} "
+        f"--space-weather {SMOKE_SWI} --output-dir artifacts/datasets/pipeline_smoke",
+        "-",
+        "proves stec.data.run_data_prep streams day_reader into feature_layout/"
+        "transforms and writes a resumable, partitioned dataset - the S1 driver gap "
+        "training_smoke and inference_smoke already closed for training and inference "
+        "(docs/revision/task_board.md S1) - on the same tiny checked-in fixture day",
+        inputs=[SMOKE_FIXTURE_DIR],
+        outputs=[
+            "artifacts/datasets/pipeline_smoke/test/year=2024/doy=132.parquet",
+            "artifacts/datasets/pipeline_smoke/test/manifest.csv",
+        ],
+        # 1 row = the manifest's single processed day (--days 2024:132). Keyed on the
+        # manifest, not the parquet: like inference_smoke's store file, a parquet output
+        # carries no row count in the pipeline's provenance record.
+        min_rows={"artifacts/datasets/pipeline_smoke/test/manifest.csv": 1},
+        caveats=[
+            "Runs against the same tiny fixture training_smoke/inference_smoke use "
+            "(tests/fixtures/pipeline_smoke, 200 synthetic observations), pinned to one "
+            "explicit day via --days rather than a real --split sweep, which would "
+            "resolve every day in test_dates.list against the real database and take "
+            "hours. A real invocation drops --days so the full split resolves against "
+            "--database-root defaulting to stec.config.paths.STEC_DATABASE.",
+            "Writes assembled, layout-specific tensor columns (feature_layout/"
+            "transforms), not the legacy train.h5's raw, feature_control-agnostic ones - "
+            "a deliberate simplification (module docstring) that ties this output to the "
+            "config it was built from, unlike the legacy aggregate it stands in for.",
+            "Assumes the raw per-day HDF5 already carries train_idx/val_idx/test_idx, "
+            "written once, historically, by src/data_processing/add_split_indices.py, "
+            "which this driver does not re-run: that would be a destructive in-place "
+            "write against 740 GB of immutable external data.",
+            "The pretrain-only 500,000-observation-per-epoch resample "
+            "(data.train_subset_size, legacy EpochRandomSampler(replacement=True, ...)) "
+            "is a training-time concern over this module's output, not part of building "
+            "it - see the module docstring's 'Per-epoch pretrain sampling' section. No "
+            "stec/ driver wires a multi-day pretrain loop over this output yet.",
+        ],
     ),
 ]
