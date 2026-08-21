@@ -37,6 +37,24 @@ than resolving any conflict unattended**.
 The merge was pre-verified clean: 266 files, and it preserves commit `1097a7c` (today's
 `CONFIRM_GAP` race fix), which the branch did not contain.
 
+## The merge has four pre-declared conflicts
+
+Patching the two positioning files here, so the recovery could run this weekend, put them
+in conflict with the branch, which rewrites both to delegate to
+`stec/positioning/summary_writer.py`. Plus two `.pipeline` records that exist on both sides.
+
+The watcher resolves **exactly these four** by taking the branch's version, and aborts on
+any other conflict. That resolution was reasoned out and tested before it was armed, not
+improvised at merge time:
+
+- a full merge was rehearsed in a throwaway clone: no unexpected conflicts, commits cleanly;
+- the merged `metrics.py` imports and still exposes `save_daily_summary`;
+- the merged driver parses.
+
+Taking the branch's version is correct because its import target exists once the merge
+lands. Until then, this tree keeps the standalone patch, which is why the recovery can run
+now.
+
 ## A fix applied directly to this tree, outside the branch
 
 `positioning/positioning_eval/` had **both** destructive `save_daily_summary` sites still
