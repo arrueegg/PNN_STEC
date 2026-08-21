@@ -293,3 +293,48 @@ computed, so it belongs in the divergence register, not in a quiet edit.
 
 **R1.5 should still quote the pre-sweep 8,003 / 2,311 / 510** until that selection is made
 explicit and `recovery-models` has run the remaining 212 days.
+
+---
+
+## The variant selection is now explicit, and the collisions are gone (2026-08-21)
+
+Run of the rebuilt `positioning_coverage` with the canonical-variant glob, against the
+repaired tree and with no sweep running to move it underneath:
+
+| Weighting | Solved by all | Station absent from STEC DB | Per-method failure | Total |
+|---|---|---|---|---|
+| **iono** (canonical) | **7,885** | 2,241 | 725 | 10,851 |
+| elev | 8,047 | 2,509 | 1,085 | 11,641 |
+
+**`collisions.csv` is empty — 0 collisions across 0 DOYs**, against the 31 DOYs that were
+previously matched by two directories and silently resolved to `lr1e-4` by sort order. The
+explicit `CANONICAL_STEC_SUFFIX` selection is what closes that, and `--all-variants`
+restores the broad glob for auditing rather than deleting the capability.
+
+One foreign-DOY directory is correctly excluded and named in the output: the DOY 170
+experiment tree contains a stray `positioning/results/2024122/`, which the old glob would
+have counted against DOY 122.
+
+### What R1.5 should quote
+
+The count is now unambiguous, which it was not before: no station-day is attributed to a
+model that did not produce it. The remaining distance from the pre-sweep 8,003 / 2,311 / 510
+is not variant ambiguity - it is that the `recovery-models` stage has not run for the
+remaining 212 days, so station-days whose geometry was recovered are not yet solved.
+
+The geometry half of the recovery **is** complete: all 242 days are present under
+`data/recovered_stec_db/2024/`, 861 KB to 16 MB each, none empty. What remains is the
+positioning re-run over them, which needs the merge-safe writer that until today did not
+exist in any tree.
+
+So there are two defensible numbers and the choice is a real one:
+
+- **7,885 / 2,241 / 725 of 10,851** — what the repaired tree actually contains today, with
+  the variant selection explicit. Reproducible from the current tree by anyone.
+- **8,003 / 2,311 / 510 of 10,824** — the pre-sweep baseline, which is what the manuscript
+  currently carries.
+
+Quoting the pre-sweep number remains correct until `recovery-models` runs, but it should
+stop being described as "the coverage" and start being described as what it is: the
+pre-recovery baseline. Once the 212 days are solved the number moves up rather than down,
+and that is the version worth reporting.
