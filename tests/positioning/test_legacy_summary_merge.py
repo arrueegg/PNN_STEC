@@ -1,8 +1,13 @@
 """The pre-rebuild positioning writer destroyed daily summaries; this pins the fix.
 
 `positioning/positioning_eval/` is the standalone PPPx driver, deliberately not ported
-into `stec/`. It keeps its own copy of the merge, so it needs its own regression test:
-the rebuilt `stec.positioning.summary_writer` tests do not cover this code path.
+into `stec/`. It used to keep its own copy of the merge fix - two implementations of one
+fix, which is the ambiguity this consolidation removes - but `metrics.py` now imports
+`save_daily_summary`/`SummaryShrinkError` from `stec.positioning.summary_writer` instead.
+This test still exercises the driver's own public entry point (loaded from the real file
+via `importlib`, exactly as `run_positioning_evaluation.py` and `recompute_metrics.py`
+import it), so it now also pins that the delegation itself - the `sys.path` bootstrap in
+`metrics.py` and the re-export - keeps working, on top of the merge behaviour.
 
 The failure being pinned destroyed 59 canonical `daily_summary*.csv` files during the
 station-day recovery sweep, dropping days from 74-91 rows to between 2 and 12.

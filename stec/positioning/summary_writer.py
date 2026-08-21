@@ -19,6 +19,15 @@ instead of writing.
 The write itself is made atomic (temp file in the same directory, then `os.replace`) so a
 process killed mid-write - the same sweep that caused the original bug runs unattended for
 hours - leaves the previous, still-valid file in place rather than a truncated one.
+
+This module is the sole implementation: `positioning/positioning_eval/metrics.py` imports
+`save_daily_summary`/`SummaryShrinkError` from here rather than carrying its own copy, so
+the PPPx driver and every `stec/` analysis read the same merge logic. See
+`docs/revision/retirement_inventory.md` section 4 for how the two copies were unified and
+the consequence for the data root (`/scratch2/arrueegg/WP4/PNN_STEC`), which still carries
+the pre-fix `positioning/positioning_eval/metrics.py` and needs
+`docs/revision/save_daily_summary.patch` applied separately - a worktree-local import
+cannot reach across to a tree that has no `stec` package.
 """
 
 from __future__ import annotations

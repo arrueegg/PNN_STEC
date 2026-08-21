@@ -58,11 +58,17 @@ Two equivalent implementations, for two different reasons:
   `stec` package today (confirmed: no `stec/` directory under
   `/scratch2/arrueegg/WP4/PNN_STEC`). Making the patch depend on a package that does not
   exist yet in the target tree would leave it inapplicable on its own; inlining keeps it a
-  single, self-contained, immediately applicable change. The two implementations are
-  intentionally duplicated logic, not accidental drift — once `stec` exists in the live
-  checkout, `positioning/positioning_eval/metrics.py` should import
-  `stec.positioning.summary_writer.save_daily_summary` instead of carrying its own copy,
-  but that consolidation is future cleanup, not part of this fix.
+  single, self-contained, immediately applicable change. The two implementations were
+  intentionally duplicated logic, not accidental drift, at the time this was written.
+
+  **Update, this worktree only:** the consolidation flagged above as future cleanup has
+  since been done here — `positioning/positioning_eval/metrics.py` now imports
+  `save_daily_summary`/`SummaryShrinkError` from `stec.positioning.summary_writer` rather
+  than carrying its own copy (see `docs/revision/retirement_inventory.md` section 4's
+  addendum for the detail, including one real behavioural divergence the consolidation
+  fixed). This applies **only to this worktree**: the live checkout still has no `stec`
+  package, so it still needs this file's patch (or the inlined logic it describes) applied
+  directly — the import-based consolidation is not an option there until `stec` lands.
 
 Both implementations do the same four things:
 

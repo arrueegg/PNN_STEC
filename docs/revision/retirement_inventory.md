@@ -338,7 +338,7 @@ code for all of them now exists.
 | `download_products.py` | KEEP (deliberate) | `run_positioning_evaluation.py:44`. `docs/rebuild_plan.md` §6: "Reuse rather than rewrite" — `reuse_from_other_runs` symlinks products since CODE's FTP is firewalled from this host. `stec/positioning/metrics.py`'s own docstring is explicit: "It does not port the PPPx driver, product download, or RINEX handling — those still run PPPx itself and stay where they are" | `run_positioning_evaluation.py:44`; `positioning/scripts/recompute_metrics.py:37` |
 | `download_rinex.py` | KEEP (deliberate) | Same — no `stec/` port | `run_positioning_evaluation.py:45`; `positioning/geometry/recover_day.py:174` |
 | `generate_ini.py` | KEEP (deliberate) | Same — no `stec/` port; PPPx invocation + SuiteSparse `LD_LIBRARY_PATH` shim | `run_positioning_evaluation.py:46` |
-| `metrics.py` | KEEP (deliberate) | `stec/positioning/metrics.py` ports only the pure computation (`xyz2blh`, `xyz2enu`, `load_sinex_coords`, `parse_pos_file`, `compute_metrics`, `aggregate_daily_metrics`) as independent functions, **not** by importing this module. `save_daily_summary` and its merge/atomic-write machinery are **fixed in this worktree's copy of this file directly** (commit `75d9375`; `SummaryShrinkError` at line 356, `_merge_daily_summary` at 364, atomic write at 386-441) — see the dedicated section below | `run_positioning_evaluation.py:47-52`; `positioning/scripts/recompute_metrics.py:38` |
+| `metrics.py` | KEEP (deliberate), `save_daily_summary` consolidated | `stec/positioning/metrics.py` ports only the pure computation (`xyz2blh`, `xyz2enu`, `load_sinex_coords`, `parse_pos_file`, `compute_metrics`, `aggregate_daily_metrics`) as independent functions, **not** by importing this module — that split stands. `save_daily_summary`/`SummaryShrinkError`, previously duplicated per commit `75d9375` (see the dedicated section below, now superseded on this point), are as of the consolidation described there **imported from `stec.positioning.summary_writer`** via a `sys.path` bootstrap to the repo root, not redefined here | `run_positioning_evaluation.py:47-52`; `positioning/scripts/recompute_metrics.py:38` |
 | `plot_ppppos.py` | DEAD | `grep -rn "plot_ppppos\|plot_pppx" --include="*.py" --include="*.sh" .` outside the file itself and `docs/` → nothing. Standalone `if __name__=="__main__"` CLI tool for one `.pos` file; its function `plot_pppx` is used only by its own `__main__` | none |
 | `plot_results.py` | KEEP (deliberate) | `run_positioning_evaluation.py:687`. Distinct file from `positioning/scripts/plot_results.py` — the same-filename trap CLAUDE.md warns about elsewhere | `run_positioning_evaluation.py:687` |
 | `run_positioning_evaluation.py` | KEEP (deliberate) | The PPPx driver, no `stec/` port. Both overwrite sites now fixed in this worktree (commit `75d9375`): the two-method branch and the formerly-bare `combined.to_csv(...)` single-method branch both route through the fixed `save_daily_summary` (lines 670-682) | `positioning/geometry/recover_day.py:119`; `positioning/scripts/run_full_positioning_coverage.sh:58,79`; `run_pipeline.sh:80`; `run_oracle_days.sh:40` |
@@ -444,6 +444,70 @@ applied — independently, not via its own patch — to this worktree. It correc
 "not applied" for the tree it actually matters for operationally (the data root), which this
 recompute cannot change (read-only, out of scope). `merge_plan.md` states what porting this
 fix forward through a merge would and would not accomplish.
+
+**Addendum, after this document was written: the two copies above were consolidated to
+one.** `positioning/positioning_eval/metrics.py` no longer defines `SummaryShrinkError`,
+`_merge_daily_summary` or `save_daily_summary` at all — it imports all three (the third as
+`save_daily_summary`) from `stec.positioning.summary_writer`, via a `sys.path` insert to
+the repo root added at the top of `metrics.py` (needed because `stec` is not an installed
+package and this file is loaded three different ways: as a flat sibling import from
+`run_positioning_evaluation.py`, as `__main__`, and via `importlib.util` from
+`tests/positioning/test_legacy_summary_merge.py` — none of which put the repo root on
+`sys.path` on their own). `run_positioning_evaluation.py`'s own import line
+(`from metrics import (aggregate_daily_metrics, save_daily_summary)`) is unchanged; it now
+resolves to the shared implementation transparently.
+
+This was chosen over the two other options on the table (porting the PPPx driver itself
+into `stec/`, or leaving `stec/positioning/summary_writer.py` as an unused parallel
+implementation) because: (1) `run_positioning_evaluation.py` is the only real runtime
+caller of `save_daily_summary` — confirmed by grep, its only callers are
+`positioning/geometry/recover_day.py:119`, `run_full_positioning_coverage.sh:58,79`,
+`run_pipeline.sh:80`, `run_oracle_days.sh:40` — and none of the driver's other
+responsibilities (PPPx invocation, product download, RINEX, the SuiteSparse
+`LD_LIBRARY_PATH` shim) are being touched, so this stays a narrow, low-risk change to
+exactly the file the ambiguity was about; (2) `stec/positioning/summary_writer.py` had
+**zero real callers** before this — only its own test imported it — so it was dead code in
+production despite being the better-tested, more-correct implementation; (3) a full port of
+the driver into `stec/` was rejected: it cannot be verified here (PPPx cannot run — Debian
+13 lacks the SuiteSparse 5 runtime, see the `lib_compat` note elsewhere in this repo — and
+positioning over real data is out of scope for this task), and the driver is deliberately
+KEEP per this document's own table above; rewriting it without the ability to run it against
+real PPPx output would risk exactly the kind of untested divergence this consolidation
+exists to remove.
+
+Comparing the two pre-consolidation implementations found one genuine behavioural
+divergence, not just duplicated logic: `positioning/positioning_eval/metrics.py`'s own
+`save_daily_summary` read `metrics_model['year'].iloc[0]` unconditionally in its summary
+print block, which raises `TypeError: 'NoneType' object is not subscriptable` whenever a
+run solves only GIM positioning (`metrics_model is None`, `metrics_gim` set) — reachable
+whenever `model_success == 0` and `gim_success > 0` in `run_positioning_evaluation.py`
+(confirmed by reproducing it directly against the pre-consolidation file). The merged CSV
+write itself completes successfully before this crash — `write_daily_summary` runs first —
+so the practical damage was a crash-with-traceback after a correct write, not more data
+loss, but it is still a real crash the driver's own "fixed" copy carried that
+`stec/positioning/summary_writer.py`'s `day_source = metrics_model if metrics_model is not
+None else metrics_gim` already handled correctly. The consolidation fixes this as a
+side effect. **The data root's copy of `metrics.py` has neither the merge fix nor this
+None-handling fix** — it is still the original bare `combined.to_csv(...)` overwrite
+(confirmed: `grep -n "SummaryShrinkError\|_merge_daily_summary\|os.replace"
+/scratch2/arrueegg/WP4/PNN_STEC/positioning/positioning_eval/metrics.py` → zero hits, same
+result as when this document was first written), and a worktree-local `sys.path` insert to
+`stec/` cannot reach across to that tree, which has no `stec` package at all. The
+consequence is unchanged from this document's original text: the data root remains exposed
+to both defects until `docs/revision/save_daily_summary.patch` (or an equivalent) is applied
+there directly, and the 212 still-outstanding recovery days on that tree carry that risk
+until it is.
+
+Regression coverage: `tests/positioning/test_legacy_summary_merge.py` still loads
+`positioning/positioning_eval/metrics.py` via `importlib.util.spec_from_file_location` and
+calls its `save_daily_summary`, so it now pins the delegation as well as the merge
+behaviour — verified red-green by temporarily short-circuiting
+`stec.positioning.summary_writer.merge_daily_summary` to return only the new rows (the
+original bug's shape): 2 of 4 tests in that file failed with `SummaryShrinkError` (the
+shrink guard itself caught the regression before a truncated file could be written), and
+all 4 passed again once reverted. `pytest tests/ -q` (635 tests, including
+`tests/positioning/test_summary_writer.py` and `tests/positioning/test_legacy_summary_merge.py`)
+and `ruff check`/`ruff format --check` on both touched files are clean.
 
 ## 5. `.pipeline/` provenance state (context for `merge_plan.md`)
 
