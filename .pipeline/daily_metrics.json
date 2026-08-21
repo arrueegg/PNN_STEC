@@ -1,0 +1,39 @@
+{
+  "answers": "Tables 3, 4",
+  "canonical_for": "Tables 3 and 4",
+  "caveats": [
+    "The published RMSE is RMSE_mean - the mean of per-day RMSEs - which is what the manuscript states. pooled_RMSE in the same file is over observations and is consistently higher; the two are not interchangeable.",
+    "Madrigal rows carry the madrigal_reference_offset caveat."
+  ],
+  "code": {
+    "commit": "65328cc52ecf0e63f661e65ad3a1036075d72e04",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/daily_metrics_rebuilt",
+  "description": "per-day and pooled STEC metrics recomputed from the prediction store",
+  "duration_s": 122.6,
+  "fingerprint": "c716840b42cfde5363aaa04b6172f44b27eeede92b6da6e8446f5099f172d5ae",
+  "inputs": {
+    "multiday_results/gim_baseline_repair": {
+      "kind": "missing"
+    },
+    "predictions/finetuned_stec/own": {
+      "kind": "missing"
+    },
+    "predictions/pretrained_stec/own": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/daily_metrics_rebuilt": {
+      "present": true,
+      "size": 44
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-20T18:53:57.881390+00:00",
+  "stage": "daily_metrics",
+  "supersedes": [
+    "multiday_results/with_pretrained_baseline/summary/summary_statistics.csv"
+  ]
+}

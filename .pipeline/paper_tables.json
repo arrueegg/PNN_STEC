@@ -1,0 +1,27 @@
+{
+  "answers": "Tables 1, 2",
+  "canonical_for": "Tables 1 and 2",
+  "caveats": [
+    "Generated from a resolved run config. Point it at a stored experiment's config.yaml to describe what actually trained, not at a template.",
+    "Table 2 includes three hyperparameters the submitted manuscript omits: the KL warmup (0 to 0.1 over 5 epochs), the variance floor, and the output bias initialisation."
+  ],
+  "code": {
+    "commit": "80dea2c58be6197eac97d76b1f792f787af6d9a2",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.paper_tables --config config/config_BNN.yaml",
+  "description": "input feature list and hyperparameters, generated from the model rather than maintained beside it",
+  "duration_s": 0.9,
+  "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
+  "inputs": {},
+  "outputs": {
+    "multiday_results/paper_tables": {
+      "present": true,
+      "size": 180
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-20T15:37:45.063982+00:00",
+  "stage": "paper_tables",
+  "supersedes": []
+}

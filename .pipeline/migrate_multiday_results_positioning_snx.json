@@ -1,0 +1,21 @@
+{
+  "category": "superseded",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_snx",
+  "label": "positioning_snx",
+  "notes": "Named superseded in CLAUDE.md's canonical-results table; kept rather than deleted, as the only record of an earlier configuration.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/multiday_results_positioning_snx.json": {
+      "present": true,
+      "sha256": "cd545e6c00d4482cbdd357c787f1c82a22fcb985eec465951eb9bc621ce319c0",
+      "size": 612
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.604012+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_snx",
+  "stage": "migrate_multiday_results_positioning_snx"
+}

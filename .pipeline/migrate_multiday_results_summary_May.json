@@ -1,0 +1,21 @@
+{
+  "category": "superseded",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/summary_May",
+  "label": "summary_May",
+  "notes": "Named superseded in CLAUDE.md's canonical-results table; kept rather than deleted, as the only record of an earlier configuration.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/multiday_results_summary_May.json": {
+      "present": true,
+      "sha256": "6167544a0eb2d391280e3effad8e0254580582d0af02bc743c1e3c2978325ba8",
+      "size": 599
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.577772+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/summary_May",
+  "stage": "migrate_multiday_results_summary_May"
+}
