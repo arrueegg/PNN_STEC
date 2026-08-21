@@ -264,3 +264,27 @@ def test_aggregate_daily_metrics_returns_none_when_no_pos_files(tmp_path):
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     assert pm.aggregate_daily_metrics(empty_dir, 2024, 300, "model") is None
+
+
+def test_day_mean_reference_survives_an_object_dtype_column(tmp_path):
+    """A .pos file with any unparseable field leaves its column object dtype.
+
+    The day-mean branch then built an object array whose np.sqrt raised a message naming
+    the symptom rather than the cause. The ground-truth branch never showed it, because a
+    list of floats converts cleanly - which is why a gate run only on days with a SINEX
+    file passed while this path was broken.
+    """
+    import numpy as np
+
+    from stec.positioning.metrics import parse_pos_file
+
+    pos = tmp_path / "AAAA_model.pos"
+    pos.write_text(
+        " mjd sod nsat x y z stdx stdy stdz rck zhd zwd dzwd\n"
+        "60609 0.00 4 -3530194.195 4118798.368 3344042.673 0 0 0 0 2.232 0.079 0.3739\n"
+        "60609 30.00 4 -3530194.100 4118798.300 3344042.600 0 0 0 0 2.232 0.079 0.3739\n"
+    )
+    frame = parse_pos_file(pos, ref_pos=None)
+    assert frame is not None
+    assert np.isfinite(frame["error_3d"]).all()
+    assert set(frame["ref_source"]) == {"mean"}

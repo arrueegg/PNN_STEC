@@ -206,14 +206,22 @@ def parse_pos_file(
     df["hour"] = df["sod"] / 3600
     df["ztd"] = df["zhd"] + df["zwd"] + df["dzwd"]
 
+    # Both references and the positions are forced to float. A .pos file with any
+    # unparseable field leaves its column as object dtype, and the day-mean branch then
+    # produces an object array whose np.sqrt raises "loop of ufunc does not support
+    # argument 0 of type float" - a message that names the symptom and hides the cause.
+    # The ground-truth branch never showed this because a list of floats already converts
+    # cleanly, which is why it survived a gate that only exercised days with a SINEX.
+    positions = df[["x", "y", "z"]].astype(float)
+
     if ref_pos is not None:
-        xyz_ref = np.array(ref_pos).reshape(1, -1)
+        xyz_ref = np.asarray(ref_pos, dtype=float).reshape(1, -1)
         df["ref_source"] = "ground_truth"
     else:
-        xyz_ref = df[["x", "y", "z"]].mean().to_numpy().reshape(1, -1)
+        xyz_ref = positions.mean().to_numpy(dtype=float).reshape(1, -1)
         df["ref_source"] = "mean"
 
-    xyz_array = df[["x", "y", "z"]].to_numpy()
+    xyz_array = positions.to_numpy(dtype=float)
     enu = xyz2enu(xyz_array, xyz_ref)
 
     df["e"] = enu[:, 0]
