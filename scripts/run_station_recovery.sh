@@ -48,10 +48,26 @@ other_sweep_running() {
     return 1
 }
 
+# A unit under Restart=on-failure is briefly inactive between the kill and the restart,
+# so a single is-active check reads a crash as completion. That is exactly what happened on
+# 2026-08-21: systemd-oomd killed overnight-final at 04:56:23, this guard checked at 04:56:29
+# and started, and the unit came back at 04:59:24 - leaving both running concurrently, which
+# is what the guard exists to prevent. Require the unit to be inactive twice, further apart
+# than its RestartSec.
+CONFIRM_GAP=${CONFIRM_GAP:-180}
 for unit in $WAIT_FOR_UNITS; do
-    while systemctl --user is-active --quiet "$unit"; do
-        echo "$(date '+%F %T') waiting for $unit" >> "$LOG"
-        sleep 300
+    while true; do
+        if systemctl --user is-active --quiet "$unit"; then
+            echo "$(date '+%F %T') waiting for $unit" >> "$LOG"
+            sleep 300
+            continue
+        fi
+        sleep "$CONFIRM_GAP"
+        if ! systemctl --user is-active --quiet "$unit"; then
+            echo "$(date '+%F %T') $unit inactive on two checks, proceeding" >> "$LOG"
+            break
+        fi
+        echo "$(date '+%F %T') $unit came back - it had restarted, still waiting" >> "$LOG"
     done
 done
 
