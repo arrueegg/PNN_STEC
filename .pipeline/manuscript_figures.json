@@ -1,0 +1,40 @@
+{
+  "answers": "all",
+  "canonical_for": null,
+  "caveats": [
+    "Only 8 of the 14 manuscript figures stec.viz.manuscript_figures defines are wired into FIGURE_BUILDERS and so run here: Figures 1, 2, 10, 11, 12-15. Figures 4-9 are ported but not called by this stage - they need real-data wiring (docs/revision/merge_plan.md Phase 3) that has not happened yet, and src/viz/*.py remains the only working path for them until it does.",
+    "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / positioning_coverage's outputs (Figures 10-15) - a partial multiday_results tree produces a partial figure set with a logged warning per missing input, not a crash."
+  ],
+  "code": {
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "dirty": true
+  },
+  "command": "-m stec.viz.manuscript_figures",
+  "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
+  "duration_s": 9.1,
+  "fingerprint": "b231c6edb291709bc1078e61f9cbd924f384814ca3ea627657c423792df4f62a",
+  "inputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/multiday_results": {
+      "files": 270,
+      "kind": "tree",
+      "mtime_ns": 1787338166090193894,
+      "size": 4548357003
+    }
+  },
+  "outputs": {
+    "plots/manuscript": {
+      "present": true,
+      "size": 110
+    },
+    "plots/manuscript/dataset_construction/temp_split.csv": {
+      "present": true,
+      "rows": 132,
+      "sha256": "9314a802ebfae2f86874ae5a99f79810202f6edacd0621dee39b5ef8c4b6e002",
+      "size": 2112
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T18:53:22.922482+00:00",
+  "stage": "manuscript_figures",
+  "supersedes": []
+}

@@ -6,16 +6,19 @@
     "Madrigal rows carry the madrigal_reference_offset caveat."
   ],
   "code": {
-    "commit": "65328cc52ecf0e63f661e65ad3a1036075d72e04",
+    "commit": "e85270ec8692de6b57e5c5b21682f50134667354",
     "dirty": true
   },
-  "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/daily_metrics_rebuilt",
+  "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
   "description": "per-day and pooled STEC metrics recomputed from the prediction store",
-  "duration_s": 122.6,
-  "fingerprint": "c716840b42cfde5363aaa04b6172f44b27eeede92b6da6e8446f5099f172d5ae",
+  "duration_s": 138.8,
+  "fingerprint": "afe011bcdb07b1ca9c28276f0a66cf207e7a82147cbf8bdf59f705fe829b8b50",
   "inputs": {
-    "multiday_results/gim_baseline_repair": {
-      "kind": "missing"
+    "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
+      "files": 2,
+      "kind": "tree",
+      "mtime_ns": 1787331084328840649,
+      "size": 71373
     },
     "predictions/finetuned_stec/own": {
       "kind": "missing"
@@ -25,15 +28,15 @@
     }
   },
   "outputs": {
-    "multiday_results/daily_metrics_rebuilt": {
+    "multiday_results/analyses/daily_metrics/rebuilt": {
       "present": true,
       "size": 44
     }
   },
   "params": {},
-  "recorded_at": "2026-08-20T18:53:57.881390+00:00",
+  "recorded_at": "2026-08-21T18:02:15.645920+00:00",
   "stage": "daily_metrics",
   "supersedes": [
-    "multiday_results/with_pretrained_baseline/summary/summary_statistics.csv"
+    "multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv"
   ]
 }

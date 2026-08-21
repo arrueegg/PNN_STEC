@@ -19,9 +19,14 @@ output CSV can now tell what it means:
   evaluations here are not what they look like, and both have misled readers before.
 * `supersedes` - the older artifact this replaces, which is marked rather than deleted.
 
-The commands still point at `src/`. The registry is the contract layer and can drive the
-existing scripts while each is ported, which is what keeps this from being a big-bang
-rewrite: a stage's command changes when its analysis moves, and nothing else does.
+No command in this file points at `src/` any more. Most run `-m stec.analysis.<name>`;
+the two that still shell out to a standalone script (`repair_gim_baseline`,
+`hyperparameter_search`) point at `stec/frozen/analysis/`, not `src/analysis/` - those
+two scripts are deliberately unported (see `stec/frozen/README.md`) but were relocated
+byte-identically so `src/` itself can be deleted in full. The registry is the contract
+layer and can drive scripts as well as `-m` modules, which is what keeps porting from
+being a big-bang rewrite: a stage's command changes when its analysis moves, and nothing
+else does.
 """
 
 from __future__ import annotations
@@ -95,6 +100,9 @@ COMMON_SET_POSITIONING_DIR = _analysis_dir("common_set_positioning", rebuilt=Tru
 POSITIONING_SUMMARY_DIR = _analysis_dir("positioning_summary", rebuilt=True)
 ORACLE_BENCHMARK_DIR = _analysis_dir("oracle_benchmark", rebuilt=True)
 RESULTS_MANIFEST_DIR = _analysis_dir("results_manifest", rebuilt=True)
+PRETRAINED_TEST_DIAGNOSTICS_DIR = _analysis_dir(
+    "pretrained_test_diagnostics", rebuilt=True
+)
 
 # The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
 # full evaluation tree, not a `stec.analysis` output, so it lives under
@@ -255,22 +263,25 @@ STAGES: list[Stage] = [
         # paths.LEGACY_WANDB honours STEC_LEGACY_ROOT, same as repair_gim_baseline's
         # --store_root above. --output_dir is the script's own existing flag (not a new
         # one added for this), so redirecting it into the new layout needs no edit to the
-        # frozen script.
-        f"src/analysis/hyperparameter_search_summary.py "
+        # frozen script. The script itself now lives at stec/frozen/analysis/ (moved off
+        # src/ byte-identically, see stec/frozen/README.md) rather than src/analysis/, so
+        # this stage carries no src/ dependency at all - the only src/ dependency left in
+        # this file is repair_gim_baseline's, and that one moved with it too.
+        f"stec/frozen/analysis/hyperparameter_search_summary.py "
         f"--wandb_dir {paths.LEGACY_WANDB} --output_dir {HYPERPARAMETER_SEARCH_DIR}",
         "R2.5, R2.8b",
         "architecture comparison and hyperparameter sweep from the W&B history",
         inputs=["wandb"],
         outputs=[str(HYPERPARAMETER_SEARCH_DIR)],
         caveats=[
-            "Stays on the pre-rebuild script for a data reason, not a code one: the "
-            "script itself is self-contained (only glob/yaml/json/pandas over local "
-            "wandb/run-*/files/{config.yaml,wandb-summary.json} pairs, no W&B API call "
-            "and no network access) and has no dependency on the rest of src/, so "
-            "porting it would be mechanical. It has not been ported because its input "
-            "is not reachable here: wandb/ is untracked (.gitignore'd, ~606 MB, ~1,526 "
-            "run directories in the live checkout) and does not exist in this worktree "
-            "or in any fresh clone.",
+            "Stays unported for a data reason, not a code one: the script itself is "
+            "self-contained (only glob/yaml/json/pandas over local wandb/run-*/files/"
+            "{config.yaml,wandb-summary.json} pairs, no W&B API call and no network "
+            "access) and never depended on the rest of src/, so porting it would be "
+            "mechanical. It has not been ported because its input is not reachable "
+            "here: wandb/ is untracked (.gitignore'd, ~606 MB, ~1,526 run directories "
+            "in the live checkout) and does not exist in this worktree or in any fresh "
+            "clone.",
             "Cannot run at all without a populated local wandb/ directory from the "
             "training host.",
         ],
@@ -302,7 +313,13 @@ STAGES: list[Stage] = [
         # in a worktree that does not carry the 640 GB data tree. paths.LEGACY_PREDICTIONS
         # already honours STEC_LEGACY_ROOT, so this points at the real store without editing
         # the frozen script itself. --output_dir is likewise the script's own existing flag.
-        f"src/analysis/repair_gim_baseline.py --apply "
+        # The script moved from src/analysis/ to stec/frozen/analysis/ byte-identically
+        # (checksum-verified, see stec/frozen/README.md) so src/ can be deleted whole
+        # without breaking this stage - its own sibling import of `evaluation.*` moved
+        # with it, to stec/frozen/evaluation/, for the same reason: this stage must never
+        # import stec/'s ported GIMMapper or prediction_store, or the regression check
+        # would share an implementation with the thing it checks.
+        f"stec/frozen/analysis/repair_gim_baseline.py --apply "
         f"--store_root {paths.LEGACY_PREDICTIONS} --output_dir {GIM_BASELINE_REPAIR_DIR}",
         "Table 4, R1.4",
         "recompute the IGS GIM baseline against the correct day's IONEX map",
@@ -312,7 +329,7 @@ STAGES: list[Stage] = [
             "Repairs the 12 days of 2024 where a truncating cast on a float32-denormalised "
             "doy loaded the previous day's IONEX map. Unaffected days must reproduce to "
             "~1e-5 TECU; that agreement is the regression check.",
-            "Must stay on the pre-rebuild script, permanently: this stage is the "
+            "Must stay on the frozen, pre-rebuild script, permanently: this stage is the "
             "regression check for the GIM day-lookup repair, and porting it into stec/ "
             "would mean the check and the thing it checks share an implementation.",
         ],
@@ -559,6 +576,29 @@ STAGES: list[Stage] = [
             "from Table 5.",
         ],
     ),
+    Stage(
+        # Streams predictions/pretrained_stec/own (2014-2024, 10,000,000 rows across 544
+        # sampled days - the pretrained model's entire held-out test set, not just 2024)
+        # into a bounded, narrow-column parquet cache. Figures 4-9 need actual
+        # per-observation values, not a sum, so this is the one manuscript-figure input
+        # that cannot be a running accumulator like every other stec.analysis stage -
+        # see the module's own docstring for the size accounting. Must precede
+        # manuscript_figures below, which reads its cache.
+        "pretrained_test_diagnostics",
+        "-m stec.analysis.pretrained_test_diagnostics "
+        f"--output-dir {PRETRAINED_TEST_DIAGNOSTICS_DIR}",
+        "Figures 4-9",
+        "per-observation cache of the pretrained model's whole 2014-2024 test set",
+        inputs=[STORE_PRETRAINED],
+        outputs=[
+            str(PRETRAINED_TEST_DIAGNOSTICS_DIR),
+            str(PRETRAINED_TEST_DIAGNOSTICS_DIR / "manifest.csv"),
+        ],
+        # Keyed on the manifest, not observations.parquet - a parquet output carries no
+        # row count in the pipeline's provenance record, same reasoning as
+        # inference_smoke/data_prep_smoke. 11 years, so 11 is exact, not a floor.
+        min_rows={str(PRETRAINED_TEST_DIAGNOSTICS_DIR / "manifest.csv"): 11},
+    ),
     # Last: reads the metric CSVs every stage above writes, so it must follow all of them.
     Stage(
         "figures",
@@ -573,6 +613,40 @@ STAGES: list[Stage] = [
             "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green "
             "IGS GIM + Mapping, purple Pretrained. An approach colour must never mean "
             "anything else.",
+        ],
+    ),
+    # Also last: reads daily_metrics's per_day.csv, elevation_metrics_finetuned's
+    # per_day_by_elevation.csv, pretrained_test_diagnostics's observations.parquet and
+    # positioning_coverage's multiday_summary.csv, so it must follow all of them, same as
+    # `figures` above.
+    Stage(
+        "manuscript_figures",
+        "-m stec.viz.manuscript_figures",
+        "all",
+        "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
+        inputs=[str(paths.RESULTS_ROOT)],
+        outputs=[
+            "plots/manuscript",
+            "plots/manuscript/dataset_construction/temp_split.csv",
+        ],
+        # Keyed on the CSV, not the directory - same reasoning as relative_error_metrics
+        # above: a tree digest carries files/size/mtime but no row count. 132 is exact
+        # (train+val+test months within 2014-2024); 100 leaves room without accepting a
+        # near-empty run.
+        min_rows={"plots/manuscript/dataset_construction/temp_split.csv": 100},
+        caveats=[
+            "All 14 code-generated manuscript figures (everything but the hand-drawn "
+            "Figure 3) are wired into FIGURE_BUILDERS and run here. Figures 4-9 were the "
+            "last gap - they read pretrained_test_diagnostics's cache rather than the "
+            "store directly, so this stage's own output is only as current as that one's.",
+            "elevation_metrics_finetuned (Figure 11's per-day-by-elevation error bars) "
+            "has no Stage of its own yet, unlike pretrained_test_diagnostics - its "
+            "per_day_by_elevation.csv must exist under multiday_results/analyses/ before "
+            "this stage can draw Figure 11, but nothing in `pipeline run` produces it.",
+            "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / "
+            "pretrained_test_diagnostics / positioning_coverage's outputs (Figures 4-15) - "
+            "a partial multiday_results tree produces a partial figure set with a logged "
+            "warning per missing input, not a crash.",
         ],
     ),
     Stage(

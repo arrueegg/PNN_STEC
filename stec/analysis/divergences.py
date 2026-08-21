@@ -37,6 +37,17 @@ Two things this module deliberately does NOT do, both by design:
   this registry's `recorded_effect` values (not auto-written, so the prose explaining each
   number stays reviewable).
 
+Not a numbered `Divergence` entry, because it does not move a published number the way the
+ten above do - but stated here anyway, since this is the register a reader auditing
+reproducibility claims would check: **best-checkpoint selection and early stopping are not
+ported, by decision, not as a remaining gap.** `stec.training.run_training` trains every
+epoch a config specifies and saves the final weights; it does not reproduce
+`src/training/base_trainer.py`'s selection of the best-validation-loss epoch, which is what
+chose each of the ~3,580 published checkpoints. A rebuilt training run therefore converges
+to an equivalent model, never a byte-for-byte reproduction of any checkpoint on disk - see
+`docs/REPRODUCING.md` (reproducibility table) and `docs/revision/merge_plan.md` (Phase 1,
+"what will still not be reproducible") for the same statement.
+
 Two layers of measurement, kept separate on purpose:
 
 * **Pure functions** (`doy_lookup_disagrees`, `count_boundary_rows`,
@@ -789,12 +800,22 @@ def _measure_variant_selection() -> Effect:
 
     from ..config import paths
 
-    # The rebuilt stage writes to the _rebuilt directory; the pre-rebuild script wrote to
-    # the bare one. Prefer the rebuilt table, since it is the one that selects the
-    # canonical variant at all.
+    # The rebuilt stage writes to analyses/positioning_coverage/rebuilt/; the pre-rebuild
+    # script wrote to .../pre_rebuild/ (docs/revision/results_layout.md - nested since the
+    # results-layout restructure, replacing the flat positioning_coverage_rebuilt /
+    # positioning_coverage top-level names). Prefer the rebuilt table, since it is the one
+    # that selects the canonical variant at all.
     candidates = (
-        paths.LEGACY_MULTIDAY / "positioning_coverage_rebuilt" / "collisions.csv",
-        paths.LEGACY_MULTIDAY / "positioning_coverage" / "collisions.csv",
+        paths.LEGACY_MULTIDAY
+        / "analyses"
+        / "positioning_coverage"
+        / "rebuilt"
+        / "collisions.csv",
+        paths.LEGACY_MULTIDAY
+        / "analyses"
+        / "positioning_coverage"
+        / "pre_rebuild"
+        / "collisions.csv",
     )
     collisions = next((c for c in candidates if c.exists()), None)
     if collisions is None:

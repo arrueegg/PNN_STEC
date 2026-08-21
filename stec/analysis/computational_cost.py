@@ -125,10 +125,16 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    stec = collect(args.multiday_dir, "*/temp_config_stec_*_training.log")
-    vtec = collect(args.multiday_dir, "*/temp_config_vtec_*_training.log")
+    # Per-day training logs live under `per_day/<year>/<doy>/` since the results-layout
+    # restructure (docs/revision/results_layout.md) - the year is hardcoded the same way
+    # `results_manifest.DOY_DIR_PATTERN` hardcodes it, since 2024 is this project's only
+    # trained span.
+    stec = collect(args.multiday_dir, "per_day/2024/*/temp_config_stec_*_training.log")
+    vtec = collect(args.multiday_dir, "per_day/2024/*/temp_config_vtec_*_training.log")
     if stec.empty:
-        raise FileNotFoundError(f"No STEC training logs under {args.multiday_dir}")
+        raise FileNotFoundError(
+            f"No STEC training logs under {args.multiday_dir}/per_day/2024"
+        )
 
     # The source script summarises VTEC unconditionally, which KeyErrors if no VTEC
     # logs exist at all (`summarise` indexes a column an empty `pd.DataFrame()` does

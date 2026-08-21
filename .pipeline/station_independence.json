@@ -6,12 +6,12 @@
     "Strengthening this result needs a region-held-out retrain, not more data."
   ],
   "code": {
-    "commit": "603ff13633c79fc0831c47f967507ce736250025",
+    "commit": "e85270ec8692de6b57e5c5b21682f50134667354",
     "dirty": true
   },
-  "command": "-m stec.analysis.station_independence --output-dir multiday_results/station_independence_rebuilt",
+  "command": "-m stec.analysis.station_independence --output-dir multiday_results/analyses/station_independence/rebuilt",
   "description": "test-station error against distance to the nearest training station",
-  "duration_s": 55.5,
+  "duration_s": 50.2,
   "fingerprint": "c0c4eccc2cf65c4aa01bcd62d37fee7663985e5a7ea4e96057cfece14be1297e",
   "inputs": {
     "predictions/finetuned_stec/own": {
@@ -19,13 +19,13 @@
     }
   },
   "outputs": {
-    "multiday_results/station_independence_rebuilt": {
+    "multiday_results/analyses/station_independence/rebuilt": {
       "present": true,
       "size": 68
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T14:55:59.672569+00:00",
+  "recorded_at": "2026-08-21T17:59:56.561902+00:00",
   "stage": "station_independence",
   "supersedes": []
 }

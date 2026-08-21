@@ -3,20 +3,20 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "22997f86c3c5936f79bf90b34b242f588d7e45c6",
+    "commit": "e85270ec8692de6b57e5c5b21682f50134667354",
     "dirty": true
   },
-  "command": "-m stec.analysis.relative_error_metrics --output-dir multiday_results/relative_error_metrics_rebuilt",
+  "command": "-m stec.analysis.relative_error_metrics --output-dir multiday_results/analyses/relative_error_metrics/rebuilt",
   "description": "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
   "duration_s": 0.3,
   "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
   "inputs": {},
   "outputs": {
-    "multiday_results/relative_error_metrics_rebuilt": {
+    "multiday_results/analyses/relative_error_metrics/rebuilt": {
       "present": true,
       "size": 96
     },
-    "multiday_results/relative_error_metrics_rebuilt/yearly_metrics.csv": {
+    "multiday_results/analyses/relative_error_metrics/rebuilt/yearly_metrics.csv": {
       "present": true,
       "rows": 11,
       "sha256": "664cc8d6114cf12daa7024a8f747b1f4b5e03ed2c92ddb71ce501bfe36e1de69",
@@ -24,7 +24,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T14:16:16.485936+00:00",
+  "recorded_at": "2026-08-21T17:59:06.372446+00:00",
   "stage": "relative_error_metrics",
   "supersedes": []
 }

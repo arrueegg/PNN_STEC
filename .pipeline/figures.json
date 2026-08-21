@@ -1,0 +1,34 @@
+{
+  "answers": "all",
+  "canonical_for": null,
+  "caveats": [
+    "The _notitle and _no_legend variants are the manuscript figures; the titled copies are working copies carrying a provenance footnote.",
+    "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
+  ],
+  "code": {
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "dirty": true
+  },
+  "command": "-m stec.viz.revision_figures",
+  "description": "one PNG per revision figure, plus the _notitle manuscript variants",
+  "duration_s": 9.9,
+  "fingerprint": "b231c6edb291709bc1078e61f9cbd924f384814ca3ea627657c423792df4f62a",
+  "inputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/multiday_results": {
+      "files": 270,
+      "kind": "tree",
+      "mtime_ns": 1787338166090193894,
+      "size": 4548357003
+    }
+  },
+  "outputs": {
+    "plots/revision": {
+      "present": true,
+      "size": 166
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T18:49:35.971591+00:00",
+  "stage": "figures",
+  "supersedes": []
+}

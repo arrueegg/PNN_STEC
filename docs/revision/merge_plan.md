@@ -339,16 +339,21 @@ Stated explicitly, per the task's instruction, rather than left to be discovered
    "What is not reproducible" section, independently re-read and confirmed accurate here).
    This is a licensing/data-rights boundary, not a code gap, and no amount of further
    porting work changes it.
-2. **The ~3,580 trained checkpoints are not distributed and are not cheaply retrainable.**
-   Even after every driver gap in `retirement_inventory.md` is closed, retraining the
-   pretrained model (150 epochs, full multi-year corpus) and 258 daily fine-tunes is a
-   genuine multi-day-to-multi-week compute commitment on this project's single RTX 4070 Ti,
-   and today's `stec.training.run_training` does not even attempt to reproduce the
-   *selection* process (best-val-loss checkpoint + early stopping) that chose which epoch of
-   each of those runs was actually shipped — only `src/training/base_trainer.py` does that,
-   and it remains KEEP. A from-scratch retrain through `stec/` today would not be a
-   byte-for-byte reproduction of any checkpoint on disk even if it converged to a similar
-   place.
+2. **The ~3,580 trained checkpoints are not distributed and are not cheaply retrainable —
+   and, separately, are not reproducible even in principle from `stec/` as it stands
+   today, by decision rather than by remaining gap.** Even after every driver gap in
+   `retirement_inventory.md` is closed, retraining the pretrained model (150 epochs, full
+   multi-year corpus) and 258 daily fine-tunes is a genuine multi-day-to-multi-week compute
+   commitment on this project's single RTX 4070 Ti. Beyond that: the project has decided
+   **not** to port best-validation-loss checkpoint selection or early stopping into
+   `stec.training.run_training` — only `src/training/base_trainer.py` does that, and it
+   remains KEEP for exactly this reason. `stec.training.run_training` trains every
+   configured epoch and saves the final weights, full stop. Each of the ~3,580 published
+   checkpoints was selected as the best epoch of its run, not the last, so a from-scratch
+   retrain through `stec/` would converge to an equivalent model, never a byte-for-byte
+   reproduction of any checkpoint on disk — this is permanent, not a driver gap Phase 3 or
+   any later phase closes. See `docs/REPRODUCING.md`'s reproducibility table and
+   `stec/analysis/divergences.py` for the same statement.
 3. **`add_split_indices.py`'s role is undocumented for a genuinely from-scratch raw
    database build.** Every raw HDF5 day this project currently reads already carries
    `train_idx`/`val_idx`/`test_idx` (written once, historically); `stec/data/run_data_prep.py`

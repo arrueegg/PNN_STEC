@@ -63,11 +63,20 @@ TAIL_THRESHOLDS_M = (2.0, 3.0, 5.0)
 # imported - see the identical comment and the final report in
 # `storm_stratification.py`, which needs the same resolution and has no shared
 # `stec/analysis/paths.py` to pull it from yet.
+# Nested under `positioning_runs/<tag>/` since the results-layout restructure
+# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
+# legacy directory name carried.
 FULL_COVERAGE_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_full_coverage" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "full_coverage"
+    / "multiday_summary.csv"
 )
 PUBLISHED_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_comparison_3way" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "comparison_3way"
+    / "multiday_summary.csv"
 )
 DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("positioning_robustness", rebuilt=True)
 

@@ -61,22 +61,29 @@ def test_gim_repair_precedes_the_metrics_that_read_it():
     assert position("daily_metrics") < position("activity_stratification")
 
 
-def test_figures_run_last():
-    """Last among the stages that actually feed it: `figures` reads the metric CSVs every
-    analysis stage above it writes to `multiday_results`, so it must follow all of them.
+def test_figures_and_manuscript_figures_run_last():
+    """Last among the stages that actually feed them: `figures` and `manuscript_figures`
+    both read the metric CSVs every analysis stage above writes to `multiday_results`
+    (the latter also reads `daily_metrics` and `positioning_coverage` specifically), so
+    both must follow every stage that produces one of those CSVs.
 
     `results_manifest` and `data_prep_smoke` are excluded, not exempted from a real
-    invariant: neither reads `multiday_results` nor is read by `figures` - the former is a
-    standalone provenance index, the latter the data-preparation driver's self-contained
-    smoke stage (`stec/data` has no analysis output for `figures` to depend on). Their
-    position relative to `figures` is therefore not load-bearing, only a consequence of
+    invariant: neither reads `multiday_results` nor is read by either figure stage - the
+    former is a standalone provenance index, the latter the data-preparation driver's
+    self-contained smoke stage (`stec/data` has no analysis output either figure stage
+    depends on). Their position is therefore not load-bearing, only a consequence of
     `stages.py`'s "append only" convention: new stages are added at the end of the
-    registry, not inserted.
+    registry, not inserted. `figures` and `manuscript_figures` are not ordered relative to
+    each other - neither reads the other's output.
     """
     trailing_stages = {"results_manifest", "data_prep_smoke"}
-    assert position("figures") == max(
-        position(s.name) for s in STAGES if s.name not in trailing_stages
+    last_producer = max(
+        position(s.name)
+        for s in STAGES
+        if s.name not in trailing_stages | {"figures", "manuscript_figures"}
     )
+    assert position("figures") > last_producer
+    assert position("manuscript_figures") > last_producer
 
 
 def test_oracle_benchmark_states_it_is_not_comparable_with_table_5():

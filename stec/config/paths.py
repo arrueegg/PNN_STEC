@@ -51,7 +51,10 @@ REPO_DATA = _root("STEC_REPO_DATA", REPO_ROOT / "data")
 OMNI_INDICES = REPO_DATA / "omni_hourly_2010-2025.h5"
 SUBSET_INDEX_CACHE = REPO_DATA / "val_test_subsets_idx"
 
-SPLIT_LISTS = REPO_ROOT / "src" / "data_processing"
+# Small, git-tracked text data (not code), so it lives inside the package rather than in
+# the `src/` tree that is being retired - `stec/` must be able to resolve these with `src/`
+# gone.
+SPLIT_LISTS = REPO_ROOT / "stec" / "data" / "splits"
 
 
 def stec_database_day(year: int, doy: int) -> Path:
@@ -171,8 +174,9 @@ LEGACY_PREDICTIONS = LEGACY_ROOT / "predictions"
 LEGACY_MULTIDAY = LEGACY_ROOT / "multiday_results"
 LEGACY_EXPERIMENTS = LEGACY_ROOT / "experiments"
 # ~606 MB of local W&B run history (config.yaml + wandb-summary.json per run), read
-# directly by src/analysis/hyperparameter_search_summary.py - gitignored, so a worktree
-# has none of it either.
+# directly by stec/frozen/analysis/hyperparameter_search_summary.py (moved off src/
+# byte-identically, see stec/frozen/README.md) - gitignored, so a worktree has none of
+# it either.
 LEGACY_WANDB = LEGACY_ROOT / "wandb"
 
 # The paper's pretrained run. Its config.yaml is the authoritative description of what

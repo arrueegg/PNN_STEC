@@ -75,15 +75,27 @@ METHOD_ORDER = [
 
 # The two positioning trees `canonical_positioning_summary` resolves between - see the
 # module docstring. `DEFAULT_WEIGHTING_SUMMARY` is reused by both `common_set_positioning`
-# and `oracle_benchmark`, so it is defined once here rather than in each.
+# and `oracle_benchmark`, so it is defined once here rather than in each. Nested under
+# `positioning_runs/<tag>/` since the results-layout restructure
+# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
+# legacy directory name carried.
 FULL_COVERAGE_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_full_coverage" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "full_coverage"
+    / "multiday_summary.csv"
 )
 PUBLISHED_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_comparison_3way" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "comparison_3way"
+    / "multiday_summary.csv"
 )
 DEFAULT_WEIGHTING_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_20260216_2052" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "20260216_2052"
+    / "multiday_summary.csv"
 )
 DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("positioning_summary", rebuilt=True)
 

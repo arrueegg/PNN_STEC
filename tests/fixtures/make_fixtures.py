@@ -13,6 +13,9 @@ external input the data path touches:
 * a space-weather HDF5: 24 hourly rows for one day, keyed by `<year>/<doy>` with a
   `columns` attribute naming each column - `day_reader.read_space_weather` recovers column
   identity from that attribute rather than from a fixed layout.
+* a Madrigal-shaped HDF5 day: one `Data/Table Layout` compound dataset, matching a real
+  file's dtype (checked directly against one, see `MADRIGAL_DTYPE`) - what
+  `stec.data.madrigal_reader.read_madrigal_day` expects.
 * one prediction-store parquet day, written through `stec.inference.prediction_store`'s own
   `write_predictions` rather than hand-built, so its schema cannot drift from the module
   that owns it.
@@ -24,6 +27,7 @@ same bytes. The whole set is well under a megabyte.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import h5py
@@ -155,6 +159,82 @@ def build_stec_database_day(
         handle.create_dataset(f"{group}/train_idx", data=train_idx)
         handle.create_dataset(f"{group}/val_idx", data=val_idx)
         handle.create_dataset(f"{group}/test_idx", data=test_idx)
+    return path
+
+
+# The real `Data/Table Layout` dtype, checked directly against
+# /home/space/data/iono/Madrigal_STEC/2024/los_20240101_IGS.h5 (2026-08-21). Field order
+# does not matter to `read_madrigal_day`, which reads by name, but matching it means this
+# fixture is a plausible day, not just a valid one.
+MADRIGAL_DTYPE = np.dtype(
+    [
+        ("gps_site", "S4"),
+        ("sat_id", "<i8"),
+        ("gnss_type", "S8"),
+        ("gdlatr", "<f8"),
+        ("gdlonr", "<f8"),
+        ("los_tec", "<f8"),
+        ("dlos_tec", "<f8"),
+        ("tec", "<f8"),
+        ("azm", "<f8"),
+        ("elm", "<f8"),
+        ("gdlat", "<f8"),
+        ("glon", "<f8"),
+        ("rec_bias", "<f8"),
+        ("sod", "<u4"),
+    ]
+)
+
+
+def build_madrigal_day(
+    data_root: Path,
+    year: int = YEAR,
+    doy: int = DOY,
+    n_rows: int = N_OBSERVATIONS,
+    seed: int = SEED,
+) -> Path:
+    """Write `<data_root>/Madrigal_STEC/<year>/los_<year><mm><dd>_IGS.h5`.
+
+    Station names are written lower-case, matching the real file: Madrigal stores
+    `gps_site` lower-case, our own test set stores it upper-case, and
+    `read_madrigal_day` upper-cases on read - a fixture already upper-case would not
+    exercise that. Elevation is drawn across the full 0-89 degree range rather than only
+    above the usual 5 degree cutoff, so a test can actually see rows filtered out.
+    """
+    rng = np.random.default_rng(seed + 3)
+    rows = np.zeros(n_rows, dtype=MADRIGAL_DTYPE)
+
+    station_choice = rng.choice(STATIONS, size=n_rows)
+    for i in range(n_rows):
+        station = station_choice[i]
+        lat_sta, lon_sta = STATION_SITES[station]
+        rows[i]["gps_site"] = station.lower().encode("ascii")
+        rows[i]["sat_id"] = rng.integers(1, 32)
+        rows[i]["gnss_type"] = b"GPS     "
+        rows[i]["gdlatr"] = lat_sta
+        rows[i]["gdlonr"] = lon_sta
+        # The pierce point sits a few degrees from the receiver, the way a real ray path does.
+        rows[i]["gdlat"] = np.clip(lat_sta + rng.uniform(-5.0, 5.0), -89.0, 89.0)
+        rows[i]["glon"] = lon_sta + rng.uniform(-5.0, 5.0)
+        rows[i]["azm"] = rng.uniform(0.0, 359.0)
+        rows[i]["elm"] = rng.uniform(0.0, 89.0)
+        rows[i]["sod"] = rng.uniform(0.0, 86399.0)
+        rows[i]["los_tec"] = rng.uniform(2.0, 60.0)
+        rows[i]["dlos_tec"] = rng.uniform(0.1, 2.0)
+        rows[i]["tec"] = rows[i]["los_tec"] * 0.3
+        rows[i]["rec_bias"] = 0.0
+
+    date = datetime(year, 1, 1) + timedelta(days=doy - 1)
+    path = (
+        Path(data_root)
+        / "Madrigal_STEC"
+        / str(year)
+        / f"los_{year}{date.month:02d}{date.day:02d}_IGS.h5"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "w") as handle:
+        group = handle.create_group("Data")
+        group.create_dataset("Table Layout", data=rows)
     return path
 
 

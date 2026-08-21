@@ -27,19 +27,31 @@ Coverage
 
 Figure 3 (`network`) is hand-drawn (`docs/ResNet.drawio`) and needs no code.
 
-**Figures 4-9 are ported but not wired into `build_all()`.** Their pre-rebuild source
+**Figures 4-9 are wired via one shared streaming cache**
+(`stec/analysis/pretrained_test_diagnostics.py`,
+`_build_pretrained_diagnostics_figures` below). Their pre-rebuild source
 (`src/viz/{performance,distributions,spatial,uncertainty}.py`, driven by
 `src/inference_testset.py`) consumes the full per-observation dataframe of the
-*pretrained* model's held-out test set (2014-2024, the `_sub500K` subsample the
-experiment names encode) - `predictions/pretrained_stec/own/` in the prediction store, not
-the 242-day, ~400M-row `finetuned_stec` store Figures 10-11 draw pooled/per-day metrics
-from. No aggregate CSV anywhere carries per-observation residuals, so each `fig_*` below
-takes that dataframe directly, as every figure in this module does - but this port was
-built under a hard rule against streaming or otherwise running an analysis over the
-prediction store, so no `_build_*_figure` here reads it. Wiring one in is a follow-up for
-whoever runs this with the resource budget to read `pretrained_stec/own` (~670 MB across
-2014-2024): pass its frame straight to the `fig_*` function below, no aggregation needed
-first. Each function is fully tested against synthetic per-observation frames instead.
+*pretrained* model's held-out test set - every year `test_df` holds, never filtered to
+2024 - which is `predictions/pretrained_stec/own/` in the prediction store: 544 sampled
+days spanning 2014-2024, 10,000,000 observations (`data.test_size: 10000000` in the
+paper's pretrain config; earlier revisions of this docstring guessed `_sub500K`, which is
+actually `train_subset_size` - a training-time resample, not the test set's size). This is
+not the 242-day, ~400M-row `finetuned_stec` store Figures 10-11 draw pooled/per-day
+metrics from. No aggregate CSV anywhere carries per-observation residuals, so each
+`fig_*` below takes that dataframe directly, as every figure in this module does -
+`pretrained_test_diagnostics.py` is what builds it, one day at a time via
+`prediction_store.iter_days`, narrowed to the ~11 columns Figures 4-9 actually read
+*before* concatenating, which is what keeps the result (measured 10 M rows, ~450 MB) two
+orders of magnitude below the 580 M-row whole-store read that OOM-killed the original
+analysis driver. `fig_pred_density` (Figure 4) is the one hexbin/scatter figure in the
+group; the other five are boxplots that need every row to compute exact quantiles, so
+only Figure 4's builder additionally subsamples (2,000,000 points, seed 42 - see
+`_PRED_DENSITY_SAMPLE_CAP`) purely to bound the render, not because the cache itself is
+too large to hold. Each `fig_*` function is still tested against synthetic
+per-observation frames only (`tests/viz/test_manuscript_figures.py`); the streaming and
+column-narrowing behaviour is tested separately, against a synthetic on-disk store, in
+`tests/analysis/test_pretrained_test_diagnostics.py`.
 
 **Figure 11 needed a new small aggregate that did not exist.** It needs per-day,
 per-elevation-bin RMSE/MAE **and their std across days** (the error bars in the published
@@ -895,6 +907,75 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
 
 
 # --------------------------------------------------------------------------
+# Figures 4-9 wiring - one shared per-observation cache, six figures
+# --------------------------------------------------------------------------
+
+# Cap and seed for fig_pred_density's hexbin. The cache holds the model's whole 2014-2024
+# test set (10,000,000 rows as of this writing - see
+# stec.analysis.pretrained_test_diagnostics), and a hexbin rendered at gridsize=100 does
+# not resolve any finer past a couple of million points, so beyond this cap only render
+# cost grows, not the pattern the figure shows. This subsample is specific to
+# fig_pred_density: the other five figures in this group are boxplots computed from every
+# row in the cache (see that module's docstring for why a boxplot needs the full data
+# where a hexbin does not).
+_PRED_DENSITY_SAMPLE_CAP = 2_000_000
+_PRED_DENSITY_SAMPLE_SEED = 42
+
+
+def _build_pretrained_diagnostics_figures(
+    args: argparse.Namespace, output_dir: Path
+) -> None:
+    """Figures 4-9: read the shared per-observation cache once, draw all six from it.
+
+    `stec.analysis.pretrained_test_diagnostics` is the one stage that streams
+    `predictions/pretrained_stec/own` (2014-2024, the pretrained model's entire held-out
+    test set - the data Figures 4-9 were originally built from) into a bounded,
+    narrow-column parquet cache; see that module's docstring for why a cache is needed at
+    all instead of the sum-accumulator pattern the rest of `stec.analysis` uses, and for
+    the measured size. Reading it once here and passing it to all six `fig_*` functions,
+    rather than one `_build_*_figure` per figure each re-reading the cache, is what keeps
+    a ~10 M-row read to a single pass.
+    """
+    diagnostics_dir = analysis_dir(args.results_dir, "pretrained_test_diagnostics")
+    cache_path = diagnostics_dir / "observations.parquet"
+    manifest_path = diagnostics_dir / "manifest.csv"
+    if not cache_path.exists() or not manifest_path.exists():
+        logger.warning(
+            f"{cache_path} not found - run stec/analysis/pretrained_test_diagnostics.py"
+        )
+        return
+
+    observations = pd.read_parquet(cache_path)
+    manifest = pd.read_csv(manifest_path)
+    prov = (
+        f"{cache_path} - pretrained model, own held-out test set, "
+        f"{manifest['year'].min()}-{manifest['year'].max()} "
+        f"({int(manifest['n_days'].sum())} days, {len(observations):,} observations)"
+    )
+
+    fig_residuals_elev(observations, output_dir, prov)
+    fig_residuals_lat(observations, output_dir, prov)
+    fig_residuals_localtime(observations, output_dir, prov)
+    fig_residuals_year_month(observations, output_dir, prov)
+    fig_uncertainty(observations, output_dir, prov)
+
+    # fig_pred_density alone needs a bounded input - see _PRED_DENSITY_SAMPLE_CAP above.
+    if len(observations) > _PRED_DENSITY_SAMPLE_CAP:
+        density_sample = observations.sample(
+            n=_PRED_DENSITY_SAMPLE_CAP, random_state=_PRED_DENSITY_SAMPLE_SEED
+        )
+        density_prov = (
+            f"{prov}, subsampled to {_PRED_DENSITY_SAMPLE_CAP:,} points "
+            f"(seed {_PRED_DENSITY_SAMPLE_SEED}) for the hexbin render"
+        )
+    else:
+        density_sample = observations
+        density_prov = prov
+    fig_pred_density(density_sample, output_dir, density_prov)
+    fig_pred_density(density_sample, output_dir, density_prov, max_limit=300)
+
+
+# --------------------------------------------------------------------------
 # Figure 10 - daily % RMSE/MAE improvement of Direct STEC over the two baselines
 # --------------------------------------------------------------------------
 
@@ -1413,6 +1494,7 @@ def _build_positioning_figures(args: argparse.Namespace, output_dir: Path) -> No
 FIGURE_BUILDERS = (
     _build_temporal_split_figure,
     _build_spatial_split_figure,
+    _build_pretrained_diagnostics_figures,
     _build_improvement_by_date_figures,
     _build_mae_rmse_finetuned_figure,
     _build_positioning_figures,

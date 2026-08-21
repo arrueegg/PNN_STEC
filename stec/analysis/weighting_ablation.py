@@ -60,8 +60,14 @@ CORRECTION_ORDER = ["Direct STEC", "VTEC + Mapping", "IGS GIM + Mapping"]
 WEIGHTING_ORDER = ["elev", "fixed", "iono"]
 REFERENCE_WEIGHTING = "elev"
 
+# Nested under `positioning_runs/<tag>/` since the results-layout restructure
+# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
+# legacy directory name carried.
 DEFAULT_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_20260216_2052" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "20260216_2052"
+    / "multiday_summary.csv"
 )
 FIXED_VARIANCE_RESULTS = (
     paths.LEGACY_EXPERIMENTS / "Fixed_Variance_STEC" / "positioning" / "results"

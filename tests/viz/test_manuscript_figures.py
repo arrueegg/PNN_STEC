@@ -286,6 +286,87 @@ def test_fig_uncertainty_skips_when_uncertainty_is_degenerate(tmp_path, caplog):
     assert "too small to bin" in caplog.text
 
 
+def _write_synthetic_diagnostics_cache(results_dir, rows: int = 3400) -> None:
+    """The on-disk shape `_build_pretrained_diagnostics_figures` reads:
+    `stec.analysis.pretrained_test_diagnostics`'s two outputs, built directly here rather
+    than by importing that module - `_build_mae_rmse_finetuned_figure`'s own test writes
+    its CSV the same self-contained way."""
+    diagnostics_dir = mf.analysis_dir(results_dir, "pretrained_test_diagnostics")
+    diagnostics_dir.mkdir(parents=True)
+    observations = _synthetic_observation_frame(rows=rows)
+    observations.to_parquet(diagnostics_dir / "observations.parquet", index=False)
+    manifest = (
+        observations.groupby("year")
+        .agg(n_days=("doy", "nunique"), n_observations=("doy", "size"))
+        .reset_index()
+    )
+    manifest.to_csv(diagnostics_dir / "manifest.csv", index=False)
+
+
+def test_build_pretrained_diagnostics_figures_draws_all_six_from_one_cache_read(
+    tmp_path,
+):
+    results_dir = tmp_path / "results"
+    _write_synthetic_diagnostics_cache(results_dir)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    mf._build_pretrained_diagnostics_figures(args, output_dir)
+
+    target = output_dir / mf.SOURCE_DIRS["pretrained"]
+    for name in (
+        "pred_density",
+        "pred_density_limited",
+        "residuals_elev",
+        "residuals_lat",
+        "residuals_localtime",
+        "residuals_year_month",
+        "uncertainty",
+    ):
+        titled = target / f"{name}.png"
+        assert titled.exists() and titled.stat().st_size > 0
+
+
+def test_build_pretrained_diagnostics_figures_skips_without_raising_when_cache_absent(
+    tmp_path, caplog
+):
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(
+        results_dir=tmp_path / "empty_results", output_dir=output_dir
+    )
+    with caplog.at_level(logging.WARNING):
+        mf._build_pretrained_diagnostics_figures(args, output_dir)
+
+    assert not (output_dir / mf.SOURCE_DIRS["pretrained"]).exists()
+    assert "pretrained_test_diagnostics" in caplog.text
+
+
+def test_build_pretrained_diagnostics_figures_subsamples_pred_density_above_the_cap(
+    tmp_path, monkeypatch
+):
+    """The five boxplot figures must see every row; only fig_pred_density's hexbin is
+    bounded - pinned by checking the *other* figures' reported observation counts against
+    the full cache while pred_density's own CSV is capped."""
+    monkeypatch.setattr(mf, "_PRED_DENSITY_SAMPLE_CAP", 50)
+    results_dir = tmp_path / "results"
+    _write_synthetic_diagnostics_cache(results_dir, rows=200)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    mf._build_pretrained_diagnostics_figures(args, output_dir)
+
+    target = output_dir / mf.SOURCE_DIRS["pretrained"]
+    density = pd.read_csv(target / "pred_density.csv")
+    assert len(density) == 50
+
+    # residuals_elev has no sampling cap of its own, so its per-bin observation count
+    # must still sum to the full 200-row cache, not the 50-row density subsample.
+    elev = pd.read_csv(target / "residuals_elev.csv")
+    assert elev["n"].sum() == 200
+
+
 # --------------------------------------------------------------------------
 # Figure 10 - daily % improvement over VTEC/GIM baselines
 # --------------------------------------------------------------------------

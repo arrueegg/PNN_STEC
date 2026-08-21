@@ -5,12 +5,12 @@
     "Bins are now fixed TECU intervals (0-1-2-3-4-5-7-10-15-20-30-inf), not the previous first-day sigma deciles. Those deciles were computed from DOY 122's pred_total_unc distribution alone and reused unchanged for the other 241 days, so a bin labelled 'top decile' held 6.88%-18.80% of the full-year population rather than 10% - a 'decile' meant something different on every day but the first."
   ],
   "code": {
-    "commit": "24301f6e6ed0c9d7e1bf3c357d99995a19f8aa9a",
+    "commit": "e85270ec8692de6b57e5c5b21682f50134667354",
     "dirty": true
   },
-  "command": "-m stec.analysis.uncertainty_error_relation --output-dir multiday_results/uncertainty_error_relation_rebuilt",
+  "command": "-m stec.analysis.uncertainty_error_relation --output-dir multiday_results/analyses/uncertainty_error_relation/rebuilt",
   "description": "predicted uncertainty against realised error, pooled over the test period",
-  "duration_s": 416.9,
+  "duration_s": 423.0,
   "fingerprint": "c0c4eccc2cf65c4aa01bcd62d37fee7663985e5a7ea4e96057cfece14be1297e",
   "inputs": {
     "predictions/finetuned_stec/own": {
@@ -18,13 +18,13 @@
     }
   },
   "outputs": {
-    "multiday_results/uncertainty_error_relation_rebuilt": {
+    "multiday_results/analyses/uncertainty_error_relation/rebuilt": {
       "present": true,
       "size": 68
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T15:04:23.695614+00:00",
+  "recorded_at": "2026-08-21T18:09:18.695118+00:00",
   "stage": "uncertainty_error_relation",
   "supersedes": []
 }

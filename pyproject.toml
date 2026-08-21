@@ -44,6 +44,12 @@ include = ["stec*"]
 # This block pins those defaults explicitly rather than changing them, so linting behaviour is
 # unchanged.
 [tool.ruff]
+# stec/frozen/ holds byte-identical copies of deliberately unported scripts - the GIM
+# repair regression check must not share an implementation with what it checks, so
+# reformatting it would destroy the property that makes it valid. Excluded rather than
+# fixed, on purpose.
+extend-exclude = ["stec/frozen"]
+
 line-length = 88
 target-version = "py310"
 

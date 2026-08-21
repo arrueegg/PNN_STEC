@@ -3,22 +3,22 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "22997f86c3c5936f79bf90b34b242f588d7e45c6",
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
     "dirty": true
   },
-  "command": "-m stec.analysis.computational_cost --output-dir multiday_results/computational_cost_rebuilt",
+  "command": "-m stec.analysis.computational_cost --output-dir multiday_results/analyses/computational_cost/rebuilt",
   "description": "training and inference cost",
-  "duration_s": 1.2,
+  "duration_s": 0.9,
   "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
   "inputs": {},
   "outputs": {
-    "multiday_results/computational_cost_rebuilt": {
+    "multiday_results/analyses/computational_cost/rebuilt": {
       "present": true,
       "size": 66
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T14:14:08.146607+00:00",
+  "recorded_at": "2026-08-21T18:48:20.707246+00:00",
   "stage": "computational_cost",
   "supersedes": []
 }

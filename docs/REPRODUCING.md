@@ -175,7 +175,15 @@ authors; not distributed with this release):
 - Tables 3–5 and every revision-response figure, exactly, with the accompanying
   `.pipeline/*.json` record naming the commit and inputs that produced each one;
 - retraining, given the raw STEC database and OMNI indices (the pretrained model: 150
-  epochs on the full multi-year set; each daily fine-tune: 258 separate runs);
+  epochs on the full multi-year set; each daily fine-tune: 258 separate runs) — **but not
+  a byte-for-byte reproduction of any released checkpoint.** `stec.training.run_training`
+  trains every configured epoch and saves the final weights; it does not port
+  `src/training/base_trainer.py`'s best-validation-loss checkpoint selection or early
+  stopping. The ~3,580 published checkpoints were each selected as the best epoch of its
+  run, not the last, so a rebuilt run converges to an equivalent model, not the same
+  weights. This is a deliberate scope decision, not a gap to be closed later — see
+  `stec/analysis/divergences.py` for the same statement in the register that tracks
+  known rebuilt-vs-legacy differences;
 - the positioning evaluation, given RINEX, orbit/clock/ERP/attitude products and a working
   PPPx build (see the PPPx SuiteSparse note in the project `CLAUDE.md` — Debian 13 needs a
   local compat runtime, fetched by `positioning/positioning_eval/lib_compat/fetch_libs.sh`).

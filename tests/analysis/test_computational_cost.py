@@ -138,7 +138,11 @@ def test_main_omits_pretrain_row_when_loss_history_is_missing(
     """A missing pretrain loss history must drop the pretraining estimate from the
     output entirely - not report 0 GPU-hours, which would read as a real measurement."""
     write_training_log(
-        tmp_path / "2024_DOY_150" / "temp_config_stec_2024_150_training.log",
+        tmp_path
+        / "per_day"
+        / "2024"
+        / "150"
+        / "temp_config_stec_2024_150_training.log",
         datetime(2024, 6, 1, 10, 0, 0),
         epoch_gaps_s=[9.0, 9.0],
         max_epochs=30,
@@ -169,7 +173,11 @@ def test_main_reports_recorded_units_for_measured_and_estimated_items(
     inference row reflects `MEASURED_INFERENCE` - the one number this module cannot
     re-measure and instead reports as a recorded constant (see the module docstring)."""
     write_training_log(
-        tmp_path / "2024_DOY_150" / "temp_config_stec_2024_150_training.log",
+        tmp_path
+        / "per_day"
+        / "2024"
+        / "150"
+        / "temp_config_stec_2024_150_training.log",
         datetime(2024, 6, 1, 10, 0, 0),
         epoch_gaps_s=[9.0, 9.0],
         max_epochs=30,

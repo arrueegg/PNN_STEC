@@ -106,11 +106,20 @@ GIM_LABEL = "IGS GIM + Mapping"
 # this same rebuild) already carries an identical local copy of this same resolution and
 # notes there is no shared `stec/analysis/paths.py` yet to centralise it in - see the
 # final report.
+# Nested under `positioning_runs/<tag>/` since the results-layout restructure
+# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
+# legacy directory name carried.
 FULL_COVERAGE_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_full_coverage" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "full_coverage"
+    / "multiday_summary.csv"
 )
 PUBLISHED_SUMMARY = (
-    paths.LEGACY_MULTIDAY / "positioning_comparison_3way" / "multiday_summary.csv"
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "comparison_3way"
+    / "multiday_summary.csv"
 )
 DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("storm_stratification", rebuilt=True)
 
