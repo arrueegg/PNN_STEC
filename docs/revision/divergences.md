@@ -175,7 +175,7 @@ never fires within any run this repo has done.
 
 **Applied.** Available, off by default. `stec/training/schedulers.py` already ports both
 paths as `SchedulerCompat.LEGACY` (byte-for-byte the original behaviour, and the
-default — matching how the ~3,580 existing checkpoints were actually trained) and
+default — matching how the 3,583 existing checkpoints were actually trained) and
 `.CORRECTED`. Nothing changes silently: a caller must opt into `.CORRECTED`.
 
 **Why it cannot be measured right now.** The difference is a training-time learning-rate

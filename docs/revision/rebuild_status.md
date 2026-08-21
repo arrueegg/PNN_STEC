@@ -169,7 +169,7 @@ genuinely differs by mode is `min_lr`, computed from the pretrain learning rate:
 rather than the 2e-7 the fine-tune rate implies, a five-fold higher floor. Whether that
 bound was ever reached over 50 epochs is a question for Gate C, not for argument.
 
-The port keeps both behaviours behind a compat flag defaulting to legacy, because ~3,580
+The port keeps both behaviours behind a compat flag defaulting to legacy, because 3,583
 checkpoints were trained on the buggy path and a released pipeline containing only the fix
 could not reproduce the models it ships.
 

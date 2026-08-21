@@ -237,7 +237,7 @@ counted once, in its primary bucket).
 - **Depends on:** Gate C (`rebuild_plan.md` §8) — retraining one STEC and one VTEC fine-tune
   day under both `SchedulerCompat.LEGACY` and `.CORRECTED`, same seed, diffing loss curves
   and final metrics. Not yet run in this worktree.
-- **Conclusion:** affects only future retrains, not the ~3,580 checkpoints backing the
+- **Conclusion:** affects only future retrains, not the 3,583 checkpoints backing the
   published numbers, which were all trained under `LEGACY` (the port's default).
 
 ### 16. Defect 11 — elevation cutoff reconciliation (7° vs 5° vs 5°)

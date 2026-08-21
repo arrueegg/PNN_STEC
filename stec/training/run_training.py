@@ -24,7 +24,7 @@ here would mean no longer reusing the gate-verified loop:
 
 * **No best-checkpoint selection or early stopping.** `fit` runs every requested epoch and
   returns the final weights, not the epoch with the lowest validation loss. Every one of the
-  ~3,580 shipped checkpoints was instead selected by `BaseTrainer.run_training`'s
+  3,583 shipped checkpoints was instead selected by `BaseTrainer.run_training`'s
   best-val-loss tracking with early stopping, so a checkpoint this driver produces is not a
   drop-in replacement for one of those - only `fit`'s own numbers (the loss trajectory) are
   gate-verified equivalent.

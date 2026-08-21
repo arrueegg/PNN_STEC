@@ -11,7 +11,7 @@ The **code** is released in full and is self-contained: every stage, every analy
 defect found and fixed during the rebuild is in this repository, and `tests/test_clean_clone.py`
 proves the package imports and runs its core data path with none of the real data mounted
 anywhere. The **data** is not: the raw STEC database, the Madrigal reference extraction, the
-aggregated train/val/test splits and the ~3,800 trained checkpoints are approximately 640 GB,
+aggregated train/val/test splits and the 3,583 trained checkpoints are approximately 640 GB,
 almost none of it redistributable, and none of it ships with this repository (see
 "What is not reproducible" below). What you can do without any of it is verify that the
 package is intact. What you can do *with* it is reproduce the paper's numbers exactly, with
@@ -179,7 +179,7 @@ authors; not distributed with this release):
   a byte-for-byte reproduction of any released checkpoint.** `stec.training.run_training`
   trains every configured epoch and saves the final weights; it does not port
   `src/training/base_trainer.py`'s best-validation-loss checkpoint selection or early
-  stopping. The ~3,580 published checkpoints were each selected as the best epoch of its
+  stopping. The 3,583 published checkpoints were each selected as the best epoch of its
   run, not the last, so a rebuilt run converges to an equivalent model, not the same
   weights. This is a deliberate scope decision, not a gap to be closed later — see
   `stec/analysis/divergences.py` for the same statement in the register that tracks

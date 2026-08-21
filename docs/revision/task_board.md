@@ -148,7 +148,7 @@ what a future Stage could claim even once wired up (`rebuild_plan.md` §14,
   nothing named `checkpoint*`).
 - Given the project's own policy ("do not retrain if training semantics are unchanged —
   prove it with Gate C," `rebuild_plan.md` §2, and Gate C has passed), this stage does
-  **not** need to run to reproduce the paper's numbers from the ~3,580 existing
+  **not** need to run to reproduce the paper's numbers from the 3,583 existing
   checkpoints. It is required only for the "clone and retrain from scratch" half of the
   clone-and-run claim — which is real (retraining is explicitly listed as reproducible
   "given the real data," `REPRODUCING.md`) but currently means running pre-rebuild `src/`
@@ -203,7 +203,7 @@ outside `paths.py` itself.
   listing, not by reading rows) — Table 4's Pretrained STEC row cannot currently be
   independently reverified through the store for exactly this reason, and closing it needs
   this stage to exist and be run against Madrigal, not just against `own`.
-- **inputs**: a model checkpoint (from §3, or one of the existing 3,580), a dataset (§2).
+- **inputs**: a model checkpoint (from §3, or one of the existing 3,583), a dataset (§2).
 - **outputs**: `predictions/<variant>/<dataset>/year=<YYYY>/doy=<DDD>.parquet`, matching
   the schema `prediction_store.py` already enforces.
 - **assertions**: row count per day against the known observation count; a `checks`
@@ -585,7 +585,7 @@ where it stops rather than assume it doesn't.
   workaround for *this* host's package availability, not a guarantee for an arbitrary clone
   target.
 - **Raw data redistribution.** `REPRODUCING.md` is explicit: the STEC database, the
-  aggregated splits, the Madrigal extraction and the ~3,800 checkpoints (~640 GB, almost
+  aggregated splits, the Madrigal extraction and the 3,583 checkpoints (~640 GB, almost
   none of it redistributable) do not ship with the repository. The underlying RINEX/OMNI/
   Madrigal/IONEX source data is public; this project's specific compound-HDF5 repackaging
   of it is not distributed separately. A fresh clone can verify the *code* (package imports,

@@ -1,7 +1,7 @@
 """Is a training run reproducible enough for Gate C to be decidable?
 
 Gate C claims that retraining one day under the rebuilt code reproduces the pre-rebuild
-result, and its verdict decides whether ~3,580 checkpoints are reused or 50-90 GPU-hours
+result, and its verdict decides whether 3,583 checkpoints are reused or 50-90 GPU-hours
 are spent retraining. That verdict is only meaningful if the *same* code, trained twice
 from the same seed, already agrees more closely than the tolerance being applied.
 

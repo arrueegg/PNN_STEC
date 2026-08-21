@@ -103,6 +103,9 @@ RESULTS_MANIFEST_DIR = _analysis_dir("results_manifest", rebuilt=True)
 PRETRAINED_TEST_DIAGNOSTICS_DIR = _analysis_dir(
     "pretrained_test_diagnostics", rebuilt=True
 )
+ELEVATION_METRICS_FINETUNED_DIR = _analysis_dir(
+    "elevation_metrics_finetuned", rebuilt=True
+)
 
 # The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
 # full evaluation tree, not a `stec.analysis` output, so it lives under
@@ -599,6 +602,40 @@ STAGES: list[Stage] = [
         # inference_smoke/data_prep_smoke. 11 years, so 11 is exact, not a floor.
         min_rows={str(PRETRAINED_TEST_DIAGNOSTICS_DIR / "manifest.csv"): 11},
     ),
+    Stage(
+        # Not a port of stratified_comparison.py despite the shared day-at-a-time
+        # accumulation pattern (see the module docstring): bin edges are the
+        # publication's original 5-degree elevation bins (np.arange(0, 91, 5)), not
+        # stratified_comparison.ELEVATION_BINS, and RMSE/MAE are left per-day rather
+        # than pooled - manuscript_figures computes the across-day mean/std (the
+        # figure's error bars) from this table itself, matching how
+        # fig_positioning_trend derives its own mean/SEM from a raw per-station-day
+        # frame. Must precede manuscript_figures below, which reads
+        # per_day_by_elevation.csv.
+        "elevation_metrics_finetuned",
+        "-m stec.analysis.elevation_metrics_finetuned "
+        f"--output-dir {ELEVATION_METRICS_FINETUNED_DIR}",
+        "Figure 11",
+        "per-day, per-elevation-bin RMSE/MAE for all four methods, own and madrigal",
+        inputs=[STORE_OWN, STORE_MADRIGAL],
+        outputs=[
+            str(ELEVATION_METRICS_FINETUNED_DIR),
+            str(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv"),
+        ],
+        # Keyed on the CSV, not the directory - same reasoning as
+        # relative_error_metrics: a tree digest carries files/size/mtime but no row
+        # count, so a min_rows on the parent directory can never be satisfied.
+        min_rows={str(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv"): 1},
+        canonical_for="Figure 11 per-elevation error bars",
+        caveats=[
+            "A (day, elevation_bin, method) cell is dropped below 100 observations "
+            "(the source's own guard), so the across-day mean/std never averages in a "
+            "day where a bin was nearly empty.",
+            "own and madrigal are both collected by default; manuscript_figures reads "
+            "only the 'own' rows (Tables 3-4's scope) and leaves madrigal for a caller "
+            "who wants that variant.",
+        ],
+    ),
     # Last: reads the metric CSVs every stage above writes, so it must follow all of them.
     Stage(
         "figures",
@@ -639,10 +676,10 @@ STAGES: list[Stage] = [
             "Figure 3) are wired into FIGURE_BUILDERS and run here. Figures 4-9 were the "
             "last gap - they read pretrained_test_diagnostics's cache rather than the "
             "store directly, so this stage's own output is only as current as that one's.",
-            "elevation_metrics_finetuned (Figure 11's per-day-by-elevation error bars) "
-            "has no Stage of its own yet, unlike pretrained_test_diagnostics - its "
-            "per_day_by_elevation.csv must exist under multiday_results/analyses/ before "
-            "this stage can draw Figure 11, but nothing in `pipeline run` produces it.",
+            "Figure 11's error bars need elevation_metrics_finetuned's "
+            "per_day_by_elevation.csv, which now has its own Stage (declared just "
+            "above this one) and must run first - without it this stage logs a "
+            "warning and skips Figure 11 rather than failing.",
             "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / "
             "pretrained_test_diagnostics / positioning_coverage's outputs (Figures 4-15) - "
             "a partial multiday_results tree produces a partial figure set with a logged "

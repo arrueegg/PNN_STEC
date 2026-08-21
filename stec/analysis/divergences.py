@@ -45,7 +45,7 @@ reproducibility claims would check: **best-checkpoint selection and early stoppi
 ported, by decision, not as a remaining gap.** `stec.training.run_training` trains every
 epoch a config specifies and saves the final weights; it does not reproduce
 `src/training/base_trainer.py`'s selection of the best-validation-loss epoch, which is what
-chose each of the ~3,580 published checkpoints. A rebuilt training run therefore converges
+chose each of the 3,583 published checkpoints. A rebuilt training run therefore converges
 to an equivalent model, never a byte-for-byte reproduction of any checkpoint on disk - see
 `docs/REPRODUCING.md` (reproducibility table) and `docs/revision/merge_plan.md` (Phase 1,
 "what will still not be reproducible") for the same statement.
@@ -696,7 +696,7 @@ _DEFECT7_SCHEDULER_EFFECT = _unmeasurable(
     reason=(
         "stec/training/schedulers.py already ports both paths as `SchedulerCompat.LEGACY` "
         "(byte-for-byte the original wrong parameter source, and the default - matching "
-        "the ~3,580 existing checkpoints) and `.CORRECTED`. But the difference is a "
+        "the 3,583 existing checkpoints) and `.CORRECTED`. But the difference is a "
         "training-time LR trajectory, not a number derivable from an existing checkpoint: "
         "measuring it means training under both, which is Gate C (rebuild_plan.md §8), "
         "and Gate C has not been run in this worktree."

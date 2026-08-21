@@ -20,7 +20,7 @@ concrete symptoms of that one root cause:
 3. `ReduceLROnPlateau`'s patience/factor/min_lr are pretrain values even when fine-tuning,
    for the reason above (both mode branches read `config["pretrain"]`).
 
-**This is preserved on purpose, not just fixed.** ~3,580 checkpoints in `experiments/`
+**This is preserved on purpose, not just fixed.** 3,583 checkpoints in `experiments/`
 were trained under the buggy path (see the paper CLAUDE.md's canonical-results table), so a
 rebuilt pipeline that silently contains only the corrected scheduler could no longer
 reproduce how those checkpoints were actually trained - `get_scheduler` would return a

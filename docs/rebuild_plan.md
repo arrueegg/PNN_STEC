@@ -423,7 +423,7 @@ agreement across torch versions.
 agreement holds because `map_vtec_to_stec` is a *deterministic* function of stored geometry.
 Do not reuse that tolerance for MC-sampled columns.
 
-**Gate C decides the compute bill.** If it passes, the ~3,580 existing checkpoints are reused —
+**Gate C decides the compute bill.** If it passes, the 3,583 existing checkpoints are reused —
 subject to the defect-7 stance in §2: the old scheduler behaviour must remain reachable as a
 recorded config option, or the checkpoints are not reproducible from the published code. If Gate
 C fails because defect 7 genuinely changed training, retraining is required and the bill grows by

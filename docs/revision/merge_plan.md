@@ -339,7 +339,7 @@ Stated explicitly, per the task's instruction, rather than left to be discovered
    "What is not reproducible" section, independently re-read and confirmed accurate here).
    This is a licensing/data-rights boundary, not a code gap, and no amount of further
    porting work changes it.
-2. **The ~3,580 trained checkpoints are not distributed and are not cheaply retrainable —
+2. **The 3,583 trained checkpoints are not distributed and are not cheaply retrainable —
    and, separately, are not reproducible even in principle from `stec/` as it stands
    today, by decision rather than by remaining gap.** Even after every driver gap in
    `retirement_inventory.md` is closed, retraining the pretrained model (150 epochs, full
@@ -348,7 +348,7 @@ Stated explicitly, per the task's instruction, rather than left to be discovered
    **not** to port best-validation-loss checkpoint selection or early stopping into
    `stec.training.run_training` — only `src/training/base_trainer.py` does that, and it
    remains KEEP for exactly this reason. `stec.training.run_training` trains every
-   configured epoch and saves the final weights, full stop. Each of the ~3,580 published
+   configured epoch and saves the final weights, full stop. Each of the 3,583 published
    checkpoints was selected as the best epoch of its run, not the last, so a from-scratch
    retrain through `stec/` would converge to an equivalent model, never a byte-for-byte
    reproduction of any checkpoint on disk — this is permanent, not a driver gap Phase 3 or

@@ -1,6 +1,6 @@
 """Pins both the legacy `get_scheduler` bug (parameters always from `pretrain`, `StepLR`
 step size hardcoded) and the corrected behaviour (parameters from the running mode's own
-config block), since both are load-bearing: legacy reproduces ~3,580 existing checkpoints,
+config block), since both are load-bearing: legacy reproduces 3,583 existing checkpoints,
 corrected is what any newly trained run should use.
 """
 

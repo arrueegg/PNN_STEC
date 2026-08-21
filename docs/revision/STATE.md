@@ -49,9 +49,13 @@ Chain: training → recovery → merge. Check: `systemctl --user show <unit> -p 
 
 ## Open — code, small
 
-7. `elevation_metrics_finetuned` is **not a declared stage** → Figure 11's error bars are not
-   reproducible from a clean clone. *(agent working)*
-8. `REPRODUCING.md` says ~3,800 checkpoints; elsewhere ~3,580. *(agent working)*
+7. ~~`elevation_metrics_finetuned` is not a declared stage~~ **RESOLVED.** Declared in
+   `stec/pipeline/stages.py`, ordered before `manuscript_figures` (which reads its
+   `per_day_by_elevation.csv`); `tests/pipeline/test_stages.py` still passes, including the
+   ordering test.
+8. ~~`REPRODUCING.md` says ~3,800 checkpoints; elsewhere ~3,580~~ **RESOLVED.** Counted
+   directly: `find experiments -path 'experiments/*/model/*.pth' | wc -l` → **3,583**. Every
+   doc and code comment stating a figure now reads 3,583.
 9. ~~daily_metrics has no rebuilt output~~ **RESOLVED 22:25.** Not a defect: stage output
    paths are relative and the runner pins cwd to the package root, so rebuilt output lands
    in the worktree while the data root holds pre-rebuild copies. Resolves itself on merge,
