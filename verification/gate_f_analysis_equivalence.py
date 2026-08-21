@@ -61,9 +61,23 @@ class Comparison:
     # disagrees is a failure.
     expected_divergence: dict[str, str] = field(default_factory=dict)
     skip: str | None = None
-    # The pre-rebuild scripts spell it --output_dir; the ports spell it --output-dir.
-    # argparse does not treat those as the same option, so each side names its own.
+    # Each side names its own output convention, because they genuinely differ and
+    # assuming one for both is what made the first version of this gate skip everything.
+    # The ports take --output-dir; the pre-rebuild scripts variously take --output_dir or
+    # --output (a *file*, not a directory).
     legacy_output_flag: str = "--output_dir"
+    legacy_writes_file: bool = False
+    # Some scripts write into a subdirectory of what they were given. uncertainty_calibration
+    # writes to <output_dir>/<variant>_<dataset>/ on both sides.
+    rebuilt_subdir: str = ""
+    legacy_subdir: str = ""
+    # When a port renamed its output, both names are needed to compare the same content.
+    # Empty means the two sides agree on the filename.
+    legacy_outputs: tuple[str, ...] = ()
+
+    def output_pairs(self) -> tuple[tuple[str, str], ...]:
+        legacy = self.legacy_outputs or self.outputs
+        return tuple(zip(self.outputs, legacy, strict=True))
 
 
 COMPARISONS: tuple[Comparison, ...] = (
@@ -82,6 +96,8 @@ COMPARISONS: tuple[Comparison, ...] = (
         rebuilt="-m stec.analysis.uncertainty_calibration",
         legacy="src/analysis/uncertainty_calibration.py",
         outputs=("coverage.csv",),
+        rebuilt_subdir="finetuned_stec_own",
+        legacy_subdir="finetuned_stec_own",
         expected_divergence={
             "*": "every model is now scored under both Gaussian and Laplace and tagged "
             "with which is native, so the frame has rows the original did not"
@@ -91,7 +107,10 @@ COMPARISONS: tuple[Comparison, ...] = (
         name="relative_error_metrics",
         rebuilt="-m stec.analysis.relative_error_metrics",
         legacy="src/analysis/relative_error_metrics.py",
-        outputs=("relative_error_metrics.csv",),
+        outputs=("yearly_metrics.csv", "temporal_regime_comparison.csv"),
+        legacy_outputs=("relative_error_metrics.csv", "temporal_regime_comparison.csv"),
+        legacy_output_flag="--output",
+        legacy_writes_file=True,
     ),
     Comparison(
         name="repair_gim_baseline",
@@ -183,8 +202,16 @@ def check(comparison: Comparison, workspace: Path) -> str:
             f"  {comparison.name:<26} FAIL     rebuilt analysis did not run: {tail_new}"
         )
         return "FAIL"
+    # A script that takes a file rather than a directory is given one inside its own
+    # output tree, so both sides still land somewhere comparable.
+    legacy_target = legacy_dir
+    if comparison.legacy_writes_file:
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        legacy_target = (
+            legacy_dir / (comparison.legacy_outputs or comparison.outputs)[0]
+        )
     ok_old, tail_old = run(
-        comparison.legacy, legacy_dir, LEGACY_SRC, comparison.legacy_output_flag
+        comparison.legacy, legacy_target, LEGACY_SRC, comparison.legacy_output_flag
     )
     if not ok_old:
         print(
@@ -194,8 +221,10 @@ def check(comparison: Comparison, workspace: Path) -> str:
 
     worst_verdict = "MATCH"
     notes: list[str] = []
-    for output in comparison.outputs:
-        new_path, old_path = rebuilt_dir / output, legacy_dir / output
+    for new_name, old_name in comparison.output_pairs():
+        new_path = rebuilt_dir / comparison.rebuilt_subdir / new_name
+        old_path = legacy_dir / comparison.legacy_subdir / old_name
+        output = new_name
         if not new_path.exists() or not old_path.exists():
             print(f"  {comparison.name:<26} FAIL     {output} missing on one side")
             return "FAIL"
