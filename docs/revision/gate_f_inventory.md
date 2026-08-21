@@ -12,8 +12,8 @@ nothing about the science.
 
 ## Confirmed by an actual run
 
-Thirteen of the nineteen now carry a verdict measured against the real 242-day store, rather
-than an expectation written when the comparison was authored.
+15 of the 19 now carry a verdict measured against the real 242-day store, rather than
+an expectation written when the comparison was authored.
 
 | Comparison | Verdict |
 |---|---|
