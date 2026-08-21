@@ -85,3 +85,6 @@ STEC_Modelling/
 # stec/data/ and tests/data/ source directories. Re-include them explicitly.
 !stec/data/
 !tests/data/
+
+# Build metadata from an editable install.
+*.egg-info/
