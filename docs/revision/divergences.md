@@ -4,7 +4,7 @@ This is the human-readable form of `stec/analysis/divergences.py`, the register 
 every deliberate source of divergence between the rebuilt pipeline and the numbers
 submitted to JGR-MLC. `docs/rebuild_plan.md` §8's rule is the reason this file exists: *"a
 difference is never resolved by making the new code match the old… it is resolved by
-explaining it: name the cause, decide which side is right, record it."* Ten entries,
+explaining it: name the cause, decide which side is right, record it."* Twelve entries,
 matching `docs/rebuild_plan.md` §9 one for one.
 
 **The manuscript is frozen** (`docs/rebuild_plan.md` §2, "Manuscript edits"). Nothing here
@@ -13,9 +13,9 @@ manuscript** — recorded now so the eventual Phase 8 update has a citable sourc
 number, not applied piecemeal.
 
 Regenerate this data with `python -m stec.analysis.divergences`, which prints the same
-content from the registry directly. Four entries were re-measured live against the real,
-read-only trees while writing this file (2026-08-21) and reproduced the recorded snapshot
-exactly; the command to do so again is noted per entry.
+content from the registry directly. Six entries have been re-measured live against the
+real, read-only trees (most recently while adding #12, 2026-08-21) and reproduced the
+recorded snapshot exactly; the command to do so again is noted per entry.
 
 ---
 
@@ -33,6 +33,8 @@ exactly; the command to do so again is noted per entry.
 | 8 | Defect 19 — Madrigal join tolerance | Table 4 (Madrigal) | — | available, off by default | unmeasurable now |
 | 9 | 10 m outlier boundary, `<` vs `<=` | Table 5, Table A1, oracle_benchmark | — | applied | **measured** |
 | 10 | Storm/quiet definition, daily vs per-observation | Table 5 (R2.7); STEC scenarios | R2.7 | applied (both, by design) | **measured** |
+| 11 | Positioning-coverage canonical variant selection | R1.5 station-day coverage counts | R1.5 | applied | **measured** |
+| 12 | Defect 21 — Madrigal `local_time_hours` longitude source | Table 4 (Madrigal), `predictions/finetuned_stec/madrigal/` | — | applied | **measured** |
 
 "Applied" describes the *code*: whether the rebuilt pipeline's default path already
 produces the changed behaviour, whether the fix exists only as an opt-in the default does
@@ -335,6 +337,81 @@ would silently change a reviewer-facing number by a non-trivial amount for a que
 **NOT YET APPLIED to the manuscript** — this is not a proposed change; it is the recorded
 cost of a change that was considered and rejected, kept here so a future reviewer asking
 "why not one definition" has a citable answer.
+
+---
+
+## 11. Positioning-coverage canonical variant selection — **measured**
+
+**What it is.** The pre-rebuild coverage script globbed every hyperparameter variant
+directory on disk for a DOY and resolved collisions with `drop_duplicates(keep='first')`
+on sorted directory names — so on any DOY where more than one `Finetune_STEC_2024_<DOY>_*`
+variant existed, whichever name sorted first alphabetically won, regardless of which
+variant was actually the paper's. `lr1e-4` sorts before `lr2e-4_bs512`, so it silently won
+31 DOYs' worth of station-day coverage counts away from the model the paper actually cites.
+
+**Applied.** Yes — `stec.analysis.positioning_coverage` selects the canonical variant
+explicitly (the same name `docs/rebuild_plan.md`'s "The paper model" section records) and
+reports what it excluded; `--all-variants` restores the old broad-glob behaviour for
+comparison.
+
+**Measured, 2026-08-21** (`python -m stec.analysis.divergences`, live read of the collision
+table `stec.analysis.positioning_coverage` writes against the repaired tree):
+
+| Metric | Old (broad glob) | New (canonical variant only) |
+|---|---|---|
+| DOYs matched by more than one experiment directory | 31 | 0 |
+| Station-days, all four `iono` arms, common set | 8,003 | 7,885 |
+
+**NOT YET APPLIED to the manuscript** — recorded here so Table 5's N has a citable
+provenance once Phase 8 updates it.
+
+---
+
+## 12. Defect 21 — Madrigal `local_time_hours` longitude source — **measured**
+
+**What it is.** `local_time_hours` needs a longitude, and a Madrigal row carries two:
+`gdlonr` (station) and `glon` (IPP). The "own" dataset's convention is IPP longitude —
+`src/data_loader/datasets.py` computes it "using IPP longitude for local time", explicitly
+commented as such, established in commit `7153cfc` ("added local time as input feature").
+`MadrigalSTECDataset._add_local_time` (`src/data_loader/madrigal_dataset.py`, written two
+months later in commit `7fa1346`) uses station longitude instead, with no comment,
+docstring or commit message anywhere explaining the choice. That reads as an oversight, not
+a deliberate Madrigal-specific requirement — but it is not a hypothetical bug: it produced
+the published Table 4 Madrigal numbers and all 235 days already in
+`predictions/finetuned_stec/madrigal/`, and `local_time_hours` is a genuine model input (3
+of the model's 127 columns — sine, cosine, normalised; `stec.data.feature_layout`), not
+merely a stored column.
+
+**Applied.** `stec.data.madrigal_reader.read_madrigal_day` keeps station longitude as the
+default (`local_time_longitude="station"`), reproducing the legacy loader and the existing
+store partition rather than silently adopting the "own" dataset's convention.
+`local_time_longitude="ipp"` is the explicit, off-by-default path to that convention, for a
+future re-run that accepts moving all 235 stored days at once — switching a live store
+partition to a new convention mid-flight would leave two conventions inside one partition,
+which is worse than either convention alone.
+
+**Measured, 2026-08-21** (`python -m stec.analysis.divergences`, live seeded run of the
+real `Finetune_STEC_2024_132` checkpoint — `lr2e-4_bs512`, the paper variant — over a
+20,000-row seed-0 subsample of the real 2024-05-11 (DOY 132) Madrigal test-station day,
+2,036,669 rows total at elev ≥ 5°). Follows the CLAUDE.md Bayesian A/B protocol: weights
+pinned identically for both conventions via `stec.models.determinism.frozen`, and a
+same-input zero-perturbation control run first, which returned exactly **0.0** before any
+number below was trusted.
+
+| Quantity | Value |
+|---|---|
+| Predicted-STEC delta (IPP-longitude minus station-longitude), mean | +0.0015 TECU |
+| Predicted-STEC delta, RMSE | 0.8011 TECU |
+| Predicted-STEC delta, max \|Δ\| | 13.4411 TECU |
+
+RMSE 0.80 TECU is not negligible next to the paper's ~8–13 TECU headline RMSE range — this
+is not the harmless `sm_lat_ipp` per-station offset (0.0001 TECU end-to-end), it is a real
+divergence in what the model was actually fed. Switching the default would move every
+Madrigal number in Table 4 and would need a full 235-day re-run to apply consistently, not
+a one-line default flip.
+
+**NOT YET APPLIED to the manuscript** — recorded here so a future decision to re-run
+Madrigal under the "own" dataset's convention has a citable cost, not a guess.
 
 ---
 
