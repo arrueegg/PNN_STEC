@@ -94,9 +94,18 @@ def _store_test_predictions(test_df, config, logger):
     root = config.get("evaluation", {}).get(
         "prediction_store_root", prediction_store.DEFAULT_STORE_ROOT
     )
-    variant = (
-        "pretrained_stec" if config.get("mode") == "pretrain" else "finetuned_stec"
-    )
+    # The partition used to be chosen by mode alone, so *any* pretrain-mode run wrote into
+    # `pretrained_stec` - and the R2.2 fully-Bayesian evaluation therefore replaced the
+    # paper model's 544-day partition with a different architecture's predictions. RMSE
+    # over the same days read 21.99 TECU against the published 13.45 before this was
+    # caught. Architecture is now part of the identity, so a non-canonical model gets its
+    # own partition instead of overwriting the one the paper depends on.
+    CANONICAL_ARCHITECTURES = {"BayesianResNetSTEC", "MLP_LaplacianNLL"}
+    base = "pretrained_stec" if config.get("mode") == "pretrain" else "finetuned_stec"
+    model_type = str(config.get("model", {}).get("model_type", ""))
+    if model_type and model_type not in CANONICAL_ARCHITECTURES:
+        base = f"{base}_{model_type.lower()}"
+    variant = config.get("evaluation", {}).get("store_variant", base)
 
     day_keys = list(
         zip(test_df["year"].round().astype(int), test_df["doy"].round().astype(int))
