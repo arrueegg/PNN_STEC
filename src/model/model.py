@@ -208,7 +208,16 @@ class ResNet_BNN_NLL(torch.nn.Module):
             prior_mu=0, prior_sigma=prior_sigma, in_features=hidden_dim, out_features=2
         )
 
-        # Note: BayesLinear layers handle their own initialization
+        # Match BayesianResNetSTEC's output initialisation exactly. Without this the two
+        # architectures are not a clean ablation: the last-layer variant starts predicting
+        # roughly the mean STEC and learns corrections, while this one has to discover the
+        # mean through four layers that resample weights on every forward pass. The
+        # signature of that difference is a pervasive negative bias - measured at -1.93 TECU
+        # overall against +0.43 for the last-layer model - which confounds "Bayesian
+        # residual blocks" with "no output initialisation".
+        with torch.no_grad():
+            self.output_layer.bias_mu[0].fill_(STEC_MEAN_TECU)  # Mean bias
+            self.output_layer.weight_mu.normal_(0, 0.01)
 
     def forward(self, x):
         x = self.input_layer(x)
