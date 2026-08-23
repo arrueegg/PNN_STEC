@@ -3,16 +3,35 @@
 Updated 2026-08-21 22:20. Supersedes ad-hoc status checks. Update this when something lands;
 do not re-scan the tree to answer "where are we".
 
-## Running unattended (4 units)
+## Running — updated 2026-08-23 15:05
 
-| Unit | State | Next |
+| Job | State | ETA |
 |---|---|---|
-| `overnight-final` | training A4, epoch ~13/150, ~11 h left | converges Sat morning |
-| `checkpoint-snapshotter` | active, 1 snapshot held | protects against OOM-restart overwrite |
-| `weekend-recovery` | **waiting** on training | ~212 station-days, ~25 h |
-| `weekend-merge-watcher` | **waiting** on training + recovery | merges branch, aborts on unexpected conflict |
+| `fb-retrain` | R2.2 retrain **with matched output init** | ~14 h → Mon ~05:00 |
+| `weekend-recovery` | DOY sweep, 242 days | Mon afternoon |
+| `r22-eval` | **done** — 71 min, 19.3 GB peak, 544 store days | — |
+| merge | **done** 13:31 | — |
 
-Chain: training → recovery → merge. Check: `systemctl --user show <unit> -p ActiveState`.
+**The merge landed.** 679 tests, 30 stages, 0 commits unmerged; `stec/` is in the data root.
+
+**R2.2 was confounded and is being redone.** `ResNet_BNN_NLL` never had the output
+initialisation `BayesianResNetSTEC` has always had - bias to the mean STEC (15.5) and
+N(0, 0.01) weights. So the first comparison measured "Bayesian residual blocks **plus** no
+output init", and the -1.93 TECU pervasive bias is what an uncorrected offset looks like.
+Fixed; both now verified identical at init from the same seed. The confounded run is kept
+at `experiments/_archive_no_output_init/` with a README saying not to cite it.
+
+Two other explanations were tested and refuted first: the KL weight (BKLLoss uses
+`reduction="mean"`, so the fully-Bayesian contribution is *smaller* - 0.24% vs 1.02%) and
+undertraining (best checkpoint epoch 115; epochs 131-136 were worse).
+
+**Do not read epoch 1.** With the init the new run starts at val 22.99 against the old run's
+13.41 - but the paper model started at 34.61 and converged best. First-epoch validation is
+not predictive; the comparison is at convergence.
+
+**After the retrain**: evaluate it standalone (`src/inference_testset.py`, no
+`timeout 3600` cap - that cap truncated it before) with the full box. The eval needs ~19.3 GB
+and 71 min.
 
 ## Done
 
