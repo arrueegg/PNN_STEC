@@ -13,6 +13,60 @@ tail -20 logs/station_recovery_models.log
 tail -20 logs/merge_watcher.log
 ```
 
+## STOP — nothing ran this weekend, and it needs one command from you
+
+**Status Sunday 2026-08-23 13:20: the recovery sweep and the merge have not run at all.**
+
+`overnight-final` is in a loop it cannot escape. It has now been OOM-killed **four times**,
+every one of them in the *evaluation* phase, not training:
+
+| | |
+|---|---|
+| Aug 21 20:46 | OOM, 13.8 GB peak → restart 2 |
+| Aug 22 10:54 | OOM, 13.5 GB peak → restart 3 |
+| Aug 23 01:21 | OOM, 13.6 GB peak → restart 4 |
+
+Each cycle is ~14 h: train to ~136 epochs, enter evaluation, get killed, restart from epoch
+1. It has completed training at least three times and never once got through evaluation.
+
+Because both weekend jobs deliberately wait for training to be quiet, **they have been
+waiting two days and will wait forever.**
+
+### The model is safe
+
+`experiments/_converged_models/pretrain_ResNet_BNN_NLL_seed42_val3.58.pth` — validation loss
+**3.58**, better than the 3.67 the first run reached. Preserved from the snapshots, so the
+loop is no longer producing anything of value.
+
+### What to run when you are back
+
+Stopping the training and starting the queued work needed a permission this session did not
+have, so it was left for you. Either of these unblocks everything:
+
+```bash
+# 1. Stop the loop, then the recovery and merge release on their own:
+systemctl --user stop overnight-final
+
+# 2. Or leave training alone and just run the recovery alongside it:
+systemctl --user stop weekend-recovery
+systemd-run --user --unit=weekend-recovery \
+  --working-directory=/scratch2/arrueegg/WP4/PNN_STEC \
+  -p MemoryHigh=6G -p MemoryMax=9G -p Nice=15 -p Restart=on-failure -p RestartSec=180 \
+  -E WAIT_FOR_UNITS= -E WAIT_FOR_SWEEP=0 \
+  /usr/bin/bash -c 'source env/bin/activate && STAGES=models exec scripts/run_station_recovery.sh'
+```
+
+The merge genuinely cannot run while `overnight_final.sh` is executing — git rewrites files
+in place and bash re-reads a running script from its offset - so option 1 is the one that
+also gets the merge done.
+
+### Evaluation needs more headroom before it will ever finish
+
+The eval phase peaks over 13.5 GB on a 30 GB box shared with a desktop. Re-running training
+unchanged will loop again. Either give the unit a `MemoryMax` well below the oomd trigger so
+it fails fast instead of thrashing, or run evaluation separately against the preserved
+checkpoint rather than as the tail of a 14-hour job.
+
 ## Read this first: the OOM hit evaluation, not training - and the restart destroyed the model
 
 The first diagnosis in this file was wrong and is corrected here.
