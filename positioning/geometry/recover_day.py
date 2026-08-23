@@ -133,7 +133,7 @@ def main() -> None:
     parser.add_argument("--year", type=int, default=2024)
     parser.add_argument("--doy", type=int, required=True)
     parser.add_argument("--coverage", type=Path,
-                        default=Path("multiday_results/positioning_full_coverage/coverage.csv"))
+                        default=Path("multiday_results/positioning_runs/full_coverage/coverage.csv"))
     parser.add_argument("--weight_opt", default="iono", choices=["iono", "elev"])
     parser.add_argument("--parallel", type=int, default=4)
     parser.add_argument("--workdir", type=Path, default=Path("data/recovery_work"))

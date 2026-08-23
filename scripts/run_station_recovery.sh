@@ -17,7 +17,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source env/bin/activate
 
-COVERAGE=${COVERAGE:-multiday_results/positioning_full_coverage/coverage.csv}
+# Moved by the results restructure: multiday_results/ was flattened 312 entries deep
+# into six buckets, and positioning_full_coverage became positioning_runs/full_coverage.
+COVERAGE=${COVERAGE:-multiday_results/positioning_runs/full_coverage/coverage.csv}
 WEIGHT_OPT=${WEIGHT_OPT:-iono}
 PARALLEL=${PARALLEL:-4}
 MIN_FREE_GB=${MIN_FREE_GB:-40}
