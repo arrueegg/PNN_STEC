@@ -3,7 +3,7 @@
   "canonical_for": "provenance index",
   "caveats": [],
   "code": {
-    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "commit": "b3b5f07d723be2f44494661badf0e28f7c716b48",
     "dirty": true
   },
   "command": "-m stec.analysis.results_manifest",
@@ -18,7 +18,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T18:42:47.141935+00:00",
+  "recorded_at": "2026-08-23T15:32:07.762931+00:00",
   "stage": "results_manifest",
   "supersedes": []
 }

@@ -3,7 +3,7 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "e85270ec8692de6b57e5c5b21682f50134667354",
+    "commit": "b3b5f07d723be2f44494661badf0e28f7c716b48",
     "dirty": true
   },
   "command": "-m stec.analysis.relative_error_metrics --output-dir multiday_results/analyses/relative_error_metrics/rebuilt",
@@ -24,7 +24,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T17:59:06.372446+00:00",
+  "recorded_at": "2026-08-23T15:32:01.027724+00:00",
   "stage": "relative_error_metrics",
   "supersedes": []
 }
