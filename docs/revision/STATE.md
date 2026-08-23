@@ -3,35 +3,56 @@
 Updated 2026-08-21 22:20. Supersedes ad-hoc status checks. Update this when something lands;
 do not re-scan the tree to answer "where are we".
 
-## Running — updated 2026-08-23 15:05
+## Running — updated 2026-08-23 17:30
 
 | Job | State | ETA |
 |---|---|---|
-| `fb-retrain` | R2.2 retrain **with matched output init** | ~14 h → Mon ~05:00 |
+| `fb-retrain` | R2.2 retrain with matched output init | ~14 h → Mon ~05:00 |
 | `weekend-recovery` | DOY sweep, 242 days | Mon afternoon |
-| `r22-eval` | **done** — 71 min, 19.3 GB peak, 544 store days | — |
-| merge | **done** 13:31 | — |
+| `post-retrain-chain` | waiting on the retrain, then two evals | Mon ~08:00 |
+| merge, `r22-eval` | **done** | — |
 
-**The merge landed.** 679 tests, 30 stages, 0 commits unmerged; `stec/` is in the data root.
+### A contamination I caused, and its repair
 
-**R2.2 was confounded and is being redone.** `ResNet_BNN_NLL` never had the output
-initialisation `BayesianResNetSTEC` has always had - bias to the mean STEC (15.5) and
-N(0, 0.01) weights. So the first comparison measured "Bayesian residual blocks **plus** no
-output init", and the -1.93 TECU pervasive bias is what an uncorrected offset looks like.
-Fixed; both now verified identical at init from the same seed. The confounded run is kept
-at `experiments/_archive_no_output_init/` with a README saying not to cite it.
+The R2.2 evaluation overwrote all **544 days** of `predictions/pretrained_stec/own` with the
+fully-Bayesian model's predictions. `inference_testset.py` chose the partition from `mode`
+alone, and both models are `mode: pretrain`. The store read **21.99 TECU** where the
+published Pretrained STEC is **13.45**.
 
-Two other explanations were tested and refuted first: the KL weight (BKLLoss uses
-`reduction="mean"`, so the fully-Bayesian contribution is *smaller* - 0.24% vs 1.02%) and
-undertraining (best checkpoint epoch 115; epochs 131-136 were worse).
+- **Root cause fixed**: architecture is now part of the partition identity, with an explicit
+  `evaluation.store_variant` override. Paper model → `pretrained_stec`; fully-Bayesian →
+  `pretrained_stec_resnet_bnn_nll`.
+- **Mislabelled data moved**, not deleted, to its own partition with a README.
+- **`pretrained_stec/own` is currently EMPTY** and is rebuilt first by `post-retrain-chain`,
+  which then verifies the RMSE returns to ~13.45 rather than assuming it.
+- **Tables 3 and 4 were never affected** — their Pretrained row reads `pretrained_stec_pred`,
+  a column inside `finetuned_stec/own`, untouched.
+- Affected until the repair lands: `uncertainty_calibration_pretrained`,
+  `station_independence`, the Figure 4–9 diagnostics.
 
-**Do not read epoch 1.** With the init the new run starts at val 22.99 against the old run's
-13.41 - but the paper model started at 34.61 and converged best. First-epoch validation is
-not predictive; the comparison is at convergence.
+### R2.2 is being redone, and the first result is void
 
-**After the retrain**: evaluate it standalone (`src/inference_testset.py`, no
-`timeout 3600` cap - that cap truncated it before) with the full box. The eval needs ~19.3 GB
-and 71 min.
+`ResNet_BNN_NLL` never had the output initialisation `BayesianResNetSTEC` has always had
+(bias → 15.5 TECU, weights → N(0, 0.01)). The first comparison therefore measured the
+architecture *plus* that omission; the −1.93 TECU pervasive bias is the fingerprint. Both
+now verified identical at init from the same seed.
+
+After the fix the architectures differ in exactly one way, checked in five places: the
+residual blocks' `fc1`/`fc2`. Input layers identical; the trainer's `"BNN"`/`"Bayesian"`
+string check gives both 100 MC samples; configs differ on `model_type` and `num_workers`
+only.
+
+Two other explanations were tested and **refuted**: the KL weight (`BKLLoss` uses
+`reduction="mean"`, so the fully-Bayesian share is *smaller* — 0.24% vs 1.02%) and
+undertraining (best checkpoint epoch 115; 131–136 were worse).
+
+### The question R2.2 should actually answer
+
+Last-layer-only Bayesian collapses epistemic uncertainty — that is the user's stated reason
+for testing a fully-Bayesian variant, and it means **pooled RMSE is the wrong scoreboard**.
+The defensible claim is whether last-layer gives *adequate* epistemic uncertainty out of
+distribution. Two probes already exist: the Madrigal comparison and `station_independence`.
+Comparing epistemic share on held-out stations would answer the reviewer better than RMSE.
 
 ## Done
 
