@@ -140,8 +140,15 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 
-def load_test_stations(station_list_path="./src/data_processing/test_station.list"):
-    """Load test station list."""
+def load_test_stations(station_list_path="./stec/data/splits/test_station.list"):
+    """Load test station list.
+
+    The default used to point at ./src/data_processing/test_station.list - that file
+    was git-mv'd to stec/data/splits/ when stec/config/paths.py::SPLIT_LISTS was
+    repointed (docs/revision/merge_plan.md Phase 1a); this default was not updated at
+    the same time, so both call sites below (--start_date/--end_date and single-date
+    mode) have raised FileNotFoundError on every run since, unconditionally.
+    """
     stations = np.loadtxt(station_list_path, dtype=str)
     return set(stations)
 

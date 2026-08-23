@@ -1,0 +1,21 @@
+{
+  "category": "superseded",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_mean",
+  "label": "positioning_mean",
+  "notes": "Named superseded in CLAUDE.md's canonical-results table; kept rather than deleted, as the only record of an earlier configuration.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/multiday_results_positioning_mean.json": {
+      "present": true,
+      "sha256": "89378ed61c2e64db01bdfc88d7d2b10e51994ea1f240ca4d5e629ce7c008da0e",
+      "size": 615
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.603624+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_mean",
+  "stage": "migrate_multiday_results_positioning_mean"
+}

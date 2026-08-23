@@ -78,3 +78,13 @@ positioning/positioning_eval/lib_compat/dl/
 positioning/positioning_eval/lib_compat/root/
 
 STEC_Modelling/
+# Rebuild artifacts: produced by stages, reproducible from the pipeline.
+/artifacts/
+
+# The `*data/` rule above is meant for datasets, but it also swallows the package's own
+# stec/data/ and tests/data/ source directories. Re-include them explicitly.
+!stec/data/
+!tests/data/
+
+# Build metadata from an editable install.
+*.egg-info/

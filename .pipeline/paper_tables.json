@@ -1,0 +1,28 @@
+{
+  "answers": "Tables 1, 2",
+  "canonical_for": "Tables 1 and 2",
+  "caveats": [
+    "Generated from the paper's own stored run config, not from a template in config/. The template disagreed with it on 7 of 8 fields - architecture, prior sigma, learning rate, batch size, scheduler, SH degree and KL weight - so the table it produced described a different model entirely.",
+    "Both training stages are reported. The paper pretrains and then fine-tunes daily at a different learning rate, batch size and epoch count; a table carrying one of them describes half the training.",
+    "Table 2 includes three hyperparameters the submitted manuscript omits: the KL warmup (0 to 0.1 over 5 epochs), the variance floor, and the output bias initialisation."
+  ],
+  "code": {
+    "commit": "e85270ec8692de6b57e5c5b21682f50134667354",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.paper_tables --config /scratch2/arrueegg/WP4/PNN_STEC/experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/config.yaml --output-dir multiday_results/analyses/paper_tables/rebuilt",
+  "description": "input feature list and hyperparameters, generated from the model rather than maintained beside it",
+  "duration_s": 0.9,
+  "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
+  "inputs": {},
+  "outputs": {
+    "multiday_results/analyses/paper_tables/rebuilt": {
+      "present": true,
+      "size": 180
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T17:59:06.102431+00:00",
+  "stage": "paper_tables",
+  "supersedes": []
+}

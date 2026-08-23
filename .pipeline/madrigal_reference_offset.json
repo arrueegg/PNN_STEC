@@ -1,0 +1,31 @@
+{
+  "answers": "R1.3",
+  "canonical_for": "Madrigal reference-offset decomposition",
+  "caveats": [
+    "Read only alongside madrigal_reference_offset, never standalone: 45% of the RMSE variance is a per-station reference offset, not model error.",
+    "Does not support claims about the model's out-of-distribution uncertainty - dataset shift and reference-chain difference are confounded here."
+  ],
+  "code": {
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.madrigal_reference_offset --output-dir multiday_results/analyses/madrigal_reference_offset/rebuilt",
+  "description": "how much of the Madrigal error is a per-station reference offset",
+  "duration_s": 73.3,
+  "fingerprint": "2c4e2675894003a3af468338b65b935146962f0310afba5a9f7a12bbfcc1cf38",
+  "inputs": {
+    "predictions/finetuned_stec/madrigal": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/madrigal_reference_offset/rebuilt": {
+      "present": true,
+      "size": 212
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T18:41:30.136508+00:00",
+  "stage": "madrigal_reference_offset",
+  "supersedes": []
+}

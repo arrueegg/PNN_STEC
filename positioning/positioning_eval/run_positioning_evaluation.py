@@ -33,7 +33,6 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -60,8 +59,14 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 
-def load_test_stations(station_list_path="./src/data_processing/test_station.list"):
-    """Load test station list."""
+def load_test_stations(station_list_path="./stec/data/splits/test_station.list"):
+    """Load test station list.
+
+    The default used to point at ./src/data_processing/test_station.list - that file
+    was git-mv'd to stec/data/splits/ when stec/config/paths.py::SPLIT_LISTS was
+    repointed (docs/revision/merge_plan.md Phase 1a); this default was not updated at
+    the same time, so every --all_test_stations run has raised FileNotFoundError since.
+    """
     stations = np.loadtxt(station_list_path, dtype=str)
     return list(stations)
 
@@ -673,9 +678,11 @@ def main():
             if metrics_gim is not None:
                 metrics_list.append(metrics_gim)
 
-            # Both branches merge onto the existing file. The single-method branch used
-            # to write straight to CSV, silently discarding every station already solved
-            # that day - and single-method is exactly the path a recovery run takes.
+            # Both branches go through save_daily_summary, which merges onto the
+            # existing file. The single-method branch used to write straight to CSV,
+            # which silently discarded every station already solved for that day - the
+            # same defect as the two-method path, on the branch the recovery sweep
+            # actually takes.
             save_daily_summary(metrics_model, metrics_gim, summary_file)
             logger.info(f"\n✓ Summary saved to: {summary_file}")
 

@@ -18,6 +18,17 @@ sections below say which artifacts are current.** Read them before trusting any 
 | Weighting ablation (elev vs iono) | `multiday_results/positioning_20260216_2052/` | All six arms: `STEC_elev/iono`, `VTEC_elev/iono`, `gim_elev/iono`. |
 | Per-observation predictions | `predictions/` (parquet store, see below) | Authoritative going forward. |
 
+**Working output — not results, and not superseded results either.** The 26
+`multiday_results/positioning_with_pretrain_2026*` trees are intermediate snapshots written
+every 30-90 minutes by a sweep on 19-20 August, not distinct evaluations. Checked
+2026-08-21: each holds ~2,000 rows against the canonical tree's 35,652, covers 20 days and
+47 stations rather than 242 days, uses **elev** weighting, and carries only three arms -
+`gim_elev`, `Pretrained_STEC_elev`, `VTEC_elev`, with **no `STEC_elev` at all**, so the
+headline method is absent. Two of them (`20260819_1627`, `20260820_1354`) are aborted stubs
+of under 220 rows. Nothing in the paper may be drawn from any of them; they are kept only
+as a record of the sweep's progress. A third category exists because "superseded" would
+imply they once were results.
+
 **Superseded — do not cite, do not delete:** `multiday_results/summary/`, `summary_May/`,
 `summary_122_250/`, `mao_evaluation/`, and the positioning trees `positioning/`,
 `positioning_iono/`, `positioning_mean/`, `positioning_snx/`, `positioning_2026*`. They are
@@ -94,9 +105,14 @@ Notes:
   rather than stored as placeholders. Per-arc analysis is only possible on the `own` dataset.
 - Space-weather columns keep registry names: `Kp_index`, `R_Sunspot_No`, `Dst-index,_nT`,
   `AE-index,_nT`, `ap_index,_nT`, `f107_index`.
-- The VTEC baseline (`MLP_LaplacianNLL`) predicts a **scale**, not a std: variance is 2*scale^2,
-  converted in `inference_manager`. Its slant-mapped sigma is `vtec_model_stec_total_unc`
-  (plus aleatoric/epistemic twins). Score it as a **Laplace**, not a Gaussian - the same data
+- The VTEC baseline (`MLP_LaplacianNLL`) predicts a Laplace **scale** `b`, not a std - but
+  the store does not hold `b`. Two independent ports misread this, so being blunt about
+  which number lives where: `inference_manager` converts `b` to `variance = 2*b^2` and
+  stores its **square root**, so `vtec_model_stec_total_unc` is `sqrt(2)*b`, the
+  distribution's standard deviation, already converted (plus aleatoric/epistemic twins).
+  Recovering the scale from the store is `b = std / sqrt(2)`; applying `variance = 2*b^2`
+  to the stored column instead double-counts the `sqrt(2)`.
+  Score it as a **Laplace**, not a Gaussian - the same data
   reads 90% coverage at nominal 50% under Gaussian quantiles against 82% under Laplace. It was
   computed and then dropped by the schema whitelist for weeks; that is the failure mode this
   store exists to prevent, so never narrow the schema at a write site.
@@ -310,6 +326,26 @@ Two evaluations that are **not** what they look like:
   a hard-limit-only cap OOM-kills a job that is not actually using the memory. Set
   `MemoryHigh` ~2/3 of `MemoryMax` so the kernel reclaims continuously, and read the split from
   `memory.stat` (`anon` / `file`) before concluding a job is memory-hungry.
+- **Logical independence is not resource independence.** Analyses that share no files can
+  still saturate the machine, because each one streams the same 70 GB store. Five concurrent
+  store-reading analyses plus a GPU inference measurement drove this box to a **load average
+  of 131 on 24 cores** with 28 of 30 GB used and 12 GB of swap, dropped the interactive
+  session, and slowed a running pretrain from 3.06 it/s to 0.40 it/s - a factor of 7.6 - for
+  several hours. Nothing was corrupted and nothing conflicted; the work was correctly
+  parallel and still wrong to run. Before starting anything long: read `uptime` and `free`,
+  cap concurrency at **two** analyses with **at most one** streaming the store, `nice -n 10`
+  every one of them, and never add GPU work while a training run holds the card - it is
+  compute-bound at 100% on 1.9 of 12 GB, so contention is for SMs, not memory.
+- **Never edit a shell script while it is running.** `bash` reads a script incrementally by
+  file offset, so an in-place edit makes the running shell resume at a byte position that no
+  longer means what it did, and it dies with a syntax error somewhere it never reached before.
+  `run_station_recovery.sh` was committed 12 minutes into a 14-hour geometry sweep (37ff008,
+  mtime 14:36 against a 14:23 start) and died at 04:49 with `line 93: syntax error near
+  unexpected token 'then'`. `bash -n` reports the file clean, because the file is fine - it is
+  the *running* shell that was corrupted. 13h 27min of CPU was lost. Copy the script to a
+  temporary path and edit that, or wait. Note the systemd unit then reported
+  `Result=success`: the restart re-read the now-valid file and completed in 2.4 s, so the
+  final state is success and the failure is only visible in `journalctl`.
 - **Give unattended queues `Restart=on-failure`.** Every step of `weekend_queue.sh` is idempotent
   or resumable, so a crash should cost the in-flight step, not the night.
 - **A/B input comparisons must seed the weight draws.** `BayesianResNetSTEC`'s output layer

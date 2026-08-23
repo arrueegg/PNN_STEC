@@ -1,0 +1,28 @@
+{
+  "answers": "R2.7b",
+  "canonical_for": null,
+  "caveats": [],
+  "code": {
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.positioning_robustness --output-dir multiday_results/analyses/positioning_robustness/rebuilt",
+  "description": "tail behaviour and convergence of the positioning solutions",
+  "duration_s": 0.3,
+  "fingerprint": "b9a9d0e53c9acf7f55c1d4701e36ab90920ae10655e69e2be4c0db96967095b1",
+  "inputs": {
+    "multiday_results/positioning_runs/full_coverage/multiday_summary.csv": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/positioning_robustness/rebuilt": {
+      "present": true,
+      "size": 82
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T18:48:21.913495+00:00",
+  "stage": "positioning_robustness",
+  "supersedes": []
+}

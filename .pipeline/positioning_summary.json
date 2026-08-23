@@ -1,0 +1,28 @@
+{
+  "answers": "Table 5",
+  "canonical_for": "Table 5",
+  "caveats": [],
+  "code": {
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.positioning_summary --output-dir multiday_results/analyses/positioning_summary/rebuilt",
+  "description": "headline positioning table, four methods on iono weighting",
+  "duration_s": 0.4,
+  "fingerprint": "b9a9d0e53c9acf7f55c1d4701e36ab90920ae10655e69e2be4c0db96967095b1",
+  "inputs": {
+    "multiday_results/positioning_runs/full_coverage/multiday_summary.csv": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/positioning_summary/rebuilt": {
+      "present": true,
+      "size": 80
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T18:48:22.841880+00:00",
+  "stage": "positioning_summary",
+  "supersedes": []
+}

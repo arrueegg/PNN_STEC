@@ -19,7 +19,7 @@ log "=== 1. pretrained elevation arm ==="
 positioning/scripts/run_pretrained_elev_arm.sh || log "elev arm reported a failure, continuing"
 
 log "=== 2. common-set table with whatever arms are complete ==="
-python src/analysis/common_set_positioning.py || log "common-set table failed, continuing"
+python -m stec.pipeline run --only common_set_positioning || log "common-set table failed, continuing"
 
 log "=== 3. R2.2 fully-Bayesian retrain ==="
 python cli.py train --config config/config_A4_fully_bayesian.yaml || log "R2.2 training failed, continuing"
@@ -32,14 +32,17 @@ if [[ -n "$FB" && -d "$FB/model" ]]; then
   # that matters and it is already on disk by then.
   timeout 3600 python src/inference_testset.py --config_path "$FB/config.yaml" \
     || log "R2.2 evaluation stopped (store is written before the plotting stage)"
-  python src/analysis/uncertainty_error_relation.py --model_variant pretrained_stec \
-    --output_dir multiday_results/uncertainty_error_relation_fully_bayesian \
+  python -m stec.analysis.uncertainty_error_relation --model-variant pretrained_stec \
+    --output-dir multiday_results/uncertainty_error_relation_fully_bayesian \
     || log "R2.2 uncertainty analysis failed, continuing"
 else
   log "no fully-Bayesian experiment found"
 fi
 
 log "=== 5. final rebuild ==="
-python src/analysis/repair_gim_baseline.py --apply || log "GIM repair failed, continuing"
-python src/analysis/build_all.py --figures || log "build_all failed"
+# One call: repair_gim_baseline runs before daily_metrics/activity_stratification
+# (registry order, stec/pipeline/stages.py's own docstring), and the figures/
+# manuscript_figures stages replace the old --figures flag - there is no separate
+# tables-then-figures split left to reproduce.
+python -m stec.pipeline run --keep-going || log "pipeline rebuild failed"
 log "=== overnight run complete ==="

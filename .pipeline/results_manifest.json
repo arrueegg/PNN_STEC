@@ -1,23 +1,24 @@
 {
   "answers": "-",
+  "canonical_for": "provenance index",
+  "caveats": [],
   "code": {
-    "commit": "453a47e7e2a111176e2a3a646e5efc84f42e93d4",
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
     "dirty": true
   },
-  "command": "src/analysis/results_manifest.py",
+  "command": "-m stec.analysis.results_manifest",
   "description": "which result trees are canonical and which are superseded",
-  "duration_s": 1.0,
+  "duration_s": 0.6,
   "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
   "inputs": {},
   "outputs": {
-    "multiday_results/runs_manifest.csv": {
+    "multiday_results/analyses/results_manifest/rebuilt": {
       "present": true,
-      "rows": 69,
-      "sha256": "20c6a7ebc3160b3e7d69b22a09e8148cacaa34ae5c42e04244dbf4a0612dad23",
-      "size": 14950
+      "size": 122
     }
   },
   "params": {},
-  "recorded_at": "2026-08-20T12:56:31.594537+00:00",
-  "stage": "results_manifest"
+  "recorded_at": "2026-08-21T18:42:47.141935+00:00",
+  "stage": "results_manifest",
+  "supersedes": []
 }

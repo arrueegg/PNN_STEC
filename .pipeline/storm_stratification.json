@@ -1,0 +1,33 @@
+{
+  "answers": "R2.7",
+  "canonical_for": null,
+  "caveats": [
+    "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This is a different, deliberately kept-separate threshold from the STEC-domain scenario_evaluation.py, which classifies individual hours as storm at Kp>=37 or Dst<=-33: the daily rule finds 39 storm days over the 242-day positioning test period against 102 under the per-observation rule applied at the day level. Do not port one rule's day count into the other's table."
+  ],
+  "code": {
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.storm_stratification --output-dir multiday_results/analyses/storm_stratification/rebuilt",
+  "description": "positioning accuracy on storm against quiet days",
+  "duration_s": 0.3,
+  "fingerprint": "59afc5df9738f4c731bc2430bd60fda5e1f618105a14e8a42d3e622d2b53460e",
+  "inputs": {
+    "data/omni_hourly_2010-2025.h5": {
+      "kind": "missing"
+    },
+    "multiday_results/positioning_runs/full_coverage/multiday_summary.csv": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/storm_stratification/rebuilt": {
+      "present": true,
+      "size": 104
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T18:48:21.645638+00:00",
+  "stage": "storm_stratification",
+  "supersedes": []
+}

@@ -46,7 +46,12 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB = Path("/home/space/data/iono/STEC_DB_CASDCB")
-DEFAULT_STATION_LIST = Path("src/data_processing/test_station.list")
+# Used to point at src/data_processing/test_station.list - that file was git-mv'd to
+# stec/data/splits/ when stec/config/paths.py::SPLIT_LISTS was repointed
+# (docs/revision/merge_plan.md Phase 1a); this default was not updated at the same
+# time, so both callers (run_oracle_days.sh, run_full_positioning_coverage.sh) - neither
+# passes --station_list - have hit this default and raised FileNotFoundError since.
+DEFAULT_STATION_LIST = Path("stec/data/splits/test_station.list")
 
 # Matches the elevation cut applied when the database was produced.
 MIN_ELEVATION_DEG = 5.0

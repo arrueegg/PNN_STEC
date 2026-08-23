@@ -1,0 +1,31 @@
+{
+  "answers": "Table 4, R1.4",
+  "canonical_for": null,
+  "caveats": [
+    "Repairs the 12 days of 2024 where a truncating cast on a float32-denormalised doy loaded the previous day's IONEX map. Unaffected days must reproduce to ~1e-5 TECU; that agreement is the regression check.",
+    "Must stay on the frozen, pre-rebuild script, permanently: this stage is the regression check for the GIM day-lookup repair, and porting it into stec/ would mean the check and the thing it checks share an implementation."
+  ],
+  "code": {
+    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "dirty": true
+  },
+  "command": "stec/frozen/analysis/repair_gim_baseline.py --apply --store_root /scratch2/arrueegg/WP4/PNN_STEC/predictions --output_dir multiday_results/analyses/repair_gim_baseline/pre_rebuild",
+  "description": "recompute the IGS GIM baseline against the correct day's IONEX map",
+  "duration_s": 223.1,
+  "fingerprint": "c0c4eccc2cf65c4aa01bcd62d37fee7663985e5a7ea4e96057cfece14be1297e",
+  "inputs": {
+    "predictions/finetuned_stec/own": {
+      "kind": "missing"
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
+      "present": true,
+      "size": 66
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T19:00:43.211968+00:00",
+  "stage": "repair_gim_baseline",
+  "supersedes": []
+}

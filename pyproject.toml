@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stec"
+version = "0.1.0"
+description = "Probabilistic neural network for slant TEC modelling from GNSS, with observation-level uncertainty."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+# Every third-party name actually imported under stec/ (checked by walking the AST, not
+# grepping - a docstring line starting "from a real config" is not an import). torch_harmonics
+# is in requirements.txt but nothing under stec/ imports it: stec.data.spherical_harmonics
+# is a native port of the hand-derived analytic Yl_m formulas (needs only torch, already
+# listed below), not the torch_harmonics package. FeatureAssembler
+# (stec.data.transforms.FeatureAssembler(sh_encoder=...)) still takes its encoder by
+# injection rather than constructing one itself, so a caller can substitute a different
+# implementation, but stec/ now ships one to inject.
+dependencies = [
+    "numpy>=2.2",
+    "pandas>=2.2",
+    "polars>=1.31",
+    "pyarrow>=20.0",
+    "scipy>=1.15",
+    "h5py>=3.13",
+    "matplotlib>=3.10",
+    "torch>=2.7",
+    "torchbnn>=1.2",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4", "ruff>=0.14"]
+
+[project.scripts]
+stec = "stec.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["stec*"]
+
+# No ruff config file existed before this one - `ruff check`/`ruff format` were already
+# running on their built-in defaults (line-length 88, target-version py310, select E4/E7/E9/F).
+# This block pins those defaults explicitly rather than changing them, so linting behaviour is
+# unchanged.
+[tool.ruff]
+# stec/frozen/ holds byte-identical copies of deliberately unported scripts - the GIM
+# repair regression check must not share an implementation with what it checks, so
+# reformatting it would destroy the property that makes it valid. Excluded rather than
+# fixed, on purpose.
+extend-exclude = ["stec/frozen"]
+
+line-length = 88
+target-version = "py310"
+
+# Mirrors pytest.ini, which is NOT deleted (out of scope for this task - editing existing
+# files is not allowed) and takes priority over this block whenever both are present: pytest
+# reads exactly one of ini/pyproject/setup.cfg, in that order, so pytest.ini is what actually
+# governs test discovery today. This section exists so `pyproject.toml` is a truthful
+# description of the project even though it is currently inert; removing the duplication
+# means deleting pytest.ini, which is an edit to an existing file and out of scope here.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

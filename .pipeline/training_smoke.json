@@ -1,0 +1,43 @@
+{
+  "answers": "-",
+  "canonical_for": null,
+  "caveats": [
+    "Runs the real driver against a tiny checked-in fixture (tests/fixtures/pipeline_smoke, 200 synthetic observations, hidden_dim=8), not the paper's actual training data - deliberately, so this stage stays safe to run unattended (CPU, sub-second) rather than starting a GPU-scale job the moment it is declared. The paper's checkpoints come from src/main.py, unmodified; retraining them through this driver against real data is a separate, manual invocation - see the module docstring.",
+    "fit() runs every configured epoch and returns the final weights: no best-checkpoint selection, no early stopping. Every shipped checkpoint was instead selected by BaseTrainer.run_training's best-val-loss tracking, so a checkpoint this driver produces from real data would not be a byte-for-byte reproduction of one already on disk - only the loss trajectory is gate-verified equivalent (Gate C).",
+    "training.log_target and <mode>.freeze_body are refused, not silently ignored, if a config sets them: neither transform is ported.",
+    "Writes under artifacts/models/, not experiments/ - isolated from every checkpoint any other stage or analysis reads."
+  ],
+  "code": {
+    "commit": "2e2597eeebc72a12d2652d848abff1b9159d4530",
+    "dirty": true
+  },
+  "command": "-m stec.training.run_training --config tests/fixtures/pipeline_smoke/config.yaml --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --device cpu",
+  "description": "proves stec.training.run_training wires fit/loss/schedulers into a real checkpoint end to end, on a tiny checked-in fixture day",
+  "duration_s": 2.4,
+  "fingerprint": "519288d5a4ffe12af8256fbfbe750e8a8d4dd86f0dadbfca822875a25f1dbe31",
+  "inputs": {
+    "tests/fixtures/pipeline_smoke": {
+      "files": 3,
+      "kind": "tree",
+      "mtime_ns": 1787326881907002412,
+      "size": 30410
+    }
+  },
+  "outputs": {
+    "artifacts/models/pipeline_smoke_finetune/loss_history.csv": {
+      "present": true,
+      "rows": 1,
+      "sha256": "266d9f52cadfa078a3b761623a55c975c8442fd30ee28ca3f660e08dd62e13ce",
+      "size": 65
+    },
+    "artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth": {
+      "present": true,
+      "sha256": "5b3143817c1e1d649d2983327ea00e9dd10da6056ec92556893eeae6e149f77e",
+      "size": 7317
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-21T15:43:27.168409+00:00",
+  "stage": "training_smoke",
+  "supersedes": []
+}

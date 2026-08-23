@@ -17,17 +17,19 @@ python -c "import pandas" 2>/dev/null || { echo "FATAL: no usable python" >&2; e
 LOG=${LOG:-logs/final_rebuild.log}
 mkdir -p "$(dirname "$LOG")"
 log() { echo "$(date '+%F %T') - $*" >> "$LOG"; }
-export PYTHONPATH=src
+# stec is not pip-installed; running from REPO_ROOT (the cd above) is enough for
+# `python -m` to resolve it without a PYTHONPATH export - the old `src/pipeline`
+# needed PYTHONPATH=src because src/ itself was never a package.
 
 log "=== 1. positioning aggregate and coverage ==="
-python -m pipeline run --only positioning_coverage --force >> "$LOG" 2>&1 \
+python -m stec.pipeline run --only positioning_coverage --force >> "$LOG" 2>&1 \
     || log "coverage rebuild failed, continuing"
 
 log "=== 2. everything that is out of date ==="
 # --keep-going: one failing analysis must not withhold the other twenty.
-python -m pipeline run --keep-going >> "$LOG" 2>&1 || log "one or more stages failed"
+python -m stec.pipeline run --keep-going >> "$LOG" 2>&1 || log "one or more stages failed"
 
 log "=== 3. what ran, and what each number rests on ==="
-python -m pipeline status >> "$LOG" 2>&1 || true
+python -m stec.pipeline status >> "$LOG" 2>&1 || true
 
 log "=== final rebuild complete ==="

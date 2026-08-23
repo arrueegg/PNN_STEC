@@ -63,8 +63,9 @@ python cli.py train --config config/config_BNN.yaml --mode finetune
 ### Evaluation
 
 ```bash
-# Evaluate on test set
-python cli.py evaluate --experiment "Finetune_STEC_BNN_NLL_2024_183"
+# Evaluate on test set (metrics + plots) - `cli.py evaluate` was removed, it never
+# actually worked (see `python cli.py evaluate --help`)
+python cli.py inference --experiment "Finetune_STEC_BNN_NLL_2024_183"
 
 # Compare model STEC against VTEC baseline and IGS GIM
 python cli.py compare --stec_experiment "Finetune_STEC_..." --vtec_experiment "Finetune_VTEC_..."
