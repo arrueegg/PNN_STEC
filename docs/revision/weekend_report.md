@@ -13,59 +13,43 @@ tail -20 logs/station_recovery_models.log
 tail -20 logs/merge_watcher.log
 ```
 
-## STOP — nothing ran this weekend, and it needs one command from you
+## Resolved Sunday 13:50 — the merge landed and both jobs are running
 
-**Status Sunday 2026-08-23 13:20: the recovery sweep and the merge have not run at all.**
+The section that used to sit here said nothing had run. That was true at 13:20 and is no
+longer. Kept below in outline because the diagnosis still matters.
 
-`overnight-final` is in a loop it cannot escape. It has now been OOM-killed **four times**,
-every one of them in the *evaluation* phase, not training:
+**The merge is done.** `pipeline-rebuild` merged into `paper-revision-jgr-mlc` at 13:31.
+Four declared conflicts resolved to the branch version; **679 tests pass**; 30 stages
+registered; 0 commits unmerged. `stec/` now lives in this tree — one repository, one
+implementation, which was the point of the whole rebuild.
 
-| | |
-|---|---|
-| Aug 21 20:46 | OOM, 13.8 GB peak → restart 2 |
-| Aug 22 10:54 | OOM, 13.5 GB peak → restart 3 |
-| Aug 23 01:21 | OOM, 13.6 GB peak → restart 4 |
+**Training is stopped, deliberately, and will not be restarted.** It had been OOM-killed four
+times, always in evaluation, each cycle discarding ~136 epochs and starting over. The user's
+instruction was not to retrain: the checkpoint is good.
 
-Each cycle is ~14 h: train to ~136 epochs, enter evaluation, get killed, restart from epoch
-1. It has completed training at least three times and never once got through evaluation.
+**Best model preserved:** `experiments/_converged_models/pretrain_ResNet_BNN_NLL_seed42_val3.56_best.pth`
+— val_loss **3.56**, better than the 3.67 the first run reached.
 
-Because both weekend jobs deliberately wait for training to be quiet, **they have been
-waiting two days and will wait forever.**
+**Evaluation is running once** against that checkpoint with the full box (24/28 GB, no
+`timeout 3600` cap — that cap is what truncated it before). ETA ~1–2 h from 13:25.
 
-### The model is safe
+**The recovery sweep is running**, DOY 122 onward. It processes **242 days, not 212** — the
+skip-if-already-done guard only covers the `geometry` stage, not `models` — so ~24–28 h,
+finishing Monday afternoon. Redoing the 30 complete days is harmless under the merge-safe
+writer.
 
-`experiments/_converged_models/pretrain_ResNet_BNN_NLL_seed42_val3.58.pth` — validation loss
-**3.58**, better than the 3.67 the first run reached. Preserved from the snapshots, so the
-loop is no longer producing anything of value.
+### One thing that had to be fixed first
 
-### What to run when you are back
+The sweep crash-looped six times on
+`FileNotFoundError: multiday_results/positioning_full_coverage/coverage.csv`. The results
+restructure moved that tree to `positioning_runs/full_coverage/`, and two operational files
+hardcoded the old path: `scripts/run_station_recovery.sh` and `positioning/geometry/recover_day.py`
+— the latter being the one the sweep actually invokes. Both fixed.
 
-Stopping the training and starting the queued work needed a permission this session did not
-have, so it was left for you. Either of these unblocks everything:
-
-```bash
-# 1. Stop the loop, then the recovery and merge release on their own:
-systemctl --user stop overnight-final
-
-# 2. Or leave training alone and just run the recovery alongside it:
-systemctl --user stop weekend-recovery
-systemd-run --user --unit=weekend-recovery \
-  --working-directory=/scratch2/arrueegg/WP4/PNN_STEC \
-  -p MemoryHigh=6G -p MemoryMax=9G -p Nice=15 -p Restart=on-failure -p RestartSec=180 \
-  -E WAIT_FOR_UNITS= -E WAIT_FOR_SWEEP=0 \
-  /usr/bin/bash -c 'source env/bin/activate && STAGES=models exec scripts/run_station_recovery.sh'
-```
-
-The merge genuinely cannot run while `overnight_final.sh` is executing — git rewrites files
-in place and bash re-reads a running script from its offset - so option 1 is the one that
-also gets the merge done.
-
-### Evaluation needs more headroom before it will ever finish
-
-The eval phase peaks over 13.5 GB on a 30 GB box shared with a desktop. Re-running training
-unchanged will loop again. Either give the unit a `MemoryMax` well below the oomd trigger so
-it fails fast instead of thrashing, or run evaluation separately against the preserved
-checkpoint rather than as the tail of a 14-hour job.
+That is the same failure class the restructure surfaced in six analyses. Those were caught
+because they are declared pipeline stages and got swept; these two are not, so nothing
+checked them. **Anything reading results by literal path rather than through `paths.py`
+carries the same exposure** — worth an audit rather than assuming these were the last two.
 
 ## Read this first: the OOM hit evaluation, not training - and the restart destroyed the model
 
@@ -217,3 +201,18 @@ rather than a convention.
 4. Decide the Madrigal local-time question above.
 5. Phase 8: the manuscript, still frozen. `docs/revision/manuscript_number_audit.md` lists
    every number that disagrees with current results.
+
+## Merge completed 2026-08-23 13:31:36
+
+`pipeline-rebuild` merged into `paper-revision-jgr-mlc`. Verified clean in a throwaway clone first.
+
+### Post-merge verification
+
+```
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+679 passed, 5 warnings in 180.54s (0:03:00)
+  data_prep_smoke                     inputs or parameters changed
+
+  30 of 30 stage(s) would run
+```
