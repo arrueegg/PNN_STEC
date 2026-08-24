@@ -412,3 +412,29 @@ so the registry enforces it, both old trees marked superseded (nothing deleted).
 **The general defect**: the registry enforces one owner per *output*, but nothing enforces that
 every declared *input* has a producer. An orphaned input cannot go stale, so a stage depending
 on one is permanently and falsely green. Worth closing.
+
+### Pretrain cost: the scaled estimate is 16x low, now measured
+
+`multiday_results/analyses/computational_cost/pre_rebuild/cost_summary.csv` records
+"pretraining, 150 epochs = **0.38 GPU-hours**" with `measured: no - scaled from the measured
+fine-tune epoch cost`. The analysis was honest about the provenance; the scaling itself was
+invalid.
+
+**Measured 2026-08-24** on the `ps0.466` epistemic arm — same architecture
+(`BayesianResNetSTEC` h1024, bs1024), same 500,000-row subsample regime as the paper's own
+pretrain: **2.5 min/epoch, steady** (18:46:15 -> 18:48:48 -> 18:51:18) -> **~6.2 hours for
+150 epochs**, against 0.38 estimated. **16x low.**
+
+Why the scaling failed: a daily fine-tune reads one day's data; the pretrain draws 500,000
+**random** rows with replacement from the 103 GB `data/train.h5` every epoch. Measured GPU
+utilisation during the arm is **~7%** (7 of 10 samples at 0%, peak 48%) — the pretrain is
+I/O-bound, not compute-bound, so a per-epoch cost measured on the fine-tune's much smaller,
+cache-friendly read does not transfer.
+
+**Not in the manuscript** as far as a grep of `PNN_main.tex` shows — the cost figures the paper
+carries are the fine-tune ones, which were genuinely measured. Correct `cost_summary.csv`
+before it is ever quoted, and re-run `computational_cost` once an arm finishes, so the number
+comes from a real 150-epoch pretrain rather than either estimate.
+
+**Practical consequence**: three arms are ~19 h of training, not ~1.2 h. Any future plan that
+budgeted pretrains from the 0.38 figure is wrong by the same factor.
