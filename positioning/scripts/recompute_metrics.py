@@ -29,10 +29,10 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.dates as mdates
 
 _repo_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(_repo_root / "src"))
+sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "positioning"))
 
-from utils.config_parser import load_config, compute_exp_name
+from stec.config.config_parser import load_config, compute_exp_name
 
 from positioning_eval.download_products import download_products
 from positioning_eval.metrics import aggregate_daily_metrics

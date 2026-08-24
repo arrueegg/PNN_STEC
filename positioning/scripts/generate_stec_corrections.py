@@ -36,14 +36,14 @@ from datetime import datetime, timedelta
 from tqdm import tqdm
 
 _repo_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(_repo_root / "src"))
+sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "positioning"))
 
-from utils.config_parser import load_config
-from utils.feature_registry import initialize_feature_registry, FeatureType
-from data_loader.collation import CollateWithSH
+from stec.config.config_parser import load_config
+from stec.data.feature_registry import initialize_feature_registry, FeatureType
+from stec.data.collation import CollateWithSH
 from torch.utils.data import Dataset, DataLoader
-from evaluation.gim_mapper import MappingFunction  # Import for VTEC -> STEC conversion
+from stec.baselines.gim import MappingFunction  # Import for VTEC -> STEC conversion
 
 
 def initialize_output_indices_for_registry(registry, config):
@@ -237,7 +237,7 @@ class PositioningDataset(Dataset):
         self.doy = doy
 
         # Get feature configuration
-        from utils.feature_registry import FeatureType
+        from stec.data.feature_registry import FeatureType
 
         all_features = feature_registry.get_all_enabled_features()
         self.target_feature = feature_registry.get_features_by_type(FeatureType.TARGET)[
@@ -436,7 +436,7 @@ def run_inference_for_day(
                 # Check model type for uncertainty parameterization
                 # DeepEnsemble always returns variance (sigma^2) regardless of base distribution
                 # Single MLP_LaplacianNLL returns scale (b), while BNN models return variance (sigma^2)
-                from model.model import DeepEnsemble
+                from stec.models.architectures import DeepEnsemble
 
                 if isinstance(model, DeepEnsemble):
                     # Ensemble returns variance
@@ -649,7 +649,7 @@ def main():
             logger.info(f"📍 Test stations: {len(test_stations)}")
 
             # Load model (handles single or ensemble)
-            from model.model import load_model_for_inference
+            from stec.models.legacy_factory import load_model_for_inference
 
             model = load_model_for_inference(config, experiment_dir, logger)
 
@@ -720,7 +720,7 @@ def main():
         logger.info(f"📍 Test stations: {len(test_stations)}")
 
         # Load model (handles single or ensemble)
-        from model.model import load_model_for_inference
+        from stec.models.legacy_factory import load_model_for_inference
 
         model = load_model_for_inference(config, experiment_dir, logger)
 

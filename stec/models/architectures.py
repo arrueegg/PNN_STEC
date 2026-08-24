@@ -18,7 +18,7 @@ import torch.nn.functional as F
 import torchbnn as bnn
 from torch import nn
 
-from .capabilities import GAUSSIAN_BAYESIAN, Capabilities
+from .capabilities import GAUSSIAN_BAYESIAN, LAPLACE_DETERMINISTIC, Capabilities
 
 # Approximate mean STEC in TECU. Used to initialise the output bias so the model starts in
 # the right part of the range rather than at zero.
@@ -99,6 +99,198 @@ class BayesianResNetSTEC(nn.Module):
         mean, log_var = torch.split(x, 1, dim=1)
         variance = F.softplus(log_var) + VARIANCE_FLOOR
         return mean, variance
+
+
+class BayesResNetBlock(nn.Module):
+    """Bayesian residual block: both `fc1`/`fc2` are `bnn.BayesLinear`, not `nn.Linear`.
+
+    Ported from `src/model/model.py`. This is the one structural difference between
+    `ResNet_BNN_NLL` (below) and `BayesianResNetSTEC` above - everything else in the two
+    architectures, including the output layer and its initialisation, is identical by
+    construction (see `ResNet_BNN_NLL`'s docstring).
+    """
+
+    def __init__(
+        self, hidden_dim: int, dropout_rate: float = 0.0, prior_sigma: float = 0.1
+    ) -> None:
+        super().__init__()
+        self.fc1 = bnn.BayesLinear(
+            prior_mu=0,
+            prior_sigma=prior_sigma,
+            in_features=hidden_dim,
+            out_features=hidden_dim,
+        )
+        self.fc2 = bnn.BayesLinear(
+            prior_mu=0,
+            prior_sigma=prior_sigma,
+            in_features=hidden_dim,
+            out_features=hidden_dim,
+        )
+        self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else None
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        x = self.norm1(x)
+        x = F.relu(self.fc1(x))
+        if self.dropout:
+            x = self.dropout(x)
+        x = self.norm2(x)
+        x = self.fc2(x)
+        if self.dropout:
+            x = self.dropout(x)
+        return x + residual
+
+
+class ResNet_BNN_NLL(nn.Module):
+    """The fully-Bayesian R2.2 variant: Bayesian residual blocks, not just a Bayesian
+    output head. Ported from `src/model/model.py` - this is the one architecture CLAUDE.md
+    flags as "actively being evaluated right now" and having no prior `stec/models`
+    equivalent, so it is ported here verbatim rather than left in `src/`.
+
+    `docs/revision/STATE.md` records why the output-layer initialisation below matters:
+    the first R2.2 comparison measured this architecture confounded with a missing
+    initialisation match, producing a -1.93 TECU pervasive bias that had nothing to do with
+    "Bayesian residual blocks" as a modelling choice. With the matched initialisation, the
+    two architectures (this one and `BayesianResNetSTEC`) differ in exactly one way: each
+    residual block's `fc1`/`fc2` are Bayesian here, deterministic there.
+    """
+
+    capabilities: Capabilities = GAUSSIAN_BAYESIAN
+
+    def __init__(
+        self,
+        n_in: int = 3,
+        hidden_dim: int = 256,
+        num_layers: int = 4,
+        dropout_rate: float = 0.0,
+        prior_sigma: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.input_layer = nn.Sequential(nn.Linear(n_in, hidden_dim), nn.ReLU())
+        self.res_blocks = nn.ModuleList(
+            BayesResNetBlock(
+                hidden_dim, dropout_rate=dropout_rate, prior_sigma=prior_sigma
+            )
+            for _ in range(num_layers)
+        )
+        self.output_layer = bnn.BayesLinear(
+            prior_mu=0, prior_sigma=prior_sigma, in_features=hidden_dim, out_features=2
+        )
+        # Matches BayesianResNetSTEC's initialisation exactly - see the class docstring
+        # for why an unmatched init previously confounded this ablation.
+        with torch.no_grad():
+            self.output_layer.bias_mu[0].fill_(STEC_MEAN_TECU)
+            self.output_layer.weight_mu.normal_(0, 0.01)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        x = self.input_layer(x)
+        for block in self.res_blocks:
+            x = block(x)
+        x = self.output_layer(x)
+        mean, log_var = torch.split(x, 1, dim=1)
+        variance = F.softplus(log_var) + VARIANCE_FLOOR
+        return mean, variance
+
+
+class MLP_LaplacianNLL(nn.Module):
+    """The canonical VTEC baseline (Mao et al. 2025): 3 hidden layers of 90 neurons with
+    tanh activation, outputting a Laplace (location, scale) pair. Ported from
+    `src/model/model.py`. Predicts a *scale*, not a standard deviation - see
+    `stec.inference.monte_carlo.laplace_scale_to_variance` and CLAUDE.md's prediction-store
+    notes for how that is converted downstream.
+    """
+
+    capabilities: Capabilities = LAPLACE_DETERMINISTIC
+
+    def __init__(
+        self, n_in: int = 259, hidden_dim: int = 90, num_layers: int = 3
+    ) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList()
+        self.layers.append(nn.Linear(n_in, hidden_dim))
+        for _ in range(num_layers - 1):
+            self.layers.append(nn.Linear(hidden_dim, hidden_dim))
+        self.output_layer = nn.Linear(hidden_dim, 2)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        for layer in self.layers:
+            x = torch.tanh(layer(x))
+        x = self.output_layer(x)
+        location, log_scale = torch.split(x, 1, dim=1)
+        scale = F.softplus(log_scale) + VARIANCE_FLOOR
+        return location, scale
+
+
+class DeepEnsemble(nn.Module):
+    """Aggregates predictions from multiple (mean, spread) models - Gaussian or Laplacian.
+
+    Ported from `src/model/model.py`, needed by `legacy_factory.load_model_for_inference`
+    for any experiment directory holding more than one checkpoint (ensemble members).
+    """
+
+    def __init__(self, models: list[nn.Module], model_type: str = "Gaussian") -> None:
+        super().__init__()
+        self.ensemble_models = nn.ModuleList(models)
+        self.model_type = model_type  # "Gaussian" or "Laplacian"
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Returns (ensemble_mean, total_uncertainty) where total_uncertainty is the sum
+        of the aleatoric (mean per-model variance) and epistemic (variance of means)
+        components."""
+        predictions = []
+        variances_or_scales = []
+
+        for model in self.ensemble_models:
+            mean, v = model(x)
+            predictions.append(mean)
+            variances_or_scales.append(v)
+
+        mu_stack = torch.stack(predictions, dim=0)
+        v_stack = torch.stack(variances_or_scales, dim=0)
+
+        ensemble_mean = torch.mean(mu_stack, dim=0)
+
+        is_laplacian = "Laplacian" in self.model_type
+        if is_laplacian:
+            aleatoric_var = torch.mean(2.0 * (v_stack**2), dim=0)
+        else:
+            aleatoric_var = torch.mean(v_stack, dim=0)
+
+        # [PAPER] Mao et al. 2025: population variance for the Laplacian ensemble, unbiased
+        # sample variance otherwise.
+        epistemic_var = torch.var(mu_stack, dim=0, unbiased=not is_laplacian)
+
+        total_uncertainty = aleatoric_var + epistemic_var
+
+        return ensemble_mean, total_uncertainty
+
+    def get_uncertainties(self, x: torch.Tensor):
+        """Decomposed (mean, aleatoric_var, epistemic_var, total_var) for analysis."""
+        predictions = []
+        variances_or_scales = []
+
+        for model in self.ensemble_models:
+            mean, v = model(x)
+            predictions.append(mean)
+            variances_or_scales.append(v)
+
+        mu_stack = torch.stack(predictions, dim=0)
+        v_stack = torch.stack(variances_or_scales, dim=0)
+
+        ensemble_mean = torch.mean(mu_stack, dim=0)
+
+        is_laplacian = "Laplacian" in self.model_type
+        if is_laplacian:
+            aleatoric_var = torch.mean(2.0 * (v_stack**2), dim=0)
+        else:
+            aleatoric_var = torch.mean(v_stack, dim=0)
+
+        epistemic_var = torch.var(mu_stack, dim=0, unbiased=not is_laplacian)
+        total_uncertainty = aleatoric_var + epistemic_var
+
+        return ensemble_mean, aleatoric_var, epistemic_var, total_uncertainty
 
 
 def shape_from_state_dict(state: dict) -> dict:

@@ -24,12 +24,12 @@ import cartopy.feature as cfeature
 
 _scripts_dir = str(Path(__file__).parent)
 sys.path.insert(0, _scripts_dir)
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Re-use feature preparation from the inference script
 from infer_from_log import read_log_file, prepare_features  # noqa: E402
-from utils.config_parser import load_config
-from utils.feature_registry import initialize_feature_registry
+from stec.config.config_parser import load_config
+from stec.data.feature_registry import initialize_feature_registry
 
 
 def parse_args():
@@ -286,7 +286,7 @@ def plot_station_coords(df, out_dir):
 
 def plot_swi_features(df, out_dir, config):
     """SWI features over the day (constant per hour, step function)."""
-    from utils.feature_registry import FeatureType
+    from stec.data.feature_registry import FeatureType
 
     swi_features = config["feature_registry"].get_features_by_type(FeatureType.SWI)
     if not swi_features:

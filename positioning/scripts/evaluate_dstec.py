@@ -34,14 +34,18 @@ import traceback
 from tqdm import tqdm
 
 _repo_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(_repo_root))
+# `training.base_trainer.BaseTrainer` and `data_loader.get_test_data_loader` still need
+# `src/` on the path below - see the module-level note above `run_model_inference` for
+# exactly what those two symbols pull in and why porting them was not attempted this pass.
 sys.path.insert(0, str(_repo_root / "src"))
 sys.path.insert(0, str(_repo_root / "positioning"))
 
-from utils.feature_registry import initialize_feature_registry
+from stec.data.feature_registry import initialize_feature_registry
 from training.base_trainer import BaseTrainer
 from data_loader import get_test_data_loader
-from model.model import get_model
-from evaluation.gim_mapper import GIMMapper
+from stec.models.legacy_factory import get_model
+from stec.baselines.gim import GIMMapper
 from datetime import timedelta
 
 # ===========================
@@ -145,6 +149,22 @@ def run_model_inference(
 ) -> pd.DataFrame:
     """
     Run model inference on test set.
+
+    Feature registry, model construction and the GIM baseline are all ported into `stec/`
+    (see the imports above); `BaseTrainer`/`get_test_data_loader` are the one remaining
+    piece still resolved through `src/`. Porting them faithfully means bringing across
+    `src/utils/preprocessing.py::DataPreprocessor` (670 lines), the `H5Dataset`/
+    `DayRAMDataset`/`PyTablesDatasetSplit` family (`src/data_loader/datasets.py`, 731
+    lines) and their subset-index caching (`src/data_loader/samplers.py`) - none of which
+    can be exercised without reading the real 103 GB `data/test.h5` or the raw per-day
+    HDF5 tree, both out of scope for a resource-constrained pass with no data/GPU
+    execution allowed. `stec.inference.run_inference` already reads the same raw per-day
+    test partition via `stec.data.day_reader.read_day(..., with_identity=True)` and could
+    plausibly replace this call for the common `mode: finetune` case (a single day), but
+    that module was under active concurrent modification while this port was written -
+    building on it here risked a collision with in-flight, unrelated changes, so this
+    script keeps its dependency on `training.base_trainer.BaseTrainer` and
+    `data_loader.get_test_data_loader` rather than guessing at a moving target.
 
     Returns:
         DataFrame with predictions and metadata
@@ -385,8 +405,12 @@ def compute_dstec_for_pass(
             # Ensure GIM data is loaded for the pass day (mapper may already have data)
             # We attempt to (re)load for the first time in this pass if necessary
             try:
+                # stec.baselines.gim.GIMMapper.load_gim_data takes (date, *, ionex_root=...)
+                # - the ported signature is keyword-only and date-first (see that module's
+                # docstring, defect 2): the legacy (gim_path, date) order is no longer valid.
                 gim_mapper.load_gim_data(
-                    eval_config.get("gim", {}).get("gim_path", "."), times[0]
+                    times[0],
+                    ionex_root=eval_config.get("gim", {}).get("gim_path", "."),
                 )
             except Exception:
                 # If loading fails, mapper may already be loaded or files missing; proceed and let mapper handle it
@@ -1873,8 +1897,10 @@ def main():
                     )
                     try:
                         gim_mapper.load_gim_data(
-                            EVALUATION_CONFIG.get("gim", {}).get("gim_path", "."),
                             first_date,
+                            ionex_root=EVALUATION_CONFIG.get("gim", {}).get(
+                                "gim_path", "."
+                            ),
                         )
                         logger.info("  ✓ Loaded initial GIM data for comparison")
                     except Exception as e:

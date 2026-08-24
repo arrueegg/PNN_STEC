@@ -6,7 +6,6 @@ This script splits a date range into chunks and submits parallel SLURM jobs,
 each processing a subset of days for faster cluster execution.
 """
 
-import os
 import sys
 import argparse
 import subprocess
@@ -14,30 +13,29 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 def parse_date_string(date_str: str) -> Tuple[int, int]:
     """Parse date string to (year, doy)."""
-    if '-' in date_str and len(date_str.split('-')) == 3:
+    if "-" in date_str and len(date_str.split("-")) == 3:
         # YYYY-MM-DD format
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         year = dt.year
         doy = dt.timetuple().tm_yday
     else:
         # YYYY-DOY format
-        parts = date_str.split('-')
+        parts = date_str.split("-")
         year = int(parts[0])
         doy = int(parts[1])
     return year, doy
+
 
 def generate_date_list(dates_arg: str) -> List[Tuple[int, int]]:
     """Generate list of (year, doy) tuples from date argument."""
     dates = []
 
-    if ':' in dates_arg:
+    if ":" in dates_arg:
         # Date range
-        start_str, end_str = dates_arg.split(':')
+        start_str, end_str = dates_arg.split(":")
         start_year, start_doy = parse_date_string(start_str)
         end_year, end_doy = parse_date_string(end_str)
 
@@ -54,75 +52,99 @@ def generate_date_list(dates_arg: str) -> List[Tuple[int, int]]:
 
     else:
         # Single date or comma-separated list
-        for date_str in dates_arg.split(','):
+        for date_str in dates_arg.split(","):
             date_str = date_str.strip()
             year, doy = parse_date_string(date_str)
             dates.append((year, doy))
 
     return dates
 
-def split_dates_into_chunks(dates: List[Tuple[int, int]], chunk_size: int) -> List[List[Tuple[int, int]]]:
+
+def split_dates_into_chunks(
+    dates: List[Tuple[int, int]], chunk_size: int
+) -> List[List[Tuple[int, int]]]:
     """Split date list into chunks of specified size."""
-    return [dates[i:i + chunk_size] for i in range(0, len(dates), chunk_size)]
+    return [dates[i : i + chunk_size] for i in range(0, len(dates), chunk_size)]
+
 
 def ensure_pretrain_exists(stec_config_path: str) -> str:
     """Check if pretrain experiment exists, run if not. Returns pretrain folder path."""
     import yaml
     from pathlib import Path
-    
+
     # Load config to determine what pretrain experiment should exist
-    with open(stec_config_path, 'r') as f:
+    with open(stec_config_path, "r") as f:
         config = yaml.safe_load(f)
-    
+
     # Temporarily set mode to pretrain to compute pretrain experiment name
-    original_mode = config.get('mode', 'pretrain')
-    config['mode'] = 'pretrain'
-    
-    # Import here to avoid circular imports
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-    from utils.config_parser import compute_exp_name
-    
+    original_mode = config.get("mode", "pretrain")
+    config["mode"] = "pretrain"
+
+    # Import here to avoid circular imports. Both this insert and the module-level one
+    # this replaced pointed at directories that never existed (`positioning/scripts/src`,
+    # `positioning/src`), so `from utils.config_parser import compute_exp_name` always
+    # raised ModuleNotFoundError - a pre-existing bug, not a src/ retirement casualty.
+    repo_root = str(Path(__file__).resolve().parent.parent.parent)
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from stec.config.config_parser import compute_exp_name
+
     # Compute what the pretrain experiment name should be
     try:
         pretrain_exp_name = compute_exp_name(config)
     except Exception as e:
         print(f"Failed to compute pretrain experiment name: {e}")
         return None
-    
+
     pretrain_folder = Path("experiments") / pretrain_exp_name
     model_folder = pretrain_folder / "model"
-    
+
     # Check if pretrain experiment exists with trained model
-    if pretrain_folder.exists() and model_folder.exists() and list(model_folder.glob("*.pth")):
+    if (
+        pretrain_folder.exists()
+        and model_folder.exists()
+        and list(model_folder.glob("*.pth"))
+    ):
         print(f"✓ Found existing pretrain experiment: {pretrain_exp_name}")
         return str(pretrain_folder)
-    
+
     # Pretrain doesn't exist - need to run it
     print(f"⚠️  Pretrain experiment not found: {pretrain_exp_name}")
     print("Running pretraining first...")
-    
+
     # Run pretrain using CLI
     import subprocess
-    result = subprocess.run([
-        "python", "cli.py", "train", "--config", stec_config_path
-    ], capture_output=True, text=True)
-    
+
+    result = subprocess.run(
+        ["python", "cli.py", "train", "--config", stec_config_path],
+        capture_output=True,
+        text=True,
+    )
+
     if result.returncode != 0:
         print(f"✗ Pretraining failed: {result.stderr}")
         return None
-    
+
     # Verify model was trained
     if not (model_folder.exists() and list(model_folder.glob("*.pth"))):
         print(f"✗ Pretrain completed but no model found in {model_folder}")
         return None
-    
+
     print(f"✓ Pretraining completed: {pretrain_exp_name}")
     return str(pretrain_folder)
 
-def create_slurm_script(chunk_dates: List[Tuple[int, int]], chunk_id: int,
-                       stec_config: str, vtec_config: str, output_dir: str,
-                       num_inference_samples: int, base_dir: str, pretrain_folder: str,
-                       skip_comparison: bool = False) -> str:
+
+def create_slurm_script(
+    chunk_dates: List[Tuple[int, int]],
+    chunk_id: int,
+    stec_config: str,
+    vtec_config: str,
+    output_dir: str,
+    num_inference_samples: int,
+    base_dir: str,
+    pretrain_folder: str,
+    skip_comparison: bool = False,
+) -> str:
     """Create SLURM script for a chunk of dates."""
 
     # Convert dates to string format
@@ -176,6 +198,7 @@ echo "✅ Chunk {chunk_id} completed successfully"
 
     return script_content
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Submit parallel multi-day evaluation jobs to SLURM cluster",
@@ -196,34 +219,67 @@ Examples:
       --stec_config config/config.yaml \\
       --vtec_config config/config_vtec_mlp_baseline.yaml \\
       --output_dir multiday_results/parallel_july_2024
-        """
+        """,
     )
 
-    parser.add_argument("--dates", type=str, required=True,
-                       help="Date range to evaluate (e.g., '2024-183:2024-192')")
-    parser.add_argument("--chunk_size", type=int, default=3,
-                       help="Number of days per SLURM job (default: 3)")
-    parser.add_argument("--stec_config", type=str, required=True,
-                       help="Base config file for STEC training")
-    parser.add_argument("--vtec_config", type=str, required=True,
-                       help="Base config file for VTEC training")
-    parser.add_argument("--output_dir", type=str, default="multiday_results_parallel",
-                       help="Base output directory (default: multiday_results_parallel)")
-    parser.add_argument("--num_inference_samples", type=int, default=100,
-                       help="MC samples for Bayesian inference (default: 100)")
-    parser.add_argument("--base_dir", type=str,
-                       default="/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC",
-                       help="Base directory on cluster")
-    parser.add_argument("--skip_comparison", action="store_true",
-                       help="Skip comparison evaluation (Step 3)")
-    parser.add_argument("--dry_run", action="store_true",
-                       help="Show what would be submitted without actually submitting")
+    parser.add_argument(
+        "--dates",
+        type=str,
+        required=True,
+        help="Date range to evaluate (e.g., '2024-183:2024-192')",
+    )
+    parser.add_argument(
+        "--chunk_size",
+        type=int,
+        default=3,
+        help="Number of days per SLURM job (default: 3)",
+    )
+    parser.add_argument(
+        "--stec_config",
+        type=str,
+        required=True,
+        help="Base config file for STEC training",
+    )
+    parser.add_argument(
+        "--vtec_config",
+        type=str,
+        required=True,
+        help="Base config file for VTEC training",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="multiday_results_parallel",
+        help="Base output directory (default: multiday_results_parallel)",
+    )
+    parser.add_argument(
+        "--num_inference_samples",
+        type=int,
+        default=100,
+        help="MC samples for Bayesian inference (default: 100)",
+    )
+    parser.add_argument(
+        "--base_dir",
+        type=str,
+        default="/cluster/work/igp_psr/arrueegg/WP4/PNN_STEC",
+        help="Base directory on cluster",
+    )
+    parser.add_argument(
+        "--skip_comparison",
+        action="store_true",
+        help="Skip comparison evaluation (Step 3)",
+    )
+    parser.add_argument(
+        "--dry_run",
+        action="store_true",
+        help="Show what would be submitted without actually submitting",
+    )
 
     args = parser.parse_args()
 
-    print("="*70)
+    print("=" * 70)
     print("PARALLEL MULTI-DAY EVALUATION SUBMISSION")
-    print("="*70)
+    print("=" * 70)
 
     # Step 1: Ensure pretrain exists
     print("\n[1/2] Checking pretrain experiment...")
@@ -231,14 +287,14 @@ Examples:
     if pretrain_folder is None:
         print("❌ Failed to ensure pretrain experiment exists")
         return
-    
+
     print(f"Pretrain folder: {pretrain_folder}")
 
     # Step 2: Generate all dates
     print("\n[2/2] Setting up parallel jobs...")
     all_dates = generate_date_list(args.dates)
     print(f"Total dates to process: {len(all_dates)}")
-    print(f"Dates: {[f'{y}-{d:03d}' for y,d in all_dates]}")
+    print(f"Dates: {[f'{y}-{d:03d}' for y, d in all_dates]}")
 
     # Split into chunks
     date_chunks = split_dates_into_chunks(all_dates, args.chunk_size)
@@ -260,15 +316,21 @@ Examples:
 
         # Create SLURM script
         script_content = create_slurm_script(
-            chunk, chunk_id, args.stec_config, args.vtec_config,
-            args.output_dir, args.num_inference_samples, args.base_dir, pretrain_folder,
-            skip_comparison=args.skip_comparison
+            chunk,
+            chunk_id,
+            args.stec_config,
+            args.vtec_config,
+            args.output_dir,
+            args.num_inference_samples,
+            args.base_dir,
+            pretrain_folder,
+            skip_comparison=args.skip_comparison,
         )
 
         script_path = scripts_dir / f"chunk_{chunk_id:02d}.sh"
 
         # Write script
-        with open(script_path, 'w') as f:
+        with open(script_path, "w") as f:
             f.write(script_content)
 
         print(f"  Created script: {script_path}")
@@ -278,7 +340,9 @@ Examples:
             try:
                 result = subprocess.run(
                     ["sbatch", "--parsable", str(script_path)],
-                    capture_output=True, text=True, check=True
+                    capture_output=True,
+                    text=True,
+                    check=True,
                 )
                 job_id = result.stdout.strip()
                 job_ids.append(job_id)
@@ -289,18 +353,19 @@ Examples:
         else:
             print("  (Dry run - not submitted)")
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     if not args.dry_run:
         print(f"✅ Submitted {len(job_ids)} jobs to cluster")
         if job_ids:
             print(f"Job IDs: {', '.join(job_ids)}")
-            print(f"Monitor with: squeue -u $USER")
+            print("Monitor with: squeue -u $USER")
             print(f"Cancel all with: scancel {' '.join(job_ids)}")
     else:
         print("✅ Dry run complete - scripts created but not submitted")
 
     print(f"Results will be in: {args.output_dir}")
-    print("="*70)
+    print("=" * 70)
+
 
 if __name__ == "__main__":
     main()

@@ -27,10 +27,10 @@ from datetime import datetime, timedelta
 from tqdm import tqdm
 
 _repo_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(_repo_root / "src"))
+sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "positioning"))
 
-from utils.config_parser import load_config, compute_exp_name
+from stec.config.config_parser import load_config, compute_exp_name
 
 
 def setup_logging():
@@ -505,7 +505,12 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             else:
                 inf_cmd = [
                     sys.executable,
-                    str(_repo_root / "positioning" / "scripts" / "generate_stec_corrections.py"),
+                    str(
+                        _repo_root
+                        / "positioning"
+                        / "scripts"
+                        / "generate_stec_corrections.py"
+                    ),
                     "--experiment",
                     exp_path,
                     "--date",
@@ -585,7 +590,12 @@ def process_day(current_date, stec_base_config, vtec_base_config, args):
             station_parallel = getattr(args, "station_parallel", 1)
             eval_cmd = [
                 sys.executable,
-                str(_repo_root / "positioning" / "positioning_eval" / "run_positioning_evaluation.py"),
+                str(
+                    _repo_root
+                    / "positioning"
+                    / "positioning_eval"
+                    / "run_positioning_evaluation.py"
+                ),
                 "--experiment",
                 exp_path,
                 "--date",

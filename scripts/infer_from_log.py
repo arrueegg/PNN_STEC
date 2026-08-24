@@ -42,20 +42,20 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-# Add src/ to path so we can import project modules without modifying them
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add the repo root to sys.path so we can import the stec/ package without modifying it
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.config_parser import load_config
-from utils.config_parser import compute_exp_name
-from utils.feature_registry import initialize_feature_registry, FeatureType
-from model.model import get_model
-from data_loader.collation import CollateWithSH
-from data_loader.datasets import compute_local_time_hours
-from utils.coordinate_transforms import (
+from stec.config.config_parser import load_config
+from stec.config.config_parser import compute_exp_name
+from stec.data.feature_registry import initialize_feature_registry, FeatureType
+from stec.models.legacy_factory import get_model
+from stec.data.collation import CollateWithSH
+from stec.data.day_reader import compute_local_time_hours
+from stec.data.coordinate_transforms import (
     calculate_ipp_coordinates,
     geographic_to_solar_magnetic,
 )
-from training.data_transforms import DataTransforms
+from stec.training.data_transforms import DataTransforms
 
 
 def setup_logging() -> logging.Logger:
@@ -377,7 +377,7 @@ def load_swi_for_day(config: dict, year: int, doy: int) -> dict:
     Returns empty dict if file not available.
     """
     import h5py
-    from utils.feature_registry import FeatureType
+    from stec.data.feature_registry import FeatureType
 
     swi_path = os.path.join(config["data"]["SWI_data_path"], "omni_hourly_2010-2025.h5")
     if not os.path.exists(swi_path):
@@ -697,10 +697,11 @@ def compute_gim_stec(
     """
     Look up IGS GIM VTEC at each observation's IPP and map to STEC.
 
-    Uses the existing GIMMapper from src/evaluation/gim_mapper.py.
+    Uses `stec.baselines.gim.GIMMapper` - a verified port of the source's
+    `src/evaluation/gim_mapper.py` (3 defects fixed; see that module's docstring).
     Returns an array of GIM-derived STEC values (NaN where lookup fails).
     """
-    from evaluation.gim_mapper import GIMMapper
+    from stec.baselines.gim import GIMMapper
 
     date = datetime(
         int(df["year"].iloc[0]),
@@ -717,7 +718,9 @@ def compute_gim_stec(
         mapping_type=mapping_type,
         gim_type=gim_type,
     )
-    mapper.load_gim_data(gim_path, date)
+    # Ported load_gim_data is (date, *, ionex_root=...), not (gim_path, date) - see
+    # stec.baselines.gim's docstring, defect 2.
+    mapper.load_gim_data(date, ionex_root=gim_path)
 
     gim_stec = mapper.map_vtec_to_stec(
         sods=df["sod"].values,
