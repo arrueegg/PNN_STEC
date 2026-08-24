@@ -296,7 +296,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--samples", type=int, default=100)
-    parser.add_argument("--store-root", type=Path, default=paths.PREDICTIONS)
+    # paths.PREDICTIONS is ARTIFACT_ROOT/predictions, which does not exist in this
+    # checkout - the store lives at paths.LEGACY_PREDICTIONS. Defaulting to the former made
+    # this job find zero days and exit success having done nothing, which is how the
+    # local-time erratum silently stayed unfixed after a "successful" run.
+    parser.add_argument("--store-root", type=Path, default=paths.LEGACY_PREDICTIONS)
     parser.add_argument(
         "--experiments-root", type=Path, default=paths.LEGACY_EXPERIMENTS
     )
