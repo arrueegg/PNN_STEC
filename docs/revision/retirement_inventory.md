@@ -105,14 +105,19 @@ around:
 | Disposition | Count | Meaning |
 |---|---:|---|
 | **PORTED** | 30 | Equivalent exists in `stec/`; safe to delete once the blockers in `merge_plan.md` are cleared |
-| **KEEP** | 71 | No replacement exists yet, or the file is a deliberate, permanent exception |
-| **DEAD** | 17 | No caller anywhere, proven by grep; several new to this recompute (§0 item 7 and the `swi_loader.py` correction in §2) |
+| **KEEP** | 70 | No replacement exists yet, or the file is a deliberate, permanent exception |
+| **DEAD** | 18 | No caller anywhere, proven by grep; several new to this recompute (§0 item 7 and the `swi_loader.py` correction in §2) |
 | **UNRESOLVED** | 0 | Every file was settled by direct evidence — none deferred |
 | **Total** | 118 | |
 
-Both PORTED (28→30) and DEAD (6→17) grew since `507bcf2`; KEEP fell from 84 to 71. The net
+Post-recompute update, 2026-08-24: `evaluate_dstec.py` moved KEEP → DEAD once
+`stec/analysis/dstec_evaluation.py` was added — see its row below. Both files (it and
+`add_pretrained_baseline.py`) have since been deleted; the counts above are updated in place
+rather than left to describe files that no longer exist.
+
+Both PORTED (28→30) and DEAD (6→17→18) grew since `507bcf2`; KEEP fell from 84 to 70. The net
 direction — more is portable or provably dead than the old document credited — is the
-correction this recompute makes, but 71 files is still the majority, and the reason is now
+correction this recompute makes, but 70 files is still the majority, and the reason is now
 precise rather than a single blanket "no driver layer" claim: every KEEP below states which
 specific gap keeps it alive.
 
@@ -347,8 +352,8 @@ code for all of them now exists.
 
 | Module | Disposition | Reason |
 |---|---|---|
-| `add_pretrained_baseline.py` | DEAD (superseded) | Zero current callers (`grep -rn "add_pretrained_baseline\|add_pretrained_evaluation"` → only its own file, whose docstring's usage example names a nonexistent path). Its purpose — regenerate the CLAUDE.md-canonical `with_pretrained_baseline/summary/` — is superseded by `stec/analysis/daily_metrics.py`, whose docstring says so explicitly: "The published `summary_statistics.csv` was aggregated from per-day metrics… this derives them directly [from the prediction store] — no GPU, and it picks up the repaired GIM automatically" | none |
-| `evaluate_dstec.py` | KEEP | Standalone dSTEC-metric diagnostic; `grep -in "dstec" stec/` finds no equivalent function (only unrelated substring matches inside `finetuned_stec`/`pretrained_stec`) | `README.md:135` |
+| `add_pretrained_baseline.py` | DEAD (superseded, deleted 2026-08-24) | Zero current callers (`grep -rn "add_pretrained_baseline\|add_pretrained_evaluation"` → only its own file, whose docstring's usage example names a nonexistent path). Its purpose — regenerate the CLAUDE.md-canonical `with_pretrained_baseline/summary/` — is superseded by `stec/analysis/daily_metrics.py`, whose docstring says so explicitly: "The published `summary_statistics.csv` was aggregated from per-day metrics… this derives them directly [from the prediction store] — no GPU, and it picks up the repaired GIM automatically" | none |
+| `evaluate_dstec.py` | DEAD (superseded, deleted 2026-08-24) | Was KEEP in the recompute above; superseded once `stec/analysis/dstec_evaluation.py` was added. That module gets the same per-arc dSTEC numbers (model and GIM, vs. absolute-STEC RMSE on the same masked observations) from the prediction store instead of live inference — sidestepping the `BaseTrainer`/`get_test_data_loader` dependency entirely rather than porting it — and fixes the float32 DOY-truncation bug present at three sites in this script's GIM branch (`create_satellite_pass_id`, `compute_dstec_for_pass`, `main`), all of which reconstructed `year`/`doy` from the model's denormalised inputs and truncated with `.astype(int)`. Verified with tests (`tests/analysis/test_dstec_evaluation.py`) and a real 18-day run (`multiday_results/analyses/dstec_evaluation/rebuilt/`, 51,547 arcs, model dSTEC RMSE 5.17 TECU pooled vs. GIM 6.68). This script's plotting (scatter/density/Q-Q/heteroscedasticity) and Pearson-R/R² extras were not ported: no caller anywhere needs them (`evidence_summary.md`/`response_to_reviewers.md` do not mention dSTEC), and if ever needed they belong in `stec/viz/revision_figures.py` reading the new module's CSVs, matching every other revision figure's analysis/viz split, not duplicated into the analysis module | none |
 | `generate_fixed_variance_corrections.py` | KEEP | R2.5 evidence generator; no `stec/` equivalent | `run_full_positioning_coverage.sh:65` |
 | `generate_reference_corrections.py` | KEEP | R2.8 oracle-benchmark evidence generator; no `stec/` equivalent (only referenced as a prerequisite command in `stec/analysis/oracle_benchmark.py`'s docstring) | `run_oracle_days.sh:33`, `run_full_positioning_coverage.sh:52` |
 | `generate_stec_corrections.py` | KEEP | Runs model inference to produce PPPx STEC-correction CSVs; no `stec/` equivalent | `positioning/geometry/recover_day.py:113` (subprocess), `run_pipeline.sh:67` |

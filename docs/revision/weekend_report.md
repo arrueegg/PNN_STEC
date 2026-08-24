@@ -222,3 +222,6 @@ rather than a convention.
 - **repair_pretrained_store** complete: `pretrained_stec/own` 0 → 544 day-files
 - **r22_fully_bayesian_eval** complete: `pretrained_stec_resnet_bnn_nll/own` 544 → 544 day-files
   repair check: RMSE 13.0574 TECU over 947,296 obs (published 13.45)
+
+## Epistemic-scale calibration retrain queue 2026-08-24 13:53:06
+

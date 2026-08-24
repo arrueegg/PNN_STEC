@@ -200,7 +200,9 @@ python cli.py compare --stec_experiment "Finetune_STEC_2024_183_..." \
                       --vtec_experiment "Finetune_VTEC_2024_183_..."
 python cli.py multiday --dates "2024-122:2024-366" \
     --stec_config config/config_BNN.yaml --vtec_config config/config_vtec_mlp_baseline.yaml
-python positioning/scripts/evaluate_dstec.py "Finetune_STEC_2024_183_..."   # dSTEC diagnostic, no stec/ port
+
+# dSTEC diagnostic - reads the prediction store, no live inference, no src/ dependency
+python -m stec.analysis.dstec_evaluation --doys 132 150 200
 
 # A full-day sweep costs ~15 min/day (both datasets, T=100) and ~550 MB/day of disk, so 242
 # days is >2 days of wall clock. Batch it and refresh results between batches rather than
@@ -319,14 +321,27 @@ to import or run `--help` cleanly with `src/` deleted in a scratch copy):
   map inference. `stec/training/run_training.py` exists but deliberately does not replace this
   (no best-checkpoint tracking, no early stopping, no wandb — see the retraining note under
   "What is and is not reproducible" in `docs/REPRODUCING.md`).
-- **`positioning/scripts/evaluate_dstec.py`** — needs `BaseTrainer` and `get_test_data_loader`
-  from `src/training/`, ~1,470 lines, no `stec/` equivalent.
 
-Both were left rather than ported blind: this session (and the one before it) could not run
+That was left rather than ported blind: this session (and the one before it) could not run
 training or inference to verify a port, and a training loop ported without being executed is
-how a silently different model ships. `add_pretrained_baseline.py` (regenerates the old
-`with_pretrained_baseline/summary/`) is dead — zero callers, superseded by
-`stec.analysis.daily_metrics` — and is proposed for deletion rather than kept alive.
+how a silently different model ships. It is now the **only** remaining reason `src/` cannot be
+deleted. Two other candidates were resolved and deleted, not ported:
+
+- `positioning/scripts/add_pretrained_baseline.py` (regenerated the old
+  `with_pretrained_baseline/summary/`) was dead — zero callers anywhere in the repo, and its
+  purpose is superseded by `stec.analysis.daily_metrics`, which reads the same numbers from the
+  prediction store.
+- `positioning/scripts/evaluate_dstec.py` needed `BaseTrainer` and `get_test_data_loader` from
+  `src/training/` (~1,470 lines) only to run the model over the test set and reconstruct
+  `year`/`doy` from the model's own denormalised inputs — the same float32 truncation bug fixed
+  elsewhere in this file, present at three sites in that script. `stec/analysis/dstec_evaluation.py`
+  gets the same per-arc dSTEC numbers from the prediction store instead: no inference, no
+  truncation bug, and it already produced real output over 18 days
+  (`multiday_results/analyses/dstec_evaluation/rebuilt/`) before the old script was removed.
+  The old script's plotting and Pearson-R/R² extras had no caller — neither `evidence_summary.md`
+  nor `response_to_reviewers.md` mentions dSTEC — and were not ported: if a dSTEC figure is ever
+  needed, it belongs in `stec/viz/revision_figures.py` reading the new module's CSVs, the same
+  way every other revision figure is built, not duplicated into the analysis module.
 
 ## Revision work (JGR-MLC resubmission)
 
