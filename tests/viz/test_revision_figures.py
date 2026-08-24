@@ -110,3 +110,99 @@ def test_save_requires_a_known_source_key(tmp_path):
     with pytest.raises(KeyError):
         rf._save(fig, "demo", "not_a_real_source", tmp_path, "prov")
     plt.close(fig)
+
+
+def _write_dstec_evaluation_csvs(results_dir, *, with_gim: bool = True) -> None:
+    """Synthetic `dstec_evaluation` output: five arcs, matching `pass_statistics.csv`'s
+    real columns plus a `summary.csv` whose pooled RMSEs are consistent with them, so a
+    test can check the win-rate figure and the RMSE figure against the same numbers.
+    """
+    dstec_dir = rf.analysis_dir(results_dir, "dstec_evaluation")
+    dstec_dir.mkdir(parents=True)
+
+    arcs = pd.DataFrame(
+        {
+            "model_dstec_rmse": [2.0, 3.0, 6.0, 1.0, 4.0],
+            "gim_dstec_rmse": [5.0, 2.0, 7.0, 3.0, 6.0],
+            "model_abs_rmse": [4.0, 5.0, 8.0, 2.0, 6.0],
+            "gim_abs_rmse": [6.0, 4.0, 9.0, 5.0, 7.0],
+            "n_masked": [20, 20, 20, 20, 20],
+        }
+    )
+    if not with_gim:
+        arcs["gim_dstec_rmse"] = float("nan")
+        arcs["gim_abs_rmse"] = float("nan")
+    arcs.to_csv(dstec_dir / "pass_statistics.csv", index=False)
+
+    summary = {
+        "n_days": 2,
+        "n_arcs": len(arcs),
+        "n_masked_obs": int(arcs["n_masked"].sum()),
+        "model_dstec_rmse_pooled": 3.5,
+        "model_abs_rmse_pooled": 5.5,
+    }
+    if with_gim:
+        summary["gim_dstec_rmse_pooled"] = 4.8
+        summary["gim_abs_rmse_pooled"] = 6.2
+    pd.Series(summary).to_csv(dstec_dir / "summary.csv", header=["value"])
+
+
+def test_dstec_evaluation_figures_build_end_to_end_from_synthetic_csvs(tmp_path):
+    results_dir = tmp_path / "results"
+    _write_dstec_evaluation_csvs(results_dir)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    rf._build_dstec_evaluation_figures(args, output_dir)
+
+    target = output_dir / rf.SOURCE_DIRS["finetuned"]
+    for stem in ("dstec_absolute_comparison", "dstec_win_rate"):
+        assert (target / f"{stem}.png").stat().st_size > 0
+        assert (target / f"{stem}_notitle.png").stat().st_size > 0
+        assert (target / f"{stem}.csv").exists()
+
+
+def test_dstec_win_rate_matches_a_direct_per_arc_computation(tmp_path):
+    """Pins the win-rate arithmetic against an independent recomputation over the same
+    5 synthetic arcs (matching test_dstec_evaluation.py's style: check the module's
+    output against a direct computation, not against a value it derived itself)."""
+    results_dir = tmp_path / "results"
+    _write_dstec_evaluation_csvs(results_dir)
+    arcs = pd.read_csv(
+        rf.analysis_dir(results_dir, "dstec_evaluation") / "pass_statistics.csv"
+    )
+
+    expected_dstec_win_pct = (
+        100 * (arcs["model_dstec_rmse"] < arcs["gim_dstec_rmse"]).mean()
+    )
+    expected_abs_win_pct = 100 * (arcs["model_abs_rmse"] < arcs["gim_abs_rmse"]).mean()
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    rf._build_dstec_evaluation_figures(args, output_dir)
+
+    written = pd.read_csv(
+        output_dir / rf.SOURCE_DIRS["finetuned"] / "dstec_win_rate.csv"
+    ).set_index("metric")["win_rate_pct"]
+    assert written["dSTEC"] == pytest.approx(expected_dstec_win_pct)
+    assert written["Absolute STEC"] == pytest.approx(expected_abs_win_pct)
+
+
+def test_dstec_evaluation_figures_skip_when_summary_has_no_gim_columns(
+    tmp_path, caplog
+):
+    """dstec_evaluation.summarise only adds gim_* keys when at least one arc had a
+    usable gim_stec (see its docstring) - without them there is nothing to compare
+    against, so the builder must log and return rather than raise on a missing key."""
+    results_dir = tmp_path / "results"
+    _write_dstec_evaluation_csvs(results_dir, with_gim=False)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    with caplog.at_level(logging.INFO):
+        rf._build_dstec_evaluation_figures(args, output_dir)
+
+    assert not list(output_dir.rglob("*.png"))

@@ -18,7 +18,8 @@ Reviewer mapping
   R1.5  weighting_ablation
   R1.7  storm_positioning_*, positioning_tail
   R1.8  oracle_benchmark
-  R1.3  madrigal_reference_offset, reference_precision
+  R1.3  madrigal_reference_offset, reference_precision, dstec_absolute_comparison,
+        dstec_win_rate
   R1.6  calibration_coverage, calibration_pit, ionex_rms_*
   R2.3  station_independence
   R2.6  uncertainty_vs_error
@@ -1095,6 +1096,137 @@ def _build_madrigal_offset_figures(args: argparse.Namespace, output_dir: Path) -
 
 
 # --------------------------------------------------------------------------
+# R1.3 - dSTEC: does the model get a pass's shape right independent of any per-arc
+# offset a different processing chain (Madrigal, a receiver/satellite DCB) would
+# calibrate differently? See stec.analysis.dstec_evaluation's module docstring for why
+# this is the direct rebuttal to the "Madrigal comparison confounds OOD and reference
+# chain" criticism: dSTEC cancels a per-arc constant by construction.
+#
+# The predecessor script (positioning/scripts/evaluate_dstec.py, deleted as superseded)
+# additionally produced per-arc scatter plots, error histograms, density hexbins, a
+# Q-Q plot and a heteroscedasticity view. None of that is reproduced here: the
+# reviewer's actual concern is narrow - is dSTEC an easier metric than absolute STEC,
+# so that a good dSTEC number overstates the model? Two figures answer that directly
+# and a bigger gallery would not: the pooled-RMSE margin and the per-arc win rate,
+# each computed for dSTEC and absolute STEC side by side on the identical masked
+# observations. If dSTEC's margin over IGS GIM were an artefact of the metric, it
+# would not survive being placed next to the absolute-STEC margin on the same axes.
+# --------------------------------------------------------------------------
+
+
+def fig_dstec_absolute_comparison(
+    summary: pd.Series, output_dir: Path, provenance: str
+) -> None:
+    """Pooled RMSE, dSTEC and absolute STEC, model against IGS GIM, side by side.
+
+    Both bars share the identical masked observations (dstec_evaluation.compute_arc_dstec
+    computes both from the same per-arc mask): if the model's dSTEC advantage were an
+    artefact of dSTEC being an easier metric, the absolute-STEC bars would not show the
+    same ordering.
+    """
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    plotted = _grouped_bars(
+        ax,
+        ["dSTEC", "Absolute STEC"],
+        ["Direct STEC", "IGS GIM + Mapping"],
+        {
+            "Direct STEC": [
+                summary["model_dstec_rmse_pooled"],
+                summary["model_abs_rmse_pooled"],
+            ],
+            "IGS GIM + Mapping": [
+                summary["gim_dstec_rmse_pooled"],
+                summary["gim_abs_rmse_pooled"],
+            ],
+        },
+        [APPROACH_COLORS["Direct STEC"], APPROACH_COLORS["IGS GIM + Mapping"]],
+        "RMSE [TECU]",
+    )
+    ax.legend()
+    ax.set_title("dSTEC removes the common-mode offset; absolute STEC keeps it")
+    _save(
+        fig, "dstec_absolute_comparison", "finetuned", output_dir, provenance, plotted
+    )
+
+
+def fig_dstec_win_rate(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
+    """Share of arcs where Direct STEC beats IGS GIM, dSTEC and absolute STEC.
+
+    A pooled RMSE can be dominated by a handful of extreme arcs; the per-arc win rate
+    is a second, independent read on the same question. The two win rates tracking
+    each other closely (73.4% dSTEC / 73.0% absolute STEC in the current 18-day run)
+    is itself evidence against "dSTEC is just an easier metric."
+    """
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    # Return value unused: unlike every other _grouped_bars call, the CSV worth writing
+    # here is `d` itself (it also carries n_arcs), not the tidied group/series/value
+    # frame _grouped_bars would hand back.
+    _grouped_bars(
+        ax,
+        d["metric"].tolist(),
+        ["Direct STEC"],
+        {"Direct STEC": d["win_rate_pct"].to_numpy()},
+        [APPROACH_COLORS["Direct STEC"]],
+        "Arcs where Direct STEC beats IGS GIM [%]",
+    )
+    ax.axhline(
+        50,
+        color=CONDITION_COLORS["baseline"],
+        linestyle="--",
+        linewidth=1.5,
+        zorder=4,
+        label="Chance (50%)",
+    )
+    ax.set_ylim(0, 100)
+    ax.legend(loc="lower right")
+    ax.set_title("Per-arc win rate against IGS GIM")
+    _save(fig, "dstec_win_rate", "finetuned", output_dir, provenance, d)
+
+
+def _build_dstec_evaluation_figures(args: argparse.Namespace, output_dir: Path) -> None:
+    dstec_dir = analysis_dir(args.results_dir, "dstec_evaluation")
+    summary_path = dstec_dir / "summary.csv"
+    arcs_path = dstec_dir / "pass_statistics.csv"
+    if not summary_path.exists() or not arcs_path.exists():
+        logger.warning(f"{summary_path} not found - run stec.analysis.dstec_evaluation")
+        return
+
+    summary = pd.read_csv(summary_path, index_col=0)["value"]
+    if "gim_dstec_rmse_pooled" not in summary.index:
+        # dstec_evaluation.summarise only adds the gim_* keys when at least one arc had
+        # a usable gim_stec value (see its docstring) - without them there is no
+        # comparison to draw, only a one-sided model number.
+        logger.info("dstec_evaluation summary has no GIM columns; skipping")
+        return
+
+    arcs = pd.read_csv(arcs_path)
+    n_days = int(summary["n_days"])
+    n_arcs = int(summary["n_arcs"])
+    n_obs = int(summary["n_masked_obs"])
+    prov = (
+        f"{dstec_dir}/{{summary,pass_statistics}}.csv - daily fine-tuned models, own "
+        f"test set, {n_days} days ({n_arcs:,} arcs, {n_obs:,} masked observations)"
+    )
+    fig_dstec_absolute_comparison(summary, output_dir, prov)
+
+    valid = arcs[arcs["gim_dstec_rmse"].notna() & arcs["gim_abs_rmse"].notna()]
+    if valid.empty:
+        logger.info("no arcs with a valid GIM value; skipping the win-rate figure")
+        return
+    win_rates = pd.DataFrame(
+        {
+            "metric": ["dSTEC", "Absolute STEC"],
+            "win_rate_pct": [
+                100 * (valid["model_dstec_rmse"] < valid["gim_dstec_rmse"]).mean(),
+                100 * (valid["model_abs_rmse"] < valid["gim_abs_rmse"]).mean(),
+            ],
+            "n_arcs": [len(valid), len(valid)],
+        }
+    )
+    fig_dstec_win_rate(win_rates, output_dir, prov)
+
+
+# --------------------------------------------------------------------------
 # R1.6 - calibration: coverage and PIT
 # --------------------------------------------------------------------------
 
@@ -1403,6 +1535,7 @@ FIGURE_BUILDERS: tuple[Callable[[argparse.Namespace, Path], None], ...] = (
     _build_uncertainty_vs_error_figure,
     _build_ionex_figures,
     _build_madrigal_offset_figures,
+    _build_dstec_evaluation_figures,
     _build_calibration_figures,
     _build_station_independence_figure,
     _build_positioning_tail_figure,
