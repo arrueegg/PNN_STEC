@@ -6,29 +6,29 @@
     "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
   ],
   "code": {
-    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.viz.revision_figures",
   "description": "one PNG per revision figure, plus the _notitle manuscript variants",
-  "duration_s": 9.9,
-  "fingerprint": "b231c6edb291709bc1078e61f9cbd924f384814ca3ea627657c423792df4f62a",
+  "duration_s": 9.6,
+  "fingerprint": "57a9f571d8ea4a3580a3020b98c77dda84bec5552ccc69d2777af0846fdb4e0b",
   "inputs": {
-    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/multiday_results": {
-      "files": 270,
+    "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results": {
+      "files": 13296,
       "kind": "tree",
-      "mtime_ns": 1787338166090193894,
-      "size": 4548357003
+      "mtime_ns": 1787563504147294473,
+      "size": 245274332297
     }
   },
   "outputs": {
     "plots/revision": {
       "present": true,
-      "size": 166
+      "size": 142
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T18:49:35.971591+00:00",
+  "recorded_at": "2026-08-24T09:25:15.282929+00:00",
   "stage": "figures",
   "supersedes": []
 }

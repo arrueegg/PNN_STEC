@@ -8,18 +8,18 @@
     "Writes under artifacts/models/, not experiments/ - isolated from every checkpoint any other stage or analysis reads."
   ],
   "code": {
-    "commit": "2e2597eeebc72a12d2652d848abff1b9159d4530",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.training.run_training --config tests/fixtures/pipeline_smoke/config.yaml --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --device cpu",
   "description": "proves stec.training.run_training wires fit/loss/schedulers into a real checkpoint end to end, on a tiny checked-in fixture day",
-  "duration_s": 2.4,
-  "fingerprint": "519288d5a4ffe12af8256fbfbe750e8a8d4dd86f0dadbfca822875a25f1dbe31",
+  "duration_s": 2.1,
+  "fingerprint": "3c24f7197417feb9dcdd1bab414df65e30b54e9b365c1bc9ffd3709ddc8b93c6",
   "inputs": {
     "tests/fixtures/pipeline_smoke": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1787326881907002412,
+      "mtime_ns": 1787562292158325419,
       "size": 30410
     }
   },
@@ -27,17 +27,17 @@
     "artifacts/models/pipeline_smoke_finetune/loss_history.csv": {
       "present": true,
       "rows": 1,
-      "sha256": "266d9f52cadfa078a3b761623a55c975c8442fd30ee28ca3f660e08dd62e13ce",
-      "size": 65
+      "sha256": "6df981cdc23a7e9212ed630a2e4f0e7ebc2161e973d69bf6f06f1455fd032b07",
+      "size": 64
     },
     "artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth": {
       "present": true,
-      "sha256": "5b3143817c1e1d649d2983327ea00e9dd10da6056ec92556893eeae6e149f77e",
+      "sha256": "8e344f66c7807cd418a36a853adcbf35d10ecfcbfc329c35b3e6131fb586268f",
       "size": 7317
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T15:43:27.168409+00:00",
+  "recorded_at": "2026-08-24T09:26:07.157939+00:00",
   "stage": "training_smoke",
   "supersedes": []
 }

@@ -2,29 +2,30 @@
   "answers": "all",
   "canonical_for": null,
   "caveats": [
-    "Only 8 of the 14 manuscript figures stec.viz.manuscript_figures defines are wired into FIGURE_BUILDERS and so run here: Figures 1, 2, 10, 11, 12-15. Figures 4-9 are ported but not called by this stage - they need real-data wiring (docs/revision/merge_plan.md Phase 3) that has not happened yet, and src/viz/*.py remains the only working path for them until it does.",
-    "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / positioning_coverage's outputs (Figures 10-15) - a partial multiday_results tree produces a partial figure set with a logged warning per missing input, not a crash."
+    "All 14 code-generated manuscript figures (everything but the hand-drawn Figure 3) are wired into FIGURE_BUILDERS and run here. Figures 4-9 were the last gap - they read pretrained_test_diagnostics's cache rather than the store directly, so this stage's own output is only as current as that one's.",
+    "Figure 11's error bars need elevation_metrics_finetuned's per_day_by_elevation.csv, which now has its own Stage (declared just above this one) and must run first - without it this stage logs a warning and skips Figure 11 rather than failing.",
+    "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / pretrained_test_diagnostics / positioning_coverage's outputs (Figures 4-15) - a partial multiday_results tree produces a partial figure set with a logged warning per missing input, not a crash."
   ],
   "code": {
-    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.viz.manuscript_figures",
   "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
-  "duration_s": 9.1,
-  "fingerprint": "b231c6edb291709bc1078e61f9cbd924f384814ca3ea627657c423792df4f62a",
+  "duration_s": 33.1,
+  "fingerprint": "57a9f571d8ea4a3580a3020b98c77dda84bec5552ccc69d2777af0846fdb4e0b",
   "inputs": {
-    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/multiday_results": {
-      "files": 270,
+    "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results": {
+      "files": 13296,
       "kind": "tree",
-      "mtime_ns": 1787338166090193894,
-      "size": 4548357003
+      "mtime_ns": 1787563504147294473,
+      "size": 245274332297
     }
   },
   "outputs": {
     "plots/manuscript": {
       "present": true,
-      "size": 110
+      "size": 156
     },
     "plots/manuscript/dataset_construction/temp_split.csv": {
       "present": true,
@@ -34,7 +35,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T18:53:22.922482+00:00",
+  "recorded_at": "2026-08-24T09:25:48.636277+00:00",
   "stage": "manuscript_figures",
   "supersedes": []
 }

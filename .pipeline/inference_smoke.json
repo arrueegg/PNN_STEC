@@ -8,30 +8,30 @@
     "Runs the zero-perturbation control (stec/models/determinism.py) before any real sampling and fails loudly if it is not exactly 0.0 - the Bayesian A/B invariant CLAUDE.md requires for every comparison built on this model."
   ],
   "code": {
-    "commit": "2e2597eeebc72a12d2652d848abff1b9159d4530",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.inference.run_inference --config tests/fixtures/pipeline_smoke/config.yaml --checkpoint artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth --model-variant finetuned_stec --dataset own --doys 2024:132 --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --output-dir artifacts/predictions/pipeline_smoke_inference --device cpu",
   "description": "proves stec.inference.run_inference wires monte_carlo into the prediction store end to end, on the same tiny checked-in fixture day",
-  "duration_s": 1.7,
-  "fingerprint": "90e7eac91edd350acb573da5e611d29c6a15a506c515a3a793c3936695b3278a",
+  "duration_s": 1.4,
+  "fingerprint": "df93f9e8049481db0be1534fd6d1c1614fd8943fc8b20199ffc9b12c52a0c3ec",
   "inputs": {
     "artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth": {
       "kind": "file",
-      "sha256": "5b3143817c1e1d649d2983327ea00e9dd10da6056ec92556893eeae6e149f77e",
+      "sha256": "8e344f66c7807cd418a36a853adcbf35d10ecfcbfc329c35b3e6131fb586268f",
       "size": 7317
     },
     "tests/fixtures/pipeline_smoke": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1787326881907002412,
+      "mtime_ns": 1787562292158325419,
       "size": 30410
     }
   },
   "outputs": {
     "artifacts/predictions/finetuned_stec/own/year=2024/doy=132.parquet": {
       "present": true,
-      "sha256": "2b6d5662bf91a39ef724f672e70fbbc7596d108830bcd4b9a65d30d0e94ccb1c",
+      "sha256": "0ccce5fa2246e49590bc105347f6eacff59155f6af60c8f732053378df1d51fe",
       "size": 20096
     },
     "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv": {
@@ -42,7 +42,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T15:43:28.887869+00:00",
+  "recorded_at": "2026-08-24T09:26:08.576666+00:00",
   "stage": "inference_smoke",
   "supersedes": []
 }

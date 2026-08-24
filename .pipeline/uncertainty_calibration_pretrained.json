@@ -6,29 +6,34 @@
     "Scores a different model from uncertainty_calibration's Direct STEC - the pretrained checkpoint before daily fine-tuning, not a second reading of the same predictions."
   ],
   "code": {
-    "commit": "ab34769d70618bbebf7f7cc377ea2f916638a0d5",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/analyses/uncertainty_calibration/rebuilt --model-variant pretrained_stec --dataset own",
   "description": "coverage, PIT and CRPS for the pretrained variant, same likelihoods and regimes",
-  "duration_s": 4.0,
-  "fingerprint": "bcec23441b93b3d34061daae04c815fb4802b2f6639b47f389fe7de5642e5b32",
+  "duration_s": 3.3,
+  "fingerprint": "d2be2e2cf0936d23e5ad50979a96b1464f9833a63fc8c011ed1ac2d8b0a9ab85",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
-      "kind": "missing"
+      "kind": "file",
+      "sha256": "e9625d79287f7c7c840468417a437c6ef482636b629c3cc652ef0b380678a27a",
+      "size": 33024928
     },
     "predictions/pretrained_stec/own": {
-      "kind": "missing"
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
     }
   },
   "outputs": {
     "multiday_results/analyses/uncertainty_calibration/rebuilt/pretrained_stec_own": {
       "present": true,
-      "size": 462
+      "size": 438
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T16:43:52.309666+00:00",
+  "recorded_at": "2026-08-24T09:23:49.612005+00:00",
   "stage": "uncertainty_calibration_pretrained",
   "supersedes": []
 }

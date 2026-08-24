@@ -6,29 +6,29 @@
     "Cannot run at all without a populated local wandb/ directory from the training host."
   ],
   "code": {
-    "commit": "b3b5f07d723be2f44494661badf0e28f7c716b48",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "stec/frozen/analysis/hyperparameter_search_summary.py --wandb_dir /scratch2/arrueegg/WP4/PNN_STEC/wandb --output_dir multiday_results/analyses/hyperparameter_search/pre_rebuild",
   "description": "architecture comparison and hyperparameter sweep from the W&B history",
   "duration_s": 5.7,
-  "fingerprint": "6102dc13dcd8d29f6cb3ce18eb56e685728d697b7cea644d9b14c9ecc1fa6556",
+  "fingerprint": "725fc2cce3f7d4acb8ae60ded3d5a26437e6f8345bf3b45eda4bfad5d77e676d",
   "inputs": {
     "wandb": {
-      "files": 13665,
+      "files": 13667,
       "kind": "tree",
-      "mtime_ns": 1787499123404366909,
-      "size": 659261658
+      "mtime_ns": 1787549283095219011,
+      "size": 665376192
     }
   },
   "outputs": {
     "multiday_results/analyses/hyperparameter_search/pre_rebuild": {
       "present": true,
-      "size": 276
+      "size": 300
     }
   },
   "params": {},
-  "recorded_at": "2026-08-23T15:32:07.192273+00:00",
+  "recorded_at": "2026-08-24T08:50:58.220941+00:00",
   "stage": "hyperparameter_search",
   "supersedes": []
 }

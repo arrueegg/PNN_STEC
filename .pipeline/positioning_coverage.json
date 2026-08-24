@@ -6,29 +6,29 @@
     "Quoting R1.5 needs the pre-sweep 8,003 / 2,311 / 510 of 10,824 (database-only, iono weighting) until the station-recovery sweep has run all 242 days with both overwrite sites fixed (metrics.py, patched but not applied, and run_positioning_evaluation.py:681, unpatched) - a run against the partially-swept tree corresponds to no coherent configuration."
   ],
   "code": {
-    "commit": "b3b5f07d723be2f44494661badf0e28f7c716b48",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_coverage --output-dir multiday_results/analyses/positioning_coverage/rebuilt",
   "description": "which station-days each method solved, and why the rest are missing",
-  "duration_s": 9.3,
-  "fingerprint": "bbe6123bc6d50e6e9e98e7df03a203a951602d5827217ba59e10666bb2dcbb2a",
+  "duration_s": 8.8,
+  "fingerprint": "e9aff1f7a28190e79e45673489717dd3f85cdfd9595a995e9c1e89eddfb70703",
   "inputs": {
     "experiments": {
-      "files": 494577,
+      "files": 495479,
       "kind": "tree",
-      "mtime_ns": 1787499105308350071,
-      "size": 447327857951
+      "mtime_ns": 1787563496659287826,
+      "size": 412728635458
     }
   },
   "outputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt": {
       "present": true,
-      "size": 304
+      "size": 328
     }
   },
   "params": {},
-  "recorded_at": "2026-08-23T15:32:00.742740+00:00",
+  "recorded_at": "2026-08-24T09:24:57.860004+00:00",
   "stage": "positioning_coverage",
   "supersedes": []
 }

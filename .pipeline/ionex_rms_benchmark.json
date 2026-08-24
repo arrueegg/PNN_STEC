@@ -3,16 +3,19 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.analysis.ionex_rms_benchmark --output_dir multiday_results/analyses/ionex_rms_benchmark/rebuilt",
   "description": "model uncertainty against the IGS and CODE GIM RMS maps",
-  "duration_s": 739.1,
-  "fingerprint": "c0c4eccc2cf65c4aa01bcd62d37fee7663985e5a7ea4e96057cfece14be1297e",
+  "duration_s": 558.3,
+  "fingerprint": "710726cdaed1c99e02ee9eda184957090759c6e312c9fcfdc3d5739a1f205990",
   "inputs": {
     "predictions/finetuned_stec/own": {
-      "kind": "missing"
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787093614574123406,
+      "size": 40389607818
     }
   },
   "outputs": {
@@ -22,7 +25,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T18:39:25.652469+00:00",
+  "recorded_at": "2026-08-24T09:20:26.710965+00:00",
   "stage": "ionex_rms_benchmark",
   "supersedes": []
 }

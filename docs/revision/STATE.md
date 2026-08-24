@@ -11,7 +11,7 @@ do not re-scan the tree to answer "where are we".
 | `weekend-recovery` | DOY sweep, 242 days | Mon afternoon |
 | `post-retrain-chain` | **done** — `pretrained_stec/own` rebuilt (0→544 files), `pretrained_stec_resnet_bnn_nll/own` evaluated, repair check RMSE 13.06 TECU vs published 13.45 | — |
 | `madrigal-local-time-reinference` | queued, waiting on `weekend-recovery` + GPU idle (confirmed twice, 240 s gap) | starts once the machine is free |
-| merge, `r22-eval` | **done** | — |
+| merge, `r22-eval` | **done** — corrected result recorded in `r22_fully_bayesian_analysis.md` | — |
 
 ### A contamination I caused, and its repair
 
@@ -31,21 +31,32 @@ published Pretrained STEC is **13.45**.
 - Affected until the repair lands: `uncertainty_calibration_pretrained`,
   `station_independence`, the Figure 4–9 diagnostics.
 
-### R2.2 is being redone, and the first result is void
+### R2.2 corrected and recorded — see `r22_fully_bayesian_analysis.md`
 
 `ResNet_BNN_NLL` never had the output initialisation `BayesianResNetSTEC` has always had
 (bias → 15.5 TECU, weights → N(0, 0.01)). The first comparison therefore measured the
-architecture *plus* that omission; the −1.93 TECU pervasive bias is the fingerprint. Both
-now verified identical at init from the same seed.
+architecture *plus* that omission; the −1.93 TECU pervasive bias was the fingerprint. Both
+verified identical at init from the same seed; `fb-retrain` (done ~07:26) retrained
+`ResNet_BNN_NLL` with the fix, and `r22-eval` (done) evaluated it on the same 10M-row test
+set used for the paper model, writing predictions to
+`predictions/pretrained_stec_resnet_bnn_nll/own/` for the first time.
 
-After the fix the architectures differ in exactly one way, checked in five places: the
-residual blocks' `fc1`/`fc2`. Input layers identical; the trainer's `"BNN"`/`"Bayesian"`
-string check gives both 100 MC samples; configs differ on `model_type` and `num_workers`
-only.
+**Fixing the init closed about half the RMSE gap** (19.7355 → 15.5389 against the paper
+model's 11.6716 — 52% of the gap closed, 48% remains: last-layer is still substantially more
+accurate). **The uncertainty–error correlation now marginally favours the fully-Bayesian
+model** (0.5752 vs 0.5682 — it was *worse*, 0.5447, before the fix), while mean predicted
+uncertainty is still inflated 2.74× against a 1.33× RMSE increase. Coverage, computed exactly
+from the store rather than read off a plot: total 1σ coverage improved from 94.1% to 90.3%
+against 68.3% nominal (still over-covering); the interesting part is underneath — epistemic
+coverage went from wildly over-confident-wide (81.3%) to close to nominal (66.8%, same side as
+the paper model's own 60.9%), so the init fix specifically repaired epistemic calibration and
+left the *aleatoric* head (86.1%) carrying the remaining over-coverage.
 
-Two other explanations were tested and **refuted**: the KL weight (`BKLLoss` uses
-`reduction="mean"`, so the fully-Bayesian share is *smaller* — 0.24% vs 1.02%) and
-undertraining (best checkpoint epoch 115; 131–136 were worse).
+The two explanations tested and **refuted** in the first pass were retested against the
+corrected checkpoint and still hold: the KL weight (`BKLLoss` uses `reduction="mean"`, so
+the fully-Bayesian share is *smaller* — now 0.34% vs 1.02%, computed from the corrected
+checkpoint's own weights) and undertraining (best checkpoint epoch 91; 20 further epochs to
+early stopping, none better).
 
 ### The question R2.2 should actually answer
 

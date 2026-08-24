@@ -3,19 +3,25 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
     "dirty": true
   },
   "command": "-m stec.analysis.stratified_comparison --output-dir multiday_results/analyses/stratified_comparison/rebuilt",
   "description": "all four methods by elevation, geomagnetic latitude, local time and season",
-  "duration_s": 1066.4,
-  "fingerprint": "dc95e2dd24416019a066c3a001eea42e1c4cbb002410e3dc37565fe67302b51d",
+  "duration_s": 678.3,
+  "fingerprint": "d04dcff7da68d6ee532542eb22723b357ac6069ac4cfe4fee89a509b824d603c",
   "inputs": {
     "predictions/finetuned_stec/own": {
-      "kind": "missing"
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787093614574123406,
+      "size": 40389607818
     },
     "predictions/pretrained_stec/own": {
-      "kind": "missing"
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
     }
   },
   "outputs": {
@@ -25,7 +31,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T18:27:05.144282+00:00",
+  "recorded_at": "2026-08-24T09:11:07.353523+00:00",
   "stage": "stratified_comparison",
   "supersedes": []
 }

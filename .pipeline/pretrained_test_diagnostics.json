@@ -1,0 +1,37 @@
+{
+  "answers": "Figures 4-9",
+  "canonical_for": null,
+  "caveats": [],
+  "code": {
+    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.pretrained_test_diagnostics --output-dir multiday_results/analyses/pretrained_test_diagnostics/rebuilt",
+  "description": "per-observation cache of the pretrained model's whole 2014-2024 test set",
+  "duration_s": 6.3,
+  "fingerprint": "4192e4163e01e576fce8aa35a3575e2dd88bf101984f595a548444a8c84e1ec5",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/pretrained_test_diagnostics/rebuilt": {
+      "present": true,
+      "size": 64
+    },
+    "multiday_results/analyses/pretrained_test_diagnostics/rebuilt/manifest.csv": {
+      "present": true,
+      "rows": 11,
+      "sha256": "c538a146520851b188f12f7717590385757999d916f5e6bf2be08abbf4e6e6e3",
+      "size": 194
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-24T09:25:04.158856+00:00",
+  "stage": "pretrained_test_diagnostics",
+  "supersedes": []
+}
