@@ -152,6 +152,7 @@ def per_station_error(
     model_variant: str,
     dataset: str,
     doys: Sequence[int] | None = None,
+    years: Sequence[int] | None = None,
 ) -> pd.DataFrame:
     """RMSE, MAE and mean predicted uncertainty per test station, from the store.
 
@@ -160,13 +161,24 @@ def per_station_error(
     days and was OOM-killed at a 16 GB cap, and only ever worked while the store was
     part-full. Every quantity below is a sum, so the streamed result is exact, not an
     estimate.
+
+    `years` scopes which year(s) `doys` is read against - required for a multi-year
+    partition such as `pretrained_stec/own` (2014-2024), where a bare `doys=[132]`
+    would otherwise silently pool observations from every year that happens to share
+    that doy into one station's RMSE (`prediction_store.iter_days` raises rather than
+    doing this unless `years` is given or the caller opts into it explicitly).
     """
     columns = ["station", "true_stec", "stec_pred", "pred_total_unc"]
     totals: dict[str, np.ndarray] = {}
     n_days = 0
     try:
         stream = ps.iter_days(
-            model_variant, dataset, doys=doys, columns=columns, root=store_root
+            model_variant,
+            dataset,
+            years=years,
+            doys=doys,
+            columns=columns,
+            root=store_root,
         )
         for _year, _doy, day in stream:
             n_days += 1
@@ -223,6 +235,15 @@ def main() -> None:
         default=None,
         help="Restrict to these day-of-year values; default is every day in the store.",
     )
+    parser.add_argument(
+        "--years",
+        type=int,
+        nargs="*",
+        default=None,
+        help="Restrict to these years; required alongside --doys for a multi-year "
+        "partition (e.g. pretrained_stec/own), since a bare doy otherwise matches "
+        "every year that shares it.",
+    )
     parser.add_argument("--split-dir", type=Path, default=DEFAULT_SPLIT_DIR)
     parser.add_argument("--network-csv", type=Path, default=DEFAULT_NETWORK)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -234,7 +255,11 @@ def main() -> None:
 
     distances = nearest_training_distance(args.split_dir, args.network_csv)
     errors = per_station_error(
-        args.store_root, args.model_variant, args.dataset, doys=args.doys
+        args.store_root,
+        args.model_variant,
+        args.dataset,
+        doys=args.doys,
+        years=args.years,
     )
     merged = distances.join(errors, how="inner").dropna(subset=["RMSE"])
     logger.info(f"{len(merged)} test stations with both coordinates and predictions")

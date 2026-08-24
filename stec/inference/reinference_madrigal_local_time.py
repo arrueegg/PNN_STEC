@@ -64,7 +64,7 @@ from ..config import paths
 from ..data.madrigal_reader import DEFAULT_ELEVATION_THRESHOLD_DEG, read_madrigal_day
 from ..models.architectures import load_checkpoint
 from . import prediction_store as ps
-from .monte_carlo import monte_carlo_uncertainty
+from .monte_carlo import DEFAULT_INFERENCE_BATCH_SIZE, monte_carlo_uncertainty
 from .run_inference import (
     build_layout_and_assembler,
     build_prediction_frame,
@@ -96,6 +96,42 @@ ALIGNMENT_COLUMNS = ["sod", "satazi", "satele", "lat_ipp", "lon_ipp"]
 ALIGNMENT_TOLERANCE = (
     1e-2  # degrees/seconds; covers the float32 round-trip through parquet
 )
+
+# satazi is stored 0-360 (the legacy store-build path normalised it) but read_madrigal_day
+# passes the raw Madrigal `azm` field through unchanged, which is signed (-180..180) - so
+# the same physical direction can read as e.g. 359.999 vs -0.001, a ~360 delta under plain
+# subtraction. Confirmed against real data (2024-122, the first day this guard ran
+# against): 1,014,088 of 2,036,513 rows showed a "plain" delta within 3e-5 of exactly
+# 360.0 and nothing in between - a pure wraparound artifact, not misalignment (station,
+# sod, lat_ipp and true_stec matched those rows exactly). lon_ipp is not known to exhibit
+# this on real data (both sides already agree to ~2e-5 everywhere checked), but it is the
+# same kind of earth-fixed angle and the antimeridian (+180/-180) is the same failure mode
+# waiting for the row that happens to sit on it, so it gets the same treatment rather than
+# waiting for its own false positive.
+ANGULAR_COLUMNS = frozenset({"satazi", "lon_ipp"})
+ANGULAR_PERIOD_DEG = 360.0
+
+# satele is not periodic (elevation is bounded, not wraparound) but earns its own, looser
+# tolerance for a distinct, verified-benign reason: right at the zenith singularity
+# (elevation ~90 deg, where azimuth is undefined and the smallest geometry perturbation
+# swings it wildly) elevation itself differs by up to 0.032 deg between the corrected read
+# and the legacy-built file, on exactly 2 of 2,036,513 rows in 2024-122 - both rows where
+# station/sod/lat_ipp/true_stec matched exactly, so this is floating-point sensitivity of
+# az/el geometry near zenith, not a different observation. 0.05 deg is still two-plus
+# orders of magnitude tighter than any real misalignment would produce (a different
+# satellite's IPP lands degrees away, not hundredths of a degree).
+ELEVATION_TOLERANCE_DEG = 0.05
+
+
+def _angular_diff(
+    new_values: np.ndarray, old_values: np.ndarray, period: float = ANGULAR_PERIOD_DEG
+) -> np.ndarray:
+    """Smallest difference between two angles that may be expressed in different
+    conventions (0..360 vs -180..180) or straddle the wrap point - e.g. 359.999 and 0.001
+    are 0.002 apart, not 359.998."""
+    raw_diff = np.abs(new_values - old_values) % period
+    return np.minimum(raw_diff, period - raw_diff)
+
 
 MANIFEST_COLUMNS = (
     "year",
@@ -140,10 +176,17 @@ def _verify_alignment(
     for column in ALIGNMENT_COLUMNS:
         new_values = raw[column].astype(np.float64)
         old_values = existing[column].to_numpy(dtype=np.float64)
-        max_diff = (
-            float(np.max(np.abs(new_values - old_values))) if len(new_values) else 0.0
+        if not len(new_values):
+            continue
+        if column in ANGULAR_COLUMNS:
+            diff = _angular_diff(new_values, old_values)
+        else:
+            diff = np.abs(new_values - old_values)
+        tolerance = (
+            ELEVATION_TOLERANCE_DEG if column == "satele" else ALIGNMENT_TOLERANCE
         )
-        if max_diff > ALIGNMENT_TOLERANCE:
+        max_diff = float(np.max(diff))
+        if max_diff > tolerance:
             raise RuntimeError(
                 f"{year}-{doy:03d}: {column} misaligned after re-read (max |delta| "
                 f"{max_diff:.4f}) - the corrected read landed on different rows than the "
@@ -169,6 +212,7 @@ def reinference_day(
     split: str | None = "test",
     madrigal_root: Path | None = None,
     space_weather: Path | None = None,
+    batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
 ) -> dict:
     """Re-run the STEC model for one Madrigal day under the corrected IPP convention, and
     merge the result into the day's existing store file without disturbing its VTEC/GIM
@@ -182,6 +226,13 @@ def reinference_day(
     reject every day. `madrigal_root`/`space_weather` default to the production paths
     (`stec.config.paths`); both are overridable so this function stays testable against a
     fixture rather than the real 740 GB Madrigal tree.
+
+    `batch_size` bounds how many rows go through the model in one CUDA allocation per
+    Monte Carlo pass - a full 2,036,513-row Madrigal day forwarded unbatched asks for a
+    single ~7.8 GiB activation tensor, which does not fit this project's 12 GB card once
+    anything else has claimed memory. See `monte_carlo.DEFAULT_INFERENCE_BATCH_SIZE` and
+    `determinism.monte_carlo`'s docstring for why chunking the row dimension does not
+    change any number this writes.
     """
     checkpoint, config_path = checkpoint_paths_for_doy(doy, experiments_root)
     if not (checkpoint.exists() and config_path.exists()):
@@ -236,7 +287,12 @@ def reinference_day(
     check_zero_perturbation(model, inputs, seed)
 
     decomposition = monte_carlo_uncertainty(
-        model, inputs, model.capabilities, requested_samples=samples, seed=seed
+        model,
+        inputs,
+        model.capabilities,
+        requested_samples=samples,
+        seed=seed,
+        batch_size=batch_size,
     )
     new_frame = build_prediction_frame(raw, decomposition)
 
@@ -322,6 +378,14 @@ def main(argv: list[str] | None = None) -> int:
         help="progress record; a day already listed here is skipped, so an interrupted "
         "sweep resumes instead of redoing finished days",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_INFERENCE_BATCH_SIZE,
+        help="rows per chunk during Monte Carlo sampling, so one stochastic pass does not "
+        "allocate an activation tensor sized for the whole ~2M-row day - this is what "
+        "fixes the torch.OutOfMemoryError this module used to raise unbatched",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -349,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
             split=args.split,
             madrigal_root=args.madrigal_root,
             space_weather=args.space_weather,
+            batch_size=args.batch_size,
         )
         _append_manifest_row(args.manifest, row)
 

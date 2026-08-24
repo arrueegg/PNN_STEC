@@ -1,4 +1,5 @@
-"""Tests for `stec.analysis.common_set_positioning` (Table A1, R1.5).
+"""Tests for `stec.analysis.common_set_positioning` (R1.5 reviewer-response numbers, not a
+printed manuscript table - see `stec/pipeline/stages.py`'s `common_set_positioning` stage).
 
 Fixtures are written as small CSVs under `tmp_path` rather than depending on the live
 checkout's positioning trees - `build()` reads paths, so this exercises the real read

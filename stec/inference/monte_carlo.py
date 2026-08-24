@@ -71,6 +71,14 @@ import torch
 from ..models import determinism
 from ..models.capabilities import Capabilities
 
+# A single unbatched forward pass over a ~2M-row Madrigal day asks for one activation
+# tensor sized rows x hidden_dim (1024) in float32 - ~7.8 GiB for 2,036,513 rows, which is
+# the exact allocation that raised torch.OutOfMemoryError against a 12 GB card shared with
+# a 30 GB desktop session (CLAUDE.md's memory gotchas). 50,000 rows keeps that same tensor
+# under ~200 MiB, roughly 40x below the failure point, leaving real headroom for cuBLAS
+# workspace, the model weights, and this module's own T-sample accumulation.
+DEFAULT_INFERENCE_BATCH_SIZE = 50_000
+
 
 class _PairedOutputAdapter(torch.nn.Module):
     """Wraps a `(mean, spread) -> Tensor` model so `determinism.monte_carlo` can stack it.
@@ -157,6 +165,7 @@ def monte_carlo_uncertainty(
     capabilities: Capabilities,
     requested_samples: int,
     seed: int,
+    batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
 ) -> UncertaintyDecomposition:
     """Predictive mean and (epistemic, aleatoric, total) sigma over stochastic passes.
 
@@ -167,7 +176,9 @@ def monte_carlo_uncertainty(
 
     Sampling goes through `determinism.monte_carlo`, so the same `seed` reproduces the same
     draws - see the module docstring for why that is a difference from, not a match to, the
-    stored predictions.
+    stored predictions. `batch_size` is forwarded unchanged: it only bounds how many rows go
+    through the network in one CUDA allocation per stochastic pass, and does not change any
+    number this function returns (see `determinism.monte_carlo`'s docstring for why).
     """
     if not capabilities.predicts_spread:
         raise ValueError(
@@ -177,7 +188,11 @@ def monte_carlo_uncertainty(
 
     samples = capabilities.monte_carlo_samples(requested_samples)
     stacked = determinism.monte_carlo(
-        _PairedOutputAdapter(model), inputs, samples=samples, seed=seed
+        _PairedOutputAdapter(model),
+        inputs,
+        samples=samples,
+        seed=seed,
+        batch_size=batch_size,
     )  # [T, ..., 2]
     mean_per_pass = stacked[..., 0]  # [T, ...]
     variance_per_pass = spread_to_variance(stacked[..., 1], capabilities)

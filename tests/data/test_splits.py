@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import torch
+from torch.utils.data import DataLoader, Dataset
 
-from stec.data.splits import EpochRandomSampler, get_fixed_subset_indices
+from stec.data.splits import (
+    EpochRandomSampler,
+    ResampledEpochBatches,
+    get_fixed_subset_indices,
+)
 
 
 class FakeDataset:
@@ -13,6 +18,19 @@ class FakeDataset:
 
     def __len__(self) -> int:
         return self.length
+
+
+class TensorRowDataset(Dataset):
+    """Row `i` is a distinct value, so which rows a batch drew is easy to see."""
+
+    def __init__(self, length: int) -> None:
+        self.length = length
+
+    def __len__(self) -> int:
+        return self.length
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return torch.tensor([float(idx)]), torch.tensor(float(idx))
 
 
 def test_selection_is_deterministic_for_a_seed(tmp_path):
@@ -138,3 +156,76 @@ def test_epoch_random_sampler_oversamples_with_replacement_for_pretrain():
     sampler.set_epoch(1)
     second_epoch = list(sampler)
     assert second_epoch != first_epoch
+
+
+# --- ResampledEpochBatches -------------------------------------------------------------
+
+
+def _pretrain_style_loader(
+    length: int, num_samples: int, seed: int
+) -> tuple[ResampledEpochBatches, EpochRandomSampler]:
+    dataset = TensorRowDataset(length)
+    sampler = EpochRandomSampler(
+        dataset, replacement=True, num_samples=num_samples, base_seed=seed
+    )
+    loader = DataLoader(dataset, batch_size=4, sampler=sampler)
+    return ResampledEpochBatches(loader, sampler, torch.device("cpu")), sampler
+
+
+def _rows_seen(batches: ResampledEpochBatches) -> list[float]:
+    return [row.item() for inputs, _ in batches for row in inputs.flatten()]
+
+
+def test_resampled_epoch_batches_draws_a_fresh_sample_each_pass():
+    """`fit`'s loop calls `for batch in train_batches` once per real epoch and never tells
+    `train_batches` which epoch is running - `ResampledEpochBatches` has to infer that from
+    its own call count. Iterating it twice must therefore behave like two different real
+    epochs, the same way calling `sampler.set_epoch(0)` then `sampler.set_epoch(1)` directly
+    would - not like the fixed-batch list `materialize_batches` builds for the few-day
+    fine-tune, which is deliberately the *same* every time.
+    """
+    batches, _ = _pretrain_style_loader(length=200, num_samples=20, seed=42)
+
+    first_pass = _rows_seen(batches)
+    second_pass = _rows_seen(batches)
+
+    assert len(first_pass) == 20
+    assert len(second_pass) == 20
+    assert first_pass != second_pass
+
+
+def test_resampled_epoch_batches_matches_calling_set_epoch_directly():
+    """Not just "different" - the Nth iteration must draw exactly what epoch N-1 would."""
+    batches, _ = _pretrain_style_loader(length=200, num_samples=20, seed=42)
+    from_wrapper = [_rows_seen(batches) for _ in range(3)]
+
+    reference_dataset = TensorRowDataset(200)
+    reference_sampler = EpochRandomSampler(
+        reference_dataset, replacement=True, num_samples=20, base_seed=42
+    )
+    reference_loader = DataLoader(
+        reference_dataset, batch_size=4, sampler=reference_sampler
+    )
+    from_direct_set_epoch = []
+    for epoch in range(3):
+        reference_sampler.set_epoch(epoch)
+        from_direct_set_epoch.append(
+            [row.item() for inputs, _ in reference_loader for row in inputs.flatten()]
+        )
+
+    assert from_wrapper == from_direct_set_epoch
+
+
+def test_resampled_epoch_batches_moves_tensors_to_the_given_device():
+    batches, _ = _pretrain_style_loader(length=50, num_samples=8, seed=1)
+    for inputs, targets in batches:
+        assert inputs.device.type == "cpu"
+        assert targets.device.type == "cpu"
+
+
+def test_resampled_epoch_batches_len_matches_the_loader():
+    """`_run_epoch` (`stec/training/fit.py`) divides by `len(batches)` to average the
+    running loss, so this has to be the batch count the sampler's `num_samples` implies
+    (`ceil(17 / 4) = 5`), not the underlying dataset's length (50)."""
+    batches, _ = _pretrain_style_loader(length=50, num_samples=17, seed=1)
+    assert len(batches) == 5

@@ -35,10 +35,40 @@ Examples:
 
 import sys
 import argparse
+import importlib
 from pathlib import Path
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+
+def _load_src_main(module_name, subcommand):
+    """Import `<module_name>.main` from src/, or exit with a clear diagnosis.
+
+    train/compare/inference/map/multiday are the last cli.py subcommands still backed by
+    src/ - each rests on hundreds to thousands of lines of orchestration (training loop
+    with early stopping and wandb, Figures 4-9's live-inference path, ensemble/MC-dropout
+    decomposition, spatial-grid inference) with no stec/ replacement of equal capability
+    yet, so there is nothing to fall back to. A bare `from <module> import main` at the
+    call site used to raise a raw ModuleNotFoundError traceback the moment src/ moves or
+    is deleted, with nothing at the failure site explaining why - the same "quietly does
+    something confusing" failure mode CLAUDE.md warns about, just at the exception level
+    instead of the numbers level. This gives the same clear, non-guessing diagnosis
+    run_evaluate/run_positioning already print for their two permanently-removed
+    subcommands, without changing anything about what happens once the import succeeds.
+    """
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        print(
+            f"cli.py {subcommand} needs src/{module_name}.py, which is not importable "
+            f"({exc}). This subcommand has no stec/ replacement with equivalent "
+            "capability yet - see CLAUDE.md's \"src/'s status\" section and "
+            "docs/revision/retirement_inventory.md for what src/ is still needed for.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return module.main
 
 
 def create_train_parser(subparsers):
@@ -453,14 +483,14 @@ Date formats:
 
 def run_train(args):
     """Execute training workflow."""
-    from main import main
+    main = _load_src_main("main", "train")
 
     main(config_path=args.config)
 
 
 def run_compare(args):
     """Execute comparison workflow."""
-    from compare_stec_vtec_gim import main
+    main = _load_src_main("compare_stec_vtec_gim", "compare")
 
     main(args)
 
@@ -501,7 +531,7 @@ def run_inference(args):
     if args.output_file:
         sys.argv.extend(["--output_file", args.output_file])
 
-    from inference_testset import main
+    main = _load_src_main("inference_testset", "inference")
 
     main()
 
@@ -546,7 +576,7 @@ def run_map(args):
     if args.output_dir:
         sys.argv.extend(["--output_dir", args.output_dir])
 
-    from inference_map import main
+    main = _load_src_main("inference_map", "map")
 
     main()
 
@@ -613,7 +643,7 @@ def run_multiday(args):
         if args.positioning:
             sys.argv.extend(["--positioning"])
 
-    from multiday_evaluation import main
+    main = _load_src_main("multiday_evaluation", "multiday")
 
     main()
 

@@ -317,3 +317,48 @@ but the file is not a safe source for anything that varies by config until it is
 against `experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/config.yaml`
 specifically. All hyperparameter comparisons in this report were made directly against that
 config.yaml and `src/model/model.py`, not against `table2_hyperparameters.csv`.
+
+---
+
+## 2026-08-24 — the abstract's 30% positioning claim is a non-common-set number
+
+**User-identified, confirmed with the numbers below. This is the highest-priority Phase 8 item.**
+
+`PNN_main.tex:73` (identical in the `~/Documents/WP4_Paper/` copy at line 72):
+
+> "integrating the STEC corrections into a GNSS positioning workflow yields an average
+> improvement of **30\%** in 3D RMS positioning error relative to IGS GIMs with mapping."
+
+`docs/revision/response_to_reviewers.md:171` says "the majority of the **~31%** improvement
+over IGS GIM".
+
+Both are computed with each method evaluated on **whatever station-days it happened to solve**:
+
+| source | Direct STEC | IGS GIM | implied gain |
+|---|---|---|---|
+| `positioning_summary` (Table 5) | 1.123 m / **8,280** station-days | 1.626 m / **10,809** station-days | **30.9%** |
+| `common_set_positioning` | 1.115 m / 7,781 | 1.400 m / 7,781 | **20.3%** |
+
+IGS GIM solved **3,028 station-days Direct STEC did not** (`lost_to_intersection` = 3028 for
+the `IGS GIM + Mapping / uncertainty` arm; 10,809 - 7,781 = 3,028). Those days are *harder*:
+restricting GIM to the common set drops its 3D RMS from 1.626 m to 1.400 m. Comparing Direct
+STEC's easier 8,280 against GIM's fuller 10,809 therefore inflates the gain by ~11 percentage
+points.
+
+**The defensible headline is ~20%, not 30%.** `common_set_positioning`'s own caveat already
+says "State the N of each table" — the analysis was built for exactly this and its conclusion
+has not reached the manuscript.
+
+Both numbers are legitimate to report as long as the population is stated. What is not
+defensible is an unqualified "30%" in the abstract.
+
+### Not the same issue as R2.1's temporal split
+
+Recorded together because they were conflated in discussion. R2.1's problem is a solar-cycle
+confound (interpolation = 2014-2023, extrapolation = 2024 only). The positioning problem is a
+station-day population mismatch. Different analyses, different fixes.
+
+**Correction to an earlier note in STATE.md**: it implied the R2.1 nRMSE reversal was
+undisclosed. It is not — `response_to_reviewers.md:244` already reports "26.9% against 31.0%.
+The design therefore does not flatter the interpolation years." The disclosed-versus-hidden
+framing was wrong; the solar-cycle confound underneath it is still real and still unaddressed.

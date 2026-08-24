@@ -206,3 +206,94 @@ def test_dstec_evaluation_figures_skip_when_summary_has_no_gim_columns(
         rf._build_dstec_evaluation_figures(args, output_dir)
 
     assert not list(output_dir.rglob("*.png"))
+
+
+def _write_dstec_evaluation_pretrained_csvs(results_dir, *, with_gim: bool) -> None:
+    """Synthetic output for the second `_DSTEC_SOURCES` entry - the pretrained model,
+    same 2024 days - written to its own `pretrained_stec_own` subdirectory, mirroring
+    `dstec_evaluation.default_output_dir` for that (model_variant, dataset) pair.
+    """
+    dstec_dir = rf.analysis_dir(results_dir, "dstec_evaluation") / "pretrained_stec_own"
+    dstec_dir.mkdir(parents=True)
+
+    arcs = pd.DataFrame(
+        {
+            "model_dstec_rmse": [8.0, 9.0, 15.0, 6.0, 11.0],
+            "gim_dstec_rmse": [5.0, 2.0, 7.0, 3.0, 6.0],
+            "model_abs_rmse": [10.0, 12.0, 18.0, 9.0, 14.0],
+            "gim_abs_rmse": [6.0, 4.0, 9.0, 5.0, 7.0],
+            "n_masked": [20, 20, 20, 20, 20],
+        }
+    )
+    if not with_gim:
+        arcs["gim_dstec_rmse"] = float("nan")
+        arcs["gim_abs_rmse"] = float("nan")
+    arcs.to_csv(dstec_dir / "pass_statistics.csv", index=False)
+
+    summary = {
+        "n_days": 2,
+        "n_arcs": len(arcs),
+        "n_masked_obs": int(arcs["n_masked"].sum()),
+        "model_dstec_rmse_pooled": 10.5,
+        "model_abs_rmse_pooled": 13.0,
+    }
+    if with_gim:
+        summary["gim_dstec_rmse_pooled"] = 4.8
+        summary["gim_abs_rmse_pooled"] = 6.2
+    pd.Series(summary).to_csv(dstec_dir / "summary.csv", header=["value"])
+
+
+def test_dstec_evaluation_pretrained_source_writes_suffixed_figures_alongside_finetuned(
+    tmp_path,
+):
+    """Each `_DSTEC_SOURCES` entry must get its own filenames in the same directory -
+    neither overwriting the other - matching the `stratified_*_pretrained_*` precedent
+    already established for this exact (pretrained model, same 2024 days) combination.
+    """
+    results_dir = tmp_path / "results"
+    _write_dstec_evaluation_csvs(results_dir)
+    _write_dstec_evaluation_pretrained_csvs(results_dir, with_gim=True)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    rf._build_dstec_evaluation_figures(args, output_dir)
+
+    target = output_dir / rf.SOURCE_DIRS["finetuned"]
+    for stem in ("dstec_absolute_comparison", "dstec_win_rate"):
+        for name in (stem, f"{stem}_pretrained"):
+            assert (target / f"{name}.png").stat().st_size > 0
+            assert (target / f"{name}_notitle.png").stat().st_size > 0
+            assert (target / f"{name}.csv").exists()
+
+    # The finetuned CSV must be untouched by the pretrained source running after it.
+    finetuned_bars = pd.read_csv(target / "dstec_absolute_comparison.csv")
+    assert set(finetuned_bars["series"]) == {"Direct STEC", "IGS GIM + Mapping"}
+    pretrained_bars = pd.read_csv(target / "dstec_absolute_comparison_pretrained.csv")
+    assert set(pretrained_bars["series"]) == {
+        "Pretrained Direct STEC",
+        "IGS GIM + Mapping",
+    }
+
+
+def test_dstec_evaluation_pretrained_source_without_gim_skips_only_that_source(
+    tmp_path, caplog
+):
+    """Matches the real store today: `predictions/pretrained_stec/own` has no
+    `gim_stec` column at all (verified 2026-08-24), so the pretrained source's summary
+    never gets `gim_dstec_rmse_pooled`. That must skip only the pretrained figures,
+    not the fine-tuned ones sharing the same builder call."""
+    results_dir = tmp_path / "results"
+    _write_dstec_evaluation_csvs(results_dir)
+    _write_dstec_evaluation_pretrained_csvs(results_dir, with_gim=False)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    with caplog.at_level(logging.INFO):
+        rf._build_dstec_evaluation_figures(args, output_dir)
+
+    target = output_dir / rf.SOURCE_DIRS["finetuned"]
+    assert (target / "dstec_absolute_comparison.png").stat().st_size > 0
+    assert not (target / "dstec_absolute_comparison_pretrained.png").exists()
+    assert not (target / "dstec_win_rate_pretrained.png").exists()

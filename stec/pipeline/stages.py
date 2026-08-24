@@ -58,8 +58,19 @@ def _analysis_dir(name: str, *, rebuilt: bool) -> Path:
 STORE_OWN = "predictions/finetuned_stec/own"
 STORE_PRETRAINED = "predictions/pretrained_stec/own"
 STORE_MADRIGAL = "predictions/finetuned_stec/madrigal"
+# `positioning_coverage`'s own rebuilt output, not `positioning_runs/full_coverage/` -
+# that tree is what the *pre-rebuild* `src/analysis/positioning_coverage.py` wrote
+# directly, and nothing has regenerated it since the results-layout restructure moved
+# this stage's default output to `analyses/<name>/rebuilt/` (2026-08-21). It kept
+# existing on disk, so every downstream stage's `canonical_positioning_summary()` kept
+# silently preferring it and reporting "up to date" against a file no producer owned -
+# undetected until the 2026-08-24 station-recovery sweep changed the experiment tree and
+# this file didn't move. Repointed here at the stage that actually produces it, so a
+# future change to `experiments/` is fingerprinted through to every consumer again. See
+# `stec/analysis/positioning_summary.py`'s module docstring for the full account.
 POSITIONING = str(
-    _rel(paths.positioning_result_dir("full_coverage")) / "multiday_summary.csv"
+    _rel(paths.analysis_result_dir("positioning_coverage", rebuilt=True))
+    / "multiday_summary.csv"
 )
 WEIGHTING_RUN = str(
     _rel(paths.positioning_result_dir("20260216_2052")) / "multiday_summary.csv"
@@ -73,6 +84,10 @@ SWI = "data/omni_hourly_2010-2025.h5"
 # builds a `multiday_results/...` string by hand.
 PAPER_TABLES_DIR = _analysis_dir("paper_tables", rebuilt=True)
 RELATIVE_ERROR_METRICS_DIR = _analysis_dir("relative_error_metrics", rebuilt=True)
+TEMPORAL_REGIME_SPLIT_DIR = _analysis_dir("temporal_regime_split", rebuilt=True)
+TEMPORAL_REGIME_ACTIVITY_MATCHED_DIR = _analysis_dir(
+    "temporal_regime_activity_matched", rebuilt=True
+)
 HYPERPARAMETER_SEARCH_DIR = _analysis_dir("hyperparameter_search", rebuilt=False)
 STATION_INDEPENDENCE_DIR = _analysis_dir("station_independence", rebuilt=True)
 COMPUTATIONAL_COST_DIR = _analysis_dir("computational_cost", rebuilt=True)
@@ -208,11 +223,14 @@ STAGES: list[Stage] = [
             "Runs against the same tiny fixture training_smoke does, and against the "
             "checkpoint training_smoke just produced from it - not the paper's real "
             "checkpoints or test set. See training_smoke's caveats for why.",
-            "Only the 'own' dataset is wired up. '--dataset madrigal' raises "
-            "NotImplementedError: Madrigal geometry has no stec/ model-input reader - "
-            "stec.baselines.madrigal loads Madrigal's reference STEC for comparison, "
-            "never model inputs. predictions/pretrained_stec/madrigal/ has no data for "
-            "exactly this reason (docs/revision/task_board.md S4).",
+            "This smoke run only exercises '--dataset own', because the checked-in "
+            "fixture (tests/fixtures/pipeline_smoke) has no Madrigal day to read. "
+            "'--dataset madrigal' itself no longer raises NotImplementedError: "
+            "stec.data.madrigal_reader.read_madrigal_day is a real model-input reader "
+            "since the Madrigal-identity work landed, and stec.inference.run_inference "
+            "supports both datasets. predictions/pretrained_stec/madrigal/ still has no "
+            "data, but only because that backfill has not been run yet, not because the "
+            "dataset is unsupported.",
             "Writes under artifacts/predictions/, the default "
             "prediction_store.DEFAULT_STORE_ROOT - a different tree from the legacy "
             "predictions/ every analysis stage above reads (STORE_OWN etc.), so this "
@@ -224,18 +242,22 @@ STAGES: list[Stage] = [
     ),
     Stage(
         "paper_tables",
-        f"-m stec.analysis.paper_tables --config {paths.PAPER_PRETRAINED_CONFIG} "
+        f"-m stec.analysis.paper_tables --config {_rel(paths.PAPER_PRETRAINED_CONFIG)} "
         f"--output-dir {PAPER_TABLES_DIR}",
         "Tables 1, 2",
         "input feature list and hyperparameters, generated from the model rather than "
         "maintained beside it",
+        inputs=[str(_rel(paths.PAPER_PRETRAINED_CONFIG))],
         outputs=[str(PAPER_TABLES_DIR)],
         canonical_for="Tables 1 and 2",
         caveats=[
-            "Generated from the paper's own stored run config, not from a template in "
-            "config/. The template disagreed with it on 7 of 8 fields - architecture, "
-            "prior sigma, learning rate, batch size, scheduler, SH degree and KL weight - "
-            "so the table it produced described a different model entirely.",
+            "Generated from a frozen, checked-in copy of the paper's own stored run "
+            "config (config/paper/pretrain_stec_config.yaml), not from a hand-maintained "
+            "template in config/ and not from the legacy experiments/ tree - this is what "
+            "makes the stage runnable on a clean clone with no data mounted. The template "
+            "disagreed with the real run on 7 of 8 fields - architecture, prior sigma, "
+            "learning rate, batch size, scheduler, SH degree and KL weight - so the table "
+            "it used to produce described a model that was never trained.",
             "Both training stages are reported. The paper pretrains and then fine-tunes "
             "daily at a different learning rate, batch size and epoch count; a table "
             "carrying one of them describes half the training.",
@@ -257,6 +279,100 @@ STAGES: list[Stage] = [
         # no row count, so a min_rows on a directory can never be satisfied and the stage
         # fails however well it ran.
         min_rows={str(RELATIVE_ERROR_METRICS_DIR / "yearly_metrics.csv"): 5},
+    ),
+    Stage(
+        "temporal_regime_split",
+        f"-m stec.analysis.temporal_regime_split --output-dir {TEMPORAL_REGIME_SPLIT_DIR}",
+        "R2.1",
+        "interpolation vs extrapolation regime comparison, recomputed from the "
+        "prediction store instead of src/'s temporal_analysis text files",
+        inputs=[STORE_PRETRAINED],
+        outputs=[str(TEMPORAL_REGIME_SPLIT_DIR / "temporal_regime_comparison.csv")],
+        # Always exactly 2 rows (interpolation, extrapolation) - not a floor.
+        min_rows={str(TEMPORAL_REGIME_SPLIT_DIR / "temporal_regime_comparison.csv"): 2},
+        canonical_for="R2.1 interpolation/extrapolation temporal split",
+        caveats=[
+            "Answers the R2.1 reviewer-response number (14.05 vs 7.65 TECU, 26.9% vs "
+            "31.0% normalised), not a printed manuscript table - the manuscript has 5 "
+            "tables and no lettered appendix.",
+            "relative_error_metrics (above) already writes a same-named "
+            "temporal_regime_comparison.csv into its own directory and already answers "
+            "R2.1's numbers, but by parsing total_metrics_summary.txt files that "
+            "src/inference_testset.py's live run wrote under experiments/ - a reader of "
+            "src/'s output, not an independent computation, and it cannot run once src/ "
+            "or that experiment directory is gone. This stage computes the same "
+            "comparison directly from predictions/pretrained_stec/own, with no src/ "
+            "dependency. relative_error_metrics's own Stage leaves canonical_for unset, "
+            "so the two do not collide, but a human should eventually decide whether "
+            "relative_error_metrics's regime half is worth keeping once src/ retires.",
+            "src/'s split_test_data_by_date builds year/doy from a truncating int() on "
+            "a denormalised float, the same class of bug repair_gim_baseline exists to "
+            "fix elsewhere - but it was never fixed at this site. This stage reads "
+            "year/doy from the store's own directory partition instead (authoritative, "
+            "never reconstructed from a float), which sidesteps the bug rather than "
+            "reproducing it. Verified to reproduce the src/-produced CSV's RMSE to "
+            "4 decimal places and row counts exactly (4,400,934 / 5,599,066) - this "
+            "particular boundary (2024-05-01) does not fall on one of the truncation-"
+            "affected days, so the bug happens not to move this specific number, but "
+            "that is a property of this boundary, not a guarantee of the original code.",
+            "This output must not be read as evidence about temporal extrapolation on "
+            "its own. The regime split collapses onto a calendar-year split (2024's test "
+            "set starts exactly at the 2024-05-01 boundary), so it is perfectly "
+            "confounded with solar-cycle phase: every extrapolation day is 2024, the "
+            "most active year in the record, and no interpolation day is. "
+            "temporal_regime_activity_matched (below) stratifies by F10.7 to check "
+            "whether the gap survives at matched activity - read the two together.",
+        ],
+    ),
+    Stage(
+        "temporal_regime_activity_matched",
+        f"-m stec.analysis.temporal_regime_activity_matched "
+        f"--output-dir {TEMPORAL_REGIME_ACTIVITY_MATCHED_DIR}",
+        "R2.1",
+        "corrects the R2.1 interpolation/extrapolation comparison for its solar-cycle "
+        "confound by stratifying on F10.7 before comparing regimes",
+        inputs=[STORE_PRETRAINED],
+        outputs=[
+            str(TEMPORAL_REGIME_ACTIVITY_MATCHED_DIR / "yearly_magnitude.csv"),
+            str(
+                TEMPORAL_REGIME_ACTIVITY_MATCHED_DIR / "activity_matched_comparison.csv"
+            ),
+        ],
+        # yearly_magnitude.csv: exactly one row per year present in the store (11,
+        # 2014-2024) - not a floor, but 10 is a safe minimum in case a future rebuild
+        # briefly holds fewer. activity_matched_comparison.csv: one row per (F10.7 band,
+        # regime) pair that is non-empty - at most 4 bands x 2 regimes = 8, currently 6
+        # because two bands hold only one regime each.
+        min_rows={
+            str(TEMPORAL_REGIME_ACTIVITY_MATCHED_DIR / "yearly_magnitude.csv"): 10,
+            str(
+                TEMPORAL_REGIME_ACTIVITY_MATCHED_DIR / "activity_matched_comparison.csv"
+            ): 4,
+        },
+        canonical_for="R2.1 interpolation/extrapolation temporal split, "
+        "activity-matched correction",
+        caveats=[
+            "Does not supersede temporal_regime_split - that stage reproduces the "
+            "published R2.1 headline number faithfully and is kept for provenance. This "
+            "stage is the corrected interpretation: two of the four fixed F10.7 bands "
+            "(below 100 sfu, at or above 200 sfu) are structurally unmatched - one "
+            "regime holds every day in that band and the other holds none - and those "
+            "two bands alone cover 55% of all observations. Only the middle two bands "
+            "contain both regimes, and the arms there are unbalanced (7 extrapolation "
+            "days against 70 interpolation days in the lower one).",
+            "Where a matched comparison is possible at all, extrapolation's normalised "
+            "error runs slightly lower than interpolation's, the same direction as the "
+            "unmatched headline - this does not mean the confound is resolved in the "
+            "model's favour, only that matching does not reverse the naive result "
+            "either. The 7-day extrapolation arm in the lower matched band is too thin "
+            "to draw a conclusion from on its own.",
+            "The defensible reading, and the one this stage's output supports: this "
+            "test set cannot cleanly isolate a temporal-extrapolation effect from the "
+            "solar-cycle confound, because the only out-of-training-window year is also "
+            "the only high-activity year in the test period. That is a limitation of the "
+            "test set, not a result about the model, and should be reported to "
+            "reviewers as such rather than as a positive finding either way.",
+        ],
     ),
     Stage(
         "hyperparameter_search",
@@ -506,6 +622,68 @@ STAGES: list[Stage] = [
         outputs=[str(WEIGHTING_ABLATION_DIR)],
     ),
     Stage(
+        # Must precede storm_stratification, positioning_robustness,
+        # common_set_positioning, positioning_summary and oracle_benchmark below - they
+        # all read POSITIONING, which this stage now owns (see the constant's own
+        # comment). Moved here, ahead of them, for exactly that reason; it used to sit
+        # after storm_stratification/positioning_robustness with no ordering
+        # consequence, back when POSITIONING pointed at a tree nothing in this file
+        # produced.
+        "positioning_coverage",
+        f"-m stec.analysis.positioning_coverage --output-dir {POSITIONING_COVERAGE_DIR}",
+        "R1.5",
+        "which station-days each method solved, and why the rest are missing",
+        inputs=["experiments"],
+        outputs=[
+            str(POSITIONING_COVERAGE_DIR),
+            POSITIONING,
+        ],
+        # A header-only or drastically truncated multiday_summary.csv is exactly the
+        # failure this catches - see the 2026-08-24 finding below: three individual
+        # per-day source files on disk are themselves truncated this way, though not
+        # enough to sink the whole aggregate below this floor. 30,000 sits comfortably
+        # under the 37,209 rows the post-recovery iono run produced and well above
+        # anything a truncated run could produce.
+        min_rows={POSITIONING: 30_000},
+        canonical_for="positioning station-day coverage",
+        caveats=[
+            "Canonical variant selection is explicit: it matches the canonical "
+            "directory name directly rather than de-duplicating multiple "
+            "Finetune_STEC_2024_<DOY>_* matches by sort order. Sort-order dedup let "
+            "lr1e-4_bs2048/lr1e-4_bs10000 win over the paper's lr2e-4_bs512 for 31 DOYs "
+            "once the station-recovery sweep created a second directory per day.",
+            "Post station-recovery-sweep (2026-08-24), iono weighting: 8,195 / 1,591 / "
+            "1,067 of 10,853 station-days solved by all methods / all ML methods "
+            "missing (station absent from STEC DB) / some ML methods missing "
+            "(per-method PPPx failure) - against the pre-sweep 8,003 / 2,311 / 510 of "
+            "10,824 this caveat used to quote. The solved-by-all population grew by "
+            "only 192 station-days (2.4%); most of the sweep's effect moved station-days "
+            "from 'all ML missing' into 'some ML missing' rather than completing them, "
+            "so the common-set population (common_set_positioning) is still "
+            "substantially smaller than the full-recovered-set population "
+            "(positioning_summary) - state which one backs a given number.",
+            "Three individual per-day source files were found truncated on disk, all "
+            "with recovery-sweep mtimes (2026-08-23/24), independent of this stage: "
+            "DOY 166 and 176 dropped from ~43 stations to 2 in all three ML methods' "
+            "own trees plus the GIM arm simultaneously (identical mtimes across the "
+            "independent STEC/VTEC/Pretrained experiment directories, so this is a "
+            "PPPx-level failure for those two days, not a positioning_coverage "
+            "aggregation bug); DOY 323 dropped from ~41 to 4 stations in the STEC tree "
+            "only (VTEC and Pretrained trees for that day are intact, 89 lines each). "
+            "These three days are included in the aggregate as genuinely-small samples, "
+            "not dropped or backfilled - no PPPx re-run was in scope to fix them. They "
+            "are 3 of 242 days and do not materially move the per-station-day-mean "
+            "tables, but a per-day breakdown that weights days unevenly should exclude "
+            "or flag them.",
+        ],
+        supersedes=[
+            str(paths.positioning_result_dir("full_coverage")),
+            str(
+                paths.positioning_result_dir("comparison_3way") / "multiday_summary.csv"
+            ),
+        ],
+    ),
+    Stage(
         "storm_stratification",
         f"-m stec.analysis.storm_stratification --output-dir {STORM_STRATIFICATION_DIR}",
         "R2.7",
@@ -530,37 +708,19 @@ STAGES: list[Stage] = [
         outputs=[str(POSITIONING_ROBUSTNESS_DIR)],
     ),
     Stage(
-        "positioning_coverage",
-        f"-m stec.analysis.positioning_coverage --output-dir {POSITIONING_COVERAGE_DIR}",
-        "R1.5",
-        "which station-days each method solved, and why the rest are missing",
-        inputs=["experiments"],
-        # POSITIONING (positioning_result_dir("full_coverage")) is the pre-rebuild tree
-        # this stage reads alongside, not something it writes - declaring it here would
-        # claim ownership of output this stage never produces.
-        outputs=[str(POSITIONING_COVERAGE_DIR)],
-        canonical_for="positioning station-day coverage",
-        caveats=[
-            "Canonical variant selection is explicit: it matches the canonical "
-            "directory name directly rather than de-duplicating multiple "
-            "Finetune_STEC_2024_<DOY>_* matches by sort order. Sort-order dedup let "
-            "lr1e-4_bs2048/lr1e-4_bs10000 win over the paper's lr2e-4_bs512 for 31 DOYs "
-            "once the station-recovery sweep created a second directory per day.",
-            "Quoting R1.5 needs the pre-sweep 8,003 / 2,311 / 510 of 10,824 "
-            "(database-only, iono weighting) until the station-recovery sweep has run "
-            "all 242 days with both overwrite sites fixed (metrics.py, patched but not "
-            "applied, and run_positioning_evaluation.py:681, unpatched) - a run against "
-            "the partially-swept tree corresponds to no coherent configuration.",
-        ],
-    ),
-    Stage(
         "common_set_positioning",
         f"-m stec.analysis.common_set_positioning --output-dir {COMMON_SET_POSITIONING_DIR}",
-        "R1.5, Table A1",
+        "R1.5",
         "positioning recomputed on the station-days every method solved",
         inputs=[POSITIONING, WEIGHTING_RUN],
         outputs=[str(COMMON_SET_POSITIONING_DIR)],
-        canonical_for="Table A1",
+        # Not "Table A1": the manuscript has 5 tables and no lettered appendix (Figures
+        # 14-15 are the only appendix content, continuously numbered, not a Table A1).
+        # This stage's numbers back the R1.5 stochastic-model-ablation answer in
+        # docs/revision/response_to_reviewers.md (elevation- vs uncertainty-weighting
+        # comparison on the common station-day set), not any printed manuscript table -
+        # so it claims no manuscript deliverable here.
+        canonical_for=None,
         caveats=[
             "A different station-day population from Table 5, by design: requiring both "
             "weightings costs the IGS GIM ~3,000 station-days. State the N of each table."

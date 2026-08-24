@@ -110,6 +110,77 @@ def test_iter_days_respects_column_selection(tmp_path):
     assert list(day.columns) == ["true_stec", "stec_pred"]
 
 
+def test_day_paths_raises_on_doy_only_filter_against_a_multi_year_partition(tmp_path):
+    """`pretrained_stec/own` holds 2014-2024; a bare doys=[...] with no years= matches
+    one file per year and silently pools or duplicates them (Figure 11's per-elevation
+    table read the earlier year twice and the later year never, from exactly this
+    shape). day_paths must refuse rather than let that happen quietly."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        ps.day_paths("pretrained_stec", "own", doys=[132], root=tmp_path)
+
+
+def test_day_paths_is_unaffected_on_a_single_year_partition(tmp_path):
+    """The same doys-only call must keep working where it always has: a partition that
+    only ever holds one year is not ambiguous."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 133, root=tmp_path)
+
+    found = ps.day_paths("finetuned_stec", "own", doys=[132], root=tmp_path)
+    assert len(found) == 1
+
+
+def test_day_paths_explicit_years_avoids_the_guard(tmp_path):
+    """A caller that already knows which year it wants is never ambiguous, even
+    against a multi-year partition."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    found = ps.day_paths(
+        "pretrained_stec", "own", years=[2024], doys=[132], root=tmp_path
+    )
+    assert len(found) == 1
+    assert found[0].parent.name == "year=2024"
+
+
+def test_day_paths_allow_multi_year_opts_in_explicitly(tmp_path):
+    """A caller that genuinely wants a doy across every year must have a clear way to
+    say so, per the module's own escape hatch for `read_predictions`'s full-scan guard."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    found = ps.day_paths(
+        "pretrained_stec", "own", doys=[132], root=tmp_path, allow_multi_year=True
+    )
+    assert len(found) == 2
+
+
+def test_iter_days_propagates_the_multi_year_guard(tmp_path):
+    """`iter_days` is the API analyses are told to use, so the guard must reach it too,
+    not just the lower-level `day_paths`."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        list(ps.iter_days("pretrained_stec", "own", doys=[132], root=tmp_path))
+
+
+def test_read_predictions_propagates_the_multi_year_guard(tmp_path):
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        ps.read_predictions("pretrained_stec", "own", doys=[132], root=tmp_path)
+
+    # allow_multi_year=True still gets both years back in one frame.
+    out = ps.read_predictions(
+        "pretrained_stec", "own", doys=[132], root=tmp_path, allow_multi_year=True
+    )
+    assert set(out["year"].unique()) == {2020, 2024}
+
+
 def test_available_days_supports_resume(tmp_path):
     for doy in (132, 200):
         ps.write_predictions(frame(), "finetuned_stec", "own", 2024, doy, root=tmp_path)

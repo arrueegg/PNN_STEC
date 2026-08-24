@@ -151,3 +151,38 @@ def test_collect_streams_multiple_days_into_one_per_day_bin_table(tmp_path):
 def test_collect_raises_file_not_found_for_an_absent_store(tmp_path):
     with pytest.raises(FileNotFoundError):
         emf.collect("finetuned_stec", "own", tmp_path)
+
+
+def test_collect_reads_both_years_when_a_doy_is_shared_across_years(tmp_path):
+    """The confirmed Figure-11 failure mode: `collect`'s inner loop used to call
+    `iter_days(doys=[doy])` with no `years=`, so on a multi-year partition (e.g.
+    `pretrained_stec/own`, 2014-2024) that re-matched every year sharing the doy and
+    `next()` always returned the same (chronologically first) one - reading 2020 twice
+    and never reaching 2024. Constant, distinct per-year errors make each year's RMSE
+    a distinguishable fingerprint of which file was actually read."""
+    elevation = 42.0  # single 5-degree bin: [40, 45)
+    n_2020, n_2024 = 150, 300
+    frame_2020 = pd.DataFrame(
+        {
+            "satele": np.full(n_2020, elevation),
+            "true_stec": np.full(n_2020, 10.0),
+            "stec_pred": np.full(n_2020, 12.0),  # error = +2.0 exactly
+        }
+    )
+    frame_2024 = pd.DataFrame(
+        {
+            "satele": np.full(n_2024, elevation),
+            "true_stec": np.full(n_2024, 10.0),
+            "stec_pred": np.full(n_2024, 15.0),  # error = +5.0 exactly
+        }
+    )
+    ps.write_predictions(frame_2020, "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame_2024, "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    table = emf.collect("pretrained_stec", "own", tmp_path, doys=[132])
+    direct = table[table["Method"] == "Direct STEC"]
+
+    # One row per year's file, not one file read twice while the other is skipped.
+    assert len(direct) == 2
+    assert set(direct["n"]) == {n_2020, n_2024}
+    assert set(direct["RMSE"].round(6)) == {2.0, 5.0}

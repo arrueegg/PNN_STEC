@@ -1,4 +1,9 @@
-"""Table 5 rebuilt on a single common station-day set (R1.5, Table A1).
+"""Table 5 rebuilt on a single common station-day set (R1.5).
+
+Backs the R1.5 reviewer-response numbers in `docs/revision/response_to_reviewers.md`, not a
+printed manuscript table - the manuscript has 5 tables and no lettered appendix, so there is
+no "Table A1" for this to be. `stec/pipeline/stages.py`'s `common_set_positioning` stage
+declares `canonical_for=None` for exactly this reason.
 
 Ported from ``src/analysis/common_set_positioning.py`` in the live PNN_STEC checkout.
 
@@ -22,8 +27,11 @@ than reusing Table 5's, and callers must state each table's N separately.
 Sources, all of which agree where they overlap (max |delta error_3d_rms| = 0.0 in the live
 checkout):
 
-* ``positioning_comparison_3way/`` - the paper's run, 242 dates, the only tree carrying
-  ``Pretrained_STEC_iono``.
+* ``canonical_positioning_summary()`` (imported from ``positioning_summary.py``) - the
+  ``positioning_coverage`` stage's rebuilt aggregate of every per-day result on disk,
+  including ``Pretrained_STEC_iono``, falling back to the frozen
+  ``positioning_comparison_3way/`` (the original paper's narrower run) only if that stage
+  has never been run.
 * ``positioning_20260216_2052/`` - the weighting ablation, 245 dates, six arms.
 * the pretrained *elevation* arm, read from its per-day summaries because it post-dates
   both trees.

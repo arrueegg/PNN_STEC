@@ -44,15 +44,19 @@ def test_paper_deliverables_have_exactly_one_owner():
     owners = {s.canonical_for: s.name for s in STAGES if s.canonical_for}
     assert owners["Tables 3 and 4"] == "daily_metrics"
     assert owners["Table 5"] == "positioning_summary"
-    assert owners["Table A1"] == "common_set_positioning"
+    # "Table A1" does not exist in either manuscript copy (5 tables, no lettered
+    # appendix - Figures 14/15 are the only appendix content, numbered continuously).
+    # Locking in its absence so a future edit cannot silently reintroduce the label.
+    assert "Table A1" not in owners
 
 
-def test_table_5_and_the_appendix_table_are_separate_owners():
-    """They rest on different station-day populations by design; one owner each."""
-    assert (
-        stage("positioning_summary").canonical_for
-        != stage("common_set_positioning").canonical_for
-    )
+def test_common_set_positioning_backs_no_manuscript_table():
+    """It recomputes Table 5's methods on a different, smaller station-day population -
+    the one solved under both weightings - to answer R1.5's reviewer-response comparison,
+    not a printed manuscript table. Unlike every stage above, it correctly claims no
+    `canonical_for`, so it can never collide with `positioning_summary`'s "Table 5"."""
+    assert stage("common_set_positioning").canonical_for is None
+    assert stage("positioning_summary").canonical_for == "Table 5"
 
 
 def test_gim_repair_precedes_the_metrics_that_read_it():

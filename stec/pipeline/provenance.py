@@ -20,7 +20,9 @@ being read out of context:
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import subprocess
 from datetime import datetime, timezone
@@ -60,8 +62,32 @@ def output_record(path: Path) -> dict:
         record["sha256"] = hashlib.sha256(data).hexdigest()
         if path.suffix == ".csv":
             # -1 for the header; a CSV that came out empty is the failure this catches.
-            record["rows"] = max(0, data.count(b"\n") - 1)
+            record["rows"] = max(0, _csv_line_count(data) - 1)
     return record
+
+
+def _csv_line_count(data: bytes) -> int:
+    """Count CSV rows (header included), so a quoted embedded newline counts once.
+
+    A raw ``b"\\n"`` count treats every embedded newline in a quoted cell as a row
+    boundary - `activity_stratification.py`'s plot-axis labels
+    (``"low\\n(< 100 sfu)"``) turned 6 real rows into 12 counted this way. That is the
+    dangerous direction for `min_rows`: it can only ever inflate the count, so a stage
+    that wrote too few rows could still clear its threshold.
+
+    A field can only carry a raw newline if it is quoted (RFC 4180; that is what pandas'
+    default writer does), so a file with no `"` byte at all has no embedded newlines to
+    miscount, and the cheap byte count is already exact - checked against a 13 MB / ~52k
+    row output in this repo, that pre-scan costs microseconds. Only a file that actually
+    quotes something pays for a real `csv` parse, which is still cheap in absolute terms:
+    ~1s for a worst-case 100 MB file where every row is quoted, against outputs here that
+    top out around 13 MB. Reusing `data`, already read once for the sha256 above, avoids a
+    second pass over disk.
+    """
+    if b'"' not in data:
+        return data.count(b"\n")
+    text = io.StringIO(data.decode("utf-8", errors="replace"))
+    return sum(1 for _ in csv.reader(text))
 
 
 def path_for(stage: str) -> Path:

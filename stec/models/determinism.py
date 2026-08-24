@@ -102,6 +102,32 @@ def unfreeze_bayesian_layers(model: torch.nn.Module) -> int:
     return thawed
 
 
+def resample_bayesian_layers(model: torch.nn.Module) -> int:
+    """Draw one fresh weight (and bias) sample per Bayesian layer from the *global* RNG,
+    then freeze the layer to that draw so several forward calls can reuse it instead of
+    each one sampling its own, independent noise.
+
+    This draws exactly what an ordinary *unfrozen* `model(x)` already draws internally -
+    `torchbnn`'s `BayesLinear.forward` calls `torch.randn_like(self.weight_log_sigma)`
+    itself whenever `weight_eps is None`, and that shape is `(out_features, in_features)`,
+    independent of how many rows are in the batch. Doing that draw here, once, before a
+    group of forward calls that all reuse it, consumes the global RNG in the same order and
+    by the same amount a single unbatched call would - which is what lets `monte_carlo`'s
+    row-chunked path reproduce the unbatched one exactly (see its docstring) instead of
+    diverging into a second, independent sampling scheme.
+    """
+    resampled = 0
+    for _name, module in model.named_modules():
+        if not is_bayesian_layer(module):
+            continue
+        module.weight_eps = torch.randn_like(module.weight_log_sigma)
+        bias_reference = getattr(module, "bias_log_sigma", None)
+        if bias_reference is not None:
+            module.bias_eps = torch.randn_like(bias_reference)
+        resampled += 1
+    return resampled
+
+
 @contextlib.contextmanager
 def frozen(model: torch.nn.Module, seed: int = 0) -> Iterator[int]:
     """Temporarily pin the sampling, then restore it."""
@@ -181,6 +207,7 @@ def monte_carlo(
     inputs: torch.Tensor,
     samples: int,
     seed: int,
+    batch_size: int | None = None,
 ) -> torch.Tensor:
     """`samples` stochastic forward passes, reproducible for a given seed.
 
@@ -189,12 +216,39 @@ def monte_carlo(
     were produced without it, so they are one unrepeatable realisation of the posterior;
     reproducing them requires re-running both sides, not comparing against the file.
 
+    `batch_size` splits each pass across the row dimension into chunks of that many rows,
+    instead of one CUDA allocation sized for the whole input - a 2,036,513-row Madrigal day
+    through this model's 1024-wide hidden layer asks for a single ~7.8 GiB activation
+    tensor unbatched, which does not fit a 12 GB card once anything else has claimed
+    memory. Chunking does not change a single number this returns: `resample_bayesian_layers`
+    draws each pass's weights once, from the same position in the global RNG stream a plain
+    unfrozen `model(inputs)` call would have consumed, then freezes them so every chunk of
+    that pass reuses the identical draw. `F.linear` and this architecture's per-row
+    `LayerNorm` are both row-independent (no batch norm, and `nn.Dropout` is a no-op in
+    `model.eval()` mode, which every caller here uses), so slicing the batch dimension
+    changes nothing about the arithmetic any individual row goes through - only how many
+    rows go through the network in one allocation. `batch_size=None` (the default) is one
+    chunk covering every row: mechanically the same code path a smaller `batch_size` takes,
+    not a separate branch that happens to agree with it, which is what lets a caller that
+    never sets it keep exactly today's behaviour.
+
     Returns a `(samples, ...)` tensor rather than the mean, because the caller usually
     needs the spread too, and computing it from the stack costs nothing.
     """
     unfreeze_bayesian_layers(model)
     torch.manual_seed(seed)
-    return torch.stack([model(inputs) for _ in range(samples)])
+    rows = inputs.shape[0]
+    chunk_size = batch_size or rows
+    passes = []
+    for _ in range(samples):
+        resample_bayesian_layers(model)
+        chunk_outputs = [
+            model(inputs[start : start + chunk_size])
+            for start in range(0, rows, chunk_size)
+        ]
+        passes.append(torch.cat(chunk_outputs, dim=0))
+        unfreeze_bayesian_layers(model)
+    return torch.stack(passes)
 
 
 @torch.no_grad()

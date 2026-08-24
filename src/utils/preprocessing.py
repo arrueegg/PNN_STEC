@@ -10,13 +10,15 @@ from typing import Dict, List, Tuple, Optional, Set
 
 import warnings
 
+from stec.config import paths as stec_paths
+
 warnings.filterwarnings("ignore")
 
 # Structured dtype for our "one‐table" HDF5 per split:
 DTYPE = np.dtype(
     [
         ("station", "S8"),  # up to 8‐char ASCII
-        ("sat", "S4"),      # up to 4‐char ASCII
+        ("sat", "S4"),  # up to 4‐char ASCII
         ("year", "i4"),
         ("doy", "i4"),
         ("stec", "f4"),
@@ -147,7 +149,7 @@ class DataPreprocessor:
     def train_stations(self) -> Set[bytes]:
         """Lazy loading of training station set."""
         if self._train_stations is None:
-            stations = np.loadtxt("./src/data_processing/train_station.list", dtype=str)
+            stations = np.loadtxt(stec_paths.station_list("train"), dtype=str)
             self._train_stations = set(s.encode("ascii") for s in stations)
         return self._train_stations
 
@@ -155,7 +157,7 @@ class DataPreprocessor:
     def val_stations(self) -> Set[bytes]:
         """Lazy loading of validation station set."""
         if self._val_stations is None:
-            stations = np.loadtxt("./src/data_processing/val_station.list", dtype=str)
+            stations = np.loadtxt(stec_paths.station_list("val"), dtype=str)
             self._val_stations = set(s.encode("ascii") for s in stations)
         return self._val_stations
 
@@ -163,7 +165,7 @@ class DataPreprocessor:
     def test_stations(self) -> Set[bytes]:
         """Lazy loading of test station set."""
         if self._test_stations is None:
-            stations = np.loadtxt("./src/data_processing/test_station.list", dtype=str)
+            stations = np.loadtxt(stec_paths.station_list("test"), dtype=str)
             self._test_stations = set(s.encode("ascii") for s in stations)
         return self._test_stations
 
@@ -191,15 +193,9 @@ class DataPreprocessor:
     def _load_date_lists(self):
         """Load and process date lists from files."""
         # Load month strings
-        train_months = sorted(
-            set(np.loadtxt("./src/data_processing/train_dates.list", dtype=str))
-        )
-        val_months = sorted(
-            set(np.loadtxt("./src/data_processing/val_dates.list", dtype=str))
-        )
-        test_months = sorted(
-            set(np.loadtxt("./src/data_processing/test_dates.list", dtype=str))
-        )
+        train_months = sorted(set(np.loadtxt(stec_paths.date_list("train"), dtype=str)))
+        val_months = sorted(set(np.loadtxt(stec_paths.date_list("val"), dtype=str)))
+        test_months = sorted(set(np.loadtxt(stec_paths.date_list("test"), dtype=str)))
 
         # Generate dates and apply sampling
         self._train_dates = self._generate_dates(train_months)[:: self.every_x_doy]
@@ -382,8 +378,7 @@ class DataPreprocessor:
 
                     # Filter invalid data
                     day_data = day_data[
-                        (day_data["satele"] != 90.0)
-                        & (day_data["satazi"] != 0.0)
+                        (day_data["satele"] != 90.0) & (day_data["satazi"] != 0.0)
                     ]
 
                     if len(day_data) == 0:

@@ -10,6 +10,7 @@ import sys
 
 sys.path.append("..")
 from utils.preprocessing import DataPreprocessor
+from stec.config import paths as stec_paths
 
 # ——— Helper Functions ———
 
@@ -43,13 +44,9 @@ def get_file_list(config):
     doy = config["doy"]  # string of the day-of-year
 
     # load your month-lists
-    train_mon = sorted(
-        set(np.loadtxt("./src/data_processing/train_dates.list", dtype=str))
-    )
-    val_mon = sorted(set(np.loadtxt("./src/data_processing/val_dates.list", dtype=str)))
-    test_mon = sorted(
-        set(np.loadtxt("./src/data_processing/test_dates.list", dtype=str))
-    )
+    train_mon = sorted(set(np.loadtxt(stec_paths.date_list("train"), dtype=str)))
+    val_mon = sorted(set(np.loadtxt(stec_paths.date_list("val"), dtype=str)))
+    test_mon = sorted(set(np.loadtxt(stec_paths.date_list("test"), dtype=str)))
 
     # generate all dates, with optional subsampling for debugging
     train_dates = DataPreprocessor._generate_dates(train_mon)
@@ -84,13 +81,9 @@ def get_file_list(config):
 
 def add_split_indices(config):
     # Load station-split lists
-    train_stations = set(
-        np.loadtxt("./src/data_processing/train_station.list", dtype=str)
-    )
-    val_stations = set(np.loadtxt("./src/data_processing/val_station.list", dtype=str))
-    test_stations = set(
-        np.loadtxt("./src/data_processing/test_station.list", dtype=str)
-    )
+    train_stations = set(np.loadtxt(stec_paths.station_list("train"), dtype=str))
+    val_stations = set(np.loadtxt(stec_paths.station_list("val"), dtype=str))
+    test_stations = set(np.loadtxt(stec_paths.station_list("test"), dtype=str))
 
     files = get_file_list(config)
     print(f"Found {len(files)} files to process.")

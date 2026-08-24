@@ -100,21 +100,25 @@ METHOD_ORDER = [
 GIM_LABEL = "IGS GIM + Mapping"
 
 # The two positioning trees this module resolves between, mirroring
-# `src/analysis/paths.py::canonical_positioning_summary` in the live checkout: prefer the
-# fuller, coverage-repaired input, fall back to the published one. Duplicated rather than
-# imported because `stec/analysis/positioning_summary.py` (written independently during
+# `stec.analysis.positioning_summary.canonical_positioning_summary`. Duplicated rather
+# than imported - `stec/analysis/positioning_summary.py` (written independently during
 # this same rebuild) already carries an identical local copy of this same resolution and
-# notes there is no shared `stec/analysis/paths.py` yet to centralise it in - see the
-# final report.
-# Nested under `positioning_runs/<tag>/` since the results-layout restructure
-# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
-# legacy directory name carried.
+# notes there is no shared `stec/analysis/paths.py` yet to centralise it in.
+#
+# 2026-08-24: repointed from `positioning_runs/full_coverage/multiday_summary.csv` to
+# `positioning_coverage`'s own rebuilt output. That tree was what the pre-rebuild
+# `src/analysis/positioning_coverage.py` wrote directly; once the results-layout
+# restructure moved this analysis's default output to `analyses/<name>/rebuilt/` without
+# updating what `canonical_positioning_summary` reads, nothing regenerated
+# `full_coverage/` any more, so it silently stopped tracking new positioning runs
+# (including the 2026-08-24 station-recovery sweep) while looking as current as ever. See
+# `stec/analysis/positioning_summary.py`'s module docstring for the full account.
 FULL_COVERAGE_SUMMARY = (
-    paths.LEGACY_MULTIDAY
-    / "positioning_runs"
-    / "full_coverage"
+    paths.analysis_result_dir("positioning_coverage", rebuilt=True)
     / "multiday_summary.csv"
 )
+# Frozen - nothing regenerates this any more; kept as the record of what the submitted
+# paper reported.
 PUBLISHED_SUMMARY = (
     paths.LEGACY_MULTIDAY
     / "positioning_runs"

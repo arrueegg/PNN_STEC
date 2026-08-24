@@ -284,6 +284,23 @@ def test_freeze_body_is_refused(tmp_path):
         )
 
 
+def test_save_model_every_epoch_is_refused(tmp_path):
+    database_root, space_weather = build_fixture(tmp_path)
+    output_dir = tmp_path / "run"
+    config = tiny_config(output_dir, finetune={"save_model_every_epoch": True})
+
+    with pytest.raises(NotImplementedError, match="save_model_every_epoch"):
+        train(
+            config,
+            output_dir=output_dir,
+            train_days=[(YEAR, DOY)],
+            val_days=[(YEAR, DOY)],
+            database_root=database_root,
+            space_weather=space_weather,
+            device=torch.device("cpu"),
+        )
+
+
 def test_invalid_mode_raises(tmp_path):
     database_root, space_weather = build_fixture(tmp_path)
     output_dir = tmp_path / "run"

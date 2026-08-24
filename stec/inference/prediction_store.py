@@ -226,8 +226,21 @@ def day_paths(
     years: Sequence[int] | None = None,
     doys: Sequence[int] | None = None,
     root: Path | str = DEFAULT_STORE_ROOT,
+    allow_multi_year: bool = False,
 ) -> list[Path]:
-    """Parquet files for the requested days, in chronological order."""
+    """Parquet files for the requested days, in chronological order.
+
+    Filtering by `doys` alone is only unambiguous against a single-year partition.
+    `pretrained_stec/own` and `pretrained_stec_resnet_bnn_nll/own` hold 2014-2024, so a
+    bare `doys=[132]` matches one file per year there - silently pooling or duplicating
+    days from years the caller never asked for (a doy present in two years read one of
+    them twice and the other not at all, in a real caller this guard was added to catch).
+    Raises when `years` is left unset and the match actually spans more than one `year=`
+    directory; pass `years=[...]` to say which one(s) are meant, or
+    `allow_multi_year=True` for a caller that deliberately wants a doy across every year
+    the store holds - the same explicit-opt-in shape `read_predictions` already uses for
+    `allow_full_scan`.
+    """
     base = Path(root) / model_variant / dataset
     if not base.exists():
         raise FileNotFoundError(f"No prediction store at {base}")
@@ -239,6 +252,19 @@ def day_paths(
     if doys is not None:
         wanted = {f"doy={int(d):03d}.parquet" for d in doys}
         paths_found = [p for p in paths_found if p.name in wanted]
+
+    if years is None and doys is not None and not allow_multi_year:
+        matched_years = sorted({p.parent.name.split("=")[1] for p in paths_found})
+        if len(matched_years) > 1:
+            raise ValueError(
+                f"doys={list(doys)} matched {len(matched_years)} years "
+                f"{matched_years} of {model_variant}/{dataset} with no years= given - "
+                "this is how a doy present in two years gets silently pooled or "
+                "duplicated (see the module docstring). Pass years=[...] to select "
+                "which one(s) you mean, or allow_multi_year=True if every matching "
+                "year is genuinely wanted."
+            )
+
     return paths_found
 
 
@@ -249,6 +275,7 @@ def iter_days(
     doys: Sequence[int] | None = None,
     columns: Sequence[str] | None = None,
     root: Path | str = DEFAULT_STORE_ROOT,
+    allow_multi_year: bool = False,
 ) -> Iterator[tuple[int, int, pd.DataFrame]]:
     """Yield `(year, doy, frame)` one day at a time.
 
@@ -256,8 +283,11 @@ def iter_days(
     less with `columns` restricted, against ~580 M rows for the whole store. Accumulate
     per-day sums and counts: every quantity the analyses report is a sum or a count, so
     streaming is exact rather than an approximation.
+
+    `allow_multi_year` is passed straight through to `day_paths` - see its docstring for
+    what it guards against.
     """
-    for path in day_paths(model_variant, dataset, years, doys, root):
+    for path in day_paths(model_variant, dataset, years, doys, root, allow_multi_year):
         year = int(path.parent.name.split("=")[1])
         doy = int(path.stem.split("=")[1])
         yield (
@@ -275,12 +305,15 @@ def read_predictions(
     columns: Sequence[str] | None = None,
     root: Path | str = DEFAULT_STORE_ROOT,
     allow_full_scan: bool = False,
+    allow_multi_year: bool = False,
 ) -> pd.DataFrame:
     """Read selected days into one frame.
 
     Refuses to read the whole store unless `allow_full_scan=True`, because doing so
     silently is how the analysis driver got OOM-killed: it worked while the store was
-    part-full and became fatal once it was not. Prefer `iter_days`.
+    part-full and became fatal once it was not. Also refuses `doys=[...]` with no
+    `years=` when that ambiguously spans more than one year - see `day_paths` -  unless
+    `allow_multi_year=True`. Prefer `iter_days`.
     """
     if years is None and doys is None and not allow_full_scan:
         available = len(day_paths(model_variant, dataset, root=root))
@@ -290,7 +323,7 @@ def read_predictions(
             f"iter_days() to stream, or pass allow_full_scan=True if you genuinely mean it."
         )
 
-    selected = day_paths(model_variant, dataset, years, doys, root)
+    selected = day_paths(model_variant, dataset, years, doys, root, allow_multi_year)
     if not selected:
         raise FileNotFoundError(
             f"No prediction files matched under {Path(root) / model_variant / dataset} "

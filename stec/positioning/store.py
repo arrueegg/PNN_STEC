@@ -194,8 +194,19 @@ def day_paths(
     years: Sequence[int] | None = None,
     doys: Sequence[int] | None = None,
     root: Path | str = DEFAULT_STORE_ROOT,
+    allow_multi_year: bool = False,
 ) -> list[Path]:
-    """Parquet files for the requested days, in chronological order."""
+    """Parquet files for the requested days, in chronological order.
+
+    No (method, weighting) arm is multi-year today, and this store has zero production
+    callers yet, but the twin guard in `prediction_store.day_paths` exists because
+    `doys=[...]` with no `years=` is only unambiguous against a single-year partition -
+    it silently pools or duplicates days once a second year is added. Applying the same
+    guard here costs nothing now and means the first real multi-year caller does not
+    inherit the trap. Raises when `years` is left unset and the match actually spans more
+    than one `year=` directory; pass `years=[...]` to say which one(s) are meant, or
+    `allow_multi_year=True` for a caller that deliberately wants a doy across every year.
+    """
     base = Path(root) / method / weighting
     if not base.exists():
         raise FileNotFoundError(f"No positioning store at {base}")
@@ -207,6 +218,18 @@ def day_paths(
     if doys is not None:
         wanted_doys = {f"doy={int(d):03d}.parquet" for d in doys}
         found = [p for p in found if p.name in wanted_doys]
+
+    if years is None and doys is not None and not allow_multi_year:
+        matched_years = sorted({p.parent.name.split("=")[1] for p in found})
+        if len(matched_years) > 1:
+            raise ValueError(
+                f"doys={list(doys)} matched {len(matched_years)} years "
+                f"{matched_years} of {method}/{weighting} with no years= given - this is "
+                "how a doy present in two years gets silently pooled or duplicated. Pass "
+                "years=[...] to select which one(s) you mean, or allow_multi_year=True "
+                "if every matching year is genuinely wanted."
+            )
+
     return found
 
 
@@ -217,6 +240,7 @@ def iter_days(
     doys: Sequence[int] | None = None,
     columns: Sequence[str] | None = None,
     root: Path | str = DEFAULT_STORE_ROOT,
+    allow_multi_year: bool = False,
 ) -> Iterator[tuple[int, int, pd.DataFrame]]:
     """Yield `(year, doy, frame)` one day-partition at a time.
 
@@ -224,8 +248,10 @@ def iter_days(
     digits of GB (see `build_store`'s docstring); holding one partition costs a few MB to
     tens of MB depending on station coverage that day. Accumulate per-day sums and counts
     rather than concatenating, the same convention `prediction_store.iter_days` documents.
+
+    `allow_multi_year` is passed straight through to `day_paths` - see its docstring.
     """
-    for path in day_paths(method, weighting, years, doys, root):
+    for path in day_paths(method, weighting, years, doys, root, allow_multi_year):
         year = int(path.parent.name.split("=")[1])
         doy = int(path.stem.split("=")[1])
         yield (
@@ -243,12 +269,15 @@ def read_epochs(
     columns: Sequence[str] | None = None,
     root: Path | str = DEFAULT_STORE_ROOT,
     allow_full_scan: bool = False,
+    allow_multi_year: bool = False,
 ) -> pd.DataFrame:
     """Read selected day-partitions into one frame.
 
     Refuses to read every day of one (method, weighting) arm unless
     `allow_full_scan=True` - 242 days at ~45 stations x 2,880 epochs is on the order of
-    30-60 M rows for a single arm. Prefer `iter_days`.
+    30-60 M rows for a single arm. Also refuses `doys=[...]` with no `years=` when that
+    ambiguously spans more than one year - see `day_paths` - unless
+    `allow_multi_year=True`. Prefer `iter_days`.
     """
     if years is None and doys is None and not allow_full_scan:
         available = len(day_paths(method, weighting, root=root))
@@ -258,7 +287,7 @@ def read_epochs(
             f"iter_days() to stream, or pass allow_full_scan=True if you genuinely mean it."
         )
 
-    selected = day_paths(method, weighting, years, doys, root)
+    selected = day_paths(method, weighting, years, doys, root, allow_multi_year)
     if not selected:
         raise FileNotFoundError(
             f"No positioning files matched under {Path(root) / method / weighting} "

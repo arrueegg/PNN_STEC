@@ -17,15 +17,24 @@ epoch-pooled statistic - so the numbers line up with the published table rather 
 nearly doing so. Both are reused from that module rather than redefined here.
 
 This module also resolves the canonical positioning input for both itself and
-``common_set_positioning.py``. The live checkout's ``src/analysis/paths.py`` prefers
-``positioning_full_coverage/multiday_summary.csv`` (rebuilt from every per-day result on
-disk, including station-days recovered from RINEX) over the narrower published
-``positioning_comparison_3way/multiday_summary.csv``, falling back to the latter when the
-former does not exist. ``stec/analysis/paths.py`` has no equivalent in this rebuilt
-package, so ``canonical_positioning_summary`` below reimplements that same resolution
-against ``stec.config.paths.LEGACY_MULTIDAY`` - see the module docstring caveat in the
-final report about centralising this if a shared ``stec/analysis/paths.py`` is added
-later.
+``common_set_positioning.py``. It prefers ``stec.analysis.positioning_coverage``'s own
+rebuilt output (``analyses/positioning_coverage/rebuilt/multiday_summary.csv`` - every
+per-day result on disk, including the station-days recovered from RINEX, reassembled by
+the ``positioning_coverage`` pipeline stage) over the narrower, frozen published run,
+``positioning_runs/comparison_3way/multiday_summary.csv``, falling back to the latter
+only when the former has never been generated.
+
+**This used to point at ``positioning_runs/full_coverage/multiday_summary.csv``
+instead** - a tree the pre-rebuild ``src/analysis/positioning_coverage.py`` wrote
+directly, before the results-layout restructure moved this analysis's own default output
+to ``analyses/<name>/{rebuilt,pre_rebuild}/`` (docs/revision/results_layout.md) without
+updating what this function reads. Nothing regenerates ``positioning_runs/full_coverage/``
+any more, so it silently stopped tracking the 2026-08-24 station-recovery sweep while
+looking exactly as current as before - repointing this at the stage's real output closes
+that gap and makes the staleness detectable through `stec.pipeline` the same way every
+other analysis input is (`positioning_coverage` must now run first; see
+`stec/pipeline/stages.py`'s stage order). `positioning_runs/full_coverage/` is marked
+superseded by that stage rather than deleted.
 
 Weighting provenance: ``daily_summary.csv`` means ``weight_opt=elev``;
 ``daily_summary_iono.csv`` means ``weight_opt=iono``. Table 5 itself is the four ``iono``
@@ -75,16 +84,15 @@ METHOD_ORDER = [
 
 # The two positioning trees `canonical_positioning_summary` resolves between - see the
 # module docstring. `DEFAULT_WEIGHTING_SUMMARY` is reused by both `common_set_positioning`
-# and `oracle_benchmark`, so it is defined once here rather than in each. Nested under
-# `positioning_runs/<tag>/` since the results-layout restructure
-# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
-# legacy directory name carried.
+# and `oracle_benchmark`, so it is defined once here rather than in each.
 FULL_COVERAGE_SUMMARY = (
-    paths.LEGACY_MULTIDAY
-    / "positioning_runs"
-    / "full_coverage"
+    paths.analysis_result_dir("positioning_coverage", rebuilt=True)
     / "multiday_summary.csv"
 )
+# Nested under `positioning_runs/<tag>/` since the results-layout restructure
+# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
+# legacy directory name carried. Frozen - nothing regenerates this any more; kept as the
+# record of what the submitted paper reported (see the module docstring).
 PUBLISHED_SUMMARY = (
     paths.LEGACY_MULTIDAY
     / "positioning_runs"

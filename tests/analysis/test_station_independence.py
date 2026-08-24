@@ -73,6 +73,26 @@ def test_per_station_error_streaming_matches_whole_frame_direct_computation(tmp_
         assert row["observations"] == len(subset)
 
 
+def test_per_station_error_does_not_silently_pool_years(tmp_path):
+    """The confirmed R2.3 failure mode: `doys=doys` passed straight through with no
+    `years=` pooled 33,954 observations (9,269 from 2020 + 24,685 from 2024) where one
+    year was intended. Against a multi-year partition this must now fail loudly unless
+    `years=` is given, and must return exactly the requested year's data once it is."""
+    frame_2020 = day_frame(200, {"AAAA": 2.0}, seed=1)
+    frame_2024 = day_frame(400, {"AAAA": 8.0}, seed=2)
+    ps.write_predictions(frame_2020, "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame_2024, "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        si.per_station_error(tmp_path, "pretrained_stec", "own", doys=[132])
+
+    only_2024 = si.per_station_error(
+        tmp_path, "pretrained_stec", "own", doys=[132], years=[2024]
+    )
+    assert only_2024.loc["AAAA", "observations"] == 400
+    assert only_2024.loc["AAAA", "RMSE"] == pytest.approx(8.0, rel=1e-5)
+
+
 def test_per_station_error_returns_empty_frame_when_store_is_absent(tmp_path):
     """No store on disk must not raise - main() joins this against the distance
     table with `how="inner"`, so an empty frame is the correct, quiet result."""

@@ -1,37 +1,37 @@
 {
-  "answers": "R1.5, Table A1",
-  "canonical_for": "Table A1",
+  "answers": "R1.5",
+  "canonical_for": null,
   "caveats": [
     "A different station-day population from Table 5, by design: requiring both weightings costs the IGS GIM ~3,000 station-days. State the N of each table."
   ],
   "code": {
-    "commit": "b3b5f07d723be2f44494661badf0e28f7c716b48",
+    "commit": "3a56d7fd56436927399fb5f2144ff6900c8d3a80",
     "dirty": true
   },
   "command": "-m stec.analysis.common_set_positioning --output-dir multiday_results/analyses/common_set_positioning/rebuilt",
   "description": "positioning recomputed on the station-days every method solved",
-  "duration_s": 0.7,
-  "fingerprint": "9a39724e135bb6ce5f2ed99b20e7b31efa98b3bbfa0f799f9a70ed6813354133",
+  "duration_s": 0.4,
+  "fingerprint": "46b87e86dc479cf49d4defb4ef0655fa7fe442c5b5baba2601d6783330612998",
   "inputs": {
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "kind": "file",
+      "sha256": "470b49648bda1393ac1102fe79cbda514189f9c45b4f52c48c891ce5760ff5aa",
+      "size": 12026596
+    },
     "multiday_results/positioning_runs/20260216_2052/multiday_summary.csv": {
       "kind": "file",
       "sha256": "13fb43c27c0a8a92ac62786d0e82d53e18afc68c78ca1c683467f49e177fc3b3",
       "size": 10212070
-    },
-    "multiday_results/positioning_runs/full_coverage/multiday_summary.csv": {
-      "kind": "file",
-      "sha256": "6475c98e929a48c6ab60542e6d4c7cc76828665052360254e1ed149c6deefa11",
-      "size": 6543255
     }
   },
   "outputs": {
     "multiday_results/analyses/common_set_positioning/rebuilt": {
       "present": true,
-      "size": 42
+      "size": 66
     }
   },
   "params": {},
-  "recorded_at": "2026-08-23T15:30:22.962176+00:00",
+  "recorded_at": "2026-08-24T16:23:45.753506+00:00",
   "stage": "common_set_positioning",
   "supersedes": []
 }

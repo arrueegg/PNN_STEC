@@ -162,6 +162,49 @@ def build_stec_database_day(
     return path
 
 
+def build_aggregated_split_h5(
+    path: Path, n_rows: int = N_OBSERVATIONS, seed: int = SEED
+) -> Path:
+    """A tiny stand-in for `data/<split>.h5` - one flat `data` dataset of `STEC_DTYPE`
+    rows spanning many synthetic years/days, the shape
+    `DataPreprocessor.build_split_h5` (`src/utils/preprocessing.py`) writes and
+    `stec.data.aggregated_dataset.AggregatedSplitDataset` reads.
+
+    Unlike `build_stec_database_day`, rows here are not grouped under `<year>/<doy>` and
+    carry no split-index arrays - the aggregate is already exactly one split, one flat
+    table, which is the whole reason `AggregatedSplitDataset` can address it by row index
+    directly rather than by day.
+    """
+    rng = np.random.default_rng(seed)
+    rows = np.zeros(n_rows, dtype=STEC_DTYPE)
+    rows["station"] = [f"S{i % 5:03d}".encode("ascii") for i in range(n_rows)]
+    rows["sat"] = [f"G{i % 9:02d}".encode("ascii") for i in range(n_rows)]
+    rows["year"] = rng.integers(2015, 2024, n_rows)
+    rows["doy"] = rng.integers(1, 366, n_rows)
+    rows["stec"] = rng.uniform(2.0, 60.0, n_rows)
+    rows["vtec"] = rng.uniform(2.0, 40.0, n_rows)
+    rows["satele"] = rng.uniform(5.0, 89.0, n_rows)
+    rows["satazi"] = rng.uniform(0.0, 359.0, n_rows)
+    rows["lon_ipp"] = rng.uniform(-179.0, 179.0, n_rows)
+    rows["lat_ipp"] = rng.uniform(-60.0, 60.0, n_rows)
+    rows["sm_lat_ipp"] = rows["lat_ipp"] + rng.uniform(-1.0, 1.0, n_rows)
+    rows["sm_lon_ipp"] = rows["lon_ipp"] + rng.uniform(-1.0, 1.0, n_rows)
+    rows["sod"] = rng.uniform(0.0, 86399.0, n_rows)
+    rows["lat_sta"] = rng.uniform(-60.0, 60.0, n_rows)
+    rows["lon_sta"] = rng.uniform(-179.0, 179.0, n_rows)
+    rows["sm_lat_sta"] = rows["lat_sta"] + rng.uniform(-1.0, 1.0, n_rows)
+    rows["sm_lon_sta"] = rows["lon_sta"] + rng.uniform(-1.0, 1.0, n_rows)
+    rows["gfphase"] = rng.normal(0.0, 0.01, n_rows)
+    rows["slipc"] = rng.integers(0, 2, n_rows)
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "w", libver="latest") as handle:
+        handle.create_dataset("data", data=rows, chunks=True)
+        handle.swmr_mode = True
+    return path
+
+
 # The real `Data/Table Layout` dtype, checked directly against
 # /home/space/data/iono/Madrigal_STEC/2024/los_20240101_IGS.h5 (2026-08-21). Field order
 # does not matter to `read_madrigal_day`, which reads by name, but matching it means this

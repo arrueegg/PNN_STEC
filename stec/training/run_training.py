@@ -7,27 +7,58 @@ called them - every real training run went through pre-rebuild `src/main.py` +
 checkpoint and loss-history CSV out, reusing `fit`/`loss`/`schedulers` exactly as verified
 rather than reimplementing any part of the epoch loop.
 
-Data comes from `stec.data.day_reader.read_day`, the only ported read path - one day's
+For `mode: finetune`, data comes from `stec.data.day_reader.read_day` - one day's
 `train`/`val` split at a time, assembled into the model's input tensor via
-`stec.data.transforms.FeatureAssembler`. That is deliberately narrower than the pre-rebuild
-`data_loader` package: this driver reproduces the 258 daily fine-tunes exactly (each one
-trains and validates on a single day's own `train_idx`/`val_idx`), because `--train-days`/
-`--val-days` accepts any list of days and reads each one the same way. What it does *not*
-reproduce is the 150-epoch pretrain's 500,000-observation subsample drawn across 15 years of
-`train_dates.list` - that sampling lives in the not-yet-ported `src/data_processing/`
-aggregation step (`docs/revision/task_board.md` S2), and multi-day training here is an
-honest generalisation of the per-day reader, not a port of that subsampling.
+`stec.data.transforms.FeatureAssembler`. This reproduces the 258 daily fine-tunes exactly
+(each one trains and validates on a single day's own `train_idx`/`val_idx`), because
+`--train-days`/`--val-days` accepts any list of days and reads each one the same way.
 
-Two things this driver deliberately does not do, both because the module it reuses does not
-do them either - `fit.py`'s own docstring lists what it omits, and reimplementing either one
-here would mean no longer reusing the gate-verified loop:
+For `mode: pretrain` *with* `data.train_subset_size` set in the config, data comes from
+`stec.data.aggregated_dataset.AggregatedSplitDataset` instead - a lazy, row-indexed reader
+over `data/{train,val}.h5` (`DataPreprocessor.build_split_h5`'s output, ~1.37e9 rows for
+train), because the pretrain's 500,000-observation-per-epoch subsample is drawn with
+replacement across 15 years of `train_dates.list`, and materialising that span the way
+`read_and_assemble`'s `torch.cat` does for a few-day fine-tune would mean holding the whole
+aggregate - well over 100 GB once assembled - in memory before a single epoch could sample
+from it. `build_pretrain_batches` wires this the same way
+`src/data_loader/loaders.py::get_data_loaders` always did:
+`stec.data.splits.EpochRandomSampler` draws `data.train_subset_size` rows with replacement
+each epoch (reseeded per epoch via `stec.data.splits.ResampledEpochBatches`, since `fit`'s
+loop has no per-epoch hook of its own - see that class's docstring for why), and
+`stec.data.splits.get_fixed_subset_indices` draws a fixed `data.val_size` validation subset
+once, the same set every epoch. `--train-days`/`--val-days` are accepted but unused in this
+mode, since the aggregate already spans every split day at once. `data.train_subset_size` is
+the gate, not `mode` alone, because it is the same signal the legacy loader branched on
+(`elif train_subset and train_subset < len(ds): use EpochRandomSampler`) - every real
+pretrain config sets it (`config/config_BNN.yaml`: 500,000), and a bare `mode: pretrain`
+with no such key (as every `tests/training/test_run_training.py` fixture that builds a
+`pretrain_*` checkpoint to fine-tune from does) keeps using the per-day path unchanged.
 
-* **No best-checkpoint selection or early stopping.** `fit` runs every requested epoch and
-  returns the final weights, not the epoch with the lowest validation loss. Every one of the
-  3,583 shipped checkpoints was instead selected by `BaseTrainer.run_training`'s
-  best-val-loss tracking with early stopping, so a checkpoint this driver produces is not a
-  drop-in replacement for one of those - only `fit`'s own numbers (the loss trajectory) are
-  gate-verified equivalent.
+**What this closes and what it still leaves open.** The Dataset, sampler wiring and a short
+smoke run (a handful of epochs, a few thousand rows, real `data/train.h5`) are verified - see
+`tests/data/test_aggregated_dataset.py` and `tests/training/test_run_training_pretrain.py`.
+A full 150-epoch pretrain was not run in the session that added this path: the model this
+driver would produce from a real pretrain run has not been compared against the shipped
+pretrained checkpoint end to end, only its data-loading half.
+
+One thing this driver used to not do, now closed: **best-checkpoint selection and early
+stopping.** `fit` itself still runs every requested epoch and returns the final weights, not
+the epoch with the lowest validation loss - that has not changed, and `fit.py` was
+deliberately left alone (Gate C stays closed). This driver now calls
+`stec.training.checkpointing.fit_with_best_checkpoint` instead of `fit` directly: it wraps
+the same epoch-level unit `fit` is built from and adds the exact `best_val_loss`/patience
+bookkeeping `BaseTrainer.run_training` used to select every one of the 3,583 shipped
+checkpoints (`src/training/base_trainer.py:251-397` - see `checkpointing.py`'s own docstring
+for the full port rationale, including why it does not just call `fit()` once per epoch).
+`patience` is read from `config[mode]["patience"]`, defaulting to `float("inf")` (never stop
+early) when absent, matching `base_trainer.py`'s own `.get("patience", float("inf"))` - note
+this is *not* gated on `config[mode]["early_stopping"]`, which every shipped config sets but
+which `src/training/base_trainer.py` never actually reads.
+
+One thing this driver deliberately still does not do, because the module it reuses does not
+do it either - `fit.py`'s own docstring lists what it omits, and reimplementing it here would
+mean no longer reusing the gate-verified loop:
+
 * **`training.log_target` and `<mode>.freeze_body` are refused, not silently ignored.** The
   log-normal target transform and body-freezing helper are pre-rebuild code
   (`training.data_transforms`, `utils.model_utils.freeze_model_body`) that nothing under
@@ -46,6 +77,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import functools
 import logging
 import sys
 from pathlib import Path
@@ -53,14 +85,21 @@ from pathlib import Path
 import torch
 import yaml
 from torch import optim
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset, Subset, TensorDataset
 
+from ..config import paths as stec_paths
+from ..data.aggregated_dataset import AggregatedSplitDataset, collate_assembled_batch
 from ..data.day_reader import read_day
 from ..data.feature_layout import FeatureLayout, layout_from_feature_control
 from ..data.spherical_harmonics import SphericalHarmonics
+from ..data.splits import (
+    EpochRandomSampler,
+    ResampledEpochBatches,
+    get_fixed_subset_indices,
+)
 from ..data.transforms import FeatureAssembler
 from ..models.architectures import BayesianResNetSTEC, load_checkpoint
-from .fit import fit
+from .checkpointing import fit_with_best_checkpoint
 from .loss import AnnealedGaussianNLLWithKL
 from .schedulers import SchedulerCompat, get_scheduler
 
@@ -156,6 +195,76 @@ def materialize_batches(
         dataset, batch_size=batch_size, shuffle=shuffle, generator=generator
     )
     return [(x.to(device), y.to(device)) for x, y in loader]
+
+
+def build_pretrain_batches(
+    config: dict,
+    assembler: FeatureAssembler,
+    batch_size: int,
+    seed: int,
+    device: torch.device,
+    space_weather: Path | None,
+) -> tuple[ResampledEpochBatches, list[Batch], int, int]:
+    """`train_batches`/`val_batches` for `mode: pretrain`.
+
+    Mirrors `src/data_loader/loaders.py::get_data_loaders` exactly: `EpochRandomSampler`
+    draws `data.train_subset_size` rows with replacement from the full train aggregate each
+    epoch, and `get_fixed_subset_indices` draws a fixed `data.val_size` subset from the val
+    aggregate once - just sourced from `AggregatedSplitDataset` instead of `H5Dataset`.
+    `num_workers=0` throughout: `AggregatedSplitDataset` opens one h5py handle in `__init__`
+    and reuses it for every row, which is not fork-safe across `DataLoader` worker
+    processes (see that class's own docstring) - a real 150-epoch run would want a
+    `worker_init_fn` that reopens the file per worker, which this driver does not add
+    because it has never been run at that scale to justify the extra machinery.
+    """
+    swi_path = space_weather if space_weather is not None else stec_paths.OMNI_INDICES
+    train_dataset = AggregatedSplitDataset(
+        stec_paths.aggregated_split_h5("train"), space_weather_path=swi_path
+    )
+    val_dataset: Dataset = AggregatedSplitDataset(
+        stec_paths.aggregated_split_h5("val"), space_weather_path=swi_path
+    )
+    collate = functools.partial(collate_assembled_batch, assembler=assembler)
+
+    train_subset_size = int(config["data"]["train_subset_size"])
+    logger.info(
+        f"pretrain: sampling {train_subset_size:,} of {len(train_dataset):,} train rows "
+        "per epoch, with replacement"
+    )
+    sampler = EpochRandomSampler(
+        train_dataset, replacement=True, num_samples=train_subset_size, base_seed=seed
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        num_workers=0,
+        collate_fn=collate,
+    )
+    train_batches = ResampledEpochBatches(train_loader, sampler, device)
+
+    val_size_config = config["data"].get("val_size", "full")
+    if val_size_config != "full":
+        cache_path = (
+            stec_paths.SUBSET_INDEX_CACHE
+            / f"pretrain_val_{val_size_config}_seed{seed}.pt"
+        )
+        idx = get_fixed_subset_indices(
+            val_dataset, int(val_size_config), cache_path, seed=seed
+        )
+        val_dataset = Subset(val_dataset, idx)
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        collate_fn=collate,
+    )
+    val_batches = [
+        (inputs.to(device), targets.to(device)) for inputs, targets in val_loader
+    ]
+
+    return train_batches, val_batches, train_subset_size, len(val_dataset)
 
 
 def _resolve_pretrain_checkpoint(
@@ -263,20 +372,61 @@ def train(
             "no stec/ equivalent, so silently ignoring this flag would train the whole "
             "network when the config asked for only the output head."
         )
+    if config.get(mode, {}).get("save_model_every_epoch", False):
+        raise NotImplementedError(
+            f"{mode}.save_model_every_epoch is not ported: "
+            "fit_with_best_checkpoint only ever snapshots the best-so-far epoch, not "
+            "every epoch (src/training/training_utils.py's TrainingUtils.save_checkpoint "
+            "would write one file per epoch instead). Every shipped config sets this to "
+            "False, so this is refused rather than silently only keeping the best."
+        )
 
     layout, assembler = build_layout_and_assembler(config)
     seed = config["random_seed"]
+    batch_size = config[mode]["batchsize"]
 
-    train_inputs, train_targets = read_and_assemble(
-        train_days, "train", assembler, database_root, space_weather
+    # `data.train_subset_size` is the same signal `src/data_loader/loaders.py::
+    # get_data_loaders` branches on (`elif train_subset and train_subset < len(ds):
+    # use EpochRandomSampler`) - real pretrain configs set it (config/config_BNN.yaml:
+    # 500_000), a bare `mode: pretrain` with no such key does not ask for the aggregate at
+    # all. Branching on the mode alone would silently redirect every existing `mode:
+    # pretrain` fine-tune-checkpoint fixture in tests/training/test_run_training.py at
+    # data/train.h5 instead of its tmp_path fixture - this keeps that path unchanged.
+    use_aggregate = mode == "pretrain" and config.get("data", {}).get(
+        "train_subset_size"
     )
-    val_inputs, val_targets = read_and_assemble(
-        val_days, "val", assembler, database_root, space_weather
-    )
-    logger.info(
-        f"{mode}: {len(train_inputs):,} train / {len(val_inputs):,} val rows over "
-        f"{len(train_days)} train day(s), {len(val_days)} val day(s)"
-    )
+    if use_aggregate:
+        # --train-days/--val-days are accepted (main() always resolves them, defaulting to
+        # config['year']/['doy']) but not meaningful here - the aggregate already spans
+        # every split day, so this mode ignores them rather than pretending a day filter
+        # applies to it.
+        train_batches, val_batches, n_train, n_val = build_pretrain_batches(
+            config, assembler, batch_size, seed, device, space_weather
+        )
+        logger.info(f"{mode}: {n_train:,} train rows/epoch / {n_val:,} val rows")
+    else:
+        train_inputs, train_targets = read_and_assemble(
+            train_days, "train", assembler, database_root, space_weather
+        )
+        val_inputs, val_targets = read_and_assemble(
+            val_days, "val", assembler, database_root, space_weather
+        )
+        n_train, n_val = len(train_inputs), len(val_inputs)
+        logger.info(
+            f"{mode}: {n_train:,} train / {n_val:,} val rows over "
+            f"{len(train_days)} train day(s), {len(val_days)} val day(s)"
+        )
+        train_batches = materialize_batches(
+            train_inputs,
+            train_targets,
+            batch_size,
+            shuffle=True,
+            seed=seed,
+            device=device,
+        )
+        val_batches = materialize_batches(
+            val_inputs, val_targets, batch_size, shuffle=False, seed=seed, device=device
+        )
 
     # A fresh model's BayesLinear head draws its initial weights from the global RNG at
     # construction time - before fit() gets to seed anything - so a from-scratch run is
@@ -290,29 +440,27 @@ def train(
     resolved_checkpoint = _resolve_pretrain_checkpoint(config, pretrain_checkpoint)
     model = build_model(config, layout, device, resolved_checkpoint)
 
-    batch_size = config[mode]["batchsize"]
-    train_batches = materialize_batches(
-        train_inputs, train_targets, batch_size, shuffle=True, seed=seed, device=device
-    )
-    val_batches = materialize_batches(
-        val_inputs, val_targets, batch_size, shuffle=False, seed=seed, device=device
-    )
-
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = build_optimizer(config, mode, trainable_params)
     scheduler = get_scheduler(config, optimizer, compat=scheduler_compat)
     loss_fn = AnnealedGaussianNLLWithKL.from_config(config)
 
-    history = fit(
+    # float("inf") matches base_trainer.py's own `.get("patience", float("inf"))` - not
+    # `config[mode]["early_stopping"]`, which every shipped config sets but which that
+    # function never actually reads (see the module docstring above).
+    patience = config[mode].get("patience", float("inf"))
+    result = fit_with_best_checkpoint(
         model,
         optimizer,
         scheduler,
         loss_fn,
         train_batches,
+        val_batches,
         epochs=config[mode]["epochs"],
         seed=seed,
-        val_batches=val_batches,
+        patience=patience,
     )
+    history = result.history
 
     output_dir.mkdir(parents=True, exist_ok=True)
     model_dir = output_dir / "model"
@@ -322,8 +470,8 @@ def train(
     )
     torch.save(
         {
-            "model_state_dict": model.state_dict(),
-            "epoch": int(history["epoch"].iloc[-1]),
+            "model_state_dict": result.best_state_dict,
+            "epoch": result.best_epoch,
         },
         checkpoint_path,
     )
@@ -331,8 +479,14 @@ def train(
     history_path = output_dir / "loss_history.csv"
     history.to_csv(history_path, index=False)
 
+    if result.stopped_early:
+        logger.info(
+            f"Early stopping after {len(history)} epoch(s) "
+            f"(no improvement for {patience} epochs)"
+        )
     logger.info(
-        f"{mode} finished: {len(history)} epoch(s), "
+        f"{mode} finished: {len(history)} epoch(s) run, "
+        f"best epoch={result.best_epoch} (val_loss={result.best_val_loss:.4f}), "
         f"final train_loss={history['train_loss'].iloc[-1]:.4f}, "
         f"val_loss={history['val_loss'].iloc[-1]:.4f}"
     )

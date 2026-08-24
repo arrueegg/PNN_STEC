@@ -103,13 +103,23 @@ def _iter_madrigal_days(
     if not days:
         return
 
-    for _year, _doy, day in ps.iter_days(
-        model_variant,
-        "madrigal",
-        doys=[doy for _year, doy in days],
-        columns=MADRIGAL_COLUMNS,
-        root=store_root,
-    ):
+    # One (year, doy) pair per iter_days call, not a flat doys=[...] collapse: this
+    # store is not multi-year yet, but pretrained_stec/madrigal is scheduled to be
+    # built, and a flat doy list with no years= would then silently pool a doy shared
+    # by two years into one day's worth of statistics - the same class of bug fixed in
+    # elevation_metrics_finetuned.py and station_independence.py, and now caught at the
+    # prediction_store level too.
+    for year, doy in days:
+        _, _, day = next(
+            ps.iter_days(
+                model_variant,
+                "madrigal",
+                years=[year],
+                doys=[doy],
+                columns=MADRIGAL_COLUMNS,
+                root=store_root,
+            )
+        )
         # In the madrigal store, true_stec IS the Madrigal reference.
         day = day.rename(columns={"true_stec": "madrigal_stec"})
         yield day.dropna(subset=["madrigal_stec", "stec_pred"])

@@ -132,6 +132,116 @@ def test_missing_gim_column_is_tolerated_without_gim_output_columns():
     assert "model_dstec_rmse" in arcs.columns
 
 
+def _madrigal_like_frame(
+    station: str = "AMC4", sat: str = "G01", n: int = 12, gap_before: float = 0.0
+) -> pd.DataFrame:
+    """A frame shaped like the Madrigal store partition: no `slipc`, no `gfphase`
+    (see `stec/data/madrigal_reader.py`'s docstring - Madrigal has no cycle-slip
+    counter or phase observable at all, not a placeholdered one). `gap_before` is
+    the time-of-day gap in seconds inserted before the arc's first sample, so a
+    test can push it above or below `TIME_GAP_ARC_THRESHOLD_SEC`.
+    """
+    satele = np.array([10, 20, 30, 40, 50, 60, 50, 40, 30, 20, 10, 5], dtype=float)
+    assert len(satele) == n
+    rng = np.random.default_rng(0)
+    true_stec = rng.normal(20, 5, n)
+    stec_pred = true_stec + rng.normal(0, 1, n)
+    gim_stec = true_stec + rng.normal(0, 2, n)
+    return pd.DataFrame(
+        {
+            "station": [station] * n,
+            "sat": [sat] * n,
+            "sod": gap_before + np.arange(n) * 30.0,
+            "satele": satele,
+            "stec_pred": stec_pred,
+            "true_stec": true_stec,
+            "gim_stec": gim_stec,
+            "year": [2024] * n,
+            "doy": [132] * n,
+        }
+    )
+
+
+def test_missing_slipc_and_gfphase_falls_back_to_time_gap_arcs_and_code_truth():
+    """No `slipc`/`gfphase` in the frame (the Madrigal case) must not raise or
+    silently borrow `own`'s arc definition - it must record which fallback ran."""
+    frame = _madrigal_like_frame()
+    arcs = de.compute_arc_dstec(frame, min_samples_per_pass=10)
+    assert len(arcs) == 1
+    row = arcs.iloc[0]
+    assert row["arc_method"] == de.ARC_METHOD_TIME_GAP
+    assert row["truth_source"] == de.TRUTH_SOURCE_CODE
+    assert "arc_id" in arcs.columns
+    assert "slipc" not in arcs.columns
+
+    # The fallback truth is true_stec, not gfphase - matches a direct recomputation.
+    satele = frame["satele"].to_numpy()
+    idx_max = int(np.argmax(satele))
+    mask = (satele - satele[idx_max]) < -20.0
+    true_stec = frame["true_stec"].to_numpy()
+    stec_pred = frame["stec_pred"].to_numpy()
+    dstec_truth = true_stec - true_stec[idx_max]
+    dstec_model = stec_pred - stec_pred[idx_max]
+    model_dstec_error = (dstec_model - dstec_truth)[mask]
+    assert row["model_dstec_rmse"] == pytest.approx(
+        np.sqrt(np.mean(model_dstec_error**2))
+    )
+
+
+def test_time_gap_above_threshold_splits_one_pass_into_two_arcs():
+    """A `(station, sat)` gap longer than `TIME_GAP_ARC_THRESHOLD_SEC` is the
+    fallback's stand-in for a real cycle slip - it must split the arc the same
+    way a `slipc` change does in the authoritative path."""
+    first_half = _madrigal_like_frame(n=12).iloc[:6]
+    second_half = _madrigal_like_frame(n=12, gap_before=2 * 3600).iloc[6:]
+    frame = pd.concat([first_half, second_half], ignore_index=True)
+
+    arcs = de.compute_arc_dstec(frame, min_samples_per_pass=3)
+    assert len(arcs) == 2
+    assert set(arcs["arc_method"]) == {de.ARC_METHOD_TIME_GAP}
+    assert set(arcs["arc_id"]) == {0, 1}
+
+
+def test_time_gap_below_threshold_does_not_split_arc():
+    """A gap under the 30-minute threshold is ordinary tracking cadence, not a
+    reacquisition - the fallback must not over-split on it."""
+    first_half = _madrigal_like_frame(n=12).iloc[:6]
+    second_half = _madrigal_like_frame(n=12, gap_before=5 * 60).iloc[6:]
+    frame = pd.concat([first_half, second_half], ignore_index=True)
+
+    arcs = de.compute_arc_dstec(frame, min_samples_per_pass=3)
+    assert len(arcs) == 1
+    assert arcs.iloc[0]["arc_id"] == 0
+
+
+def test_slipc_present_records_slipc_arc_method_and_phase_truth_source():
+    """The authoritative (`own`) path must still label itself explicitly, not just
+    behave correctly - `summarise()` and any downstream reader depend on the label,
+    not on inferring the method from which columns happen to be present."""
+    frame = _triangular_pass_frame()
+    arcs = de.compute_arc_dstec(frame, min_samples_per_pass=10)
+    assert arcs.iloc[0]["arc_method"] == de.ARC_METHOD_SLIPC
+    assert arcs.iloc[0]["truth_source"] == de.TRUTH_SOURCE_PHASE
+
+
+def test_collect_does_not_skip_a_day_missing_slipc_and_gfphase(tmp_path):
+    """`collect()`'s required-column check must not force `slipc`/`gfphase` - a
+    Madrigal-shaped store partition has neither, and used to be skipped outright
+    (both were in the old, unconditional `REQUIRED_COLUMNS`)."""
+    frame = _madrigal_like_frame()
+    ps.write_predictions(frame, "finetuned_stec", "madrigal", 2024, 132, root=tmp_path)
+
+    arcs = de.collect(
+        [132], dataset="madrigal", store_root=tmp_path, min_samples_per_pass=10
+    )
+    assert not arcs.empty
+    assert set(arcs["arc_method"]) == {de.ARC_METHOD_TIME_GAP}
+
+    summary = de.summarise(arcs)
+    assert summary["arc_method"] == de.ARC_METHOD_TIME_GAP
+    assert summary["truth_source"] == de.TRUTH_SOURCE_CODE
+
+
 def test_pooled_rmse_matches_direct_computation_across_streamed_days(tmp_path):
     """The pooled (observation-weighted) RMSE that `summarise` recombines from
     per-arc RMSE and count must equal the same statistic computed directly from the

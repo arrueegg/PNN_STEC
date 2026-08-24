@@ -181,9 +181,17 @@ class TrainingUtils:
         split_date = datetime(2024, 5, 1)
 
         def create_date(row):
-            """Convert year and doy to datetime"""
-            year = int(row["year"])
-            doy = int(row["doy"])
+            """Convert year and doy to datetime.
+
+            `year`/`doy` here are denormalised model inputs, not integers read from a
+            file: `doy` is scaled to (doy-1)/365 and inverted in float32, which lands 26
+            days of the year just under the integer (DOY 189 -> 188.99998). `int()`
+            truncates those into the previous day - the same defect that inflated the
+            published IGS GIM baseline (Table 4: 8.56 -> 8.28 once repaired, see
+            `repair_gim_baseline.py` / CLAUDE.md's Gotchas). `round()` is required here.
+            """
+            year = round(row["year"])
+            doy = round(row["doy"])
             return datetime(year, 1, 1) + timedelta(days=doy - 1)
 
         # Create datetime column for filtering

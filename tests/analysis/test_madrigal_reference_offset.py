@@ -87,6 +87,34 @@ def test_per_station_offsets_streaming_matches_whole_frame_direct_computation(
         assert row["observations"] == len(subset)
 
 
+def test_per_station_offsets_reads_every_matched_year_without_raising(
+    tmp_path, monkeypatch
+):
+    """`_iter_madrigal_days` used to collapse `available_days()`'s (year, doy) pairs to
+    a flat `doys=[...]` list with no `years=` before streaming. That is currently
+    harmless only because `madrigal` is single-year for every model_variant that
+    exists on disk today; the moment a multi-year Madrigal partition (e.g.
+    `pretrained_stec/madrigal`, per CLAUDE.md's roadmap) is built, a doy shared across
+    years would hit `prediction_store`'s new multi-year guard and this pass would
+    start raising. Confirms it instead reads every matched year's file and pools them,
+    which is this function's own intended behaviour."""
+    monkeypatch.setattr(mro, "MIN_OBSERVATIONS_PER_STATION", 1)
+    model_offsets = {"AAAA": 4.0}
+    gim_offsets = {"AAAA": 3.0}
+    frame_2020 = madrigal_day_frame(20, model_offsets, gim_offsets, seed=21)
+    frame_2024 = madrigal_day_frame(30, model_offsets, gim_offsets, seed=22)
+    ps.write_predictions(
+        frame_2020, "pretrained_stec", "madrigal", 2020, 132, root=tmp_path
+    )
+    ps.write_predictions(
+        frame_2024, "pretrained_stec", "madrigal", 2024, 132, root=tmp_path
+    )
+
+    offsets = mro.per_station_offsets(tmp_path, "pretrained_stec", doys=[132])
+
+    assert offsets.loc["AAAA", "observations"] == 20 + 30
+
+
 def test_per_station_offsets_returns_empty_frame_when_store_is_absent(tmp_path):
     """No store on disk must not raise - `main()` treats an empty result as a clean
     'nothing to report' rather than crashing pass 1."""

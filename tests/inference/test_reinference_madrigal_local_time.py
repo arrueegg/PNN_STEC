@@ -22,7 +22,9 @@ import yaml
 from stec.analysis.positioning_coverage import CANONICAL_STEC_SUFFIX
 from stec.inference import prediction_store as ps
 from stec.inference.reinference_madrigal_local_time import (
+    ALIGNMENT_COLUMNS,
     BASELINE_COLUMNS_TO_PRESERVE,
+    _verify_alignment,
     checkpoint_paths_for_doy,
     reinference_day,
 )
@@ -266,3 +268,83 @@ def test_reinference_raises_when_no_canonical_checkpoint_exists(tmp_path):
             store_root=tmp_path / "store",
             device=torch.device("cpu"),
         )
+
+
+def _synthetic_alignment_frames(**column_overrides) -> tuple[dict, pd.DataFrame]:
+    """Minimal raw-dict/existing-frame pair carrying only what `_verify_alignment` reads
+    (`ALIGNMENT_COLUMNS` plus `station`/`stec`), for testing the comparison logic directly
+    rather than through a full inference pass. `column_overrides` are `{"<column>_new":
+    ..., "<column>_old": ...}` pairs; anything not overridden is identical on both sides."""
+    n = 5
+    old = {
+        "station": np.array(["AAAA"] * n),
+        "sod": np.arange(n, dtype=np.float64) * 30.0,
+        "satazi": np.full(n, 10.0),
+        "satele": np.full(n, 45.0),
+        "lat_ipp": np.full(n, 30.0),
+        "lon_ipp": np.full(n, -120.0),
+    }
+    new = dict(old)
+    for column in ALIGNMENT_COLUMNS:
+        if f"{column}_old" in column_overrides:
+            old[column] = column_overrides[f"{column}_old"]
+        if f"{column}_new" in column_overrides:
+            new[column] = column_overrides[f"{column}_new"]
+
+    existing = pd.DataFrame(old)
+    raw = {
+        "stec": np.zeros(n),
+        "station": new["station"],
+        **{c: new[c] for c in ALIGNMENT_COLUMNS},
+    }
+    return raw, existing
+
+
+def test_verify_alignment_treats_0_and_360_degrees_azimuth_as_equal():
+    """0 deg and 360 deg are the same physical azimuth: the stored `satazi` is normalised
+    0-360, but `read_madrigal_day` passes the raw, signed Madrigal `azm` field straight
+    through, so the same direction can read back as e.g. 359.999 vs -0.001. A plain
+    subtraction sees a ~360 delta and would wrongly refuse an aligned merge - exactly what
+    tripped this guard the first time it ran against real data (2024-122: 1,014,088 of
+    2,036,513 rows, every one of them within 3e-5 deg of a pure wraparound, nothing in
+    between)."""
+    raw, existing = _synthetic_alignment_frames(
+        satazi_old=np.array([0.0, 359.999, 0.001, 180.0, 350.0]),
+        satazi_new=np.array([360.0, 0.0, 360.001, 180.0, -10.0]),
+    )
+    _verify_alignment(raw, existing, 2024, 122)  # must not raise
+
+
+def test_verify_alignment_treats_plus_and_minus_180_longitude_as_equal():
+    """Same failure mode as azimuth, at the antimeridian: +180 and -180 are the same
+    meridian. Not observed on real data yet (both sides already agree there), but the
+    wraparound is the same physical fact regardless, so `lon_ipp` gets the same circular
+    comparison rather than waiting for its own false positive."""
+    raw, existing = _synthetic_alignment_frames(
+        lon_ipp_old=np.array([180.0, -179.999, 0.0, 90.0, -90.0]),
+        lon_ipp_new=np.array([-180.0, 180.001, 0.0, 90.0, -90.0]),
+    )
+    _verify_alignment(raw, existing, 2024, 122)  # must not raise
+
+
+def test_verify_alignment_still_rejects_a_genuine_misalignment():
+    """The wraparound fix must not blunt the guard: a real different observation - here an
+    IPP latitude degrees away, not hundredths of a degree - still has to raise."""
+    raw, existing = _synthetic_alignment_frames(
+        lat_ipp_new=np.array([30.0, 30.0, 30.0, 45.0, 30.0])
+    )
+    with pytest.raises(RuntimeError, match="misaligned"):
+        _verify_alignment(raw, existing, 2024, 122)
+
+
+def test_verify_alignment_still_rejects_a_near_zenith_sized_azimuth_shift():
+    """A circular comparison must not become so loose that it misses real disagreement -
+    a shift far from the wrap point (not ~360, not ~0) has to raise even though satazi is
+    now compared circularly."""
+    raw, existing = _synthetic_alignment_frames(
+        satazi_new=np.array(
+            [10.0, 10.0, 10.0, 10.0, 40.0]
+        )  # last row: 30 deg off, not wraparound
+    )
+    with pytest.raises(RuntimeError, match="satazi misaligned"):
+        _verify_alignment(raw, existing, 2024, 122)

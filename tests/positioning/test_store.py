@@ -228,6 +228,64 @@ def test_available_days_supports_resume(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# multi-year guard
+#
+# No (method, weighting) arm holds more than one year today and this store has zero
+# production callers, but `day_paths` carries the same doys-without-years trap
+# `prediction_store.day_paths` does: fixed here before the first real caller inherits
+# it, per CLAUDE.md's note that fixing a store with zero callers now costs nothing.
+# ---------------------------------------------------------------------------
+
+
+def test_day_paths_raises_on_doy_only_filter_against_a_multi_year_partition(tmp_path):
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2020, 132, root=tmp_path)
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        ps.day_paths("STEC", "iono", doys=[132], root=tmp_path)
+
+
+def test_day_paths_is_unaffected_on_a_single_year_partition(tmp_path):
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 132, root=tmp_path)
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 133, root=tmp_path)
+
+    found = ps.day_paths("STEC", "iono", doys=[132], root=tmp_path)
+    assert len(found) == 1
+
+
+def test_day_paths_explicit_years_avoids_the_guard(tmp_path):
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2020, 132, root=tmp_path)
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 132, root=tmp_path)
+
+    found = ps.day_paths("STEC", "iono", years=[2024], doys=[132], root=tmp_path)
+    assert len(found) == 1
+    assert found[0].parent.name == "year=2024"
+
+
+def test_day_paths_allow_multi_year_opts_in_explicitly(tmp_path):
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2020, 132, root=tmp_path)
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 132, root=tmp_path)
+
+    found = ps.day_paths(
+        "STEC", "iono", doys=[132], root=tmp_path, allow_multi_year=True
+    )
+    assert len(found) == 2
+
+
+def test_read_epochs_propagates_the_multi_year_guard(tmp_path):
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2020, 132, root=tmp_path)
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        ps.read_epochs("STEC", "iono", doys=[132], root=tmp_path)
+
+    out = ps.read_epochs(
+        "STEC", "iono", doys=[132], root=tmp_path, allow_multi_year=True
+    )
+    assert set(out["year"].unique()) == {2020, 2024}
+
+
+# ---------------------------------------------------------------------------
 # mjd
 # ---------------------------------------------------------------------------
 

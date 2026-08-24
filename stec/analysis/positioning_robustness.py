@@ -58,20 +58,19 @@ METHOD_ORDER = [
 TAIL_THRESHOLDS_M = (2.0, 3.0, 5.0)
 
 # The two positioning trees this module resolves between, mirroring
-# `src/analysis/paths.py::canonical_positioning_summary` in the live checkout: prefer the
-# fuller, coverage-repaired input, fall back to the published one. Duplicated rather than
-# imported - see the identical comment and the final report in
-# `storm_stratification.py`, which needs the same resolution and has no shared
-# `stec/analysis/paths.py` to pull it from yet.
-# Nested under `positioning_runs/<tag>/` since the results-layout restructure
-# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
-# legacy directory name carried.
+# `stec.analysis.positioning_summary.canonical_positioning_summary`. Duplicated rather
+# than imported - see the identical comment in `storm_stratification.py`, which needs the
+# same resolution and has no shared `stec/analysis/paths.py` to pull it from yet.
+#
+# 2026-08-24: repointed from `positioning_runs/full_coverage/multiday_summary.csv` to
+# `positioning_coverage`'s own rebuilt output - see the account in
+# `stec/analysis/positioning_summary.py`'s module docstring and `storm_stratification.py`.
 FULL_COVERAGE_SUMMARY = (
-    paths.LEGACY_MULTIDAY
-    / "positioning_runs"
-    / "full_coverage"
+    paths.analysis_result_dir("positioning_coverage", rebuilt=True)
     / "multiday_summary.csv"
 )
+# Frozen - nothing regenerates this any more; kept as the record of what the submitted
+# paper reported.
 PUBLISHED_SUMMARY = (
     paths.LEGACY_MULTIDAY
     / "positioning_runs"

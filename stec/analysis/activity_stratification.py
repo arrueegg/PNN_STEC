@@ -251,9 +251,24 @@ def main() -> None:
 
     for key, table in tables.items():
         path = args.output_dir / f"by_{key}.csv"
-        table.to_csv(path, index=False)
-        logger.info(f"wrote {path}")
         bin_col = f"{key}_bin"
+        # DST_LABELS/F107_LABELS embed a `\n` so the bin reads as two lines on a plot
+        # axis - useful there, but a raw newline inside a CSV cell breaks any tool that
+        # counts rows by counting lines, which is exactly how this pipeline's own
+        # provenance row count (stec/pipeline/provenance.py) was getting them wrong until
+        # that was fixed to parse CSV properly. Flatten to one line for the file; the
+        # in-memory `table` used for the console printout below keeps the original
+        # multi-line labels. A consumer that wants the line break back for plotting
+        # (stec/viz/revision_figures.py's activity figures currently read this column
+        # straight off disk into a tick label) needs to restore it, e.g. from
+        # DST_LABELS/F107_LABELS keyed by the flattened form - not yet done as of this
+        # change.
+        to_write = table.copy()
+        to_write[bin_col] = (
+            to_write[bin_col].astype(str).str.replace("\n", " ", regex=False)
+        )
+        to_write.to_csv(path, index=False)
+        logger.info(f"wrote {path}")
         print(f"\n=== STEC error stratified by {key.upper()} ===")
         print(
             table.pivot(index=bin_col, columns="Model", values="RMSE")

@@ -336,6 +336,31 @@ the only way to actually produce Figures 4-9 from real data, and `src/multiday_e
 remains the only way to actually produce Figures 10-11 from real data**, even though ported
 code for all of them now exists.
 
+**2026-08-24 correction: the paragraph above is stale as of commit `3972b61`** (2026-08-21
+21:10, landed *after* this document's `63ed78e` recompute but never folded back in).
+`stec.analysis.pretrained_test_diagnostics` was added and wired into `FIGURE_BUILDERS` as
+`_build_pretrained_diagnostics_figures`, reading a per-observation cache it streams from
+`predictions/pretrained_stec/own` rather than from `src/inference_testset.py`'s live model
+pass. Verified directly, not by re-reading a docstring: `FIGURE_BUILDERS` in the current
+`stec/viz/manuscript_figures.py` has 6 entries covering all 14 figures, and real output
+already exists on disk from a real run — `.pipeline/pretrained_test_diagnostics.json`
+(544-day input, `recorded_at: 2026-08-24T09:25:04Z`) and
+`plots/manuscript/stec_pretrained_testset/{pred_density,residuals_elev,residuals_lat,
+residuals_localtime,residuals_year_month,uncertainty}*.png`. `stec/pipeline/stages.py` also
+now declares a `manuscript_figures` Stage (separate from `figures`, which still runs only
+`stec.viz.revision_figures`) that runs `-m stec.viz.manuscript_figures` after
+`pretrained_test_diagnostics` and `elevation_metrics_finetuned`, so `python -m stec.pipeline
+run` does reach all 14 figures now, contrary to this paragraph's last sentence. **What is
+still true, and still a real gap**: `src/inference_testset.py` remains the only way to *run
+new live model inference* that populates `predictions/pretrained_stec/own` /
+`predictions/finetuned_stec/*` in the first place (`stec.inference.run_inference` covers part
+of this - the STEC model's own forward pass and MC sampling for a given day - but not the
+ensemble/MC-dropout decomposition or the interpolation/extrapolation temporal split
+`inference_testset.py` also computes), and `src/multiday_evaluation.py` remains the only
+*orchestrator* that runs the daily fine-tune + inference + three-way comparison sweep itself
+(as opposed to reading its output). The figures gap and the live-inference/orchestration gap
+are different things; only the first one is closed.
+
 ### `positioning/positioning_eval/` (7 files)
 
 | Module | Disposition | Reason |

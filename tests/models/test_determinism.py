@@ -148,6 +148,57 @@ def test_monte_carlo_seeds_are_independent():
     assert not torch.equal(a, b)
 
 
+def test_resample_bayesian_layers_reports_how_many_it_drew():
+    torch.manual_seed(0)
+    model = make_model()
+    assert determinism.resample_bayesian_layers(model) == 1
+    # A resampled layer is frozen to that draw, not left to sample again per call.
+    x = inputs()
+    with torch.no_grad():
+        assert float((model(x) - model(x)).abs().max()) == 0.0
+
+
+def test_batched_monte_carlo_matches_unbatched_for_uneven_chunks():
+    """The correctness requirement this fix exists to satisfy: chunking the row dimension
+    for memory reasons must not change a single number `monte_carlo` returns.
+
+    37 rows and a chunk size of 5 forces an uneven last chunk (7 full chunks of 5 rows plus
+    one of 2), which is the case most likely to expose an off-by-one or a stray extra RNG
+    draw at a chunk boundary.
+    """
+    torch.manual_seed(0)
+    model = make_model()
+    x = torch.randn(37, 4)
+
+    unbatched = determinism.monte_carlo(model, x, samples=10, seed=123)
+    batched = determinism.monte_carlo(model, x, samples=10, seed=123, batch_size=5)
+
+    assert torch.equal(unbatched, batched)
+
+
+def test_batch_size_none_takes_the_same_code_path_as_the_full_row_count():
+    """`batch_size=None` must be indistinguishable from `batch_size=rows` - one chunk
+    covering everything, not a separate branch that happens to agree with it."""
+    torch.manual_seed(0)
+    model = make_model()
+    x = torch.randn(20, 4)
+
+    unset = determinism.monte_carlo(model, x, samples=6, seed=7)
+    explicit_full = determinism.monte_carlo(model, x, samples=6, seed=7, batch_size=20)
+
+    assert torch.equal(unset, explicit_full)
+
+
+def test_batched_monte_carlo_still_produces_genuine_sample_to_sample_spread():
+    """Batching must not accidentally collapse the epistemic signal - each of the T passes
+    still has to be a different weight draw, just chunked across rows."""
+    torch.manual_seed(0)
+    model = make_model()
+    x = torch.randn(23, 4)
+    draws = determinism.monte_carlo(model, x, samples=8, seed=1, batch_size=6)
+    assert float(draws.std(dim=0).max()) > 0
+
+
 def test_deterministic_mode_restores_previous_settings():
     before = (
         torch.backends.cudnn.benchmark,

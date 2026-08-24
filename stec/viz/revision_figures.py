@@ -1115,7 +1115,12 @@ def _build_madrigal_offset_figures(args: argparse.Namespace, output_dir: Path) -
 
 
 def fig_dstec_absolute_comparison(
-    summary: pd.Series, output_dir: Path, provenance: str
+    summary: pd.Series,
+    output_dir: Path,
+    provenance: str,
+    *,
+    model_label: str = "Direct STEC",
+    suffix: str = "",
 ) -> None:
     """Pooled RMSE, dSTEC and absolute STEC, model against IGS GIM, side by side.
 
@@ -1123,14 +1128,18 @@ def fig_dstec_absolute_comparison(
     computes both from the same per-arc mask): if the model's dSTEC advantage were an
     artefact of dSTEC being an easier metric, the absolute-STEC bars would not show the
     same ordering.
+
+    `model_label`/`suffix` let this be reused for a model variant other than the daily
+    fine-tuned one (e.g. "Pretrained Direct STEC" / "_pretrained") without duplicating
+    the function - see `_DSTEC_SOURCES`.
     """
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     plotted = _grouped_bars(
         ax,
         ["dSTEC", "Absolute STEC"],
-        ["Direct STEC", "IGS GIM + Mapping"],
+        [model_label, "IGS GIM + Mapping"],
         {
-            "Direct STEC": [
+            model_label: [
                 summary["model_dstec_rmse_pooled"],
                 summary["model_abs_rmse_pooled"],
             ],
@@ -1139,23 +1148,35 @@ def fig_dstec_absolute_comparison(
                 summary["gim_abs_rmse_pooled"],
             ],
         },
-        [APPROACH_COLORS["Direct STEC"], APPROACH_COLORS["IGS GIM + Mapping"]],
+        [APPROACH_COLORS[model_label], APPROACH_COLORS["IGS GIM + Mapping"]],
         "RMSE [TECU]",
     )
     ax.legend()
     ax.set_title("dSTEC removes the common-mode offset; absolute STEC keeps it")
     _save(
-        fig, "dstec_absolute_comparison", "finetuned", output_dir, provenance, plotted
+        fig,
+        f"dstec_absolute_comparison{suffix}",
+        "finetuned",
+        output_dir,
+        provenance,
+        plotted,
     )
 
 
-def fig_dstec_win_rate(d: pd.DataFrame, output_dir: Path, provenance: str) -> None:
-    """Share of arcs where Direct STEC beats IGS GIM, dSTEC and absolute STEC.
+def fig_dstec_win_rate(
+    d: pd.DataFrame,
+    output_dir: Path,
+    provenance: str,
+    *,
+    model_label: str = "Direct STEC",
+    suffix: str = "",
+) -> None:
+    """Share of arcs where the model beats IGS GIM, dSTEC and absolute STEC.
 
     A pooled RMSE can be dominated by a handful of extreme arcs; the per-arc win rate
     is a second, independent read on the same question. The two win rates tracking
-    each other closely (73.4% dSTEC / 73.0% absolute STEC in the current 18-day run)
-    is itself evidence against "dSTEC is just an easier metric."
+    each other closely (73.4% dSTEC / 73.0% absolute STEC in the fine-tuned model's
+    18-day run) is itself evidence against "dSTEC is just an easier metric."
     """
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     # Return value unused: unlike every other _grouped_bars call, the CSV worth writing
@@ -1164,10 +1185,10 @@ def fig_dstec_win_rate(d: pd.DataFrame, output_dir: Path, provenance: str) -> No
     _grouped_bars(
         ax,
         d["metric"].tolist(),
-        ["Direct STEC"],
-        {"Direct STEC": d["win_rate_pct"].to_numpy()},
-        [APPROACH_COLORS["Direct STEC"]],
-        "Arcs where Direct STEC beats IGS GIM [%]",
+        [model_label],
+        {model_label: d["win_rate_pct"].to_numpy()},
+        [APPROACH_COLORS[model_label]],
+        f"Arcs where {model_label} beats IGS GIM [%]",
     )
     ax.axhline(
         50,
@@ -1180,50 +1201,89 @@ def fig_dstec_win_rate(d: pd.DataFrame, output_dir: Path, provenance: str) -> No
     ax.set_ylim(0, 100)
     ax.legend(loc="lower right")
     ax.set_title("Per-arc win rate against IGS GIM")
-    _save(fig, "dstec_win_rate", "finetuned", output_dir, provenance, d)
+    _save(fig, f"dstec_win_rate{suffix}", "finetuned", output_dir, provenance, d)
+
+
+# (results subdirectory nested under the dstec_evaluation output root, filename
+# suffix, approach label for the model bars, provenance description) - same shape as
+# _STRATIFIED_SOURCES, extended along the model-variant axis dstec_evaluation.py's
+# --model-variant/--dataset flags parameterise. Every combination's CSVs live in
+# their own subdirectory (dstec_evaluation.default_output_dir - the canonical
+# finetuned_stec/own run keeps writing straight to the dstec_evaluation root, so its
+# path and filenames are unchanged), so no run's output can overwrite another's; every
+# combination's figures land in the same "finetuned" plots/revision bucket because
+# every combination run so far is evaluated against the identical 2024 test-day list,
+# not a different data source in the SOURCE_DIRS sense.
+_DSTEC_SOURCES = (
+    ("", "", "Direct STEC", "daily fine-tuned models, own test set"),
+    (
+        "pretrained_stec_own",
+        "_pretrained",
+        "Pretrained Direct STEC",
+        "pretrained model (no daily fine-tune), own test set, same days as the "
+        "fine-tuned run",
+    ),
+)
 
 
 def _build_dstec_evaluation_figures(args: argparse.Namespace, output_dir: Path) -> None:
-    dstec_dir = analysis_dir(args.results_dir, "dstec_evaluation")
-    summary_path = dstec_dir / "summary.csv"
-    arcs_path = dstec_dir / "pass_statistics.csv"
-    if not summary_path.exists() or not arcs_path.exists():
-        logger.warning(f"{summary_path} not found - run stec.analysis.dstec_evaluation")
-        return
+    dstec_root = analysis_dir(args.results_dir, "dstec_evaluation")
+    for subdir, suffix, model_label, description in _DSTEC_SOURCES:
+        dstec_dir = dstec_root / subdir if subdir else dstec_root
+        summary_path = dstec_dir / "summary.csv"
+        arcs_path = dstec_dir / "pass_statistics.csv"
+        if not summary_path.exists() or not arcs_path.exists():
+            if not suffix:
+                logger.warning(
+                    f"{summary_path} not found - run stec.analysis.dstec_evaluation"
+                )
+            continue
 
-    summary = pd.read_csv(summary_path, index_col=0)["value"]
-    if "gim_dstec_rmse_pooled" not in summary.index:
-        # dstec_evaluation.summarise only adds the gim_* keys when at least one arc had
-        # a usable gim_stec value (see its docstring) - without them there is no
-        # comparison to draw, only a one-sided model number.
-        logger.info("dstec_evaluation summary has no GIM columns; skipping")
-        return
+        summary = pd.read_csv(summary_path, index_col=0)["value"]
+        if "gim_dstec_rmse_pooled" not in summary.index:
+            # dstec_evaluation.summarise only adds the gim_* keys when at least one
+            # arc had a usable gim_stec value (see its docstring). pretrained_stec/own
+            # has no gim_stec column in the store at all as of 2026-08-24 (the R2.2
+            # rebuild that populated it did not carry a GIM join) - not a missing-data
+            # fluke for that source, so this figure has nothing to compare against
+            # until that partition is backfilled.
+            logger.info(
+                f"dstec_evaluation{suffix} summary has no GIM columns; skipping"
+            )
+            continue
 
-    arcs = pd.read_csv(arcs_path)
-    n_days = int(summary["n_days"])
-    n_arcs = int(summary["n_arcs"])
-    n_obs = int(summary["n_masked_obs"])
-    prov = (
-        f"{dstec_dir}/{{summary,pass_statistics}}.csv - daily fine-tuned models, own "
-        f"test set, {n_days} days ({n_arcs:,} arcs, {n_obs:,} masked observations)"
-    )
-    fig_dstec_absolute_comparison(summary, output_dir, prov)
+        arcs = pd.read_csv(arcs_path)
+        n_days = int(summary["n_days"])
+        n_arcs = int(summary["n_arcs"])
+        n_obs = int(summary["n_masked_obs"])
+        prov = (
+            f"{dstec_dir}/{{summary,pass_statistics}}.csv - {description}, {n_days} "
+            f"days ({n_arcs:,} arcs, {n_obs:,} masked observations)"
+        )
+        fig_dstec_absolute_comparison(
+            summary, output_dir, prov, model_label=model_label, suffix=suffix
+        )
 
-    valid = arcs[arcs["gim_dstec_rmse"].notna() & arcs["gim_abs_rmse"].notna()]
-    if valid.empty:
-        logger.info("no arcs with a valid GIM value; skipping the win-rate figure")
-        return
-    win_rates = pd.DataFrame(
-        {
-            "metric": ["dSTEC", "Absolute STEC"],
-            "win_rate_pct": [
-                100 * (valid["model_dstec_rmse"] < valid["gim_dstec_rmse"]).mean(),
-                100 * (valid["model_abs_rmse"] < valid["gim_abs_rmse"]).mean(),
-            ],
-            "n_arcs": [len(valid), len(valid)],
-        }
-    )
-    fig_dstec_win_rate(win_rates, output_dir, prov)
+        valid = arcs[arcs["gim_dstec_rmse"].notna() & arcs["gim_abs_rmse"].notna()]
+        if valid.empty:
+            logger.info(
+                f"no arcs with a valid GIM value for dstec_evaluation{suffix}; "
+                "skipping the win-rate figure"
+            )
+            continue
+        win_rates = pd.DataFrame(
+            {
+                "metric": ["dSTEC", "Absolute STEC"],
+                "win_rate_pct": [
+                    100 * (valid["model_dstec_rmse"] < valid["gim_dstec_rmse"]).mean(),
+                    100 * (valid["model_abs_rmse"] < valid["gim_abs_rmse"]).mean(),
+                ],
+                "n_arcs": [len(valid), len(valid)],
+            }
+        )
+        fig_dstec_win_rate(
+            win_rates, output_dir, prov, model_label=model_label, suffix=suffix
+        )
 
 
 # --------------------------------------------------------------------------

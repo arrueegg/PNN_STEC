@@ -51,6 +51,16 @@ REPO_DATA = _root("STEC_REPO_DATA", REPO_ROOT / "data")
 OMNI_INDICES = REPO_DATA / "omni_hourly_2010-2025.h5"
 SUBSET_INDEX_CACHE = REPO_DATA / "val_test_subsets_idx"
 
+
+def aggregated_split_h5(split: str) -> Path:
+    """`split` is one of train, val, test - the flat, row-indexable aggregate
+    `DataPreprocessor.build_split_h5` (`src/utils/preprocessing.py`) writes from the raw
+    per-day database. `stec.data.aggregated_dataset.AggregatedSplitDataset` reads this for
+    the pretrain's 500,000-row-per-epoch sample, which needs random access into the full
+    ~1.37e9-row train split rather than one day at a time."""
+    return REPO_DATA / f"{split}.h5"
+
+
 # Small, git-tracked text data (not code), so it lives inside the package rather than in
 # the `src/` tree that is being retired - `stec/` must be able to resolve these with `src/`
 # gone.
@@ -179,12 +189,18 @@ LEGACY_EXPERIMENTS = LEGACY_ROOT / "experiments"
 # it either.
 LEGACY_WANDB = LEGACY_ROOT / "wandb"
 
-# The paper's pretrained run. Its config.yaml is the authoritative description of what
-# trained - it carries the architecture plus both the `pretrain` and `finetune` blocks -
-# and is what Table 2 must be generated from. A template in `config/` describes an
-# intention; only a stored run config describes a model that exists.
+# The paper's pretrained run. `PAPER_PRETRAINED_RUN` is the full experiment directory in
+# the (non-distributed, 640 GB) legacy tree - checkpoints, logs, everything a training run
+# writes. Its config.yaml disagreed with every checked-in `config/` template on 7 of 8
+# fields (architecture, prior sigma, learning rate, batch size, scheduler, SH degree, KL
+# weight), so a template was never a safe stand-in for it.
 PAPER_PRETRAINED_RUN = LEGACY_EXPERIMENTS / (
     "Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam"
     "_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
 )
-PAPER_PRETRAINED_CONFIG = PAPER_PRETRAINED_RUN / "config.yaml"
+# ...but Tables 1-2 only need that run's config.yaml, not the checkpoints beside it, so a
+# byte-for-byte copy is checked into version control (never edited independently - see its
+# header) and PAPER_PRETRAINED_CONFIG points there instead of into the legacy tree. This is
+# what makes Tables 1-2 reproducible "from the code alone, with no data" (docs/REPRODUCING.md):
+# unlike everything else under LEGACY_ROOT, it does not require STEC_LEGACY_ROOT to be set.
+PAPER_PRETRAINED_CONFIG = REPO_ROOT / "config" / "paper" / "pretrain_stec_config.yaml"

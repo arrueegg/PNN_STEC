@@ -81,6 +81,7 @@ from ..models import determinism
 from ..models.architectures import load_checkpoint
 from . import prediction_store
 from .monte_carlo import (
+    DEFAULT_INFERENCE_BATCH_SIZE,
     UncertaintyDecomposition,
     _PairedOutputAdapter,
     monte_carlo_uncertainty,
@@ -198,6 +199,7 @@ def run_inference(
     madrigal_local_time_longitude: Literal["station", "ipp"] = "ipp",
     store_root: Path | None = None,
     device: torch.device = torch.device("cpu"),
+    batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
 ) -> list[dict]:
     """Run `model` over `split` for every day in `days`, writing one store file each.
 
@@ -207,6 +209,10 @@ def run_inference(
     the station set in `stec.config.paths.station_list(split)` instead - the closest
     analogue Madrigal has, and what `src/compare_stec_vtec_gim.py`'s Madrigal branch did by
     filtering to `test_station.list`. See `stec.data.madrigal_reader`'s module docstring.
+
+    `batch_size` is forwarded to `monte_carlo_uncertainty` unchanged - see its docstring
+    and `determinism.monte_carlo`'s for why chunking the row dimension of a stochastic pass
+    does not change any number written to the store.
 
     Returns the manifest rows (one per day) the caller writes to CSV - the file `min_rows`
     is keyed on, since a parquet output carries no row count in the pipeline's provenance
@@ -252,7 +258,12 @@ def run_inference(
             checked_zero_perturbation = True
 
         decomposition = monte_carlo_uncertainty(
-            model, inputs, model.capabilities, requested_samples=samples, seed=seed
+            model,
+            inputs,
+            model.capabilities,
+            requested_samples=samples,
+            seed=seed,
+            batch_size=batch_size,
         )
 
         frame = build_prediction_frame(raw, decomposition)
@@ -351,6 +362,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_INFERENCE_BATCH_SIZE,
+        help="rows per chunk during Monte Carlo sampling, so one stochastic pass does not "
+        "allocate an activation tensor sized for the whole day - see "
+        "monte_carlo.DEFAULT_INFERENCE_BATCH_SIZE for the OOM this avoids",
+    )
     return parser
 
 
@@ -390,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
         madrigal_local_time_longitude=args.madrigal_local_time_longitude,
         store_root=args.store_root,
         device=device,
+        batch_size=args.batch_size,
     )
 
     manifest_path = write_manifest(manifest, args.output_dir / "inference_manifest.csv")

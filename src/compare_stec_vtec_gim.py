@@ -44,7 +44,9 @@ from collections import defaultdict
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from stec.config import paths as stec_paths
 from utils.feature_registry import initialize_feature_registry
 from training.base_trainer import BaseTrainer
 from data_loader import get_test_data_loader
@@ -993,7 +995,7 @@ def main(args=None):
             doy = int(stec_config.get("doy", 183))
 
             # Load test station list for filtering
-            test_station_file = Path("src/data_processing/test_station.list")
+            test_station_file = stec_paths.station_list("test")
             test_stations = None
             if test_station_file.exists():
                 with open(test_station_file, "r") as f:

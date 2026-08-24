@@ -164,6 +164,15 @@ Notes:
   the mechanism it describes is now real.
 - Space-weather columns keep registry names: `Kp_index`, `R_Sunspot_No`, `Dst-index,_nT`,
   `AE-index,_nT`, `ap_index,_nT`, `f107_index`.
+- **The VTEC baseline is a 10-member deep ensemble, not one checkpoint.** The canonical config
+  sets `finetune.ensemble_size: 10`, and 242 of 245 `Finetune_VTEC_2024_<DOY>_..._woYear`
+  directories hold all ten seed `.pth` files. Loading only the first reproduces a
+  plausible-but-wrong column: measured **2.38 TECU RMSE** off the real `vtec_model_stec`, some
+  rows off by 40+ TECU, and `vtec_model_stec_epistemic_unc` of **exactly zero** where the real
+  column carries a mean 1.79 TECU spread - that zero is the tell. `stec/inference/
+  run_baselines.py::load_vtec_model` globs every `.pth` beside the one it is given and wraps
+  >1 in `DeepEnsemble`, whose spread needs `get_uncertainties`, not the Bayesian-weight MC
+  path. Ensemble spread and MC weight sampling are different machinery; do not substitute one.
 - The VTEC baseline (`MLP_LaplacianNLL`) predicts a Laplace **scale** `b`, not a std - but
   the store does not hold `b`. Two independent ports misread this, so being blunt about
   which number lives where: `inference_manager` converts `b` to `variance = 2*b^2` and
@@ -316,11 +325,37 @@ factory, plus `ResNet_BNN_NLL`/`MLP_LaplacianNLL`/`DeepEnsemble` into
 `stec/models/architectures.py` — and got 10 of 13 identified operational dependants on `src/`
 to import or run `--help` cleanly with `src/` deleted in a scratch copy):
 
-- **`cli.py`'s `train`/`compare`/`inference`/`map`/`multiday` subcommands** — ~12,300 lines of
-  orchestration: the training loop with early stopping and wandb logging, Figures 4-11, spatial
-  map inference. `stec/training/run_training.py` exists but deliberately does not replace this
-  (no best-checkpoint tracking, no early stopping, no wandb — see the retraining note under
-  "What is and is not reproducible" in `docs/REPRODUCING.md`).
+- **`cli.py`'s `train`/`compare`/`inference`/`map`/`multiday` subcommands** — quoted at
+  ~12,300 lines; a fresh-interpreter import trace of the 5 driver modules (`sys.modules`
+  after `import main, compare_stec_vtec_gim, inference_testset, inference_map,
+  multiday_evaluation`, filtered to `src/`) found **50 distinct files, 25,134 lines** at
+  module level alone — a *lower* bound, since it does not reach the lazy, mode-gated
+  imports inside `main()`/`run_inference_analysis()` (`finetune.py`, `pretrain.py`,
+  `data_loader/madrigal_dataset.py`, `evaluation/madrigal_loader.py`, `evaluation/utils.py`,
+  `utils/feature_splitter.py`, `utils/model_utils.py` — none of these showed up in the
+  trace, each real and each still `src/`-only). ~12,300 undercounts the real dependency
+  graph; treat it as a floor, not an estimate, until someone runs a real coverage trace with
+  every branch (Madrigal, ensemble, both `mode`s) exercised. What is still needed, in
+  capability rather than lines: the training loop with early stopping and wandb logging,
+  live model inference that populates the prediction store (`stec.inference.run_inference`
+  covers the STEC model's
+  own forward pass for a given day, but not ensemble/MC-dropout decomposition or the
+  interpolation/extrapolation temporal split), the daily fine-tune+inference+comparison sweep
+  itself, and spatial map inference (confirmed, not assumed, to have no `stec/` equivalent at
+  all — grid construction, multi-temporal dataset assembly, IONEX read/write and the plotting
+  are all still `src/data_loader/multitemporal_inference_dataset.py` +
+  `src/inference_map.py`-only). Figures 4-11 are **not** part of this list any more — see the
+  correction below this bullet and the one in `retirement_inventory.md`'s `src/viz/` section:
+  `stec.analysis.pretrained_test_diagnostics` + `stec/viz/manuscript_figures.py` produce all of
+  them from the store today, no `src/` involved, confirmed by real output on disk. `stec/
+  training/run_training.py` exists but deliberately does not replace the training loop (no
+  best-checkpoint tracking, no early stopping, no wandb — see the retraining note under "What is
+  and is not reproducible" in `docs/REPRODUCING.md`). All five subcommands still delegate to
+  `src/` for their actual work; the only change made without GPU access was to fail with a named,
+  actionable message (`cli.py <subcommand> needs src/<module>.py, which is not importable …`)
+  instead of a raw `ModuleNotFoundError` traceback when `src/` is absent — behaviourally
+  identical to before whenever `src/` is present, verified by importing all five `src/` entry
+  points for real in this checkout.
 
 That was left rather than ported blind: this session (and the one before it) could not run
 training or inference to verify a port, and a training loop ported without being executed is
@@ -372,11 +407,22 @@ not orphaned, just not where new figure code goes): one plot per PNG, grouped in
 explanatory text**. Each is written twice — a working copy with a title and a provenance
 footnote naming the source CSV, and a `_notitle` copy that is the manuscript version.
 `stec/viz/manuscript_figures.py` separately defines a `fig_*` function for all 14
-code-generated manuscript figures (only Fig 3 is hand-drawn), but its own `build_all()` wires
-only 8 of them up against real data (the split figures, Figs 10/11, positioning Figs 12-15);
-Figures 4-9 are ported and unit-tested against synthetic frames but not yet run against the
-real store by anything — `src/viz/{distributions,performance,spatial,uncertainty}.py` plus
-`src/inference_testset.py` remain the only way to actually produce them today.
+code-generated manuscript figures (only Fig 3 is hand-drawn), and as of `stec.analysis.
+pretrained_test_diagnostics` landing (commit `3972b61`) its own `build_all()` wires up all
+14 against real data, confirmed by the real output on disk: `plots/manuscript/
+stec_pretrained_testset/*.png` (Figs 4-9), `.pipeline/pretrained_test_diagnostics.json`. This
+corrects an earlier version of this note, and of `docs/revision/retirement_inventory.md`'s
+`src/viz/` table, that still said Figures 4-9 were wired only against synthetic frames — true
+when written, not since `3972b61`. Figures 4-9 read a per-observation cache
+(`stec.analysis.pretrained_test_diagnostics`, streamed from `predictions/pretrained_stec/own`)
+rather than the store directly, so run that stage first; `stec/pipeline/stages.py`'s own
+`manuscript_figures` Stage does this in order automatically. What this does **not** close:
+`src/inference_testset.py` is still what runs the live model inference that populates
+`predictions/pretrained_stec/own` and `predictions/finetuned_stec/*` in the first place, and
+still holds the ensemble/MC-dropout decomposition and interpolation/extrapolation temporal
+split that `stec/` has no equivalent for (see `cli.py`'s `train`/`compare`/`inference`/`map`/
+`multiday` note below) — the figures gap and the live-inference gap are different things, and
+only the first one is closed.
 
 **Colour rules.** Approach colours are those of `positioning/scripts/plot_results.py` and
 must not change: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple
@@ -391,7 +437,7 @@ Two evaluations that are **not** what they look like:
 - **The Madrigal comparison changes two things at once** — the model is out of distribution
   *and* the reference comes from a different processing chain. 45% of the Madrigal RMSE
   variance is a per-station reference offset, established by the fact that the model and the
-  IGS GIM disagree with Madrigal identically (corr +0.946 over 66 stations). Madrigal numbers
+  IGS GIM disagree with Madrigal identically (corr +0.946 over 67 stations). Madrigal numbers
   must be read alongside `madrigal_reference_offset`, never standalone, and they do not
   support claims about the model's out-of-distribution uncertainty. Also read alongside the
   local-time correction: the published Madrigal numbers used receiver-longitude local time

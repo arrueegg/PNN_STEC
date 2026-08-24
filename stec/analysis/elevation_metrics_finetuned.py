@@ -147,15 +147,38 @@ def collect(
     whether a missing dataset is fatal or just absent (`main` below treats it as absent).
     """
     rows: list[dict] = []
-    for path in ps.day_paths(model_variant, dataset, doys=doys, root=store_root):
+    # allow_multi_year=True: `doys` is a pure day-number filter here, by design ("every
+    # day in the store" is the documented default) - a doy shared by several years of a
+    # multi-year variant is meant to contribute every one of those years, each as its own
+    # (doy, bin, method) row. That is safe specifically because the loop below scopes
+    # each file to its own year rather than re-matching by doy alone (see the comment on
+    # `year` below); prediction_store.day_paths cannot tell the two apart from the
+    # outside, so this call has to say so explicitly.
+    for path in ps.day_paths(
+        model_variant, dataset, doys=doys, root=store_root, allow_multi_year=True
+    ):
+        # year must come from this specific matched path, not be re-derived from doy
+        # alone: re-querying by doy=[doy] with no year= re-matches every year that
+        # shares this doy, so `next()` on that stream always returns the same
+        # (chronologically first) year - silently reading it twice and never reaching
+        # the others. Scoping both years=[year] and doys=[doy] to this one file is the
+        # pattern `daily_metrics.py` and `uncertainty_calibration.py` already use.
+        year = int(path.parent.name.split("=")[1])
         doy = int(path.stem.split("=")[1])
         wanted = _wanted_columns(path)
         if TRUTH_COLUMN not in wanted or "satele" not in wanted:
-            logger.warning(f"doy={doy:03d} is missing satele/{TRUTH_COLUMN}, skipping")
+            logger.warning(
+                f"{year}-{doy:03d} is missing satele/{TRUTH_COLUMN}, skipping"
+            )
             continue
         _, _, frame = next(
             ps.iter_days(
-                model_variant, dataset, doys=[doy], columns=wanted, root=store_root
+                model_variant,
+                dataset,
+                years=[year],
+                doys=[doy],
+                columns=wanted,
+                root=store_root,
             )
         )
         rows.extend(accumulate_day(frame, doy))

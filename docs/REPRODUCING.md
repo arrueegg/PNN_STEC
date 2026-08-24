@@ -27,7 +27,7 @@ a provenance record for each one.
 | Madrigal reference STEC (`Madrigal_STEC`) | `stec.config.paths.MADRIGAL_ROOT`, `STEC_DATA_ROOT` | Source line-of-sight TEC is public via the [Madrigal distributed database](http://cedar.openmadrigal.org/); the per-day HDF5 extraction this pipeline reads is a local reformatting, not distributed. | 740 GB |
 | IGS/CODE Global Ionospheric Maps (IONEX) | `stec.config.paths.GIM_IONEX_ROOT`, `STEC_DATA_ROOT` | Public. IGS combined GIMs and CODE's own product are served from CDDIS and `ftp.aiub.unibe.ch`; CDDIS requires a free Earthdata login, and AIUB's FTP is firewalled from some hosts (see the Gotchas in the project `CLAUDE.md`). | tens of GB across the test period |
 | Station/date split lists | `stec.config.paths.SPLIT_LISTS` (`src/data_processing/*.list`) | **Included in this repository** — small text files, not part of the 640 GB tree, and not overridable by an environment variable (they are resolved relative to the repo root on purpose: they are code, not data). | KB |
-| Trained checkpoints (pretrained + 258 daily fine-tunes) | `experiments/` under `STEC_LEGACY_ROOT` | Produced by training runs against the data above. Not included. | not disclosed here; not distributed |
+| Trained checkpoints (pretrained + 258 daily fine-tunes) | `experiments/` under `STEC_LEGACY_ROOT` | Produced by training runs against the data above. Not included. The pretrained run's own `config.yaml` is the one exception — a frozen copy is checked in at `config/paper/pretrain_stec_config.yaml` (see Tables 1-2, below) precisely so describing the model does not require the checkpoints beside it. | not disclosed here; not distributed |
 
 ## Environment variables
 
@@ -76,7 +76,7 @@ python -m stec.pipeline run --keep-going
 # The equivalent through the unified CLI
 python -m stec.cli pipeline run --only daily_metrics
 python -m stec.cli metrics --dataset own
-python -m stec.cli tables --config config/config_BNN.yaml
+python -m stec.cli tables --config config/paper/pretrain_stec_config.yaml
 python -m stec.cli manifest --strict
 python -m stec.cli runs --experiments experiments --output multiday_results/run_index.csv
 ```
@@ -166,8 +166,16 @@ start.
 - that the package installs, imports, and its test suite (`pytest tests/ -q`) passes;
 - the shape of every analysis and figure — which CSV each stage writes, which columns it
   has, which reviewer comment it answers (`stec/pipeline/stages.py` is readable on its own);
-- Tables 1 and 2 (architecture and hyperparameters), which are generated from a resolved
-  run config rather than from inference output — see `python -m stec.cli tables`.
+- Tables 1 and 2 (architecture and hyperparameters), generated from
+  `config/paper/pretrain_stec_config.yaml` — a frozen, checked-in copy of the paper's own
+  pretrained-run config, not a hand-maintained template and not a read into the excluded
+  `experiments/` tree — rather than from inference output. `stec/config/paths.py`'s
+  `PAPER_PRETRAINED_CONFIG` resolves to this file, and `stec/pipeline/stages.py`'s
+  `paper_tables` stage runs it by default; see `python -m stec.cli tables`. (Earlier
+  revisions of this pipeline pointed the same stage at the resolved config.yaml sitting
+  inside the real `experiments/…/` run directory, which is correct in content but requires
+  the very 640 GB tree this section says is not needed — freezing a copy is what closes
+  that gap.)
 
 **Reproducible given the real data and checkpoints** (obtainable only by request from the
 authors; not distributed with this release):

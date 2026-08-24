@@ -321,3 +321,46 @@ def load_checkpoint(path, map_location="cpu") -> tuple[BayesianResNetSTEC, dict]
     model.load_state_dict(state)
     model.eval()
     return model, shape
+
+
+def shape_from_vtec_state_dict(state: dict) -> dict:
+    """`shape_from_state_dict`'s counterpart for `MLP_LaplacianNLL`.
+
+    Reads a different set of tensor names because the two architectures are built
+    differently: `BayesianResNetSTEC` names its blocks `input_layer`/`res_blocks`,
+    `MLP_LaplacianNLL` keeps every hidden layer in one flat `layers` list ending in
+    `output_layer`. A single shape-reader that tried to cover both would have to guess
+    which naming convention a checkpoint uses; keeping them separate means each one only
+    has to be right about the architecture it names.
+    """
+    weight = state["layers.0.weight"]
+    hidden_dim, n_in = int(weight.shape[0]), int(weight.shape[1])
+    layer_indices = {
+        int(key.split(".")[1])
+        for key in state
+        if key.startswith("layers.") and key.endswith(".weight")
+    }
+    return {
+        "n_in": n_in,
+        "hidden_dim": hidden_dim,
+        "num_layers": len(layer_indices),
+    }
+
+
+def load_vtec_checkpoint(path, map_location="cpu") -> tuple[MLP_LaplacianNLL, dict]:
+    """Build the `MLP_LaplacianNLL` checkpoint a VTEC baseline run wrote, and load it.
+
+    Mirrors `load_checkpoint` exactly, one architecture over: the constructor arguments
+    come from the checkpoint's own tensor shapes rather than a config, so loading a VTEC
+    checkpoint never depends on `stec.models.legacy_factory`'s `FeatureRegistry`-based
+    sizing (a separate, config-driven path used elsewhere for ensembles) - it only needs
+    the file itself.
+    """
+    state = torch.load(path, map_location=map_location, weights_only=True)
+    if isinstance(state, dict) and "model_state_dict" in state:
+        state = state["model_state_dict"]
+    shape = shape_from_vtec_state_dict(state)
+    model = MLP_LaplacianNLL(**shape)
+    model.load_state_dict(state)
+    model.eval()
+    return model, shape

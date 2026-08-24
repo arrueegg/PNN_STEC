@@ -43,7 +43,7 @@ from collections.abc import Sized
 from pathlib import Path
 
 import torch
-from torch.utils.data import RandomSampler
+from torch.utils.data import DataLoader, RandomSampler
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,45 @@ class EpochRandomSampler(RandomSampler):
     def set_epoch(self, epoch: int) -> None:
         """Call at the start of each epoch, or every epoch sees the same ordering."""
         self.epoch = epoch
+
+
+class ResampledEpochBatches:
+    """Adapts an `EpochRandomSampler`-driven `DataLoader` to `fit`'s "one pass per real
+    epoch" contract, without editing `stec/training/fit.py` or `checkpointing.py`.
+
+    `fit()`/`fit_with_best_checkpoint()` call `for batch in train_batches` exactly once per
+    real epoch and never tell `train_batches` which epoch is running - by design, per
+    `fit.py`'s own docstring, since the few-day fine-tune trains on the same fixed rows every
+    epoch and has no reshuffle hook to call. The pretrain is different: it is supposed to
+    draw a fresh 500,000-row sample with replacement each epoch, which needs
+    `EpochRandomSampler.set_epoch` called somewhere. Rather than teaching `fit`'s loop about
+    epochs it does not otherwise need to know, this class counts its own `__iter__` calls -
+    the Nth call happens during the Nth real epoch, because `_run_epoch` iterates the object
+    it is given exactly once and nothing else ever iterates this one - and advances the
+    sampler's epoch before each pass.
+    """
+
+    def __init__(
+        self,
+        loader: DataLoader,
+        sampler: EpochRandomSampler,
+        device: torch.device,
+    ) -> None:
+        self._loader = loader
+        self._sampler = sampler
+        self._device = device
+        self._next_epoch = 0
+
+    def __iter__(self):
+        self._sampler.set_epoch(self._next_epoch)
+        self._next_epoch += 1
+        return (
+            (inputs.to(self._device), targets.to(self._device))
+            for inputs, targets in self._loader
+        )
+
+    def __len__(self) -> int:
+        return len(self._loader)
 
 
 def _load_cached(cache_path: Path, length: int, k: int, seed: int) -> list[int] | None:

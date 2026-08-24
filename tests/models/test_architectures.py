@@ -8,7 +8,10 @@ from stec.models import capabilities
 from stec.models.architectures import (
     VARIANCE_FLOOR,
     BayesianResNetSTEC,
+    MLP_LaplacianNLL,
+    load_vtec_checkpoint,
     shape_from_state_dict,
+    shape_from_vtec_state_dict,
 )
 
 
@@ -72,3 +75,57 @@ def test_the_vtec_baseline_is_a_laplace_scale():
     caps = capabilities.LAPLACE_DETERMINISTIC
     assert caps.distribution == "laplace"
     assert caps.spread_kind == "scale"
+
+
+# --- MLP_LaplacianNLL: a different naming convention needs its own shape reader ---------
+
+
+def test_vtec_shape_is_recoverable_from_a_state_dict():
+    """`layers.0`/`output_layer`, not `input_layer`/`res_blocks` - a checkpoint still
+    records its own architecture without a config."""
+    model = MLP_LaplacianNLL(n_in=13, hidden_dim=24, num_layers=4)
+    assert shape_from_vtec_state_dict(model.state_dict()) == {
+        "n_in": 13,
+        "hidden_dim": 24,
+        "num_layers": 4,
+    }
+
+
+def test_a_recovered_vtec_shape_round_trips():
+    original = MLP_LaplacianNLL(n_in=9, hidden_dim=12, num_layers=2)
+    rebuilt = MLP_LaplacianNLL(**shape_from_vtec_state_dict(original.state_dict()))
+    rebuilt.load_state_dict(original.state_dict())
+
+
+def test_vtec_forward_returns_location_and_scale():
+    torch.manual_seed(0)
+    model = MLP_LaplacianNLL(n_in=6, hidden_dim=8, num_layers=2).eval()
+    location, scale = model(torch.randn(5, 6))
+    assert location.shape == (5, 1)
+    assert scale.shape == (5, 1)
+    assert float(scale.min()) >= VARIANCE_FLOOR
+
+
+def test_vtec_declares_laplace_deterministic_capabilities():
+    caps = MLP_LaplacianNLL.capabilities
+    assert caps.samples_weights is False
+    assert caps.distribution == "laplace"
+    assert caps.spread_kind == "scale"
+
+
+def test_load_vtec_checkpoint_round_trips_through_disk(tmp_path):
+    """Mirrors the real checkpoint format: `{"model_state_dict": ...}`, as written by
+    `src/finetune.py` and read by `load_model_for_inference`."""
+    original = MLP_LaplacianNLL(n_in=5, hidden_dim=6, num_layers=2)
+    checkpoint_path = tmp_path / "finetune_MLP_LaplacianNLL_seed42.pth"
+    torch.save({"model_state_dict": original.state_dict()}, checkpoint_path)
+
+    loaded, shape = load_vtec_checkpoint(checkpoint_path)
+    assert shape == {"n_in": 5, "hidden_dim": 6, "num_layers": 2}
+
+    inputs = torch.randn(4, 5)
+    with torch.no_grad():
+        original_out = original(inputs)
+        loaded_out = loaded(inputs)
+    torch.testing.assert_close(original_out[0], loaded_out[0])
+    torch.testing.assert_close(original_out[1], loaded_out[1])
