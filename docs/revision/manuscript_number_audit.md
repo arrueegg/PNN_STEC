@@ -172,21 +172,68 @@ this correctly as 1.630 / 1.631 / **−0.1%**. "Unchanged" overstates a genuine,
 −0.1% degradation. Lowest-consequence item in this section — flagged because the task asked for
 precision, not because it matters to any conclusion.
 
+### 2.5 Table 4, Direct STEC (Madrigal) row — stale, not just unrepaired: wrong local-time
+convention, corrected 2026-08-24
+
+> `Model & RMSE [TECU] & MAE [TECU] & R^2` ... `Direct STEC Model & 14.70 \pm 3.44 & 8.85 \pm 1.92 & 0.85 \pm 0.03`
+
+Manuscript value: **14.70 ± 3.44 TECU RMSE, 8.85 ± 1.92 TECU MAE, R² 0.85 ± 0.03**, 238 days.
+§2.3 above already noted the day-count-only shift to 14.67±3.45 / 235 days; that shift is
+superseded by a larger, previously undocumented problem. `predictions/finetuned_stec/madrigal/`
+(the store §2.3's 14.67±3.45 was recomputed from) was built with
+`local_time_hours` derived from **station** longitude (`MadrigalSTECDataset._add_local_time`,
+`src/data_loader/madrigal_dataset.py`), not the **IPP** longitude every other convention in
+this codebase uses (`src/data_loader/datasets.py`, commented "Use IPP longitude for local
+time", two months earlier). `local_time_hours` is a real model input (3 of 127 columns), and
+IPP is the physically correct choice — the ionosphere's diurnal variation follows solar
+illumination at the pierce point, not the receiver. This is divergence #12
+(`stec.analysis.divergences`), corrected 2026-08-24: measured on a real DOY-132 day through
+the real checkpoint, seeded and zero-perturbation-controlled, switching the convention moves
+predicted STEC by mean +0.0015 TECU, **RMSE 0.80 TECU, max |Δ| 13.4 TECU** (n=20,000) — on the
+same order as the 1.10 TECU gap this table currently shows between Direct STEC (14.70) and
+VTEC + Mapping (13.60), the row the manuscript bolds as best on Madrigal. Whether the
+corrected numbers still support "the Direct STEC model remains competitive... and outperforms
+both the Pretrained Direct STEC model and the IGS GIM baseline" (main text, dataset-shift
+paragraph) is unverified until the re-run lands.
+
+Not affected in the same table: **VTEC + Mapping** (its feature set has
+`local_time_hours: false`, CLAUDE.md) and **IGS GIM** (an exogenous IONEX lookup, no model
+input at all) are untouched by this convention. **Pretrained STEC** — see §3 below; already
+unrecomputable from the store for an unrelated reason, so this fix does not change its status,
+though the originally published 17.37 figure may carry the same historical erratum,
+unquantifiable from what is on disk.
+
+**To close this**: `stec.data.madrigal_reader.read_madrigal_day` now defaults to
+`local_time_longitude="ipp"` (the corrected convention); `stec.inference.run_inference` and
+its CLI pass the flip through. A corrected re-run of the 235 days,
+`stec.inference.reinference_madrigal_local_time`, is queued (waits for the GPU) rather than
+run inline — this audit's own resource limits exclude re-inference. Once it lands, rerun
+`daily_metrics` (`Table 4`, canonical) and `madrigal_reference_offset` (R1.3 per-station
+offset decomposition — also reads `stec_pred` directly, and the offset numbers quoted in
+`docs/revision/response_to_reviewers.md` and `docs/revision/evidence_summary.md` are equally
+stale, though those files are outside this audit's `PNN_main.tex` scope).
+
 ---
 
 ## 3. Numbers that could not be verified here, and what would close them
 
 **Table 4, Pretrained Direct STEC row** (17.37±4.78 / 11.83±3.81 / 0.79±0.10). Matches the
 original `summary_statistics.csv` exactly, and this model is not touched by the GIM bug, so
-there is no specific reason to doubt it — but it cannot currently be *independently
-recomputed* from the repaired pipeline: `daily_metrics.py`'s `MODELS` dict looks for a
-`pretrained_stec_pred` column in the store, and `predictions/pretrained_stec/` only has an
-`own/` subdirectory (confirmed by listing, not by reading data) — no `madrigal/` predictions
-were ever written for the pretrained model. `daily_metrics/summary.csv` accordingly has no
-`madrigal_vtec_gim / Pretrained STEC` row at all. **To close this**: run pretrained-model
-inference against the Madrigal reference and write `pretrained_stec_pred` into
+there is no specific reason to doubt it on that count — see §2.5 for a *different* reason it
+might be: if the legacy Madrigal evaluation used the same `MadrigalSTECDataset` loader for the
+pretrained model as it did for the fine-tuned one (unconfirmed — no stored config for this run
+was located), the published 17.37 may carry the same station-longitude erratum, in a direction
+and magnitude this audit cannot quantify without the run that produced it. It cannot currently
+be *independently recomputed* from the repaired pipeline either way: `daily_metrics.py`'s
+`MODELS` dict looks for a `pretrained_stec_pred` column in the store, and
+`predictions/pretrained_stec/` only has an `own/` subdirectory (confirmed by listing, not by
+reading data) — no `madrigal/` predictions were ever written for the pretrained model.
+`daily_metrics/summary.csv` accordingly has no `madrigal_vtec_gim / Pretrained STEC` row at
+all. **To close this**: run pretrained-model inference against the Madrigal reference (under
+the corrected `local_time_longitude="ipp"` convention) and write `pretrained_stec_pred` into
 `predictions/pretrained_stec/madrigal/`, then rerun `daily_metrics.py` — this needs GPU
-inference, which is outside this audit's resource limits.
+inference, which is outside this audit's resource limits, and is not the re-run queued for
+§2.5 (that one only touches `finetuned_stec/madrigal`).
 
 **"Pearson correlation of 0.93–0.95 across all years"** (long-term stability paragraph). Every
 other number in that sentence checks out (§1), but this specific claim needs a *per-year*

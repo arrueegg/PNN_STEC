@@ -269,18 +269,20 @@ def test_raw_geometry_matches_the_legacy_madrigal_dataset(tmp_path):
 @pytest.mark.skipif(
     not legacy_available(), reason="pre-rebuild source tree not available"
 )
-def test_default_local_time_matches_the_legacy_loader(tmp_path):
-    """`MadrigalSTECDataset._add_local_time` uses station longitude, with no comment or
+def test_station_local_time_matches_the_legacy_loader(tmp_path):
+    """`MadrigalSTECDataset._add_local_time` used station longitude, with no comment or
     commit explaining why - and it postdates `src/data_loader/datasets.py` explicitly
     commenting "Use IPP longitude for local time" by two months, so it reads as an
-    oversight rather than a deliberate Madrigal-specific choice. It would not matter except
-    that it already happened: the published Table 4 Madrigal numbers and all 235 stored
-    `predictions/finetuned_stec/madrigal/` days were produced under it, and
+    oversight rather than a deliberate Madrigal-specific choice, and a physically wrong one:
+    the diurnal signal follows illumination at the pierce point, not the receiver. It would
+    not matter except that it already happened: the published Table 4 Madrigal numbers and
+    all 235 stored `predictions/finetuned_stec/madrigal/` days were produced under it, and
     `local_time_hours` is a real model input (3 of 127 columns), not just a stored column.
-    `read_madrigal_day`'s default (`local_time_longitude="station"`) therefore reproduces
-    the legacy loader exactly - divergence #12 (`stec.analysis.divergences`) - rather than
-    silently adopting the "own" dataset's `lon_ipp` convention. See
-    `test_ipp_local_time_diverges_from_the_legacy_loader` for the opt-in and its cost.
+    `read_madrigal_day`'s explicit `local_time_longitude="station"` opt-in therefore still
+    reproduces the legacy loader exactly - divergence #12 (`stec.analysis.divergences`),
+    corrected - which is what a re-run reproducing the still-published numbers needs, even
+    though it is no longer the default. See `test_ipp_local_time_diverges_from_the_legacy_loader`
+    for the now-default convention and its cost relative to this one.
     """
     build_madrigal_day(tmp_path, year=YEAR, doy=DOY, n_rows=500)
     madrigal_root = tmp_path / "Madrigal_STEC"
@@ -293,6 +295,7 @@ def test_default_local_time_matches_the_legacy_loader(tmp_path):
         split=None,
         madrigal_root=madrigal_root,
         elevation_threshold=threshold,
+        local_time_longitude="station",
     )
     legacy = _legacy_dataset(
         madrigal_root, YEAR, DOY, tmp_path, elevation_threshold=threshold
@@ -307,10 +310,12 @@ def test_default_local_time_matches_the_legacy_loader(tmp_path):
     not legacy_available(), reason="pre-rebuild source tree not available"
 )
 def test_ipp_local_time_diverges_from_the_legacy_loader(tmp_path):
-    """`local_time_longitude="ipp"` is the explicit, off-by-default opt-in that matches
-    `day_reader.compute_local_time_hours` / the "own" dataset's convention instead of the
-    legacy loader - pinning the size of that divergence so it cannot silently drift, and so
-    a future harmonised re-run knows what it is trading against the current store.
+    """`local_time_longitude="ipp"` is now `read_madrigal_day`'s default - the physically
+    correct convention, matching `day_reader.compute_local_time_hours` / the "own"
+    dataset's - and diverges from the legacy loader's `lon_sta` on purpose. Pinning the
+    size of that divergence keeps it from silently drifting, and is what a corrected
+    re-run of the existing 235-day store (`stec.inference.reinference_madrigal_local_time`)
+    is trading against.
     """
     build_madrigal_day(tmp_path, year=YEAR, doy=DOY, n_rows=500)
     madrigal_root = tmp_path / "Madrigal_STEC"

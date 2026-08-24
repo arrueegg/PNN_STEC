@@ -345,7 +345,19 @@ STAGES: list[Stage] = [
         f"-m stec.analysis.daily_metrics --output-dir {DAILY_METRICS_DIR}",
         "Tables 3, 4",
         "per-day and pooled STEC metrics recomputed from the prediction store",
-        inputs=[STORE_OWN, STORE_PRETRAINED, str(GIM_BASELINE_REPAIR_DIR)],
+        # STORE_MADRIGAL belongs here as much as STORE_OWN/STORE_PRETRAINED do:
+        # daily_metrics.py's own DATASET_LABELS loops "own" and "madrigal" under the same
+        # --model-variant (default finetuned_stec) in one invocation, so Table 4's rows
+        # come from this same command. Omitting it meant a change to
+        # predictions/finetuned_stec/madrigal/ (e.g. the divergence #12 local-time
+        # correction) would not move this stage's input fingerprint, and `pipeline run`
+        # would skip it - reporting Table 4 as up to date while it was still stale.
+        inputs=[
+            STORE_OWN,
+            STORE_PRETRAINED,
+            STORE_MADRIGAL,
+            str(GIM_BASELINE_REPAIR_DIR),
+        ],
         outputs=[str(DAILY_METRICS_DIR)],
         min_rows={},
         canonical_for="Tables 3 and 4",

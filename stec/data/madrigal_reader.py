@@ -39,25 +39,31 @@ pre-rebuild reference this module replaces:
   shell for every point regardless of whether it is a station or an IPP; that would put the
   station 450 km above where it actually is. `_add_sm_coordinates` is the correct
   reference, and this module matches it, not the generic helper.
-* **Local time.** `day_reader.compute_local_time_hours` needs a longitude, and Madrigal
-  offers two, `lon_sta` and `lon_ipp`. The "own" dataset's convention is `lon_ipp`
+* **Local time - corrected erratum, not a preserved convention.**
+  `day_reader.compute_local_time_hours` needs a longitude, and Madrigal offers two,
+  `lon_sta` and `lon_ipp`. The "own" dataset's convention is `lon_ipp`
   (`src/data_loader/datasets.py` explicitly comments "Use IPP longitude for local time",
   commit `7153cfc`, two months before `MadrigalSTECDataset` existed at all) - but
-  `MadrigalSTECDataset._add_local_time` uses `lon_sta` instead, with no comment, docstring
+  `MadrigalSTECDataset._add_local_time` used `lon_sta` instead, with no comment, docstring
   or commit message explaining the choice anywhere in its history. That reads as an
-  oversight, not a deliberate Madrigal-specific requirement. It would not matter except
-  that it already happened: `predictions/finetuned_stec/madrigal/` carries 235 days of
-  stored predictions - and the published Table 4 Madrigal numbers - all produced under
-  `lon_sta`, and `local_time_hours` is a genuine model input (3 of 127 columns: sine,
-  cosine, normalised - `stec.data.feature_layout`), not just a stored column. Divergence
-  #12 (`stec.analysis.divergences`) measured what switching costs on a real day through
-  the real DOY-132 checkpoint: mean +0.0015 TECU, RMSE 0.80 TECU, max |delta| 13.4 TECU
-  over a 20,000-row seeded sample - not negligible against an ~8-13 TECU headline RMSE.
-  So this reader keeps `lon_sta` (`local_time_longitude="station"`) as the default,
-  reproducing the published numbers and staying consistent with the existing store
-  partition; passing `local_time_longitude="ipp"` switches to the "own" dataset's
-  convention instead, for a future harmonised re-run that accepts moving all 235 days at
-  once. See the equivalence tests for the size of the divergence both ways.
+  oversight, not a deliberate Madrigal-specific requirement, and it is physically wrong:
+  the ionosphere's diurnal variation is driven by solar illumination at the pierce point -
+  where the electrons being measured actually are - not at the receiver, which can sit
+  thousands of km away in local time. IPP is what every other convention in this codebase
+  already uses.
+  It would not matter except that it already happened: `predictions/finetuned_stec/madrigal/`
+  carries 235 days of stored predictions - and the published Table 4 Madrigal numbers - all
+  produced under the wrong (`lon_sta`) convention, and `local_time_hours` is a genuine model
+  input (3 of 127 columns: sine, cosine, normalised - `stec.data.feature_layout`), not just a
+  stored column. Divergence #12 (`stec.analysis.divergences`) measured what correcting it
+  costs on a real day through the real DOY-132 checkpoint: mean +0.0015 TECU, RMSE 0.80 TECU,
+  max |delta| 13.4 TECU over a 20,000-row seeded sample - not negligible against an ~8-13
+  TECU headline RMSE. `local_time_longitude` therefore now defaults to `"ipp"`, the physically
+  correct convention; `"station"` remains available as an explicit opt-in, which is what
+  reproduces the published Table 4 numbers and the current (pre-correction) 235-day store
+  partition exactly. See the equivalence tests for the size of the divergence both ways, and
+  `stec.inference.reinference_madrigal_local_time` for the corrected re-run this flip requires
+  of the existing 235 days.
 * **Elevation and station filtering.** Madrigal carries no split index the way the STEC
   database does (`test_idx`/`val_idx`/`train_idx` are baked into that file at prep time;
   Madrigal has nothing analogous). `elevation_threshold` (default 5.0 degrees, matching
@@ -176,7 +182,7 @@ def read_madrigal_day(
     space_weather: Path | None = None,
     elevation_threshold: float = DEFAULT_ELEVATION_THRESHOLD_DEG,
     with_identity: bool = True,
-    local_time_longitude: Literal["station", "ipp"] = "station",
+    local_time_longitude: Literal["station", "ipp"] = "ipp",
 ) -> dict[str, np.ndarray]:
     """Raw columns for one Madrigal day, in file order, shaped like `read_day`'s output.
 
@@ -186,9 +192,11 @@ def read_madrigal_day(
     `elevation_threshold` degrees, matching `MadrigalSTECDataset`'s own default.
 
     `local_time_longitude` picks which longitude feeds `local_time_hours` - see the module
-    docstring's "Local time" section for why the default is `"station"` (matching
-    `MadrigalSTECDataset`, the published Table 4 numbers and the 235 stored days) rather
-    than `"ipp"` (matching the "own" dataset's convention and `stec.data.day_reader`).
+    docstring's "Local time" section for why the default is now `"ipp"` (matching the "own"
+    dataset's convention and `stec.data.day_reader`, and physically correct - the diurnal
+    signal follows illumination at the pierce point). `"station"` (matching the legacy
+    `MadrigalSTECDataset`) is kept as an explicit opt-in solely to reproduce the published
+    Table 4 numbers and the pre-correction 235-day store partition.
 
     Unlike `read_day`, an empty result is not an error here - a day whose test stations
     happen to have no low-elevation-filtered Madrigal passes is a real, if unlikely, outcome

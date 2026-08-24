@@ -512,21 +512,26 @@ missing from this list in the previous draft:
     Retroactively documented here — the fix landed in `stec/analysis/divergences.py` before
     this entry did; both must list 12 from now on.
 
-12. **Defect 21, Madrigal `local_time_hours` longitude source.** `MadrigalSTECDataset.
-    _add_local_time` (`src/data_loader/madrigal_dataset.py`) derives it from station
-    longitude (`lon_sta`); `src/data_loader/datasets.py` established and explicitly
-    commented the IPP-longitude (`lon_ipp`) convention for the "own" dataset two months
-    earlier (commit `7153cfc`) and nothing explains the Madrigal difference — it reads as
-    an oversight, not a requirement. `local_time_hours` is a genuine model input (3 of 127
-    columns), and the published Table 4 Madrigal numbers plus all 235 stored
-    `predictions/finetuned_stec/madrigal/` days were produced under `lon_sta`.
-    `stec.data.madrigal_reader.read_madrigal_day` keeps `lon_sta` as the default
-    (`local_time_longitude="station"`) to reproduce them; `local_time_longitude="ipp"` is
-    the explicit, off-by-default path to the "own" dataset's convention. Measured on a real
-    DOY-132 day through the real checkpoint, seeded and zero-perturbation-controlled:
-    mean +0.0015 TECU, RMSE 0.80 TECU, max |Δ| 13.4 TECU (n=20,000) — not negligible
-    against an ~8–13 TECU headline RMSE, so switching the default would need a full
-    235-day Madrigal re-run, not a silent flip.
+12. **Defect 21, Madrigal `local_time_hours` longitude source — corrected erratum, not a
+    preserved convention.** `MadrigalSTECDataset._add_local_time`
+    (`src/data_loader/madrigal_dataset.py`) derived it from station longitude (`lon_sta`);
+    `src/data_loader/datasets.py` established and explicitly commented the IPP-longitude
+    (`lon_ipp`) convention for the "own" dataset two months earlier (commit `7153cfc`) and
+    nothing explains the Madrigal difference — it reads as an oversight, not a requirement,
+    and it is physically wrong: the ionosphere's diurnal variation is driven by solar
+    illumination at the pierce point, where the electrons being measured actually are, not
+    at the receiver. `local_time_hours` is a genuine model input (3 of 127 columns), and
+    the published Table 4 Madrigal numbers plus all 235 stored
+    `predictions/finetuned_stec/madrigal/` days were produced under the wrong (`lon_sta`)
+    convention. Measured on a real DOY-132 day through the real checkpoint, seeded and
+    zero-perturbation-controlled: mean +0.0015 TECU, RMSE 0.80 TECU, max |Δ| 13.4 TECU
+    (n=20,000) — not negligible against an ~8–13 TECU headline RMSE.
+    `stec.data.madrigal_reader.read_madrigal_day` now defaults to
+    `local_time_longitude="ipp"`, the physically correct convention; `"station"` remains an
+    explicit opt-in that reproduces the published numbers and the current (stale) store.
+    Table 4's Direct STEC (Madrigal) row and the 235-day store are stale until
+    `stec.inference.reinference_madrigal_local_time` reruns them under the corrected
+    convention — see `docs/revision/manuscript_number_audit.md`.
 
 ---
 

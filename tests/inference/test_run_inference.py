@@ -340,6 +340,7 @@ def test_build_arg_parser_defaults():
     assert args.dataset == "own"
     assert args.samples == 100
     assert args.split == "test"
-    # Divergence #12 (stec.analysis.divergences): "station" reproduces the published
-    # Table 4 numbers and the existing store partition; must not silently flip to "ipp".
-    assert args.madrigal_local_time_longitude == "station"
+    # Divergence #12 (stec.analysis.divergences), corrected: "ipp" is the physically
+    # correct convention and is now the default. "station" remains available, explicitly,
+    # solely to reproduce the published Table 4 numbers and the pre-correction store.
+    assert args.madrigal_local_time_longitude == "ipp"

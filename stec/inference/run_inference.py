@@ -14,12 +14,18 @@ only loads Madrigal's own reference STEC, to compare a prediction against, never
 the tensor a prediction is made from. `stec.data.madrigal_reader.read_madrigal_day` is that
 reader, ported from `src/data_loader/madrigal_dataset.py`'s `MadrigalSTECDataset` (see its
 own module docstring for what it does and does not reproduce from that reference). Its
-`local_time_hours` defaults to the legacy reference's station-longitude convention rather
-than this project's own `lon_ipp` convention (divergence #12, `stec.analysis.divergences`)
-- not because station longitude is Madrigal-specific or correct, but because the published
-Table 4 numbers and the 235 days already in `predictions/finetuned_stec/madrigal/` were
-produced under it, and a day driven through this module beside them must match, not
-introduce a second convention into the same store partition. Its output is shaped exactly
+`local_time_hours` now defaults to `lon_ipp`, this project's own convention and the
+physically correct one (divergence #12, `stec.analysis.divergences`) - the legacy
+reference's station-longitude convention is a corrected erratum, not a preserved choice.
+The published Table 4 numbers and the 235 days already in `predictions/finetuned_stec/madrigal/`
+were produced under the wrong (station) convention and do not reflect this default; a
+corrected re-run of those 235 days is `stec.inference.reinference_madrigal_local_time`, not
+a plain re-invocation of this module (see that module's docstring for why: this driver
+writes only the STEC model's own columns, and the 235 files on disk also carry VTEC/GIM
+baseline columns this driver cannot recompute, so overwriting them here would silently drop
+those columns rather than correct them). Passing `--madrigal-local-time-longitude station`
+reproduces the legacy convention exactly, for anyone who needs to regenerate a day matching
+the still-published numbers. Its output is shaped exactly
 like `read_day`'s, so the branch below is the only dataset-specific code in this driver;
 everything downstream of it - assembly, Monte Carlo sampling, the store write - does not
 know which dataset it is looking at.
@@ -185,7 +191,7 @@ def run_inference(
     space_weather: Path | None = None,
     madrigal_root: Path | None = None,
     madrigal_elevation_threshold: float = DEFAULT_ELEVATION_THRESHOLD_DEG,
-    madrigal_local_time_longitude: Literal["station", "ipp"] = "station",
+    madrigal_local_time_longitude: Literal["station", "ipp"] = "ipp",
     store_root: Path | None = None,
     device: torch.device = torch.device("cpu"),
 ) -> list[dict]:
@@ -326,13 +332,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--madrigal-local-time-longitude",
         choices=["station", "ipp"],
-        default="station",
+        default="ipp",
         help=(
-            "longitude that feeds local_time_hours for --dataset madrigal; 'station' "
-            "(default) reproduces the published Table 4 numbers and the existing store "
-            "partition, 'ipp' matches the 'own' dataset's convention instead - see "
-            "divergence #12 in stec.analysis.divergences before switching an existing "
-            "store partition to it"
+            "longitude that feeds local_time_hours for --dataset madrigal; 'ipp' "
+            "(default) matches the 'own' dataset's convention and is physically correct "
+            "- see divergence #12 in stec.analysis.divergences. 'station' reproduces the "
+            "legacy MadrigalSTECDataset convention the published Table 4 numbers and the "
+            "current predictions/finetuned_stec/madrigal/ partition were built under; "
+            "pass it only to regenerate a day matching those, not to write into that "
+            "partition going forward - see "
+            "stec.inference.reinference_madrigal_local_time for the corrected re-run"
         ),
     )
     parser.add_argument(

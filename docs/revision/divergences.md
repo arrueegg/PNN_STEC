@@ -34,7 +34,7 @@ recorded snapshot exactly; the command to do so again is noted per entry.
 | 9 | 10 m outlier boundary, `<` vs `<=` | Table 5, Table A1, oracle_benchmark | — | applied | **measured** |
 | 10 | Storm/quiet definition, daily vs per-observation | Table 5 (R2.7); STEC scenarios | R2.7 | applied (both, by design) | **measured** |
 | 11 | Positioning-coverage canonical variant selection | R1.5 station-day coverage counts | R1.5 | applied | **measured** |
-| 12 | Defect 21 — Madrigal `local_time_hours` longitude source | Table 4 (Madrigal), `predictions/finetuned_stec/madrigal/` | — | applied | **measured** |
+| 12 | Defect 21 — Madrigal `local_time_hours` longitude source, corrected | Table 4 (Madrigal, Direct STEC row), `predictions/finetuned_stec/madrigal/` (235 days, re-run queued) | — | applied | **measured** |
 
 "Applied" describes the *code*: whether the rebuilt pipeline's default path already
 produces the changed behaviour, whether the fix exists only as an opt-in the default does
@@ -367,36 +367,55 @@ provenance once Phase 8 updates it.
 
 ---
 
-## 12. Defect 21 — Madrigal `local_time_hours` longitude source — **measured**
+## 12. Defect 21 — Madrigal `local_time_hours` longitude source — corrected erratum — **measured**
 
 **What it is.** `local_time_hours` needs a longitude, and a Madrigal row carries two:
 `gdlonr` (station) and `glon` (IPP). The "own" dataset's convention is IPP longitude —
 `src/data_loader/datasets.py` computes it "using IPP longitude for local time", explicitly
 commented as such, established in commit `7153cfc` ("added local time as input feature").
 `MadrigalSTECDataset._add_local_time` (`src/data_loader/madrigal_dataset.py`, written two
-months later in commit `7fa1346`) uses station longitude instead, with no comment,
+months later in commit `7fa1346`) used station longitude instead, with no comment,
 docstring or commit message anywhere explaining the choice. That reads as an oversight, not
-a deliberate Madrigal-specific requirement — but it is not a hypothetical bug: it produced
-the published Table 4 Madrigal numbers and all 235 days already in
-`predictions/finetuned_stec/madrigal/`, and `local_time_hours` is a genuine model input (3
-of the model's 127 columns — sine, cosine, normalised; `stec.data.feature_layout`), not
-merely a stored column.
+a deliberate Madrigal-specific requirement, and it is physically wrong: the ionosphere's
+diurnal variation is driven by solar illumination at the pierce point — where the electrons
+being measured actually are — not at the receiver, which can sit thousands of km away in
+local time. IPP is the convention every other path in this codebase already uses. This is
+not a hypothetical bug: it produced the published Table 4 Madrigal numbers and all 235 days
+in `predictions/finetuned_stec/madrigal/`, and `local_time_hours` is a genuine model input
+(3 of the model's 127 columns — sine, cosine, normalised; `stec.data.feature_layout`), not
+merely a stored column. The user decided to fix this to what is physically correct, not
+merely what is internally consistent.
 
-**Applied.** `stec.data.madrigal_reader.read_madrigal_day` keeps station longitude as the
-default (`local_time_longitude="station"`), reproducing the legacy loader and the existing
-store partition rather than silently adopting the "own" dataset's convention.
-`local_time_longitude="ipp"` is the explicit, off-by-default path to that convention, for a
-future re-run that accepts moving all 235 stored days at once — switching a live store
-partition to a new convention mid-flight would leave two conventions inside one partition,
-which is worse than either convention alone.
+**Applied, 2026-08-24.** `stec.data.madrigal_reader.read_madrigal_day` now defaults to IPP
+longitude (`local_time_longitude="ipp"`), matching the "own" dataset's convention.
+`local_time_longitude="station"` remains available as an explicit opt-in — the only thing it
+is for now is reproducing the published Table 4 numbers and the pre-correction store, e.g.
+to regenerate a day that must match what is still cited. `stec.inference.run_inference` and
+its CLI (`--madrigal-local-time-longitude`) pass the same flip through.
 
-**Measured, 2026-08-21** (`python -m stec.analysis.divergences`, live seeded run of the
-real `Finetune_STEC_2024_132` checkpoint — `lr2e-4_bs512`, the paper variant — over a
-20,000-row seed-0 subsample of the real 2024-05-11 (DOY 132) Madrigal test-station day,
-2,036,669 rows total at elev ≥ 5°). Follows the CLAUDE.md Bayesian A/B protocol: weights
-pinned identically for both conventions via `stec.models.determinism.frozen`, and a
-same-input zero-perturbation control run first, which returned exactly **0.0** before any
-number below was trusted.
+**The 235-day store and Table 4's Direct STEC (Madrigal) row are stale, pending a queued
+re-run.** Flipping the default does not retroactively fix `predictions/finetuned_stec/madrigal/`
+— those 235 files were written under the old code and stay wrong until re-inferred.
+`stec.inference.reinference_madrigal_local_time` re-runs the STEC model for each of the 235
+days under the corrected convention and merges the result into the existing store files,
+preserving the `vtec_model_stec*`/`gim_stec` baseline columns already there (neither depends
+on `local_time_hours`: the VTEC baseline's own feature set has `local_time_hours: false`,
+and the GIM baseline is an exogenous IONEX lookup) rather than overwriting them — a plain
+re-invocation of `run_inference.py` would silently drop those columns, since it only ever
+wrote the STEC model's own columns for this dataset. Queued as a waiting systemd unit (GPU
+work is not run inline); see `docs/revision/STATE.md` for status. Once it lands: rerun
+`daily_metrics` (Table 3/4, canonical) and `madrigal_reference_offset` (R1.3 per-station
+offset decomposition, which reads `stec_pred` directly and is equally stale) —
+`stec/pipeline/stages.py`'s `daily_metrics` stage now declares `predictions/finetuned_stec/madrigal/`
+as an input specifically so this re-run is not silently skipped as "up to date".
+
+**Measured, 2026-08-21, re-affirmed 2026-08-24** (`python -m stec.analysis.divergences`,
+live seeded run of the real `Finetune_STEC_2024_132` checkpoint — `lr2e-4_bs512`, the paper
+variant — over a 20,000-row seed-0 subsample of the real 2024-05-11 (DOY 132) Madrigal
+test-station day, 2,036,669 rows total at elev ≥ 5°). Follows the CLAUDE.md Bayesian A/B
+protocol: weights pinned identically for both conventions via `stec.models.determinism.frozen`,
+and a same-input zero-perturbation control run first, which returned exactly **0.0** before
+any number below was trusted.
 
 | Quantity | Value |
 |---|---|
@@ -406,12 +425,13 @@ number below was trusted.
 
 RMSE 0.80 TECU is not negligible next to the paper's ~8–13 TECU headline RMSE range — this
 is not the harmless `sm_lat_ipp` per-station offset (0.0001 TECU end-to-end), it is a real
-divergence in what the model was actually fed. Switching the default would move every
-Madrigal number in Table 4 and would need a full 235-day re-run to apply consistently, not
-a one-line default flip.
+divergence in what the model was actually fed, and it is on the same order as the 1.10 TECU
+gap Table 4 currently shows between Direct STEC (14.70) and VTEC + Mapping (13.60), the row
+the manuscript bolds as best on Madrigal.
 
-**NOT YET APPLIED to the manuscript** — recorded here so a future decision to re-run
-Madrigal under the "own" dataset's convention has a citable cost, not a guess.
+**NOT YET APPLIED to the manuscript** — Phase 8 is still frozen. Recorded here, and in
+`docs/revision/manuscript_number_audit.md` §2.5, so the eventual update has a citable cost
+and a citable corrected number, not a guess.
 
 ---
 

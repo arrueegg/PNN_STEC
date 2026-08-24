@@ -3,13 +3,14 @@
 Updated 2026-08-21 22:20. Supersedes ad-hoc status checks. Update this when something lands;
 do not re-scan the tree to answer "where are we".
 
-## Running — updated 2026-08-23 17:30
+## Running — updated 2026-08-24 09:53
 
 | Job | State | ETA |
 |---|---|---|
-| `fb-retrain` | R2.2 retrain with matched output init | ~14 h → Mon ~05:00 |
+| `fb-retrain` | **done** (finished ~07:26, per `logs/fb_retrain.log`) | — |
 | `weekend-recovery` | DOY sweep, 242 days | Mon afternoon |
-| `post-retrain-chain` | waiting on the retrain, then two evals | Mon ~08:00 |
+| `post-retrain-chain` | **done** — `pretrained_stec/own` rebuilt (0→544 files), `pretrained_stec_resnet_bnn_nll/own` evaluated, repair check RMSE 13.06 TECU vs published 13.45 | — |
+| `madrigal-local-time-reinference` | queued, waiting on `weekend-recovery` + GPU idle (confirmed twice, 240 s gap) | starts once the machine is free |
 | merge, `r22-eval` | **done** | — |
 
 ### A contamination I caused, and its repair
@@ -67,6 +68,13 @@ Comparing epistemic share on held-out stations would answer the reviewer better 
 - `save_daily_summary` collapsed to one implementation; both destructive sites fixed in the
   data root too, so the recovery can run before the merge.
 - 12 divergences registered, each with a measured effect.
+- **Madrigal local-time convention decided: fixed to IPP, not kept as legacy.** IPP is
+  physically correct (diurnal signal follows illumination at the pierce point, not the
+  receiver). `stec.data.madrigal_reader.read_madrigal_day` and
+  `stec.inference.run_inference` now default to `local_time_longitude="ipp"`; `"station"`
+  stays available to reproduce the still-published numbers. Divergence #12 rewritten as a
+  corrected erratum, not a preserved convention. The 235-day store itself is not yet
+  corrected — see item 4 under "Open — needs the merge or a run".
 
 ## Open — needs the merge or a run
 
@@ -76,16 +84,21 @@ Comparing epistemic share on held-out stations would answer the reviewer better 
 3. **`src/` deletion** — 71 files still carry the operational layer (real training,
    `compare`/`inference`/`map`/`multiday`, positioning execution, diagnostics). Needs
    supervision; the pipeline no longer depends on it.
+4. **Madrigal local-time re-inference** — the convention decision is made and applied
+   (see "Done"); this is the run it still needs. `predictions/finetuned_stec/madrigal/`
+   (235 days) is stale until
+   `madrigal-local-time-reinference` (queued, see Running above) completes; then rerun
+   `daily_metrics` and `madrigal_reference_offset` — `daily_metrics`'s stage now declares
+   the Madrigal partition as an input specifically so this is not silently skipped as
+   up to date.
 
 ## Open — needs a decision from the user
 
-4. **Madrigal local-time convention** — legacy uses station longitude, everything else uses
-   IPP. Measured **0.80 TECU RMSE** (seeded, zero-perturbation control 0.0). Kept as legacy
-   so the paper reproduces; plausibly an erratum. Divergence 12.
 5. **Phase 8, the manuscript** — frozen. `manuscript_number_audit.md` lists every number
    that disagrees.
 6. **`pretrained_stec`/madrigal inference** — now buildable (reader exists), but
-   **3.5–6 days** wall clock. Not started.
+   **3.5–6 days** wall clock. Not started. (Unrelated to item 4 above: that partition has
+   never existed at all, regardless of local-time convention.)
 
 ## Open — code, small
 

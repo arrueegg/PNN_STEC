@@ -24,7 +24,7 @@ Twelve entries, matching `docs/rebuild_plan.md` §9 one for one (methodology cha
  9. The 10 m outlier boundary, `<` vs `<=`                              - measured
 10. The storm/quiet definition, daily vs per-observation                - measured
 11. Positioning-coverage canonical variant selection                    - measured
-12. Defect 21, Madrigal local_time_hours longitude source                - measured
+12. Defect 21, Madrigal local_time_hours longitude source (corrected)     - measured
 
 Two things this module deliberately does NOT do, both by design:
 
@@ -1177,20 +1177,27 @@ REGISTRY: tuple[Divergence, ...] = (
     Divergence(
         id="12",
         description=(
-            "Defect 21: MadrigalSTECDataset._add_local_time derives local_time_hours from "
-            "station longitude (lon_sta), not IPP longitude (lon_ipp) - the convention "
+            "Defect 21, corrected erratum, not a preserved convention: "
+            "MadrigalSTECDataset._add_local_time derived local_time_hours from station "
+            "longitude (lon_sta), not IPP longitude (lon_ipp) - the convention "
             "src/data_loader/datasets.py established and commented two months earlier for "
             "the 'own' dataset ('Use IPP longitude for local time'). No comment or commit "
-            "explains the Madrigal choice; it reads as an oversight, not a requirement. "
-            "stec.data.madrigal_reader.read_madrigal_day keeps lon_sta as the default "
-            "(local_time_longitude='station') to reproduce the published Table 4 numbers "
-            "and the 235 days already in predictions/finetuned_stec/madrigal/; "
-            "local_time_longitude='ipp' is the explicit, off-by-default path to the 'own' "
-            "dataset's convention for a future harmonised re-run."
+            "ever explained the Madrigal choice; it reads as an oversight, not a "
+            "requirement, and it is physically wrong: the ionosphere's diurnal variation "
+            "is driven by solar illumination at the pierce point - where the electrons "
+            "being measured actually are - not at the receiver, which can sit thousands "
+            "of km away in local time. IPP is the convention every other path in this "
+            "codebase already uses. stec.data.madrigal_reader.read_madrigal_day now "
+            "defaults to local_time_longitude='ipp'; 'station' remains available as an "
+            "explicit opt-in, which is what reproduces the published Table 4 numbers and "
+            "the current predictions/finetuned_stec/madrigal/ store (235 days, all built "
+            "under the wrong convention). Those 235 days and Table 4's Direct STEC row are "
+            "therefore stale until stec.inference.reinference_madrigal_local_time reruns "
+            "them - see docs/revision/manuscript_number_audit.md."
         ),
         deliverable=(
-            "Table 4 (Madrigal dataset rows), predictions/finetuned_stec/madrigal/ "
-            "(235 days), any future Madrigal re-run"
+            "Table 4 (Madrigal dataset, Direct STEC row), "
+            "predictions/finetuned_stec/madrigal/ (235 days, pending corrected re-run)"
         ),
         reviewer_comment=None,
         applied="applied",
