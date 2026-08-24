@@ -148,6 +148,12 @@ SMOKE_CHECKPOINT = (
     "artifacts/models/pipeline_smoke_finetune/model/"
     "finetune_BayesianResNetSTEC_seed42.pth"
 )
+SMOKE_STORE_DAY = "artifacts/predictions/finetuned_stec/own/year=2024/doy=132.parquet"
+SMOKE_IONEX_ROOT = f"{SMOKE_FIXTURE_DIR}/external_data/GIM_IONEX"
+SMOKE_VTEC_CONFIG = f"{SMOKE_FIXTURE_DIR}/vtec_config.yaml"
+SMOKE_VTEC_CHECKPOINT = (
+    f"{SMOKE_FIXTURE_DIR}/vtec_model/finetune_MLP_LaplacianNLL_seed42.pth"
+)
 
 # Reused verbatim wherever a Madrigal number is produced. The comparison changes two things
 # at once - the model is out of distribution *and* the reference comes from a different
@@ -209,8 +215,20 @@ STAGES: list[Stage] = [
         "proves stec.inference.run_inference wires monte_carlo into the prediction "
         "store end to end, on the same tiny checked-in fixture day",
         inputs=[SMOKE_CHECKPOINT, SMOKE_FIXTURE_DIR],
+        # SMOKE_STORE_DAY (the parquet itself) is deliberately *not* declared here any
+        # more, even though this stage is what creates it - baselines_smoke (below) reads
+        # that same file and merges VTEC/GIM columns into it in place, which changes its
+        # digest. Declaring it as this stage's output too would make outputs_intact()
+        # compare a stale recorded digest against baselines_smoke's edit and conclude
+        # inference_smoke's result had been "modified", forcing a rerun that would
+        # silently wipe the merged baseline columns back out on the very next `pipeline
+        # run` - a stage reporting success while serving a stale file, the exact failure
+        # class the registry exists to prevent. The manifest CSV is not touched by
+        # baselines_smoke and is sufficient on its own: main()'s run_inference() writes
+        # the parquet via write_predictions() and only appends to the manifest after that
+        # succeeds for every day, so a manifest with the right row count already implies
+        # the parquet was written - nothing is lost by not asserting the parquet directly.
         outputs=[
-            "artifacts/predictions/finetuned_stec/own/year=2024/doy=132.parquet",
             "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv",
         ],
         # Keyed on the manifest, not the parquet: a parquet output carries no row count
@@ -238,6 +256,72 @@ STAGES: list[Stage] = [
             "Runs the zero-perturbation control (stec/models/determinism.py) before any "
             "real sampling and fails loudly if it is not exactly 0.0 - the Bayesian A/B "
             "invariant CLAUDE.md requires for every comparison built on this model.",
+            "Writes SMOKE_STORE_DAY (the store parquet), which baselines_smoke (below) "
+            "then reads and mutates in place - see that stage's own caveats.",
+        ],
+    ),
+    Stage(
+        "baselines_smoke",
+        f"-m stec.inference.run_baselines --model-variant finetuned_stec --dataset own "
+        f"--doys 2024:132 --vtec-config {SMOKE_VTEC_CONFIG} "
+        f"--vtec-checkpoint {SMOKE_VTEC_CHECKPOINT} --store-root artifacts/predictions "
+        f"--database-root {SMOKE_DATABASE_ROOT} --space-weather {SMOKE_SWI} "
+        f"--ionex-root {SMOKE_IONEX_ROOT} "
+        "--output-dir artifacts/predictions/pipeline_smoke_baselines --device cpu",
+        "-",
+        "proves stec.inference.run_baselines wires the VTEC + GIM baselines into the "
+        "prediction store end to end, on the same tiny checked-in fixture day",
+        # Deliberately does NOT list SMOKE_STORE_DAY as an input, even though this stage
+        # reads it: this stage also *writes* SMOKE_STORE_DAY (declared below, in
+        # outputs), and an input fingerprint is captured before the command runs, then
+        # compared again on the next invocation - if the mutated file were also an input,
+        # every run would see "the input changed" (because the *previous* run changed it)
+        # and rerun forever, unconditionally. SMOKE_CHECKPOINT and inference_smoke's
+        # manifest stand in for "the upstream STEC step is current" without that
+        # self-reference; the VTEC checkpoint/config and IONEX fixture are the inputs
+        # genuinely unique to this stage.
+        inputs=[
+            SMOKE_CHECKPOINT,
+            "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv",
+            SMOKE_VTEC_CHECKPOINT,
+            SMOKE_VTEC_CONFIG,
+            SMOKE_IONEX_ROOT,
+        ],
+        # SMOKE_STORE_DAY is claimed here, not by inference_smoke - see that stage's own
+        # comment on why only one of the two may own it.
+        outputs=[
+            SMOKE_STORE_DAY,
+            "artifacts/predictions/pipeline_smoke_baselines/baselines_manifest.csv",
+        ],
+        min_rows={
+            "artifacts/predictions/pipeline_smoke_baselines/baselines_manifest.csv": 1
+        },
+        caveats=[
+            "Runs against the same tiny fixture inference_smoke does, and against the "
+            "store file inference_smoke just wrote - not the paper's real checkpoints, "
+            "VTEC ensemble or test set. Must run after inference_smoke (list order): "
+            "add_baselines_for_day raises FileNotFoundError otherwise, rather than "
+            "silently succeeding against a day the STEC model has not produced yet.",
+            "Loads a single VTEC checkpoint, not the real 10-seed ensemble - "
+            "load_vtec_model wraps >1 checkpoint in DeepEnsemble automatically, but this "
+            "fixture carries only one, so vtec_model_stec_epistemic_unc is exactly 0.0 "
+            "here by construction. The ensemble path (module docstring requirement 4, the "
+            "single-checkpoint-silently-reproduces-one-member regression) is covered by "
+            "tests/inference/test_run_baselines.py's dedicated ensemble tests, not by "
+            "this stage - a real per-DOY VTEC directory on this host still carries all 10 "
+            "seeds, and --experiments-root (unused here) is what resolves that "
+            "canonically for a real invocation.",
+            "'--dataset own' only, same reason as inference_smoke's caveat: the fixture "
+            "has no Madrigal day.",
+            "Runs the zero-perturbation control on the VTEC model before any real "
+            "sampling, same invariant inference_smoke checks for the STEC model.",
+            "Skip detection has one narrow blind spot: it is keyed on "
+            "inference_smoke's manifest CSV, not the mutable parquet (see this stage's "
+            "own inputs comment). If that manifest were deleted without also changing "
+            "SMOKE_CHECKPOINT, inference_smoke would rewrite an identical manifest and "
+            "this stage's own input fingerprint would not change, even though "
+            "inference_smoke's rerun just reverted the parquet to STEC-only columns - a "
+            "case only a manual, partial deletion of pipeline state could trigger.",
         ],
     ),
     Stage(

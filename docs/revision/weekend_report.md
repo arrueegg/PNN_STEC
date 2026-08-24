@@ -229,3 +229,9 @@ rather than a convention.
 ## Madrigal local-time re-inference 2026-08-24 15:16:32
 - Divergence #12, corrected: predictions/finetuned_stec/madrigal/ being redone under local_time_longitude="ipp", merged onto the existing VTEC/GIM baseline columns.
   Progress: `logs/madrigal_local_time_reinference_manifest.csv` (one row per completed day); this unit runs under Restart=on-failure and skips days already listed there, so a crash resumes rather than restarting the sweep.
+
+## Epistemic-scale calibration retrain queue 2026-08-24 18:29:44
+
+
+## Epistemic-scale calibration retrain queue 2026-08-24 18:34:12
+

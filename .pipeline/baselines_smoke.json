@@ -1,0 +1,64 @@
+{
+  "answers": "-",
+  "canonical_for": null,
+  "caveats": [
+    "Runs against the same tiny fixture inference_smoke does, and against the store file inference_smoke just wrote - not the paper's real checkpoints, VTEC ensemble or test set. Must run after inference_smoke (list order): add_baselines_for_day raises FileNotFoundError otherwise, rather than silently succeeding against a day the STEC model has not produced yet.",
+    "Loads a single VTEC checkpoint, not the real 10-seed ensemble - load_vtec_model wraps >1 checkpoint in DeepEnsemble automatically, but this fixture carries only one, so vtec_model_stec_epistemic_unc is exactly 0.0 here by construction. The ensemble path (module docstring requirement 4, the single-checkpoint-silently-reproduces-one-member regression) is covered by tests/inference/test_run_baselines.py's dedicated ensemble tests, not by this stage - a real per-DOY VTEC directory on this host still carries all 10 seeds, and --experiments-root (unused here) is what resolves that canonically for a real invocation.",
+    "'--dataset own' only, same reason as inference_smoke's caveat: the fixture has no Madrigal day.",
+    "Runs the zero-perturbation control on the VTEC model before any real sampling, same invariant inference_smoke checks for the STEC model.",
+    "Skip detection has one narrow blind spot: it is keyed on inference_smoke's manifest CSV, not the mutable parquet (see this stage's own inputs comment). If that manifest were deleted without also changing SMOKE_CHECKPOINT, inference_smoke would rewrite an identical manifest and this stage's own input fingerprint would not change, even though inference_smoke's rerun just reverted the parquet to STEC-only columns - a case only a manual, partial deletion of pipeline state could trigger."
+  ],
+  "code": {
+    "commit": "4fe59932b00822a8cc0169574a7ebf05912b38cc",
+    "dirty": true
+  },
+  "command": "-m stec.inference.run_baselines --model-variant finetuned_stec --dataset own --doys 2024:132 --vtec-config tests/fixtures/pipeline_smoke/vtec_config.yaml --vtec-checkpoint tests/fixtures/pipeline_smoke/vtec_model/finetune_MLP_LaplacianNLL_seed42.pth --store-root artifacts/predictions --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --ionex-root tests/fixtures/pipeline_smoke/external_data/GIM_IONEX --output-dir artifacts/predictions/pipeline_smoke_baselines --device cpu",
+  "description": "proves stec.inference.run_baselines wires the VTEC + GIM baselines into the prediction store end to end, on the same tiny checked-in fixture day",
+  "duration_s": 1.5,
+  "fingerprint": "ede3642eb4838e6b8e08b1e50504bc141ad5215e4fbbe14cd617aed4c64e3980",
+  "inputs": {
+    "artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth": {
+      "kind": "file",
+      "sha256": "8e344f66c7807cd418a36a853adcbf35d10ecfcbfc329c35b3e6131fb586268f",
+      "size": 7317
+    },
+    "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv": {
+      "kind": "file",
+      "sha256": "0499a7f8f09ec4551f05af26aff6b7ab6dda23eccf399ff912d12b8927b94be3",
+      "size": 81
+    },
+    "tests/fixtures/pipeline_smoke/external_data/GIM_IONEX": {
+      "files": 1,
+      "kind": "tree",
+      "mtime_ns": 1787589135550796967,
+      "size": 2796
+    },
+    "tests/fixtures/pipeline_smoke/vtec_config.yaml": {
+      "kind": "file",
+      "sha256": "9ad2180a628140d8fea97fca772dcf847b4ed4b329f3ae1d98cb91a8be98fb22",
+      "size": 817
+    },
+    "tests/fixtures/pipeline_smoke/vtec_model/finetune_MLP_LaplacianNLL_seed42.pth": {
+      "kind": "file",
+      "sha256": "87c9010b2dd843eff61b52440a4a65b6feb238a81bfe93943d1192e35d3ddefd",
+      "size": 3713
+    }
+  },
+  "outputs": {
+    "artifacts/predictions/finetuned_stec/own/year=2024/doy=132.parquet": {
+      "present": true,
+      "sha256": "afe1ef9d2cf77274a451134155d3ac52cf98a862ff18f106586222c5bdc7cd76",
+      "size": 24014
+    },
+    "artifacts/predictions/pipeline_smoke_baselines/baselines_manifest.csv": {
+      "present": true,
+      "rows": 1,
+      "sha256": "ed7f2eab5189f28fed8d9e85c16e3d021db18f9a5d0a8826be5bdaa365e7a8f8",
+      "size": 92
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-24T16:34:37.723346+00:00",
+  "stage": "baselines_smoke",
+  "supersedes": []
+}

@@ -3,18 +3,19 @@
   "canonical_for": null,
   "caveats": [
     "Runs against the same tiny fixture training_smoke does, and against the checkpoint training_smoke just produced from it - not the paper's real checkpoints or test set. See training_smoke's caveats for why.",
-    "Only the 'own' dataset is wired up. '--dataset madrigal' raises NotImplementedError: Madrigal geometry has no stec/ model-input reader - stec.baselines.madrigal loads Madrigal's reference STEC for comparison, never model inputs. predictions/pretrained_stec/madrigal/ has no data for exactly this reason (docs/revision/task_board.md S4).",
+    "This smoke run only exercises '--dataset own', because the checked-in fixture (tests/fixtures/pipeline_smoke) has no Madrigal day to read. '--dataset madrigal' itself no longer raises NotImplementedError: stec.data.madrigal_reader.read_madrigal_day is a real model-input reader since the Madrigal-identity work landed, and stec.inference.run_inference supports both datasets. predictions/pretrained_stec/madrigal/ still has no data, but only because that backfill has not been run yet, not because the dataset is unsupported.",
     "Writes under artifacts/predictions/, the default prediction_store.DEFAULT_STORE_ROOT - a different tree from the legacy predictions/ every analysis stage above reads (STORE_OWN etc.), so this stage's output is never picked up by daily_metrics or any other analysis.",
-    "Runs the zero-perturbation control (stec/models/determinism.py) before any real sampling and fails loudly if it is not exactly 0.0 - the Bayesian A/B invariant CLAUDE.md requires for every comparison built on this model."
+    "Runs the zero-perturbation control (stec/models/determinism.py) before any real sampling and fails loudly if it is not exactly 0.0 - the Bayesian A/B invariant CLAUDE.md requires for every comparison built on this model.",
+    "Writes SMOKE_STORE_DAY (the store parquet), which baselines_smoke (below) then reads and mutates in place - see that stage's own caveats."
   ],
   "code": {
-    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
+    "commit": "4fe59932b00822a8cc0169574a7ebf05912b38cc",
     "dirty": true
   },
   "command": "-m stec.inference.run_inference --config tests/fixtures/pipeline_smoke/config.yaml --checkpoint artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth --model-variant finetuned_stec --dataset own --doys 2024:132 --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --output-dir artifacts/predictions/pipeline_smoke_inference --device cpu",
   "description": "proves stec.inference.run_inference wires monte_carlo into the prediction store end to end, on the same tiny checked-in fixture day",
-  "duration_s": 1.4,
-  "fingerprint": "df93f9e8049481db0be1534fd6d1c1614fd8943fc8b20199ffc9b12c52a0c3ec",
+  "duration_s": 1.3,
+  "fingerprint": "a438adc0cafda33e77467be1cec6bdcfa1d64ded714cad16c84a5423986018e5",
   "inputs": {
     "artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth": {
       "kind": "file",
@@ -22,18 +23,13 @@
       "size": 7317
     },
     "tests/fixtures/pipeline_smoke": {
-      "files": 3,
+      "files": 6,
       "kind": "tree",
-      "mtime_ns": 1787562292158325419,
-      "size": 30410
+      "mtime_ns": 1787589141822805981,
+      "size": 37736
     }
   },
   "outputs": {
-    "artifacts/predictions/finetuned_stec/own/year=2024/doy=132.parquet": {
-      "present": true,
-      "sha256": "0ccce5fa2246e49590bc105347f6eacff59155f6af60c8f732053378df1d51fe",
-      "size": 20096
-    },
     "artifacts/predictions/pipeline_smoke_inference/inference_manifest.csv": {
       "present": true,
       "rows": 1,
@@ -42,7 +38,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-24T09:26:08.576666+00:00",
+  "recorded_at": "2026-08-24T16:34:36.186236+00:00",
   "stage": "inference_smoke",
   "supersedes": []
 }

@@ -362,3 +362,53 @@ station-day population mismatch. Different analyses, different fixes.
 undisclosed. It is not — `response_to_reviewers.md:244` already reports "26.9% against 31.0%.
 The design therefore does not flatter the interpolation years." The disclosed-versus-hidden
 framing was wrong; the solar-cycle confound underneath it is still real and still unaddressed.
+
+### Resolved 2026-08-24 evening: the recovery sweep does not rescue the 30%
+
+The station-recovery sweep completed (2026-08-24 15:07) and the positioning analyses were
+recomputed on its output. **The abstract's 30% is not supported on any population.**
+
+| population | Direct STEC | IGS GIM | gain |
+|---|---|---|---|
+| published (abstract) | 1.123 m / N=8,280 | 1.626 m / N=10,809 | 30.9% |
+| recovered set, same unmatched method | 1.2229 m / N=8,636 | 1.6184 m / N=10,837 | **24.4%** |
+| common set (matched) | 1.1160 m / N=7,741 | 1.4007 m / N=7,741 | **20.3%** |
+
+The sweep grew solved-by-all by only **192 station-days (+2.4%)** (8,003 -> 8,195); most of its
+effect moved days from "all ML missing" to "some ML missing" rather than completing them. The
+newly recovered days are *harder*, so Direct STEC's raw RMS **worsened** (1.123 -> 1.2229) and
+the unmatched gap narrowed toward the matched one instead of validating the published figure.
+
+**The two will not converge.** The dominant remaining non-common population is **1,591
+station-days where the station is absent from the STEC database that day** — PPPx has no
+STEC-derived correction to apply, so no positioning sweep can close it. Structural, not a
+coverage failure.
+
+**Use 20.3% (N=7,741, matched).** State the population.
+
+### Also below published, same direction
+
+`storm_stratification` recomputed: **quiet 25.4% / storm 19.6%** improvement over GIM, against
+the module's documented published **31.9% / 26.3%**. Consistent with the same unmatched-
+population cause; worth confirming before the storm numbers are quoted.
+
+### Three days lost stations in the recovery (3 of 242)
+
+DOY **166** and **176**: ~43 stations -> 2, identically across the independent STEC/VTEC/
+Pretrained trees *and* the GIM arm, with matching sweep mtimes — a PPPx-level failure for those
+days, not an aggregation bug. DOY **323**: ~41 -> 4 in the STEC tree only (VTEC and Pretrained
+intact). Included as genuinely small samples, not dropped or backfilled. They do not move the
+per-station-day means materially but would bias anything weighting by day count.
+
+### Root cause of the stale positioning inputs
+
+The 2026-08-21 restructure moved `positioning_coverage`'s output to
+`analyses/positioning_coverage/rebuilt/` but left five downstream readers pointing at
+`positioning_runs/full_coverage/`, which then stopped being regenerated **while still looking
+current** — so `positioning_summary` (`canonical_for: "Table 5"`) reported itself up to date
+against data that had changed. Fixed: readers repointed, stage ordered ahead of its consumers
+so the registry enforces it, both old trees marked superseded (nothing deleted).
+
+**The general defect**: the registry enforces one owner per *output*, but nothing enforces that
+every declared *input* has a producer. An orphaned input cannot go stale, so a stage depending
+on one is permanently and falsely green. Worth closing.
