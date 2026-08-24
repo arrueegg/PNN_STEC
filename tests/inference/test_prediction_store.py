@@ -54,6 +54,19 @@ def test_station_is_normalised_to_uppercase(tmp_path):
     assert set(out["station"].astype(str)) == {"AMC4"}
 
 
+def test_sat_column_is_kept_for_madrigal_when_present(tmp_path):
+    """The schema does not narrow columns by dataset - `sat` was always part of
+    `STORE_COLUMNS` alongside `station`. Once `stec.data.madrigal_reader` started producing
+    it, nothing here needed to change to keep it; this pins that no dataset-conditional
+    narrowing exists to reintroduce."""
+    ps.write_predictions(
+        frame(), "finetuned_stec", "madrigal", 2024, 132, root=tmp_path
+    )
+    out = ps.read_predictions("finetuned_stec", "madrigal", doys=[132], root=tmp_path)
+    assert "sat" in out.columns
+    assert set(out["sat"].astype(str)) == {"G01"}
+
+
 def test_missing_required_column_refuses_to_write(tmp_path):
     df = frame().drop(columns=["stec_pred"])
     with pytest.raises(ValueError, match="missing required columns"):

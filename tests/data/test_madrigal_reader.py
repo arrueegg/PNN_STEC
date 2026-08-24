@@ -65,7 +65,7 @@ def test_zero_rows_when_the_threshold_excludes_everything(tmp_path):
     assert len(columns["stec"]) == 0
     # Every declared column is still present, just empty - a consumer must not need to
     # special-case "zero rows" to find out which columns exist.
-    for name in ("lat_sta", "sm_lat_sta", "local_time_hours", "station"):
+    for name in ("lat_sta", "sm_lat_sta", "local_time_hours", "station", "sat"):
         assert name in columns
         assert len(columns[name]) == 0
 
@@ -116,15 +116,110 @@ def test_target_column_is_aliased_from_los_tec(tmp_path):
     assert "los_tec" not in columns
 
 
-def test_no_satellite_identity_columns_are_produced(tmp_path):
-    """Madrigal has no satellite identity; matches the convention `stec.baselines.madrigal`
-    and `stec.inference.prediction_store` already follow - drop, do not placeholder."""
+def test_arc_columns_are_still_absent_but_sat_is_now_synthesized(tmp_path):
+    """Madrigal has no cycle-slip counter, so `slipc`/`gfphase` are still dropped, not
+    placeholdered - the convention `stec.baselines.madrigal` and
+    `stec.inference.prediction_store` follow. `sat` is different: it is built from
+    `sat_id`/`gnss_type`, both present in the raw table (see module docstring), so it is no
+    longer dropped."""
     build_madrigal_day(tmp_path, year=YEAR, doy=DOY, n_rows=50)
     columns = read_madrigal_day(
         YEAR, DOY, split=None, madrigal_root=tmp_path / "Madrigal_STEC"
     )
-    for name in ("sat", "slipc", "gfphase"):
+    for name in ("slipc", "gfphase"):
         assert name not in columns
+    assert "sat" in columns
+    assert len(columns["sat"]) == len(columns["stec"]) > 0
+    # build_madrigal_day always writes gnss_type=b"GPS     ", sat_id in [1, 32).
+    for value in columns["sat"]:
+        assert value[0] == "G"
+        assert value[1:].isdigit()
+
+
+def _write_raw_madrigal_file(path, *, gps_site, sat_id, gnss_type, elm, sod) -> None:
+    """A minimal hand-built Madrigal `Data/Table Layout` file - only the fields
+    `read_madrigal_day` actually reads, real dtypes (`sat_id` `<i8`, `gnss_type` `<S8`,
+    matching a real file, see `tests.fixtures.make_fixtures.MADRIGAL_DTYPE`). Used instead of
+    `build_madrigal_day` so a test can pick exact `gnss_type` values that fixture never
+    varies (it is always "GPS")."""
+    n = len(gps_site)
+    dtype = np.dtype(
+        [
+            ("gps_site", "S4"),
+            ("sat_id", "<i8"),
+            ("gnss_type", "S8"),
+            ("gdlatr", "<f8"),
+            ("gdlonr", "<f8"),
+            ("los_tec", "<f8"),
+            ("dlos_tec", "<f8"),
+            ("tec", "<f8"),
+            ("azm", "<f8"),
+            ("elm", "<f8"),
+            ("gdlat", "<f8"),
+            ("glon", "<f8"),
+            ("rec_bias", "<f8"),
+            ("sod", "<u4"),
+        ]
+    )
+    rows = np.zeros(n, dtype=dtype)
+    rows["gps_site"] = [s.encode("ascii") for s in gps_site]
+    rows["sat_id"] = sat_id
+    rows["gnss_type"] = gnss_type
+    rows["gdlatr"] = 40.0
+    rows["gdlonr"] = -105.0
+    rows["gdlat"] = 40.0
+    rows["glon"] = -105.0
+    rows["los_tec"] = 10.0
+    rows["dlos_tec"] = 0.5
+    rows["tec"] = 3.0
+    rows["azm"] = 90.0
+    rows["elm"] = elm
+    rows["sod"] = sod
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "w") as handle:
+        group = handle.create_group("Data")
+        group.create_dataset("Table Layout", data=rows)
+
+
+def test_sat_encodes_gps_and_glonass_with_the_rinex_letter(tmp_path):
+    """The constellation encoding this reader relies on: `gnss_type` is a padded ASCII
+    string ("GPS     "/"GLONASS "), not a numeric code, established by inspecting real
+    Madrigal files directly (see module docstring). `sat_id` ranges overlap between the two
+    (GPS 2-32, GLONASS 1-24), so this also checks that an overlapping PRN (7) is
+    disambiguated correctly by `gnss_type` rather than colliding."""
+    madrigal_root = tmp_path / "Madrigal_STEC"
+    path = madrigal_root / str(YEAR) / f"los_{YEAR}0501_IGS.h5"
+    _write_raw_madrigal_file(
+        path,
+        gps_site=["amc4", "amc4", "amc4", "amc4"],
+        sat_id=[2, 7, 7, 24],
+        gnss_type=[b"GPS     ", b"GPS     ", b"GLONASS ", b"GLONASS "],
+        elm=[45.0, 45.0, 45.0, 45.0],
+        sod=[100, 200, 300, 400],
+    )
+    columns = read_madrigal_day(
+        YEAR, 122, split=None, madrigal_root=madrigal_root, elevation_threshold=0.0
+    )
+    assert columns["sat"].tolist() == ["G02", "G07", "R07", "R24"]
+
+
+def test_sat_falls_back_to_a_composite_for_an_unrecognised_gnss_type(tmp_path):
+    """A constellation name outside `GNSS_LETTER` must not get a guessed RINEX letter - it
+    falls back to an unambiguous composite of the raw name and the PRN instead."""
+    madrigal_root = tmp_path / "Madrigal_STEC"
+    path = madrigal_root / str(YEAR) / f"los_{YEAR}0501_IGS.h5"
+    _write_raw_madrigal_file(
+        path,
+        gps_site=["amc4"],
+        sat_id=[9],
+        gnss_type=[b"BOGUS   "],
+        elm=[45.0],
+        sod=[100],
+    )
+    columns = read_madrigal_day(
+        YEAR, 122, split=None, madrigal_root=madrigal_root, elevation_threshold=0.0
+    )
+    assert columns["sat"].tolist() == ["BOGUS9"]
 
 
 def test_station_is_upper_cased(tmp_path):

@@ -163,7 +163,7 @@ def test_cli_main_runs_end_to_end(tmp_path):
     ).exists()
 
 
-def test_madrigal_dataset_writes_the_store_without_satellite_identity(tmp_path):
+def test_madrigal_dataset_writes_the_store_with_satellite_identity(tmp_path):
     """`--dataset madrigal` used to raise `NotImplementedError`; this is the wiring that
     replaced it (`stec.data.madrigal_reader.read_madrigal_day`).
 
@@ -172,6 +172,11 @@ def test_madrigal_dataset_writes_the_store_without_satellite_identity(tmp_path):
     about the driver wiring working end to end, not about the filter itself - that is
     `tests/data/test_madrigal_reader.py`'s job, including the equivalence check against the
     legacy `MadrigalSTECDataset`.
+
+    `sat` is checked here too, end to end through the store: `read_madrigal_day` now
+    synthesises it from `sat_id`/`gnss_type`, and this driver must not narrow it back out
+    before `write_predictions` - the same whitelist-at-the-write-site defect
+    `prediction_store`'s docstring exists to prevent.
     """
     database_root, space_weather = build_fixture(tmp_path)
     checkpoint_path = train_tiny_checkpoint(tmp_path, database_root, space_weather)
@@ -206,11 +211,19 @@ def test_madrigal_dataset_writes_the_store_without_satellite_identity(tmp_path):
         "pretrained_stec", "madrigal", doys=[DOY], root=store_root
     )
     assert len(written) == manifest[0]["rows"]
-    for column in ("true_stec", "stec_pred", "pred_total_unc", "satele", "station"):
+    for column in (
+        "true_stec",
+        "stec_pred",
+        "pred_total_unc",
+        "satele",
+        "station",
+        "sat",
+    ):
         assert column in written.columns
-    # The convention this reader follows throughout: no satellite identity means the
-    # column is absent, not a fabricated placeholder.
-    for column in ("sat", "slipc", "gfphase"):
+    # build_madrigal_day always writes gnss_type=b"GPS     ", so every sat starts with "G".
+    assert set(written["sat"].astype(str).str[0]) == {"G"}
+    # No cycle-slip counter in Madrigal, so these two stay absent, not placeholdered.
+    for column in ("slipc", "gfphase"):
         assert column not in written.columns
 
 

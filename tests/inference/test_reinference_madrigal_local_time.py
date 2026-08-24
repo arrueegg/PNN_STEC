@@ -126,6 +126,10 @@ def _build_old_madrigal_store_day(
 
     path = ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
     frame = pd.read_parquet(path)
+    # The real 235-day partition predates the `sat` fix (`stec.data.madrigal_reader`) and
+    # has no `sat` column at all - drop it here so this fixture matches that file shape
+    # exactly, not just what `run_inference` would produce today.
+    frame = frame.drop(columns=["sat"], errors="ignore")
     rng = np.random.default_rng(0)
     frame["vtec_model_stec"] = rng.uniform(2.0, 60.0, size=len(frame))
     frame["vtec_model_stec_total_unc"] = rng.uniform(0.1, 2.0, size=len(frame))
@@ -163,6 +167,9 @@ def test_reinference_preserves_baselines_and_updates_stec_columns(tmp_path):
     before = pd.read_parquet(
         ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
     )
+    # Backward compatibility: the real 235-day partition has no `sat` column yet - the
+    # reader that adds it (`stec.data.madrigal_reader`) postdates every file on disk.
+    assert "sat" not in before.columns
 
     row = reinference_day(
         YEAR,
@@ -185,6 +192,11 @@ def test_reinference_preserves_baselines_and_updates_stec_columns(tmp_path):
         ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
     )
     assert len(after) == len(before)
+
+    # The corrected re-read populates `sat` for free - it comes from `read_madrigal_day`
+    # like every other raw column, with no dataset-specific merge logic needed for it.
+    assert "sat" in after.columns
+    assert after["sat"].notna().all()
 
     # The VTEC/GIM baseline columns are untouched by this driver - it never recomputes
     # them, only carries them forward from the file already on disk.

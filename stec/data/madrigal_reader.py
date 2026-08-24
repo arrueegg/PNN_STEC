@@ -15,14 +15,36 @@ A `Data/Table Layout` row has: `gps_site`, `sat_id`, `gnss_type`, `gdlatr`/`gdlo
 
 None of the model's 127 input columns need satellite identity - `sat`/`slipc`/`gfphase`
 are metadata, read by `stec.data.day_reader` only via `with_identity` and never touched by
-`stec.data.feature_layout`/`transforms`. So the fact that Madrigal has no cycle-slip
-counter and only a bare numeric `sat_id` (no constellation-qualified `sat` string like our
-own `"G02"`) does not block using it as model input at all; it only means the *store's*
-identity columns are thinner for this dataset, exactly as `stec.inference.prediction_store`
-already expects (`sat`/`slipc`/`gfphase` dropped, not placeholdered - the same convention
-`stec.baselines.madrigal` follows, and the one this reader follows too: `sat_id`/`gnss_type`
-are deliberately not surfaced as a `sat` column, because they are not the same identity our
-own dataset's `sat` encodes and inventing a mapping was not asked for and is not needed).
+`stec.data.feature_layout`/`transforms`. Madrigal has no cycle-slip counter, so `slipc`/
+`gfphase` are still dropped, not placeholdered - the convention `stec.inference.prediction_store`
+and `stec.baselines.madrigal` already follow for those two columns, and arcs for this
+dataset have to be inferred downstream from time gaps rather than a slip counter.
+
+`sat` used to be dropped the same way. It no longer is: an earlier version of this
+docstring argued that inventing a `sat` string from `sat_id`/`gnss_type` "was not asked for
+and is not needed" - that was wrong. dSTEC (per-arc) analysis cancels the per-station/
+per-satellite offset that is the dominant confound in the Madrigal comparison (45% of its
+RMSE variance, CLAUDE.md), and an arc cannot be identified without satellite identity.
+
+The constellation encoding below is read from the data, not assumed. `gnss_type` is a
+padded ASCII string (`<S8`), not a numeric code, so there is nothing to decode - only to
+map to a letter. Every file checked across 2024 (2024-02-15, 2024-05-01, 2024-09-01,
+2024-12-15; strided samples spanning each file's full row range so a rare constellation
+would not be missed by only looking at the start) contains only `b'GPS     '` and
+`b'GLONASS '`. `sat_id` ranges overlap between the two (GPS 2-32, GLONASS 1-24), which is
+why `gnss_type` is required for disambiguation, not merely convenient - `sat_id` alone
+cannot tell a GPS satellite from a GLONASS one in the 2-24 overlap. `GNSS_LETTER` maps
+recognised constellation names to the single-letter RINEX system identifier this project's
+own `sat` column already uses (checked directly: the STEC database encodes Galileo PRN 4 as
+`"E04"`), so `read_madrigal_day` produces `"G02"`/`"R14"`-shaped strings, not a
+Madrigal-specific format. Only "GPS" and "GLONASS" were ever observed, but the map also
+carries the other five names `stec.data.madrigal_builder.GNSS_TYPE_MAP` already recognises
+(Galileo, BeiDou, QZSS, IRNSS, SBAS) on their own standard letters, in case a day this
+reader has not been checked against carries one of them. A `gnss_type` outside that set does
+not get a guessed letter: `_synthesize_sat` falls back to the raw constellation name
+concatenated with the PRN - an unambiguous composite that cannot collide with a real
+RINEX-style `sat` - and logs a warning, so a genuinely new constellation is visible instead
+of silently mislabelled.
 
 Everything the model *does* need is present: `gdlatr`/`gdlonr`/`gdlat`/`glon` supply the
 geographic pairs `lat_sta`/`lon_sta`/`lat_ipp`/`lon_ipp` directly, `azm`/`elm` supply
@@ -113,6 +135,23 @@ STATION_ALTITUDE_KM = 0.0  # Madrigal carries no receiver altitude; matches the 
 
 DEFAULT_ELEVATION_THRESHOLD_DEG = 5.0
 
+# RINEX/IGS single-letter GNSS system identifiers - the exact convention this project's own
+# `sat` column already uses (e.g. "E04" for Galileo PRN 4 in the STEC database, checked
+# directly against a real file). Keyed by the Madrigal `gnss_type` string it names, matching
+# `stec.data.madrigal_builder.GNSS_TYPE_MAP`'s recognised names. Only "GPS" and "GLONASS"
+# were observed in real files (see module docstring); the rest are carried so a
+# constellation not seen in those checks still gets the standard letter instead of
+# `_synthesize_sat`'s composite fallback.
+GNSS_LETTER = {
+    "GPS": "G",
+    "GLONASS": "R",
+    "GALILEO": "E",
+    "BEIDOU": "C",
+    "QZSS": "J",
+    "IRNSS": "I",
+    "SBAS": "S",
+}
+
 # Aliased to "stec" so this dict has the exact key `read_day` uses for its target column -
 # `run_inference.build_prediction_frame`'s `rename(columns={"stec": "true_stec"})` then
 # needs no dataset-specific branch, and Madrigal's independent los_tec becomes `true_stec`
@@ -156,6 +195,40 @@ def _geo_to_solar_magnetic(
     sm_lat = np.clip(sm.lati.astype(np.float32), -90.0, 90.0)
     sm_lon = ((sm.long.astype(np.float32) + 180.0) % 360.0) - 180.0
     return sm_lat, sm_lon
+
+
+def _synthesize_sat(sat_id: np.ndarray, gnss_type_raw: np.ndarray) -> np.ndarray:
+    """Combine Madrigal's separate `sat_id` (bare PRN, ranges overlap between
+    constellations) and `gnss_type` (padded ASCII constellation name) into a `sat` string
+    shaped like the own database's ("G02", "R14" - see `GNSS_LETTER`). A `gnss_type` outside
+    `GNSS_LETTER` does not get a guessed letter: it falls back to the raw constellation name
+    plus the PRN, an unambiguous composite, and is logged, since that means a constellation
+    this module has not been checked against.
+    """
+    if len(sat_id) == 0:
+        return np.empty(0, dtype="<U16")
+
+    names = np.char.strip(gnss_type_raw.astype(str))
+    prn = np.char.zfill(sat_id.astype(np.int64).astype(str), 2)
+    sat = np.empty(len(sat_id), dtype="<U16")
+    recognised = np.zeros(len(sat_id), dtype=bool)
+    for name, letter in GNSS_LETTER.items():
+        mask = names == name
+        if not mask.any():
+            continue
+        sat[mask] = letter + prn[mask]
+        recognised |= mask
+
+    unmapped = ~recognised
+    if unmapped.any():
+        unknown_names = sorted(set(names[unmapped].tolist()))
+        logger.warning(
+            f"Unrecognised Madrigal gnss_type value(s) {unknown_names} for "
+            f"{int(unmapped.sum())} row(s); using 'name+sat_id' instead of guessing a "
+            "RINEX letter"
+        )
+        sat[unmapped] = names[unmapped] + sat_id[unmapped].astype(np.int64).astype(str)
+    return sat
 
 
 def _madrigal_day_file(year: int, doy: int, madrigal_root: Path | None) -> Path:
@@ -241,6 +314,11 @@ def read_madrigal_day(
             if with_identity
             else None
         )
+        sat = (
+            _synthesize_sat(table["sat_id"][valid], table["gnss_type"][valid])
+            if with_identity
+            else None
+        )
 
     columns: dict[str, np.ndarray] = {
         "lat_sta": lat_sta,
@@ -256,6 +334,8 @@ def read_madrigal_day(
     }
     if with_identity and station is not None:
         columns["station"] = station
+    if with_identity and sat is not None:
+        columns["sat"] = sat
 
     local_time_lon = lon_sta if local_time_longitude == "station" else lon_ipp
     columns["local_time_hours"] = compute_local_time_hours(

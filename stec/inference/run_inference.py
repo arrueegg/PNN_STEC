@@ -43,8 +43,12 @@ the *entire* assembled frame - every raw column the reader returns (`read_day` f
 `write_predictions`, which does its own column selection against `STORE_COLUMNS`. Narrowing
 the frame here before that call would reintroduce exactly the whitelist-at-the-write-site
 defect the store's docstring exists to prevent - which for Madrigal specifically means never
-adding a `sat`/`slipc`/`gfphase` placeholder here either: `read_madrigal_day` simply does not
-produce those keys, so there is nothing to narrow away.
+adding a `slipc`/`gfphase` placeholder here either: `read_madrigal_day` has no cycle-slip
+counter to build one from, so there is nothing to narrow away for those two. `sat` is
+different: `read_madrigal_day` now synthesises it from `sat_id`/`gnss_type` (see that
+module's docstring), and `STORE_COLUMNS` already lists `sat` alongside `station` - so it
+flows through this driver into the store unchanged, the same way every other raw column
+does, with no dataset-specific branch needed here either.
 
 Usage::
 
