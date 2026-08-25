@@ -134,6 +134,16 @@ DSTEC_EVALUATION_DIR = _analysis_dir("dstec_evaluation", rebuilt=True)
 EPISTEMIC_SCALE_DIAGNOSTIC_DIR = _analysis_dir(
     "epistemic_scale_diagnostic", rebuilt=True
 )
+# diagnostic_test_observations is diagnostic_figures's own cache, not a separately
+# declared stage (see the diagnostic_figures Stage below) - a second, wider-column pass
+# over predictions/pretrained_stec/own, kept apart from PRETRAINED_TEST_DIAGNOSTICS_DIR
+# so this stage never has to widen the column list stec.viz.manuscript_figures depends
+# on. "plots/diagnostics" is a plain repo-relative literal, matching how the
+# manuscript_figures Stage below spells its own "plots/manuscript" output.
+DIAGNOSTIC_TEST_OBSERVATIONS_DIR = _analysis_dir(
+    "diagnostic_test_observations", rebuilt=True
+)
+DIAGNOSTIC_FIGURES_DIR = "plots/diagnostics"
 
 # The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
 # full evaluation tree, not a `stec.analysis` output, so it lives under
@@ -1098,6 +1108,61 @@ STAGES: list[Stage] = [
         # row count in the pipeline's provenance record, same reasoning as
         # inference_smoke/data_prep_smoke. 11 years, so 11 is exact, not a floor.
         min_rows={str(PRETRAINED_TEST_DIAGNOSTICS_DIR / "manifest.csv"): 11},
+    ),
+    Stage(
+        # The diagnostic-plot parity port: ~20 residual/spatial/uncertainty plots
+        # src/viz/{spatial,performance,distributions,uncertainty}.py's plot_test_metrics
+        # chain produced with no prior stec/ counterpart. One command builds its own
+        # wider-column cache (stec.analysis.diagnostic_test_observations, a second pass
+        # over predictions/pretrained_stec/own - see that module's docstring for why it
+        # is not a shared cache with pretrained_test_diagnostics above) and then every
+        # figure, because a Stage command is a single `python -m` invocation - there is
+        # nowhere to chain a separate cache-building stage in front of it without a
+        # second Stage, and this port was scoped to add exactly one.
+        "diagnostic_figures",
+        "-m stec.viz.diagnostic_figures "
+        f"--cache-dir {DIAGNOSTIC_TEST_OBSERVATIONS_DIR} "
+        f"--output-dir {DIAGNOSTIC_FIGURES_DIR}",
+        "src/ diagnostic-plot parity",
+        "spatial error maps, azimuth/elevation heatmaps, residual-vs-feature "
+        "boxplots and uncertainty calibration diagnostics for the pretrained model's "
+        "own held-out test set",
+        inputs=[STORE_PRETRAINED],
+        outputs=[
+            str(DIAGNOSTIC_TEST_OBSERVATIONS_DIR),
+            str(DIAGNOSTIC_TEST_OBSERVATIONS_DIR / "manifest.csv"),
+            DIAGNOSTIC_FIGURES_DIR,
+            f"{DIAGNOSTIC_FIGURES_DIR}/diagnostic_figures_manifest.csv",
+        ],
+        min_rows={
+            # 11 years in predictions/pretrained_stec/own (2014-2024) - exact, not a
+            # floor, same reasoning as pretrained_test_diagnostics above.
+            str(DIAGNOSTIC_TEST_OBSERVATIONS_DIR / "manifest.csv"): 11,
+            # Up to 23 figures at full coverage (see the module's FIGURE_BUILDERS);
+            # floored well below that so a near-empty run is still caught without
+            # pinning the exact count fig_spatial_error_map's data-dependent skip can
+            # subtract (see the caveat below).
+            f"{DIAGNOSTIC_FIGURES_DIR}/diagnostic_figures_manifest.csv": 15,
+        },
+        canonical_for="src/ diagnostic-plot parity (spatial/az-el/residual-feature/"
+        "uncertainty diagnostics)",
+        caveats=[
+            "Reads its own per-observation cache (stec.analysis."
+            "diagnostic_test_observations, a second pass over "
+            "predictions/pretrained_stec/own with a wider column set than "
+            "pretrained_test_diagnostics's Figures-4-9 cache), not that cache directly - "
+            "see this stage's own comment above for why.",
+            "plot_solar_magnetic_ipp_error_map (src/viz/spatial.py) is not ported: the "
+            "real predictions/pretrained_stec/own store has no sm_lon_ipp column, "
+            "checked directly against its parquet schema.",
+            "plot_binned_uncertainty_error_analysis (src/viz/uncertainty.py) is not "
+            "ported: it duplicates manuscript Figure 9 (fig_uncertainty) for this same "
+            "model and dataset.",
+            "fig_spatial_error_map needs >=10 observations in a 5-degree lat/lon bin to "
+            "plot at all (matching the source's own filter) - met at the full "
+            "10,000,000-row store, but a partial or heavily filtered run can "
+            "legitimately produce 0 of its 3 files rather than an empty plot.",
+        ],
     ),
     Stage(
         # Not a port of stratified_comparison.py despite the shared day-at-a-time
