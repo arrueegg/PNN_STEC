@@ -31,8 +31,12 @@ else does.
 
 from __future__ import annotations
 
+import csv
+from collections.abc import Sequence
 from pathlib import Path
 
+from ..analysis.daily_metrics import DATASET_LABELS, MODELS
+from ..analysis.positioning_summary import METHOD_ORDER
 from ..config import paths
 from .stage import Stage
 
@@ -58,6 +62,11 @@ def _analysis_dir(name: str, *, rebuilt: bool) -> Path:
 STORE_OWN = "predictions/finetuned_stec/own"
 STORE_PRETRAINED = "predictions/pretrained_stec/own"
 STORE_MADRIGAL = "predictions/finetuned_stec/madrigal"
+# The fully-Bayesian reference model's own store partition (see CLAUDE.md's
+# store-partition gotcha for why this is a separate tree, not a subdirectory of
+# STORE_PRETRAINED) - read only by epistemic_scale_diagnostic, as the sweep's reference
+# architecture.
+STORE_PRETRAINED_BNN_NLL = "predictions/pretrained_stec_resnet_bnn_nll/own"
 # `positioning_coverage`'s own rebuilt output, not `positioning_runs/full_coverage/` -
 # that tree is what the *pre-rebuild* `src/analysis/positioning_coverage.py` wrote
 # directly, and nothing has regenerated it since the results-layout restructure moved
@@ -122,6 +131,9 @@ ELEVATION_METRICS_FINETUNED_DIR = _analysis_dir(
     "elevation_metrics_finetuned", rebuilt=True
 )
 DSTEC_EVALUATION_DIR = _analysis_dir("dstec_evaluation", rebuilt=True)
+EPISTEMIC_SCALE_DIAGNOSTIC_DIR = _analysis_dir(
+    "epistemic_scale_diagnostic", rebuilt=True
+)
 
 # The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
 # full evaluation tree, not a `stec.analysis` output, so it lives under
@@ -167,6 +179,98 @@ MADRIGAL_CAVEAT = [
     "Does not support claims about the model's out-of-distribution uncertainty - dataset "
     "shift and reference-chain difference are confounded here.",
 ]
+
+
+# --- Check callables -----------------------------------------------------------------
+#
+# `min_rows` catches a truncated or empty CSV; it cannot catch one that is the right
+# shape but the wrong content - e.g. every `reindex`-guaranteed row present but empty,
+# because the input this stage read had nothing for that method. These are the first
+# uses of the `checks` field (docs/revision/independent_audit.md F4/F5 found it unused
+# on all 34 stages), added to the two canonical stages most exposed to a silently empty
+# or partial store: `daily_metrics` (Tables 3/4) and `positioning_summary` (Table 5).
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _missing_csv_columns(path: Path, required: Sequence[str]) -> list[str]:
+    """Header columns from `required` absent from `path`.
+
+    Checked before any row is indexed by name. `run_checks` (stec/pipeline/runner.py)
+    catches only `AssertionFailed`/`CheckFailed`; a bare `row["Model"]` on a CSV whose
+    column was renamed or dropped raises `KeyError`, which escapes uncaught and kills
+    the whole `--keep-going` run instead of failing the one stage. Reading the header
+    once, rather than every row, is also cheap enough to do unconditionally.
+    """
+    with path.open(newline="") as handle:
+        fieldnames = csv.DictReader(handle).fieldnames or []
+    return [column for column in required if column not in fieldnames]
+
+
+def daily_metrics_summary_has_all_methods_and_datasets(outputs: dict) -> str | None:
+    """Tables 3/4's summary.csv must report all four methods on both datasets, not
+    merely clear a row-count floor - a store that silently lost its Madrigal partition
+    would still write a plausible-looking summary.csv of `own`-only rows.
+
+    Checks marginal coverage only - every model appears in at least one dataset row,
+    every dataset appears in at least one model row - not the full 4x2 cross-product.
+    This is deliberate, not an oversight: the real store's summary.csv has 7 rows, not
+    8, because "Pretrained STEC" x madrigal is legitimately absent -
+    predictions/pretrained_stec/madrigal has never been built as a real partition (see
+    predictions/pretrained_stec/madrigal/README.md: the one file there is an orphan
+    day with no baseline columns, explicitly "not started-and-consistent", and
+    CLAUDE.md's prediction-store section confirms the partition "has not been built
+    yet"). A strict cross-product check would fail this stage permanently until that
+    partition exists, which is a data-availability fact, not a daily_metrics
+    correctness bug this stage should be blocked on. tests/pipeline/test_stages.py
+    pins both halves of this trade-off: the known real-world 7-row shape passes by
+    design, and a single missing (model, dataset) cell elsewhere in the table does
+    not fail the check - documented rather than silently absent. Tighten this to a
+    cross-product check, with the pretrained/madrigal cell in an explicit
+    allowed-missing set (never a silent exception), once that partition is actually
+    built end to end.
+    """
+    path = DAILY_METRICS_DIR / "summary.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(path, ["Model", "dataset"])
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = _read_csv_rows(path)
+    seen_models = {row["Model"] for row in rows}
+    seen_datasets = {row["dataset"] for row in rows}
+    missing_models = set(MODELS.values()) - seen_models
+    missing_datasets = set(DATASET_LABELS.values()) - seen_datasets
+    if missing_models or missing_datasets:
+        return (
+            f"{path} is missing model(s) {sorted(missing_models)} and/or "
+            f"dataset(s) {sorted(missing_datasets)}"
+        )
+    return None
+
+
+def positioning_summary_overall_has_all_four_methods(outputs: dict) -> str | None:
+    """Table 5's overall.csv always has exactly 4 rows - `reindex(METHOD_ORDER)`
+    guarantees the index even when a method has no station-days, filling it with NaN
+    rather than dropping the row. `min_rows=4` alone cannot tell that apart from 4 real
+    rows, so this checks `station_days` is actually populated for every method."""
+    path = POSITIONING_SUMMARY_DIR / "overall.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(path, ["Method"])
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = {row["Method"]: row for row in _read_csv_rows(path)}
+    missing = set(METHOD_ORDER) - set(rows)
+    if missing:
+        return f"{path} is missing method(s) {sorted(missing)}"
+    empty = [method for method in METHOD_ORDER if not rows[method].get("station_days")]
+    if empty:
+        return f"{path} has no station_days recorded for {sorted(empty)}"
+    return None
 
 
 STAGES: list[Stage] = [
@@ -333,7 +437,20 @@ STAGES: list[Stage] = [
         "input feature list and hyperparameters, generated from the model rather than "
         "maintained beside it",
         inputs=[str(_rel(paths.PAPER_PRETRAINED_CONFIG))],
-        outputs=[str(PAPER_TABLES_DIR)],
+        outputs=[
+            str(PAPER_TABLES_DIR),
+            str(PAPER_TABLES_DIR / "table1_features.csv"),
+            str(PAPER_TABLES_DIR / "table2_hyperparameters.csv"),
+        ],
+        # Both tables are close to a fixed size (one row per input block / per
+        # hyperparameter, driven by the frozen paper config, not by data volume) -
+        # floored comfortably below the real counts (24 and 22 rows respectively) so
+        # this catches a header-only write without pinning an exact count a harmless
+        # config edit could shift.
+        min_rows={
+            str(PAPER_TABLES_DIR / "table1_features.csv"): 10,
+            str(PAPER_TABLES_DIR / "table2_hyperparameters.csv"): 15,
+        },
         canonical_for="Tables 1 and 2",
         caveats=[
             "Generated from a frozen, checked-in copy of the paper's own stored run "
@@ -559,8 +676,33 @@ STAGES: list[Stage] = [
             STORE_MADRIGAL,
             str(GIM_BASELINE_REPAIR_DIR),
         ],
-        outputs=[str(DAILY_METRICS_DIR)],
-        min_rows={},
+        # summary.csv and per_day.csv declared individually, not only the parent
+        # directory: a directory output carries no row count
+        # (provenance.output_record only counts rows for a `.csv` file), so
+        # `min_rows={}` used to be the only option here - the audit's smoking gun
+        # (docs/revision/independent_audit.md F4/F5): a stage canonical for Tables 3/4
+        # could record success against an empty or missing store with nothing to catch
+        # it. Both files are exactly what daily_metrics.py already writes into this
+        # directory, so declaring them adds no new files on disk and does not change
+        # this directory's tree digest as an input elsewhere (activity_stratification
+        # reads the directory as a whole).
+        outputs=[
+            str(DAILY_METRICS_DIR),
+            str(DAILY_METRICS_DIR / "summary.csv"),
+            str(DAILY_METRICS_DIR / "per_day.csv"),
+        ],
+        min_rows={
+            # 4 methods x 2 datasets = 8 rows when every method reports on both
+            # datasets - floored below that (8 is already too small for a real
+            # "order of magnitude" margin) so this still catches a near-empty or
+            # missing-store run without demanding every method survive every rebuild.
+            str(DAILY_METRICS_DIR / "summary.csv"): 6,
+            # 4 methods x 242 own-days x 2 datasets is on the order of 1,900 rows when
+            # every model/day/dataset combination reports - floored an order of
+            # magnitude below that.
+            str(DAILY_METRICS_DIR / "per_day.csv"): 190,
+        },
+        checks=[daily_metrics_summary_has_all_methods_and_datasets],
         canonical_for="Tables 3 and 4",
         caveats=[
             "The published RMSE is RMSE_mean - the mean of per-day RMSEs - which is what "
@@ -681,6 +823,77 @@ STAGES: list[Stage] = [
         ],
     ),
     Stage(
+        # Declared after the fact: this diagnostic was run manually against the real
+        # store on 2026-08-24 (commit 2b7172b), before this Stage existed, so the
+        # existing multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/
+        # output on disk has no .pipeline/epistemic_scale_diagnostic.json - `pipeline
+        # status` reporting "never run" for a real, already-answered question is
+        # correct here, not a regression; only a fresh run through this Stage earns a
+        # provenance record.
+        "epistemic_scale_diagnostic",
+        f"-m stec.analysis.epistemic_scale_diagnostic --output-dir {EPISTEMIC_SCALE_DIAGNOSTIC_DIR}",
+        "R1.2",
+        "is the paper model's epistemic under-dispersion fixable with a post-hoc "
+        "scalar, or is the frozen deterministic backbone missing information no "
+        "rescaling can recover",
+        inputs=[STORE_PRETRAINED, STORE_PRETRAINED_BNN_NLL],
+        outputs=[
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR),
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "sweep_paper_model.csv"),
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "sweep_fully_bayesian_reference.csv"),
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "calibrating_scale_by_elevation.csv"),
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "calibrating_scale_by_geomag_lat.csv"),
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "calibrating_scale_by_year.csv"),
+        ],
+        min_rows={
+            # SCALE_GRID is a fixed 40-point grid (35 geomspace points + 5 tail
+            # points), independent of the data - exactly 40 whenever the sweep runs at
+            # all, for both the paper model and the fully-Bayesian reference.
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "sweep_paper_model.csv"): 40,
+            str(
+                EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "sweep_fully_bayesian_reference.csv"
+            ): 40,
+            # Stratified tables drop a bin below MIN_STRATUM_OBSERVATIONS (5,000) -
+            # floored well below the fixed bin counts (9 elevation, 6 geomag-lat, 11
+            # year) so a rebuild that thins out a bin or two still passes, but a store
+            # that produced almost no strata does not.
+            str(
+                EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "calibrating_scale_by_elevation.csv"
+            ): 5,
+            str(
+                EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "calibrating_scale_by_geomag_lat.csv"
+            ): 3,
+            str(EPISTEMIC_SCALE_DIAGNOSTIC_DIR / "calibrating_scale_by_year.csv"): 5,
+        },
+        canonical_for="R1.2 epistemic-scale diagnostic",
+        caveats=[
+            "A diagnostic, not a retrain: it answers whether a single post-hoc scalar "
+            "on the epistemic term can fix under-dispersed coverage, not whether the "
+            "model should ship with one. On the real store the answer was scale, not "
+            "structure - a calibrating scale exists that restores nominal 1-sigma "
+            "coverage without degrading the Spearman ranking against |error| - but "
+            "applying that scalar to the shipped model is a separate decision this "
+            "stage does not make.",
+            "sweep_paper_model.csv scores the paper's own BayesianResNetSTEC "
+            "(Bayesian output layer only, --model-variant pretrained_stec); "
+            "sweep_fully_bayesian_reference.csv scores a different architecture, "
+            "ResNet_BNN_NLL (--reference-model-variant "
+            "pretrained_stec_resnet_bnn_nll) - see CLAUDE.md's store-partition "
+            "gotcha for why these two live in separate store partitions at all. Do "
+            "not read one file's numbers onto the other model.",
+            "High coverage at large `s` is not evidence of a good uncertainty "
+            "estimate on its own - Spearman rho must be read alongside coverage, "
+            "since coverage alone can always be bought by inflating sigma; the "
+            "reference model's own sweep shows Spearman falling as `s` grows even "
+            "while coverage saturates near 100%.",
+            "Real output already exists at this stage's output directory from a "
+            "manual invocation (2026-08-24, commit 2b7172b) that predates this "
+            "Stage's declaration - `pipeline status` will report 'never run' until "
+            "it executes through the registry for real; that is the correct, "
+            "un-faked answer, not a bug.",
+        ],
+    ),
+    Stage(
         "mapping_function_consistency",
         f"-m stec.analysis.mapping_function_consistency --output-dir {MAPPING_FUNCTION_CONSISTENCY_DIR}",
         "R1.3",
@@ -694,7 +907,25 @@ STAGES: list[Stage] = [
         "R1.3",
         "how much of the Madrigal error is a per-station reference offset",
         inputs=[STORE_MADRIGAL],
-        outputs=[str(MADRIGAL_REFERENCE_OFFSET_DIR)],
+        # per_station_offsets.csv, not decomposition.csv, is the file with a
+        # station-scale row count (~67 stations clear MIN_OBSERVATIONS_PER_STATION on
+        # the real store). decomposition.csv is main()'s summary Series
+        # (observations, stations, RMSE_vs_madrigal, RMSE_after_removing_station_offset,
+        # variance_explained_by_offset_%, mean_abs_station_offset) turned into one
+        # column - always exactly 6 rows when it was written at all, so its floor is
+        # exact rather than a margin below a larger expected count.
+        outputs=[
+            str(MADRIGAL_REFERENCE_OFFSET_DIR),
+            str(MADRIGAL_REFERENCE_OFFSET_DIR / "per_station_offsets.csv"),
+            str(MADRIGAL_REFERENCE_OFFSET_DIR / "decomposition.csv"),
+        ],
+        min_rows={
+            # Floored well below the ~67 real stations so a rebuild with a handful
+            # fewer/more still passes, but a near-empty table (e.g. a truncated
+            # Madrigal store) does not.
+            str(MADRIGAL_REFERENCE_OFFSET_DIR / "per_station_offsets.csv"): 30,
+            str(MADRIGAL_REFERENCE_OFFSET_DIR / "decomposition.csv"): 6,
+        },
         canonical_for="Madrigal reference-offset decomposition",
         caveats=MADRIGAL_CAVEAT,
     ),
@@ -817,7 +1048,16 @@ STAGES: list[Stage] = [
         "Table 5",
         "headline positioning table, four methods on iono weighting",
         inputs=[POSITIONING],
-        outputs=[str(POSITIONING_SUMMARY_DIR)],
+        outputs=[
+            str(POSITIONING_SUMMARY_DIR),
+            str(POSITIONING_SUMMARY_DIR / "overall.csv"),
+        ],
+        # summarise_overall().reindex(METHOD_ORDER) always writes exactly 4 rows, one
+        # per method, NaN-filled rather than dropped when a method has no station-days
+        # - an exact count, not a floor. The `checks` entry below is what catches the
+        # NaN-filled case min_rows cannot see.
+        min_rows={str(POSITIONING_SUMMARY_DIR / "overall.csv"): 4},
+        checks=[positioning_summary_overall_has_all_four_methods],
         canonical_for="Table 5",
     ),
     Stage(
@@ -881,8 +1121,15 @@ STAGES: list[Stage] = [
         ],
         # Keyed on the CSV, not the directory - same reasoning as
         # relative_error_metrics: a tree digest carries files/size/mtime but no row
-        # count, so a min_rows on the parent directory can never be satisfied.
-        min_rows={str(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv"): 1},
+        # count, so a min_rows on the parent directory can never be satisfied. Floored
+        # well below a full run's plausible total - up to (242 own + 235 madrigal)
+        # days x 18 five-degree elevation bins x 4 methods, thinned by the >100-
+        # observation-per-(day,bin,method) guard - so this catches a near-empty or
+        # single-day run (the old floor of 1 could not) without pinning the exact
+        # count a real day's elevation distribution determines.
+        min_rows={
+            str(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv"): 2000
+        },
         canonical_for="Figure 11 per-elevation error bars",
         caveats=[
             "A (day, elevation_bin, method) cell is dropped below 100 observations "
@@ -987,7 +1234,14 @@ STAGES: list[Stage] = [
         "-m stec.analysis.results_manifest",
         "-",
         "which result trees are canonical and which are superseded",
-        outputs=[str(RESULTS_MANIFEST_DIR)],
+        outputs=[
+            str(RESULTS_MANIFEST_DIR),
+            str(RESULTS_MANIFEST_DIR / "manifest.csv"),
+        ],
+        # One row per declared stage - floored well below today's stage count so
+        # adding or removing a stage never needs this number revisited, while still
+        # catching a manifest written against an empty or unvalidated registry.
+        min_rows={str(RESULTS_MANIFEST_DIR / "manifest.csv"): 10},
         canonical_for="provenance index",
     ),
     Stage(

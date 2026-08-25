@@ -8,10 +8,20 @@ number ends up in a table it does not belong in.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from stec.analysis.daily_metrics import DATASET_LABELS, MODELS
+from stec.analysis.positioning_summary import METHOD_ORDER
 from stec.pipeline import registry
-from stec.pipeline.stages import STAGES
+from stec.pipeline.stages import (
+    DAILY_METRICS_DIR,
+    POSITIONING_SUMMARY_DIR,
+    STAGES,
+    daily_metrics_summary_has_all_methods_and_datasets,
+    positioning_summary_overall_has_all_four_methods,
+)
 
 
 def stage(name: str):
@@ -125,3 +135,293 @@ def test_vtec_baseline_is_scored_as_a_laplace():
 )
 def test_the_known_limited_results_carry_their_limitation(name):
     assert stage(name).caveats, f"{name} must state its limitation"
+
+
+# --- min_rows on the canonical stages the independent audit flagged (F4/F5) ----------
+#
+# docs/revision/independent_audit.md found 0 of 34 stages declaring `checks`, 22 of 34
+# declaring no `min_rows`, and 5 of the 10 `canonical_for` stages with existence-only
+# assertions - `daily_metrics` (canonical for Tables 3 and 4) declared `min_rows={}`
+# outright, the smoking gun: a stage could record success against a missing or empty
+# store with nothing to catch it.
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "daily_metrics",
+        "positioning_summary",
+        "madrigal_reference_offset",
+        "paper_tables",
+        "results_manifest",
+        "elevation_metrics_finetuned",
+    ],
+)
+def test_canonical_stages_declare_nonempty_min_rows(name):
+    floors = stage(name).min_rows
+    assert floors, f"{name} declares no row-count floor"
+    assert all(floor > 0 for floor in floors.values()), (
+        f"{name} declares a non-positive floor: {floors}"
+    )
+
+
+def test_daily_metrics_floors_are_keyed_on_real_output_files():
+    """`min_rows={}` used to be the only option because the stage's sole declared
+    output was a directory, which carries no row count - the fix is declaring the CSVs
+    daily_metrics.py actually writes as outputs in their own right."""
+    floors = stage("daily_metrics").min_rows
+    assert str(DAILY_METRICS_DIR / "summary.csv") in floors
+    assert str(DAILY_METRICS_DIR / "per_day.csv") in floors
+
+
+def test_positioning_summary_floor_is_keyed_on_overall_csv():
+    floors = stage("positioning_summary").min_rows
+    assert str(POSITIONING_SUMMARY_DIR / "overall.csv") in floors
+
+
+# --- checks: content invariants min_rows cannot see -----------------------------------
+#
+# A row-count floor cannot tell a plausible-shaped CSV with the wrong content from a
+# correct one - e.g. `reindex(METHOD_ORDER)` always writes exactly 4 rows for Table 5's
+# overall.csv, NaN-filled rather than dropped when a method has no station-days. These
+# pin the two `checks` callables added to catch that: fail on a synthetic wrong CSV,
+# pass on a synthetic right one.
+
+
+def test_daily_metrics_check_is_declared():
+    assert (
+        daily_metrics_summary_has_all_methods_and_datasets
+        in stage("daily_metrics").checks
+    )
+
+
+def test_positioning_summary_check_is_declared():
+    assert (
+        positioning_summary_overall_has_all_four_methods
+        in stage("positioning_summary").checks
+    )
+
+
+def _write_relative(tmp_path: Path, monkeypatch, relative: Path, content: str) -> None:
+    """Check callables read a fixed repo-relative path directly (the same one they
+    declare in `outputs`), so exercising them means chdir-ing into a scratch tree that
+    mirrors the real layout - the same pattern `tests/pipeline/test_runner.py`'s
+    `workspace` fixture uses for the runner itself."""
+    monkeypatch.chdir(tmp_path)
+    full = tmp_path / relative
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(content)
+
+
+def test_daily_metrics_check_passes_with_all_methods_and_datasets(
+    tmp_path, monkeypatch
+):
+    path = DAILY_METRICS_DIR / "summary.csv"
+    rows = "".join(
+        f"{dataset},{model}\n"
+        for dataset in DATASET_LABELS.values()
+        for model in MODELS.values()
+    )
+    _write_relative(tmp_path, monkeypatch, path, "dataset,Model\n" + rows)
+    outputs = {str(path): {"present": True}}
+    assert daily_metrics_summary_has_all_methods_and_datasets(outputs) is None
+
+
+def test_daily_metrics_check_fails_when_a_dataset_is_missing(tmp_path, monkeypatch):
+    """Simulates a store that silently lost its Madrigal partition while still writing
+    a plausible-looking, non-empty summary.csv - exactly the failure a bare row-count
+    floor cannot distinguish from four extra rows of a dataset already present."""
+    path = DAILY_METRICS_DIR / "summary.csv"
+    rows = "".join(f"own_vtec_gim,{model}\n" for model in MODELS.values())
+    _write_relative(tmp_path, monkeypatch, path, "dataset,Model\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = daily_metrics_summary_has_all_methods_and_datasets(outputs)
+    assert violation is not None
+    assert "madrigal_vtec_gim" in violation
+
+
+def test_daily_metrics_check_fails_when_a_model_is_missing(tmp_path, monkeypatch):
+    path = DAILY_METRICS_DIR / "summary.csv"
+    kept_models = list(MODELS.values())[:-1]
+    rows = "".join(
+        f"{dataset},{model}\n"
+        for dataset in DATASET_LABELS.values()
+        for model in kept_models
+    )
+    _write_relative(tmp_path, monkeypatch, path, "dataset,Model\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = daily_metrics_summary_has_all_methods_and_datasets(outputs)
+    assert violation is not None
+    assert list(MODELS.values())[-1] in violation
+
+
+def test_daily_metrics_check_reports_undeclared_output(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert (
+        daily_metrics_summary_has_all_methods_and_datasets({})
+        == f"{DAILY_METRICS_DIR / 'summary.csv'} is not a declared output of this stage"
+    )
+
+
+def test_daily_metrics_check_reports_renamed_column_instead_of_raising(
+    tmp_path, monkeypatch
+):
+    """A CSV whose 'Model' column was renamed (or dropped) must produce a descriptive
+    violation string, not a raw KeyError - runner.run_checks only catches
+    AssertionFailed/CheckFailed, so an uncaught KeyError here would kill the whole
+    `--keep-going` run instead of failing just this stage."""
+    path = DAILY_METRICS_DIR / "summary.csv"
+    rows = "".join(f"{dataset},x\n" for dataset in DATASET_LABELS.values())
+    _write_relative(tmp_path, monkeypatch, path, "dataset,ModelName\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = daily_metrics_summary_has_all_methods_and_datasets(outputs)
+    assert violation is not None
+    assert "Model" in violation
+
+
+def test_daily_metrics_check_reports_missing_dataset_column_instead_of_raising(
+    tmp_path, monkeypatch
+):
+    path = DAILY_METRICS_DIR / "summary.csv"
+    rows = "".join(f"{model}\n" for model in MODELS.values())
+    _write_relative(tmp_path, monkeypatch, path, "Model\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = daily_metrics_summary_has_all_methods_and_datasets(outputs)
+    assert violation is not None
+    assert "dataset" in violation
+
+
+def test_daily_metrics_check_passes_on_the_known_pretrained_madrigal_gap_shape(
+    tmp_path, monkeypatch
+):
+    """Pins the real-world shape: predictions/pretrained_stec/madrigal has never been
+    built (predictions/pretrained_stec/madrigal/README.md), so the real
+    pre_rebuild/summary.csv has 7 rows, not 8 - 'Pretrained STEC' x madrigal is
+    legitimately absent. This must pass by design, not by accident, so it is pinned
+    with a synthetic fixture mirroring the real shape rather than a read of the real
+    file, which would only prove today's file happens to pass."""
+    path = DAILY_METRICS_DIR / "summary.csv"
+    own_rows = "".join(f"own_vtec_gim,{model}\n" for model in MODELS.values())
+    madrigal_models = [m for m in MODELS.values() if m != "Pretrained STEC"]
+    madrigal_rows = "".join(f"madrigal_vtec_gim,{model}\n" for model in madrigal_models)
+    _write_relative(
+        tmp_path, monkeypatch, path, "dataset,Model\n" + own_rows + madrigal_rows
+    )
+    outputs = {str(path): {"present": True}}
+    assert daily_metrics_summary_has_all_methods_and_datasets(outputs) is None
+
+
+def test_daily_metrics_check_does_not_catch_a_single_missing_cell(
+    tmp_path, monkeypatch
+):
+    """Documents the check's known blind spot directly, independent of the specific
+    pretrained/madrigal case above: it verifies marginal coverage (every model
+    somewhere, every dataset somewhere), not the full 4x2 cross-product, so a single
+    missing (model, dataset) cell - here an arbitrary one, not the known
+    pretrained/madrigal gap - still passes. A future tightening to a strict
+    cross-product check (see the check's own docstring for the condition) would need
+    to update this test too, which is the point: the choice is pinned, not silently
+    assumed."""
+    path = DAILY_METRICS_DIR / "summary.csv"
+    all_models = list(MODELS.values())
+    own_rows = "".join(f"own_vtec_gim,{model}\n" for model in all_models)
+    # Drop a cell that is NOT the known pretrained/madrigal gap, to show the blind
+    # spot is general, not specific to that one documented case.
+    madrigal_models = [m for m in all_models if m != "VTEC + Mapping"]
+    madrigal_rows = "".join(f"madrigal_vtec_gim,{model}\n" for model in madrigal_models)
+    _write_relative(
+        tmp_path, monkeypatch, path, "dataset,Model\n" + own_rows + madrigal_rows
+    )
+    outputs = {str(path): {"present": True}}
+    assert daily_metrics_summary_has_all_methods_and_datasets(outputs) is None
+
+
+def test_positioning_summary_check_passes_with_all_four_methods_populated(
+    tmp_path, monkeypatch
+):
+    path = POSITIONING_SUMMARY_DIR / "overall.csv"
+    rows = "".join(f"{method},100\n" for method in METHOD_ORDER)
+    _write_relative(tmp_path, monkeypatch, path, "Method,station_days\n" + rows)
+    outputs = {str(path): {"present": True}}
+    assert positioning_summary_overall_has_all_four_methods(outputs) is None
+
+
+def test_positioning_summary_check_fails_when_reindex_leaves_a_method_empty(
+    tmp_path, monkeypatch
+):
+    """`reindex(METHOD_ORDER)` guarantees the row exists for every method even when one
+    has no station-days - it NaN-fills rather than drops, so `min_rows=4` alone cannot
+    tell that apart from four real rows. A NaN written through `DataFrame.to_csv` reads
+    back as an empty field, which is what this constructs directly."""
+    path = POSITIONING_SUMMARY_DIR / "overall.csv"
+    lines = [f"{method},100\n" for method in METHOD_ORDER[:-1]]
+    lines.append(f"{METHOD_ORDER[-1]},\n")
+    _write_relative(
+        tmp_path, monkeypatch, path, "Method,station_days\n" + "".join(lines)
+    )
+    outputs = {str(path): {"present": True}}
+    violation = positioning_summary_overall_has_all_four_methods(outputs)
+    assert violation is not None
+    assert METHOD_ORDER[-1] in violation
+
+
+def test_positioning_summary_check_fails_when_a_method_row_is_absent(
+    tmp_path, monkeypatch
+):
+    path = POSITIONING_SUMMARY_DIR / "overall.csv"
+    rows = "".join(f"{method},100\n" for method in METHOD_ORDER[:-1])
+    _write_relative(tmp_path, monkeypatch, path, "Method,station_days\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = positioning_summary_overall_has_all_four_methods(outputs)
+    assert violation is not None
+    assert METHOD_ORDER[-1] in violation
+
+
+def test_positioning_summary_check_reports_renamed_column_instead_of_raising(
+    tmp_path, monkeypatch
+):
+    """A CSV whose 'Method' column was renamed (or dropped) must produce a descriptive
+    violation string, not a raw KeyError - same reasoning as the daily_metrics twin
+    above."""
+    path = POSITIONING_SUMMARY_DIR / "overall.csv"
+    rows = "".join(f"{method},100\n" for method in METHOD_ORDER)
+    _write_relative(tmp_path, monkeypatch, path, "approach,station_days\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = positioning_summary_overall_has_all_four_methods(outputs)
+    assert violation is not None
+    assert "Method" in violation
+
+
+# --- epistemic_scale_diagnostic: the orphaned analysis, now a declared stage ----------
+
+
+def test_epistemic_scale_diagnostic_is_declared_exactly_once():
+    matches = [s for s in STAGES if s.name == "epistemic_scale_diagnostic"]
+    assert len(matches) == 1
+    assert matches[0].canonical_for == "R1.2 epistemic-scale diagnostic"
+
+
+def test_epistemic_scale_diagnostic_canonical_for_does_not_collide():
+    """registry.validate() (test_registry_invariants_hold) already enforces uniqueness
+    globally; this pins the specific string so a future rename cannot silently drop the
+    thing this test exists to protect."""
+    others = [
+        s.canonical_for
+        for s in STAGES
+        if s.canonical_for and s.name != "epistemic_scale_diagnostic"
+    ]
+    assert "R1.2 epistemic-scale diagnostic" not in others
+
+
+def test_epistemic_scale_diagnostic_reads_both_pretrained_store_partitions():
+    """Scores the paper's BayesianResNetSTEC against the fully-Bayesian
+    ResNet_BNN_NLL reference - two different architectures in two different store
+    partitions (CLAUDE.md's store-partition gotcha), not two readings of one."""
+    inputs = stage("epistemic_scale_diagnostic").inputs
+    assert "predictions/pretrained_stec/own" in inputs
+    assert "predictions/pretrained_stec_resnet_bnn_nll/own" in inputs
+
+
+def test_epistemic_scale_diagnostic_declares_its_diagnostic_not_retrain_caveat():
+    caveats = " ".join(stage("epistemic_scale_diagnostic").caveats).lower()
+    assert "not a retrain" in caveats
