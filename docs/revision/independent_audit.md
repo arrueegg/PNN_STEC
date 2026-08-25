@@ -293,6 +293,55 @@ reproducibility artifact.
   tmp-then-rename), so a concurrent reader can see a mid-write file — relevant right now,
   while a live job rewrites the Madrigal partition. NEW, structural.
 
+### F13 · The project's own canonical-results table drew a false-negative conclusion from a real recovery effort's own log labels — **[WEAKENS]** a headline positioning claim · PARTLY KNOWN
+
+The station-recovery effort (`positioning/geometry/build_recovered_day.py`, commit `b08e94f`,
+2026-08-20) exists to answer a real question: does the paper's positioning comparison need
+2,821 station-days it doesn't have because the ML methods structurally can't produce them,
+or because nobody built the input file? Its own `UNAVAILABLE` constant (`stec, vtec,
+vtec_stddev, satres, dcbs, dcbr`) proves the model reads no DCB-calibrated field, so the
+answer was always "the ML methods can serve any station-day with RINEX + navigation data" —
+and the completed sweep (`weekend-recovery.service`, finished 2026-08-24 15:07:57, 12h 50min
+CPU) already demonstrated it: of 2,311 station-days where all three ML methods were missing,
+**314 fully recovered and 436 partially recovered** (re-derived this session, joining
+`positioning_runs/full_coverage/coverage.csv` against the current `coverage.csv`) — 32.5% of
+the population, by exactly this mechanism.
+
+CLAUDE.md's own canonical-results row nonetheless recorded the opposite conclusion: that the
+remaining 1,591 station-days are "genuinely absent from the STEC database" and represent "a
+hard requirement for the ML methods that a positioning-only recovery sweep cannot close."
+That is a false negative written into the project's own record about its own completed
+experiment, not an external critique — the artifacts needed to refute it (the recovery
+sweep's yield, `build_recovered_day.py`'s own `UNAVAILABLE` constant) were already on disk
+when the conclusion was written.
+
+**Root cause, confirmed this session by reading the code and the log:**
+`positioning/positioning_eval/download_rinex.py:76` wraps the shell downloader in
+`subprocess.run(timeout=120)`; `download_rinex.sh`'s own retry schedule (5 attempts per
+filename format, two formats, sleeps 5/10/20/40/80 s) runs past that ceiling. Parsing
+`logs/station_recovery_geometry.log` (708,018 bytes) found all **1,491 of 1,491** "Timeout
+downloading RINEX" errors preceded by a matching start line at a delta of exactly **120.0 s
+(1,389) or 121.0 s (102), zero outliers** — a content-independent signature of the wrapper
+firing, not of the archive lacking the file. A freshly drawn sample of 5 station-days
+currently labelled "absent" in `coverage.csv` (WARK/350, POAL/298, NKLG/204, SUTH/161,
+POVE/238) were downloaded directly from CDDIS this session, bypassing the wrapper: **5 of 5**
+succeeded in 5.6–7.5 s each, one to two orders of magnitude under the 120 s the wrapper
+allows. The remaining 1,591 station-days are also concentrated rather than diffuse — 10
+stations (WARK, NKLG, SUTH, PTAG, LMMF, UNSA, KOUG, SOLO, WUH2, CPVG) account for 912 of
+1,591 (57.3%, re-derived this session directly from `coverage.csv`).
+
+**How verified:** commit contents (`b08e94f`, `50ae67a`, `ff8f58f`) read directly; the
+314/436/1,561 split, the 1,491/1,491 timeout-delta parse, and the station concentration were
+each computed fresh this session from the named CSV/log; the 5-station RINEX sample was
+downloaded live against CDDIS this session, not read from a prior claim.
+
+**Cost if unfixed:** the paper's positioning comparison keeps leaning on a common-set
+restriction (20.3% improvement, N=7,741) against an unmatched-population number (24.4%,
+N=8,636/10,837) it does not need to — the population gap between them is not the structural
+floor the project's own record currently says it is, and a downloader fix plus a re-run
+(queued behind GPU, not yet run) would close a material share of it. Full writeup:
+`docs/revision/coverage_recovery_status.md`.
+
 ---
 
 ## 3. Confirmed sound

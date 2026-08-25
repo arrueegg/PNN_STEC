@@ -342,3 +342,23 @@ figure the easier one to defend.
 
 Once `recovery-models` runs the number moves up rather than down, so quoting it is not a
 concession either way.
+
+---
+
+## Superseded (2026-08-25): `recovery-models` did run, and closed part of the gap this document left open
+
+Everything above this line is left as written — it was correct for what it examined at the
+time. What has changed since: `recovery-models` (as `weekend-recovery.service`) did
+eventually run to completion (finished 2026-08-24 15:07:57, 12h 50min CPU), and it moved the
+314+436 = 750 station-days out of "all ML missing" that this document's last section
+predicted it would. The number this document says to quote — 7,885 / 2,241 / 725 of
+10,851 — is now stale; current coverage (`multiday_results/analyses/positioning_coverage/
+rebuilt/coverage.csv`, 2026-08-24) is 8,195 / 1,591 / 1,067 of 10,853.
+
+Separately, and more importantly: `docs/revision/coverage_recovery_status.md` (2026-08-25)
+corrects a conclusion drawn *after* this document's last section, not anything written here
+— CLAUDE.md's canonical-results row came to describe the remaining 1,591 as stations the ML
+methods are structurally unable to serve. That framing is refuted there: the real blocker is
+a `download_rinex.py` subprocess timeout (120 s) shorter than the retry schedule it wraps,
+not genuine data absence. Read `coverage_recovery_status.md` for the current number, the
+refutation, and what a re-run would take.
