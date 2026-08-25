@@ -79,6 +79,22 @@ def test_save_plot_notitle_has_no_title_artist(tmp_path):
     assert titles_when_saved == ["A Title", ""]
 
 
+def test_figure_geometry_constants_match_the_pre_rebuild_generators():
+    """A figure-parity check found the port had collapsed Figures 10 and 12-15's distinct
+    published aspect ratios onto the generic FIGSIZE_WIDE = (16, 10). These four values are
+    the ones the pre-rebuild scripts actually used - re-derive them from the cited
+    file:line rather than trusting this test if either script changes."""
+    # src/multiday_evaluation.py:1046 (`generate_aggregate_plots`, improvement statistics)
+    assert style.FIGSIZE_DAILY_IMPROVEMENT == (14, 7)
+    # positioning/scripts/plot_results.py:152 and :206, both inside `plot_trends` (def
+    # at :111) - the daily 3D-RMS trend (Figure 12) and improvement timeseries (Figure 14).
+    assert style.FIGSIZE_POSITIONING_TREND == (10, 6)
+    # positioning/scripts/plot_results.py:251 and :285, both inside
+    # `plot_extended_analysis` (def at :242) - the distribution boxplot (Figure 13) and
+    # CDF (Figure 15).
+    assert style.FIGSIZE_POSITIONING_DISTRIBUTION == (8, 6)
+
+
 def test_analysis_method_labels_are_palette_keys():
     """An approach's colour is looked up by its name, so a rename silently unbinds it.
 

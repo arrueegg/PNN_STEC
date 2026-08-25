@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
 from stec.analysis.activity_stratification import DST_LABELS, F107_LABELS
+from stec.config import paths
 from stec.viz import revision_figures as rf
 from stec.viz import style
 
@@ -379,3 +381,94 @@ def test_activity_figures_restore_two_line_bin_labels_for_the_plot(
     for groups in seen_groups:
         assert groups in (expected_dst, expected_f107)
         assert all("\n" in g for g in groups)
+
+
+# --------------------------------------------------------------------------
+# _build_stratified_figures - both sources under the current results layout
+# --------------------------------------------------------------------------
+
+
+def _synthetic_stratified_table() -> pd.DataFrame:
+    """Two methods x two bins, with a populated `improvement_over_gim_pct` so both the
+    absolute and the margin panel draw. Bin labels are plain strings (not pandas interval
+    text), which `_interval_label` passes through unchanged - bin formatting correctness
+    is a different function's concern, not this path-resolution test's."""
+    rows = []
+    for method, rmse, improvement in (
+        ("Direct STEC", 5.0, 20.0),
+        ("IGS GIM + Mapping", 8.0, 0.0),
+    ):
+        for b in ("low", "high"):
+            rows.append(
+                {
+                    "bin": b,
+                    "Method": method,
+                    "days": 10,
+                    "observations": 1000,
+                    "RMSE": rmse,
+                    "improvement_over_gim_pct": improvement,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _write_stratified_source(source_dir: Path, table: pd.DataFrame) -> None:
+    source_dir.mkdir(parents=True, exist_ok=True)
+    for name in rf.STRATIFIER_AXES:
+        table.to_csv(source_dir / f"by_{name}.csv", index=False)
+
+
+def test_stratified_figures_resolve_under_the_current_results_layout(tmp_path, caplog):
+    """Pins the fix for the 2026-08-21 results restructure: the fine-tuned source lives
+    under `analyses/stratified_comparison/{rebuilt,pre_rebuild}/`, resolved through
+    `analysis_dir()` like every other family in this module, and the pretrained source
+    lives under the restructure's own `unclassified/stratified_comparison_pretrained/`
+    (flat, no rebuilt/pre_rebuild split - flagged in `stec/runs/restructure_results.py`
+    as content nobody has classified yet). Before the fix, both were read from a raw
+    `args.results_dir / subdir` join that matched neither location, so every family here
+    was silently never produced."""
+    results_dir = tmp_path / "results"
+    table = _synthetic_stratified_table()
+    _write_stratified_source(
+        rf.analysis_dir(results_dir, "stratified_comparison"), table
+    )
+    _write_stratified_source(
+        results_dir
+        / paths.UNCLASSIFIED_RESULTS.name
+        / "stratified_comparison_pretrained",
+        table,
+    )
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    with caplog.at_level(logging.WARNING):
+        rf._build_stratified_figures(args, output_dir)
+
+    assert not [r for r in caplog.records if "not found" in r.message]
+    target = output_dir / rf.SOURCE_DIRS["finetuned"]
+    for name in rf.STRATIFIER_AXES:
+        assert (target / f"stratified_{name}_absolute.png").exists()
+        assert (target / f"stratified_{name}_improvement.png").exists()
+        assert (target / f"stratified_{name}_pretrained_absolute.png").exists()
+        assert (target / f"stratified_{name}_pretrained_improvement.png").exists()
+
+
+def test_stratified_figures_warn_for_both_sources_when_missing(tmp_path, caplog):
+    """The old code only warned for the fine-tuned source (`if not suffix`); the
+    pretrained half failed with no log output at all. Both sources must now name their
+    own missing path when the source directory does not exist."""
+    args = argparse.Namespace(
+        results_dir=tmp_path / "empty_results", output_dir=tmp_path / "plots"
+    )
+    with caplog.at_level(logging.WARNING):
+        rf._build_stratified_figures(args, args.output_dir)
+
+    messages = [r.message for r in caplog.records]
+    finetuned_warnings = [m for m in messages if "stratified_comparison/" in m]
+    pretrained_warnings = [
+        m for m in messages if "stratified_comparison_pretrained" in m
+    ]
+    assert len(finetuned_warnings) == len(rf.STRATIFIER_AXES)
+    assert len(pretrained_warnings) == len(rf.STRATIFIER_AXES)
+    assert not list((tmp_path / "plots").rglob("*.png"))

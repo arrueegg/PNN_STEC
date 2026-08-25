@@ -589,6 +589,67 @@ def test_build_positioning_figures_end_to_end_from_synthetic_multiday_summary(tm
         assert notitle.exists() and notitle.stat().st_size > 0
 
 
+def test_positioning_figures_are_drawn_at_the_pinned_geometry_not_figsize_wide(
+    tmp_path, monkeypatch
+):
+    """Pins that the four `fig_positioning_*` drawing calls actually pass
+    `style.FIGSIZE_POSITIONING_TREND`/`FIGSIZE_POSITIONING_DISTRIBUTION` to
+    `plt.subplots` - a constant with the right value but never referenced would pass
+    `test_style.py`'s check while the figure still rendered at FIGSIZE_WIDE, which is
+    exactly how this port drifted the first time."""
+    seen_figsizes = []
+    original_subplots = mf.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        seen_figsizes.append(kwargs.get("figsize"))
+        return original_subplots(*args, **kwargs)
+
+    monkeypatch.setattr(mf.plt, "subplots", spy_subplots)
+
+    style.configure_plotting()
+    frame = _synthetic_positioning_frame()
+    frame["method"] = frame["method"].map(mf._POSITIONING_METHOD_MAP)
+    frame = frame.dropna(subset=["method"])
+    frame["date"] = pd.to_datetime(frame["date"])
+    frame = frame[frame["error_3d_rms"] <= mf.OUTLIER_3D_RMS_M]
+
+    mf.fig_positioning_trend(frame, tmp_path, "synthetic")
+    mf.fig_positioning_improvement_timeseries(frame, tmp_path, "synthetic")
+    mf.fig_positioning_distribution_boxplot(frame, tmp_path, "synthetic")
+    mf.fig_positioning_cdf_3d_rms(frame, tmp_path, "synthetic")
+
+    assert seen_figsizes == [
+        style.FIGSIZE_POSITIONING_TREND,
+        style.FIGSIZE_POSITIONING_TREND,
+        style.FIGSIZE_POSITIONING_DISTRIBUTION,
+        style.FIGSIZE_POSITIONING_DISTRIBUTION,
+    ]
+
+
+def test_fig_improvement_by_date_is_drawn_at_the_pinned_geometry(tmp_path, monkeypatch):
+    """Same regression as the positioning check above, for Figure 10."""
+    seen_figsizes = []
+    original_subplots = mf.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        seen_figsizes.append(kwargs.get("figsize"))
+        return original_subplots(*args, **kwargs)
+
+    monkeypatch.setattr(mf.plt, "subplots", spy_subplots)
+
+    style.configure_plotting()
+    daily = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-05-01"] * 2),
+            "Model": ["Direct STEC", "IGS GIM + Mapping"],
+            "RMSE": [5.0, 8.0],
+        }
+    )
+    mf.fig_improvement_by_date(daily, "RMSE", tmp_path, "synthetic")
+
+    assert seen_figsizes == [style.FIGSIZE_DAILY_IMPROVEMENT]
+
+
 # --------------------------------------------------------------------------
 # Entry point resilience
 # --------------------------------------------------------------------------

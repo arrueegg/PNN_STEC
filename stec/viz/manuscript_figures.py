@@ -124,7 +124,10 @@ from ..positioning.metrics import OUTLIER_3D_RMS_M, exclude_outlier_station_days
 from .revision_figures import analysis_dir
 from .style import (
     APPROACH_COLORS,
+    FIGSIZE_DAILY_IMPROVEMENT,
     FIGSIZE_HISTOGRAM,
+    FIGSIZE_POSITIONING_DISTRIBUTION,
+    FIGSIZE_POSITIONING_TREND,
     FIGSIZE_SQUARE,
     FIGSIZE_WIDE,
     configure_plotting,
@@ -1012,7 +1015,7 @@ def fig_improvement_by_date(
     pivot = daily.pivot(index="date", columns="Model", values=metric).sort_index()
     stec = pivot["Direct STEC"]
 
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    fig, ax = plt.subplots(figsize=FIGSIZE_DAILY_IMPROVEMENT)
     rows = []
     for baseline, color in (
         ("VTEC + Mapping", APPROACH_COLORS["VTEC + Mapping"]),
@@ -1276,7 +1279,7 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
     )
     daily["sem"] = daily["std"] / np.sqrt(daily["count"])
 
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_TREND)
     order = [m for m in _POSITIONING_ORDER if m in daily["method"].unique()]
     for i, method in enumerate(order):
         subset = daily[daily.method == method].sort_values("date")
@@ -1333,7 +1336,7 @@ def fig_positioning_improvement_timeseries(
     gim = pivot["IGS GIM + Mapping"]
     model_cols = sorted(c for c in pivot.columns if c != "IGS GIM + Mapping")
 
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_TREND)
     rows = []
     for method in model_cols[::-1]:
         improvement = (gim - pivot[method]) / gim * 100
@@ -1384,7 +1387,7 @@ def fig_positioning_distribution_boxplot(
     per-method colours and order.
     """
     order = [m for m in _POSITIONING_ORDER if m in df["method"].unique()]
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_DISTRIBUTION)
     data = [df.loc[df.method == m, "error_3d_rms"].to_numpy() for m in order]
     boxes = ax.boxplot(
         data,
@@ -1424,7 +1427,7 @@ def fig_positioning_cdf_3d_rms(
     branch (98th percentile x1.2) this reproduces, not a hardcoded x-axis cap.
     """
     order = [m for m in _POSITIONING_ORDER if m in df["method"].unique()]
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_DISTRIBUTION)
     robust_max = 0.0
     rows = []
     for method in order:

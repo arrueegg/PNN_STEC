@@ -59,6 +59,19 @@ FIGSIZE_QUAD = (20, 16)  # 4-panel 2x2 grids
 FIGSIZE_HISTOGRAM = (16, 10)
 FIGSIZE_HEATMAP = (16, 10)
 
+# Figure-specific geometries that must match the pre-rebuild generator exactly, ported
+# separately from FIGSIZE_WIDE because that constant's (16, 10)/1.6 aspect is not what
+# these figures were published at - a figure-parity check caught the four below silently
+# using FIGSIZE_WIDE instead. Each is named for the manuscript figure(s) it mirrors so a
+# future reader does not have to re-derive the aspect ratio from the PNG.
+FIGSIZE_DAILY_IMPROVEMENT = (14, 7)  # Figure 10: src/multiday_evaluation.py:1046
+# Figures 12 & 14: positioning/scripts/plot_results.py:152 and :206 (both inside
+# plot_trends, def at :111) - the daily 3D-RMS trend and its improvement-over-GIM twin.
+FIGSIZE_POSITIONING_TREND = (10, 6)
+# Figures 13 & 15: positioning/scripts/plot_results.py:251 and :285 (both inside
+# plot_extended_analysis, def at :242) - the overall-distribution boxplot and its CDF twin.
+FIGSIZE_POSITIONING_DISTRIBUTION = (8, 6)
+
 
 def configure_plotting() -> None:
     """Apply the standardized plotting configuration. Idempotent - safe to call per module."""

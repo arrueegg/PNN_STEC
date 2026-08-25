@@ -765,12 +765,25 @@ def _stratified_figures(
 
 def _build_stratified_figures(args: argparse.Namespace, output_dir: Path) -> None:
     for subdir, suffix, description in _STRATIFIED_SOURCES:
-        source_dir = args.results_dir / subdir
+        if subdir == "stratified_comparison":
+            source_dir = analysis_dir(args.results_dir, subdir)
+            missing_hint = "run -m stec.analysis.stratified_comparison"
+        else:
+            # The 2026-08-21 results restructure never classified this source - it has no
+            # declared stage of its own (`stec.pipeline.stages.STAGES` has no
+            # `stratified_comparison_pretrained` entry), so it landed in the restructure's
+            # own "don't know" bucket, `unclassified/<name>/`, flat with no
+            # rebuilt/pre_rebuild split - analysis_dir() assumes both and does not apply.
+            source_dir = args.results_dir / paths.UNCLASSIFIED_RESULTS.name / subdir
+            missing_hint = (
+                "no stage regenerates it - see stec/runs/restructure_results.py"
+            )
         for name in STRATIFIER_AXES:
             path = source_dir / f"by_{name}.csv"
             if not path.exists():
-                if not suffix:
-                    logger.warning(f"{path} not found - run stratified_comparison.py")
+                # Both sources must warn, not just the fine-tuned one - an
+                # `if not suffix` guard here used to silence the pretrained half entirely.
+                logger.warning(f"{path} not found - {missing_hint}")
                 continue
             table = pd.read_csv(path)
             lead = table[table.Method == table.Method.iloc[0]]
