@@ -1,5 +1,41 @@
 # Retirement inventory: pre-rebuild `src/`, `positioning/positioning_eval/`, `positioning/scripts/`
 
+**HISTORICAL — predates the merge.** Recomputed at HEAD `63ed78e` on the separate
+`pipeline-rebuild` worktree, before that branch merged into `paper-revision-jgr-mlc` at
+`5a1d873` (2026-08-23 13:31). The "this worktree" vs. "the data root, a sibling worktree ...
+never touched" distinction §0 and elsewhere in this document draws no longer applies — both
+are the same tree today, and `src/` itself has kept shrinking since (see CLAUDE.md's "`src/`'s
+status" section, current as of 2026-08-25: only `cli.py`'s five subcommands still need it,
+measured at 50 files / 25,134 lines at module level). Every per-file disposition below (PORTED
+/ KEEP / DEAD) is a real, checked finding as of when it was made and has not been independently
+re-verified against the current tree for this pass — most should still hold (nothing un-ports a
+module), but do not assume without spot-checking. **File count is confirmed current**: 116, not
+118 — `positioning/scripts/add_pretrained_baseline.py` and `evaluate_dstec.py` were deleted
+2026-08-24 (noted in the "Post-recompute update" paragraph below, but the "118 files total" line
+just below and the summary table in §1 were never edited to match; treat "118" wherever it
+appears in this document as "116" and the DEAD count as 2 lower than printed).
+
+**Reconciled 2026-08-25** (independent audit F12 flagged this as unresolved; this is the fresh
+recount that settles it). Method: `find src -name '*.py' | wc -l` (102) +
+`find positioning/positioning_eval -maxdepth 1 -name '*.py' | wc -l` (7) +
+`find positioning/scripts -maxdepth 1 -name '*.py' | wc -l` (7) = **116 files on disk**, matching
+this document's own "confirmed current" claim above. Every per-file disposition in §2 was tallied
+by hand against that on-disk listing (not against the row count in the markdown tables, which
+still carry the two 2026-08-24 deletions as historical rows — see below): **PORTED 30 / KEEP 70 /
+DEAD 16 / Total 116**, arithmetic 30 + 70 + 16 = 116. This is exactly the "18 pre-deletion, treat
+as 2 lower" adjustment this document's own §0 paragraph above already prescribes (18 − 2 = 16,
+118 − 2 = 116) — the fresh count confirms that instruction was correct, the problem was only that
+§1's printed table below was never actually edited to apply it, despite the "counts above are
+updated in place" sentence claiming it had been. **CLAUDE.md's "71 KEEP / 17 DEAD" restatement
+does not match this reconciled tally either** (nor the pre-deletion 70/18) and should be replaced
+with **PORTED 30 / KEEP 70 / DEAD 16, Total 116** — see this file's §1 for the corrected table.
+Six spot-checks (two per disposition, chosen for consequence — `daily_metrics.py` and
+`positioning_summary.py` for PORTED, since they back Tables 3/4/5; `common_set.py` and
+`swi_loader.py` for DEAD, since both were previously misclassified once each; `inference_
+testset.py` and `run_positioning_evaluation.py` for KEEP, since both are the widest-fanout
+callers in their sections) all confirmed the table's existing verdicts — no row needed
+correcting. For current status generally, read `docs/revision/STATE.md`.
+
 Recomputed at HEAD `63ed78e` on `pipeline-rebuild`, replacing the version written at
 `507bcf2`. Scope, per the brief: every `.py` under `src/` (102 files), `positioning/
 positioning_eval/` (7 files), `positioning/scripts/` (9 files) — **118 files total**,
@@ -106,18 +142,27 @@ around:
 |---|---:|---|
 | **PORTED** | 30 | Equivalent exists in `stec/`; safe to delete once the blockers in `merge_plan.md` are cleared |
 | **KEEP** | 70 | No replacement exists yet, or the file is a deliberate, permanent exception |
-| **DEAD** | 18 | No caller anywhere, proven by grep; several new to this recompute (§0 item 7 and the `swi_loader.py` correction in §2) |
+| **DEAD** | 16 | No caller anywhere, proven by grep; several new to this recompute (§0 item 7 and the `swi_loader.py` correction in §2) |
 | **UNRESOLVED** | 0 | Every file was settled by direct evidence — none deferred |
-| **Total** | 118 | |
+| **Total** | 116 | Matches `find src -name '*.py' \| wc -l` (102) + `positioning/positioning_eval/*.py` (7) + `positioning/scripts/*.py` (7), confirmed 2026-08-25 |
 
-Post-recompute update, 2026-08-24: `evaluate_dstec.py` moved KEEP → DEAD once
-`stec/analysis/dstec_evaluation.py` was added — see its row below. Both files (it and
-`add_pretrained_baseline.py`) have since been deleted; the counts above are updated in place
-rather than left to describe files that no longer exist.
+**Recounted 2026-08-25: 116 files on disk, PORTED 30 / KEEP 70 / DEAD 16, method: hand-tally
+of every per-file row in §2 against the on-disk `find` listing above, cross-checked per
+subtree (each subtree's PORTED+KEEP+DEAD sums to that subtree's on-disk file count before
+being rolled up into this table).** This replaces the "unresolved, not settled by this pass"
+framing this document previously carried at the top of the file: the disagreement was never a
+real ambiguity in the underlying files, only that the pre-existing 30/70/18 (pre-deletion) row
+in this table was never edited down to 30/70/16 after `add_pretrained_baseline.py` and
+`evaluate_dstec.py` were deleted 2026-08-24, despite the paragraph directly below (still
+present, now corrected in fact rather than only in claim) saying it had been. `evaluate_dstec.py`
+moved KEEP → DEAD once `stec/analysis/dstec_evaluation.py` was added — see its row below. Both
+files (it and `add_pretrained_baseline.py`) have since been deleted; their rows are kept in §2,
+marked `(superseded, deleted 2026-08-24)`, as the record of what they were — but are excluded
+from the counts above, which describe files that exist on disk today.
 
-Both PORTED (28→30) and DEAD (6→17→18) grew since `507bcf2`; KEEP fell from 84 to 70. The net
-direction — more is portable or provably dead than the old document credited — is the
-correction this recompute makes, but 70 files is still the majority, and the reason is now
+Both PORTED (28→30) and DEAD (6→17→18→16 post-deletion) grew since `507bcf2`; KEEP fell from 84
+to 70. The net direction — more is portable or provably dead than the old document credited — is
+the correction this recompute makes, but 70 files is still the majority, and the reason is now
 precise rather than a single blanket "no driver layer" claim: every KEEP below states which
 specific gap keeps it alive.
 

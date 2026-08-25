@@ -1,5 +1,19 @@
 # Figure coverage: manuscript figures vs. rebuilt code
 
+**Superseded, 2026-08-21 (read before trusting the "0 of 15" conclusion below).** This
+document's "No — none of the 15 figures are ported" finding was accurate when written
+(2026-08-21 14:19, commit `e14c660`), and was superseded the same day, a few hours later,
+by commits `507bcf2` and `e2c3e6d`. Current state, per `CLAUDE.md`'s "Revision work" section:
+all 14 code-generated manuscript figures now have `stec/viz/manuscript_figures.py` generators
+wired to real data (confirmed by output on disk, `plots/manuscript/stec_pretrained_testset/`
+and `.pipeline/pretrained_test_diagnostics.json`). **That closes only the code side.** The
+PNGs actually embedded in `STEC_Modelling/` are still the pre-rebuild Aug-18 artifacts, and
+nothing yet connects the two — no equivalence check confirms the new generators reproduce
+those embedded PNGs — see `docs/revision/independent_audit.md` finding F3. Read `CLAUDE.md`
+for the current state; the figure-by-figure mapping and "Is any of this actually ported?"
+sections below describe the situation as of the original write and are not corrected in
+place.
+
 Maps every figure `STEC_Modelling/PNN_main.tex` embeds to the code that produces it, and
 checks whether that code has been ported into `stec/`. Read-only audit against the primary
 checkout (`/scratch2/arrueegg/WP4/PNN_STEC`, frozen) and the rebuild (`stec/viz/`). No

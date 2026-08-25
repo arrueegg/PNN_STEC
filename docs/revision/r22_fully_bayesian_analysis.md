@@ -1,4 +1,11 @@
-# R2.2 — Does a fully Bayesian network improve on the Bayesian-head-only paper model?
+# R1.2 — Does a fully Bayesian network improve on the Bayesian-head-only paper model?
+
+**Numbering note (2026-08-25):** this analysis was originally labelled "R2.2" throughout
+(including by `CLAUDE.md`, now fixed); in the response letter's actual numbering the
+fully-Bayesian question is **R1.2** — R2.2 is a different, closed comment (2024
+solar-maximum-degradation attribution). Earlier references to "the R2.2 analysis" elsewhere in
+this codebase mean this document. The filename `r22_fully_bayesian_analysis.md` is left as-is
+since other documents already link to it by path.
 
 Evidence for the reviewer question "why not make the whole network Bayesian instead of only the
 output layer?" Compares the paper model `BayesianResNetSTEC` (Bayesian output head only) against
@@ -17,7 +24,7 @@ directly from files this run produced, or computed directly from them (see §6 f
 
 ---
 
-## 1. Answer to R2.2
+## 1. Answer to R1.2
 
 Two things, read together, are the honest answer.
 
@@ -38,7 +45,7 @@ not buy is calibration: mean predicted uncertainty is 2.74× the paper model's (
 against a 1.33× RMSE increase, so the uncertainty scale is inflated well past what the accuracy
 loss would justify.
 
-**The honest R2.2 answer is therefore not "last-layer is simply better" — it is "last-layer is
+**The honest R1.2 answer is therefore not "last-layer is simply better" — it is "last-layer is
 substantially more accurate; the fully-Bayesian variant does not buy better uncertainty ranking
 either, and loses absolute calibration."** Both halves of that sentence are now supported with
 matched initialisation, where before only the second half was measurable at all.
@@ -197,7 +204,7 @@ grows) — this was never affected by the fully-Bayesian retrain and needed no r
 
 ## 7. Superseded predecessor: the confounded run
 
-The first R2.2 comparison (`logs/r22_eval.log`, 2026-08-23 13:25–14:36) evaluated a
+The first R1.2 comparison (`logs/r22_eval.log`, 2026-08-23 13:25–14:36) evaluated a
 `ResNet_BNN_NLL` checkpoint that lacked the output-layer initialisation `BayesianResNetSTEC` has
 always had. Every number from that run therefore measured **the architecture plus that missing
 initialisation**, not the architecture alone — the pervasive −1.93 TECU bias it reported is the

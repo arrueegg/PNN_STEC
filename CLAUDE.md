@@ -8,9 +8,10 @@ The repo is ~640 GB and holds 1588+ experiment directories, most of them superse
 sections below say which artifacts are current.** Read them before trusting any results tree.
 
 **A rebuild landed on this branch 2026-08-23.** `stec/` is now the implementation — a layered
-package with a 30-stage declared pipeline, replacing `src/` as the thing that produces the
-paper's numbers. `src/` still exists and still does real work (see "`src/`'s status" below),
-but it is being retired, not maintained in parallel. If something below and something in
+package with a 35-stage declared pipeline (`len(stec.pipeline.stages.STAGES)`, confirmed
+2026-08-25) and 855 passing tests, replacing `src/` as the thing that produces the paper's
+numbers. `src/` still exists and still does real work (see "`src/`'s status" below), but it is
+being retired, not maintained in parallel. If something below and something in
 `docs/ARCHITECTURE.md` / `docs/REPRODUCING.md` disagree, those two documents are more current
 for how `stec/` is built; this file is more current for gotchas and canonical-results paths.
 
@@ -74,7 +75,7 @@ Architecture is `BayesianResNetSTEC`, ported byte-identical (verified line-by-li
 variance floor).
 
 `ResNet_BNN_NLL` (`src/model/model.py:182`, ported into `stec/models/architectures.py:146`) is
-the *fully* Bayesian variant. **It has now been pretrained**, for the R2.2 revision analysis —
+the *fully* Bayesian variant. **It has now been pretrained**, for the R1.2 revision analysis —
 the old claim that it "has never been pretrained" is stale. The first pretrain omitted the
 output-layer initialisation `BayesianResNetSTEC` has always had (bias → 15.5 TECU, weights →
 `N(0, 0.01)`); a corrected retrain (`fb-retrain`, done 2026-08-24) closed about half the
@@ -125,8 +126,15 @@ predictions/<model_variant>/<dataset>/year=<YYYY>/doy=<DDD>.parquet
 
 Verified counts (2026-08-24): `finetuned_stec/own` 242 day-files, `finetuned_stec/madrigal` 235,
 `pretrained_stec/own` 544, `pretrained_stec_resnet_bnn_nll/own` 544 (this third variant did not
-exist before the R2.2 analysis — see "The paper model" above). Neither `pretrained_stec/madrigal`
-nor `pretrained_stec_resnet_bnn_nll/madrigal` has been built yet.
+exist before the R1.2 analysis — see "The paper model" above). `pretrained_stec/madrigal` is no
+longer empty but is not a started-and-consistent partition either: it holds exactly one orphan
+day, `year=2024/doy=122.parquet` (2,036,513 rows, written 2026-08-25 09:02, new IPP-longitude
+local-time convention), from a driver that died starting doy=123 when the GPU it needed went to
+the Madrigal local-time re-inference. That one day is schema-incomplete — 27 of 37 `STORE_COLUMNS`,
+no GIM/VTEC baseline columns — so file existence alone would wrongly count it as done; see
+`predictions/pretrained_stec/madrigal/README.md` for the full account and the
+`required_columns` gap-check this forced into `scripts/lib/missing_data_selection.py`.
+`pretrained_stec_resnet_bnn_nll/madrigal` remains genuinely unbuilt.
 
 ```python
 from stec.inference import prediction_store as ps
@@ -163,6 +171,14 @@ Notes:
   Reported (not independently reproduced by this session): a real day yields ~7,210 gap-inferred
   arcs, ~71.8% spanning ≥20° elevation — unverified figure, flagged rather than dropped since
   the mechanism it describes is now real.
+- `finetuned_stec/madrigal` doy=217 entered the local-time re-inference already missing the
+  three `vtec_model_stec_*_unc` columns — a pre-existing gap, unrelated to the local-time fix;
+  doy=196 has the same gap. Both are self-documented in `logs/
+  madrigal_local_time_reinference_manifest.csv`'s `missing_baseline_columns` field, which for
+  doy=217 (2,014,763 rows, converted 2026-08-25T09:08:57Z) still reads
+  `vtec_model_stec_total_unc;vtec_model_stec_aleatoric_unc;vtec_model_stec_epistemic_unc` —
+  the local-time conversion does not close this gap, it only carries it forward. Full-partition
+  VTEC-uncertainty scoring silently drops any such day.
 - Space-weather columns keep registry names: `Kp_index`, `R_Sunspot_No`, `Dst-index,_nT`,
   `AE-index,_nT`, `ap_index,_nT`, `f107_index`.
 - **The VTEC baseline is a 10-member deep ensemble, not one checkpoint.** The canonical config
@@ -213,6 +229,11 @@ python cli.py multiday --dates "2024-122:2024-366" \
 
 # dSTEC diagnostic - reads the prediction store, no live inference, no src/ dependency
 python -m stec.analysis.dstec_evaluation --doys 132 150 200
+# Manual run over the full 242-day store (2026-08-25 09:03): 672,542 arcs, model dSTEC RMSE
+# pooled 5.155 vs GIM 6.637 TECU (mean-of-arcs 3.746 vs 5.368). Also run through
+# `python -m stec.pipeline run --only dstec_evaluation` the same day (09:37) - `.pipeline/
+# dstec_evaluation.json` now exists and records 672,542 rows, matching the manual run to
+# 4 decimals. `dstec_evaluation` is a declared stage (`canonical_for` R1.3).
 
 # A full-day sweep costs ~15 min/day (both datasets, T=100) and ~550 MB/day of disk, so 242
 # days is >2 days of wall clock. Batch it and refresh results between batches rather than
@@ -242,8 +263,10 @@ automation that has not been migrated off yet.
 ## The stage pipeline
 
 Every result the paper reports is a declared `Stage` in
-[stec/pipeline/stages.py](stec/pipeline/stages.py) (**30 stages, confirmed by
-`len(stec.pipeline.stages.STAGES)`, 2026-08-24**): a command, what it reads, what it writes,
+[stec/pipeline/stages.py](stec/pipeline/stages.py) (**35 stages, confirmed by
+`len(stec.pipeline.stages.STAGES)`, 2026-08-25** — up from 30 on 2026-08-24, then 34 later the
+same day; the most recent addition is `epistemic_scale_diagnostic`, declared `canonical_for`
+"R1.2 epistemic-scale diagnostic"): a command, what it reads, what it writes,
 which reviewer comment it answers (`canonical_for` — e.g. `daily_metrics` → "Tables 3 and 4",
 `positioning_summary` → "Table 5", `common_set_positioning` → "Table A1",
 `elevation_metrics_finetuned` → "Figure 11 per-elevation error bars"), and the minimum it must
@@ -309,10 +332,16 @@ independent correctness checks are a separate, ongoing activity (`docs/ARCHITECT
 
 `src/` is being retired, not deleted yet, and not maintained as a second implementation
 either — it is what still runs the parts of the pipeline `stec/` has not taken over.
-`docs/revision/retirement_inventory.md` is the file-by-file audit (118 files across `src/`,
-`positioning/positioning_eval/`, `positioning/scripts/`: 30 already superseded by a `stec/`
-port and safe to delete once the blockers below clear, 71 still the only implementation of
-something live, 17 dead code with zero callers, confirmed by grep, not assumed).
+`docs/revision/retirement_inventory.md` is the file-by-file audit — **116 files today**
+(`src/` 102 + `positioning/positioning_eval/` 7 + `positioning/scripts/` 7, counted directly
+2026-08-25; two of the original 118 — `add_pretrained_baseline.py`, `evaluate_dstec.py` — were
+superseded and deleted 2026-08-24, see below). ~30 are already ported to `stec/` and safe to
+delete once the blockers clear; the rest split between still-the-only-implementation and dead
+code with zero callers, confirmed by grep, not assumed. Reconciled 2026-08-25
+(`docs/revision/retirement_inventory.md`): PORTED 30 / KEEP 70 / DEAD 16, Total 116 — matches
+the on-disk count exactly (`find src -name '*.py' | wc -l` = 102, plus 7 + 7 for the two
+positioning trees). This is the pre-deletion 30/70/18 minus the two files deleted 2026-08-24;
+both prior candidate figures (70/18 pre-deletion, and the 71/17 restatement) are superseded.
 
 **What is confirmed gone as a blocker**: `stec/config/paths.py`'s `SPLIT_LISTS` used to point
 at `src/data_processing/`, which would have made a literal `rm -rf src/` break `stec/` itself.
@@ -337,21 +366,38 @@ to import or run `--help` cleanly with `src/` deleted in a scratch copy):
   trace, each real and each still `src/`-only). ~12,300 undercounts the real dependency
   graph; treat it as a floor, not an estimate, until someone runs a real coverage trace with
   every branch (Madrigal, ensemble, both `mode`s) exercised. What is still needed, in
-  capability rather than lines: the training loop with early stopping and wandb logging,
-  live model inference that populates the prediction store (`stec.inference.run_inference`
+  capability rather than lines: wandb logging (early stopping and best-checkpoint tracking are
+  no longer on this list, see the correction above), a `stec/`-native driver for the daily
+  fine-tune+inference+comparison sweep across many real days (`stec/runs/daily_sweep.py` exists
+  and is exercised against the CPU smoke fixture, but has never run against the real database or
+  at 242-day scale — its own docstring says so), live model inference that populates the
+  prediction store (`stec.inference.run_inference`
   covers the STEC model's
   own forward pass for a given day, but not ensemble/MC-dropout decomposition or the
-  interpolation/extrapolation temporal split), the daily fine-tune+inference+comparison sweep
-  itself, and spatial map inference (confirmed, not assumed, to have no `stec/` equivalent at
+  interpolation/extrapolation temporal split), and spatial map inference (confirmed, not
+  assumed, to have no `stec/` equivalent at
   all — grid construction, multi-temporal dataset assembly, IONEX read/write and the plotting
   are all still `src/data_loader/multitemporal_inference_dataset.py` +
   `src/inference_map.py`-only). Figures 4-11 are **not** part of this list any more — see the
   correction below this bullet and the one in `retirement_inventory.md`'s `src/viz/` section:
   `stec.analysis.pretrained_test_diagnostics` + `stec/viz/manuscript_figures.py` produce all of
-  them from the store today, no `src/` involved, confirmed by real output on disk. `stec/
-  training/run_training.py` exists but deliberately does not replace the training loop (no
-  best-checkpoint tracking, no early stopping, no wandb — see the retraining note under "What is
-  and is not reproducible" in `docs/REPRODUCING.md`). All five subcommands still delegate to
+  them from the store today, no `src/` involved, confirmed by real output on disk. **Correcting
+  a claim this file used to make: `stec/training/run_training.py` does now do best-checkpoint
+  tracking and early stopping** — `stec.training.checkpointing.fit_with_best_checkpoint` (added
+  2026-08-24) wraps `fit` with the exact `best_val_loss`/`patience` bookkeeping
+  `base_trainer.py:251-397` used to select every one of the 3,583 shipped checkpoints, `patience`
+  read from `config[mode]["patience"]` the same way the legacy code does. What is still missing
+  is wandb logging only. Separately, the pretrain's 500,000-row-per-epoch subsample (drawn with
+  replacement from all 15 years) is also now wired — `stec.data.aggregated_dataset.
+  AggregatedSplitDataset` + `stec.data.splits.EpochRandomSampler`/`ResampledEpochBatches` — so
+  neither of those two gaps blocks a `stec/`-native pretrain any more. What still does: a full
+  150-epoch pretrain through this path has never been run to completion — a 20-minute
+  verification attempt read 516 GB at 840 MB/s for zero completed epochs (one row-read pulls a
+  whole 655 KB HDF5 chunk for an 80-byte row) before being stopped; a fork-safe lazy handle plus
+  batched `__getitems__` reads are now in place and measured up to 4 concurrent workers (2.0x/3.4x
+  speedup), but 12 workers — the target that would make a real pretrain a ~6 h job, matching
+  `src/`'s measured 2.5 min/epoch — has not been tested, and no `stec/`-trained checkpoint has
+  been compared against the shipped one end to end. All five subcommands still delegate to
   `src/` for their actual work; the only change made without GPU access was to fail with a named,
   actionable message (`cli.py <subcommand> needs src/<module>.py, which is not importable …`)
   instead of a raw `ModuleNotFoundError` traceback when `src/` is absent — behaviourally
@@ -372,8 +418,11 @@ deleted. Two other candidates were resolved and deleted, not ported:
   `year`/`doy` from the model's own denormalised inputs — the same float32 truncation bug fixed
   elsewhere in this file, present at three sites in that script. `stec/analysis/dstec_evaluation.py`
   gets the same per-arc dSTEC numbers from the prediction store instead: no inference, no
-  truncation bug, and it already produced real output over 18 days
-  (`multiday_results/analyses/dstec_evaluation/rebuilt/`) before the old script was removed.
+  truncation bug, and it already produced real output over 18 days before the old script was
+  removed — since grown to the **full 242-day store** (2026-08-25, 672,542 arcs; see the
+  dSTEC command note above), because the per-day I/O turned out cheap enough (~50 MB/day of
+  the 35-column store, pruned to the 11 columns this analysis reads) that there was no reason
+  to keep defending a partial-coverage subset in the response letter.
   The old script's plotting and Pearson-R/R² extras had no caller — neither `evidence_summary.md`
   nor `response_to_reviewers.md` mentions dSTEC — and were not ported: if a dSTEC figure is ever
   needed, it belongs in `stec/viz/revision_figures.py` reading the new module's CSVs, the same
@@ -438,7 +487,10 @@ Two evaluations that are **not** what they look like:
 - **The Madrigal comparison changes two things at once** — the model is out of distribution
   *and* the reference comes from a different processing chain. 45% of the Madrigal RMSE
   variance is a per-station reference offset, established by the fact that the model and the
-  IGS GIM disagree with Madrigal identically (corr +0.946 over 67 stations). Madrigal numbers
+  IGS GIM disagree with Madrigal identically over 67 stations — Spearman ρ ≈0.698, Pearson
+  r ≈0.925 (`multiday_results/analyses/madrigal_reference_offset/pre_rebuild/leverage_check.csv`).
+  The response letter flags the Pearson figure as leverage-inflated: restricted to stations
+  with |offset| ≤ 15 TECU (n=53), Pearson drops to ≈0.617. Madrigal numbers
   must be read alongside `madrigal_reference_offset`, never standalone, and they do not
   support claims about the model's out-of-distribution uncertainty. Also read alongside the
   local-time correction: the published Madrigal numbers used receiver-longitude local time
@@ -459,7 +511,7 @@ Two evaluations that are **not** what they look like:
 - **A pretrain-mode run silently overwrote 544 days of the paper model's predictions with a
   different architecture's.** `inference_testset.py` chose the store partition from `mode`
   alone, and both `BayesianResNetSTEC` and the fully-Bayesian `ResNet_BNN_NLL` run under
-  `mode: pretrain`. The R2.2 evaluation wrote its output straight into
+  `mode: pretrain`. The R1.2 evaluation wrote its output straight into
   `predictions/pretrained_stec/own`, and every downstream read of "Pretrained STEC" started
   reporting **21.99 TECU** against a published **13.45**. Fixed: architecture is now part of
   the partition identity, with an explicit `evaluation.store_variant` override

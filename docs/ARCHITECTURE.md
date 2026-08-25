@@ -359,18 +359,25 @@ these gates do.
   intended, named in `expected_divergence`), or `FAIL` (a difference nobody declared). A run
   that compares nothing reports `INCONCLUSIVE`, deliberately, rather than exiting 0 — "a gate
   that compares nothing and reports success is precisely the failure this rebuild exists to
-  remove." **Read this gate's status carefully: as of the last recorded run
-  (`rebuild_status.md`), 19 comparisons are declared, 3 are structurally skipped
-  (`repair_gim_baseline`, because it is itself the GIM-repair regression check and comparing
-  it against itself would share an implementation with what it checks; `positioning_coverage`,
-  because the station-recovery sweep was rewriting its inputs live; `stratified_comparison`,
-  because a full double run was projected past 5 hours and the first attempt hit the harness's
-  own timeout), and of the 16 that remain, only 3 have actually been executed and confirmed (2
-  `MATCH`, 1 `DIVERGED`, 0 unexplained).** The other comparisons carry an `expected_divergence`
-  dict that was written by whoever ported the analysis — a prediction about what will differ
-  and why, not a confirmed measurement. Treat an unexecuted comparison's `expected_divergence`
-  as a hypothesis to verify, not as evidence the port is correct, until
-  `gate_f_analysis_equivalence.py --only <name>` has actually been run against it.
+  remove." **Settled state (per `docs/revision/gate_f_inventory.md`): 19 comparisons are
+  declared, 2 are permanent structural skips (`repair_gim_baseline`, because it is itself the
+  GIM-repair regression check and comparing it against itself would share an implementation
+  with what it checks; `positioning_coverage`, because the station-recovery sweep was
+  rewriting its inputs live), and all 17 of the rest have actually been executed and confirmed
+  against the real store: 13 `MATCH`, 4 `DIVERGED`-as-declared, 0 unexplained.** (An earlier
+  snapshot of this section, taken 2026-08-21 14:19 mid-run, reported only 3 of the 16
+  non-skipped comparisons as executed — 2 `MATCH`, 1 `DIVERGED`. That was accurate for the
+  moment it was written and was superseded the same day at 17:04 once the remaining 14 were
+  run; it is recorded here, not silently dropped, because a stale snapshot like it is exactly
+  the kind of claim this document exists to keep honest.) The epistemological point survives
+  the update unchanged, just narrower in scope now: for the 2 comparisons that remain
+  structural skips, and for any future analysis whose Gate F comparison has not yet been run,
+  the `expected_divergence` dict recorded at port time is a prediction about what will differ
+  and why, written by whoever did the port — not a confirmed measurement. Treat an unexecuted
+  comparison's `expected_divergence` as a hypothesis to verify, not as evidence the port is
+  correct, until `gate_f_analysis_equivalence.py --only <name>` has actually been run against
+  it (and, for the 2 permanent skips, until the underlying blocker — sharing an implementation
+  with itself, or a live-rewritten input — is no longer true).
 
 ---
 
@@ -383,10 +390,13 @@ The three things you are most likely to get wrong without having read this:
    that OOM-kills a 242-day run months later. Use `iter_days` and accumulate.
 
 2. **Trusting a green Gate F as "the analysis is correct."** It proves the port is consistent
-   with what came before, and — as of this writing — most of its declared comparisons have not
-   actually been run yet. A gate passing is not the same claim as a number being right; §8b of
-   the rebuild plan (independent recomputation, invariant checks, external reconciliation) is
-   what actually establishes correctness, and it is a separate, ongoing activity.
+   with what came before — as of the settled state in §5 above, 17 of the 19 declared
+   comparisons have actually been run and compared (13 `MATCH`, 4 `DIVERGED`-as-declared, 0
+   unexplained; the other 2 are permanent structural skips, not pending), so this is no longer
+   a coverage gap. It is still not a correctness claim: a gate passing is not the same claim as
+   a number being right; §8b of the rebuild plan (independent recomputation, invariant checks,
+   external reconciliation) is what actually establishes correctness, and it is a separate,
+   ongoing activity.
 
 3. **Comparing two forward passes of `BayesianResNetSTEC` — or two training runs, or two
    inference sweeps — without pinning the sampling first and checking the zero-perturbation
