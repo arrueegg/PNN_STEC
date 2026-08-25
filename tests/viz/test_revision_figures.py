@@ -13,11 +13,14 @@ import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytest
 
 from stec.analysis.activity_stratification import DST_LABELS, F107_LABELS
+from stec.analysis import uncertainty_calibration as uc
 from stec.config import paths
+from stec.inference import prediction_store as ps
 from stec.viz import revision_figures as rf
 from stec.viz import style
 
@@ -472,3 +475,243 @@ def test_stratified_figures_warn_for_both_sources_when_missing(tmp_path, caplog)
     assert len(finetuned_warnings) == len(rf.STRATIFIER_AXES)
     assert len(pretrained_warnings) == len(rf.STRATIFIER_AXES)
     assert not list((tmp_path / "plots").rglob("*.png"))
+
+
+# --------------------------------------------------------------------------
+# R1.6 - calibration figures read uncertainty_calibration.py's real output
+# --------------------------------------------------------------------------
+
+
+def _calibration_day_frame(rows: int, seed: int) -> pd.DataFrame:
+    """One synthetic day of predictions carrying both products
+    `uncertainty_calibration.PRODUCTS` scores: Direct STEC (Gaussian) and VTEC +
+    Mapping (Laplace). Same shape as `tests/analysis/test_uncertainty_calibration.py`'s
+    own `day_frame`, kept local rather than imported so this test file does not depend
+    on another test module's internals.
+    """
+    rng = np.random.default_rng(seed)
+    true_stec = rng.uniform(0, 60, rows)
+    stec_sigma = rng.uniform(0.5, 3.0, rows)
+    vtec_std = rng.uniform(0.5, 3.0, rows)
+    return pd.DataFrame(
+        {
+            "station": ["AMC4"] * rows,
+            "sat": ["G01"] * rows,
+            "satele": rng.uniform(5, 90, rows),
+            "true_stec": true_stec,
+            "stec_pred": true_stec + rng.normal(0, stec_sigma),
+            "pred_total_unc": stec_sigma,
+            "vtec_model_stec": true_stec + rng.laplace(0, vtec_std / np.sqrt(2.0)),
+            "vtec_model_stec_total_unc": vtec_std,
+        }
+    )
+
+
+def _run_calibration_analysis(tmp_path: Path, monkeypatch, *, dataset: str) -> Path:
+    """Runs the real `uncertainty_calibration.main()` against one synthetic
+    prediction-store day, writing its actual current output - `coverage.csv`,
+    `scores.csv`, `pit_<model>_<family>_<regime>.csv` - to
+    `<results_dir>/analyses/uncertainty_calibration/rebuilt/finetuned_stec_<dataset>/`,
+    the same tree `_build_calibration_figures` reads. Returns `results_dir`; safe to
+    call twice against the same `tmp_path` with different `dataset` values, since both
+    write under the one shared store/results root.
+
+    `--swi-path` points at a file that does not exist, so the run degrades to the
+    unstratified "all" regime only (`load_storm_doys_by_year`'s documented behaviour
+    when its archive is missing) - 4 PIT files (2 models x 2 families) instead of 12,
+    since the regime split is not what these tests are about.
+    """
+    store_root = tmp_path / "store"
+    ps.write_predictions(
+        _calibration_day_frame(2_000, seed=7),
+        "finetuned_stec",
+        dataset,
+        2024,
+        130,
+        root=store_root,
+    )
+    results_dir = tmp_path / "results"
+    output_dir = results_dir / "analyses" / "uncertainty_calibration" / "rebuilt"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "uncertainty_calibration",
+            "--store-root",
+            str(store_root),
+            "--model-variant",
+            "finetuned_stec",
+            "--dataset",
+            dataset,
+            "--swi-path",
+            str(tmp_path / "no_such_omni.h5"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+    uc.main()
+    return results_dir
+
+
+def test_calibration_figures_read_the_real_writer_output_filenames(
+    tmp_path, monkeypatch, caplog
+):
+    """Pins the R1.6 defect: `_build_calibration_figures` used to read a combined
+    `coverage_all.csv`/`pit_all.csv` that `uncertainty_calibration.py` stopped writing
+    once it was ported - the analysis moved to one `coverage.csv` covering every
+    model/family/regime combination plus a `pit_<model>_<family>_<regime>.csv` per
+    combination, and the figure kept reading the old names, so both PNGs went stale in
+    place while the source data moved on. This runs the real writer (`uc.main()`), not
+    a hand-typed stand-in for it, so a future rename of its output breaks this test
+    rather than silently leaving the figure stale again.
+    """
+    results_dir = _run_calibration_analysis(tmp_path, monkeypatch, dataset="own")
+    own_dir = (
+        results_dir
+        / "analyses"
+        / "uncertainty_calibration"
+        / "rebuilt"
+        / "finetuned_stec_own"
+    )
+    real_pit_files = {p.name for p in own_dir.glob("pit_*.csv")}
+    assert (own_dir / "coverage.csv").exists()
+    assert rf._calibration_pit_filename() in real_pit_files
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    # `_run_calibration_analysis` above already logged its own unrelated warnings (e.g.
+    # the missing --swi-path); clear those so this block only captures what
+    # `_build_calibration_figures` itself does.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        rf._build_calibration_figures(args, output_dir)
+
+    # This test only sets up the own-test-set partition, so the honest "Madrigal isn't
+    # here yet" warning is expected - it is pinned on its own in the fallback test below.
+    # Nothing about *own*'s coverage.csv/pit_*.csv may be reported missing, though.
+    own_not_found = [
+        r
+        for r in caplog.records
+        if "not found" in r.message and "finetuned_stec_madrigal" not in r.message
+    ]
+    assert not own_not_found
+    target = output_dir / rf.SOURCE_DIRS["stec_finetuned"]
+    assert (target / "calibration_coverage.png").exists()
+    assert (target / "calibration_coverage_notitle.png").exists()
+    assert (target / "calibration_pit.png").exists()
+    assert (target / "calibration_pit_notitle.png").exists()
+
+
+def test_calibration_figures_warn_and_fall_back_to_own_only_when_madrigal_is_absent(
+    tmp_path, monkeypatch, caplog
+):
+    """The rebuilt `uncertainty_calibration` tree has no `finetuned_stec_madrigal/` yet
+    - that partition is mid re-inference (see CLAUDE.md's prediction-store notes). The
+    only `finetuned_stec_madrigal/` that exists anywhere is under `pre_rebuild/`, scored
+    against predictions from before the rebuild - mixing that with the rebuilt own
+    series would put two different generations of data on one axis with no way for a
+    reader to tell. The figure must instead warn by name and plot the own test set
+    alone, never a silent Madrigal-shaped gap."""
+    results_dir = _run_calibration_analysis(tmp_path, monkeypatch, dataset="own")
+    calibration_dir = results_dir / "analyses" / "uncertainty_calibration" / "rebuilt"
+    assert not (calibration_dir / "finetuned_stec_madrigal").exists()
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        rf._build_calibration_figures(args, output_dir)
+
+    warnings = [r.message for r in caplog.records]
+    assert any("finetuned_stec_madrigal" in m for m in warnings)
+
+    target = output_dir / rf.SOURCE_DIRS["stec_finetuned"]
+    plotted_coverage = pd.read_csv(target / "calibration_coverage.csv")
+    assert set(plotted_coverage["series"]) == {"own test set"}
+    plotted_pit = pd.read_csv(target / "calibration_pit.csv")
+    assert "density_madrigal" not in plotted_pit.columns
+
+
+def test_calibration_figures_include_madrigal_when_its_partition_exists(
+    tmp_path, monkeypatch, caplog
+):
+    """Once the Madrigal re-inference lands and `uncertainty_calibration.py` is run
+    against it, `finetuned_stec_madrigal/` appears under the same `rebuilt/` tree and
+    the figure must pick it up with no further code changes - the fallback above is for
+    the partition's absence, not a permanent own-only restriction."""
+    results_dir = _run_calibration_analysis(tmp_path, monkeypatch, dataset="own")
+    _run_calibration_analysis(tmp_path, monkeypatch, dataset="madrigal")
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        rf._build_calibration_figures(args, output_dir)
+
+    warnings = [r.message for r in caplog.records]
+    assert not any("finetuned_stec_madrigal" in m for m in warnings)
+
+    target = output_dir / rf.SOURCE_DIRS["stec_finetuned"]
+    plotted_coverage = pd.read_csv(target / "calibration_coverage.csv")
+    assert "Madrigal" in set(plotted_coverage["series"])
+    plotted_pit = pd.read_csv(target / "calibration_pit.csv")
+    assert "density_madrigal" in plotted_pit.columns
+
+
+# --------------------------------------------------------------------------
+# R2.6 - uncertainty_vs_error reads uncertainty_error_relation.py's current filename
+# --------------------------------------------------------------------------
+
+
+def _write_uncertainty_error_relation_csv(results_dir: Path) -> Path:
+    """Synthetic `by_uncertainty.csv`, matching `uncertainty_error_relation.py`'s
+    current fixed-TECU-bin schema (`bin, observations, MAE, RMSE, mean_pred_unc,
+    observations_epistemic, epistemic_share`) - the schema and filename this analysis
+    moved to when it dropped first-day-only sigma deciles (see its module docstring).
+    The figure used to read a `by_sigma.csv` this writer no longer produces at all."""
+    d = rf.analysis_dir(results_dir, "uncertainty_error_relation")
+    d.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "bin": ["(-0.001, 1.0]", "(1.0, 2.0]", "(2.0, 3.0]"],
+            "observations": [1000, 2000, 1500],
+            "MAE": [1.2, 1.8, 2.4],
+            "RMSE": [1.7, 2.5, 3.3],
+            "mean_pred_unc": [0.9, 1.6, 2.4],
+            "observations_epistemic": [1000, 2000, 1500],
+            "epistemic_share": [0.15, 0.08, 0.07],
+        }
+    ).to_csv(d / "by_uncertainty.csv", index=False)
+    return d
+
+
+def test_uncertainty_vs_error_figure_reads_the_current_by_uncertainty_filename(
+    tmp_path, caplog
+):
+    """Sibling defect to the calibration one above, found by sweeping every path this
+    module builds against what its source analysis actually writes on disk:
+    `_build_uncertainty_vs_error_figure` read a `by_sigma.csv` that
+    `uncertainty_error_relation.py` renamed to `by_uncertainty.csv` (with new column
+    names to match) when it moved from first-day sigma deciles to fixed TECU bins."""
+    results_dir = tmp_path / "results"
+    _write_uncertainty_error_relation_csv(results_dir)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    with caplog.at_level(logging.WARNING):
+        rf._build_uncertainty_vs_error_figure(args, output_dir)
+
+    assert not [r for r in caplog.records if "not found" in r.message]
+    target = output_dir / rf.SOURCE_DIRS["finetuned"]
+    assert (target / "uncertainty_vs_error.png").exists()
+    plotted = pd.read_csv(target / "uncertainty_vs_error.csv")
+    assert list(plotted.columns) == [
+        "bin",
+        "observations",
+        "mean_pred_unc",
+        "RMSE",
+        "rmse_over_mean_pred_unc",
+    ]

@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -802,9 +803,15 @@ def _build_stratified_figures(args: argparse.Namespace, output_dir: Path) -> Non
 def fig_uncertainty_vs_error(
     d: pd.DataFrame, output_dir: Path, provenance: str
 ) -> None:
-    """Mean predicted sigma against realised RMSE, per predicted-sigma decile."""
+    """Mean predicted uncertainty against realised RMSE, per predicted-uncertainty bin.
+
+    `by_uncertainty.csv`'s bins are fixed absolute-TECU edges, not deciles of any one
+    day's distribution (see `uncertainty_error_relation.py`'s module docstring for why
+    the port moved off deciles) - the axis is unchanged, only the previous "decile"
+    framing no longer applies.
+    """
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    limit = float(max(d.RMSE.max(), d.mean_sigma.max())) * 1.05
+    limit = float(max(d.RMSE.max(), d.mean_pred_unc.max())) * 1.05
     ax.plot(
         [0, limit],
         [0, limit],
@@ -815,15 +822,15 @@ def fig_uncertainty_vs_error(
         zorder=2,
     )
     ax.plot(
-        d.mean_sigma,
+        d.mean_pred_unc,
         d.RMSE,
         marker="o",
         markersize=9,
         color=APPROACH_COLORS["Direct STEC"],
-        label="Direct STEC, by predicted-σ decile",
+        label="Direct STEC, by predicted-uncertainty bin",
         zorder=3,
     )
-    ax.set_xlabel("Mean predicted σ [TECU]")
+    ax.set_xlabel("Mean predicted uncertainty [TECU]")
     ax.set_ylabel("Realised RMSE [TECU]")
     ax.set_xlim(0, limit)
     ax.set_ylim(0, limit)
@@ -836,21 +843,29 @@ def fig_uncertainty_vs_error(
         "finetuned",
         output_dir,
         provenance,
-        d[["bin", "n", "mean_sigma", "RMSE", "rmse_over_sigma"]],
+        d.assign(rmse_over_mean_pred_unc=d.RMSE / d.mean_pred_unc)[
+            ["bin", "observations", "mean_pred_unc", "RMSE", "rmse_over_mean_pred_unc"]
+        ],
     )
 
 
 def _build_uncertainty_vs_error_figure(
     args: argparse.Namespace, output_dir: Path
 ) -> None:
-    path = analysis_dir(args.results_dir, "uncertainty_error_relation") / "by_sigma.csv"
+    path = (
+        analysis_dir(args.results_dir, "uncertainty_error_relation")
+        / "by_uncertainty.csv"
+    )
     if not path.exists():
         logger.warning(
-            f"{path} not found - run src/analysis/uncertainty_error_relation.py"
+            f"{path} not found - run -m stec.analysis.uncertainty_error_relation"
         )
         return
     d = pd.read_csv(path)
-    prov = f"{path} - daily fine-tuned models, own test set ({int(d['n'].sum()):,} observations)"
+    prov = (
+        f"{path} - daily fine-tuned models, own test set "
+        f"({int(d['observations'].sum()):,} observations)"
+    )
     fig_uncertainty_vs_error(d, output_dir, prov)
 
 
@@ -1321,6 +1336,67 @@ def _build_dstec_evaluation_figures(args: argparse.Namespace, output_dir: Path) 
 # R1.6 - calibration: coverage and PIT
 # --------------------------------------------------------------------------
 
+# `uncertainty_calibration.py` scores every product under both predictive families (see
+# its module docstring), so its coverage.csv/pit_*.csv carry Direct STEC and VTEC +
+# Mapping, each under Gaussian and Laplace, split by "all"/"quiet"/"storm" regime. This
+# figure keeps its original, pre-rebuild scope: one model (Direct STEC - the manuscript's
+# headline model; VTEC + Mapping is a separate baseline with its own reviewer thread),
+# scored under its *native* family. Direct STEC trains under GaussianNLLLoss (see
+# CLAUDE.md's "The paper model"), so "gaussian" - not the mis-specified Laplace alternative
+# also present in the same file - is the correct slice; VTEC's native family is Laplace
+# instead (CLAUDE.md's VTEC-uncertainty gotcha), which is exactly why this is a per-model
+# choice rather than a fixed family. "all" (not "quiet"/"storm") matches what the
+# pre-rebuild combined pit_all.csv/coverage_all.csv held - confirmed by diffing this slice
+# of the rebuilt coverage.csv against the old file, byte-for-byte equal.
+CALIBRATION_MODEL = "Direct STEC"
+CALIBRATION_FAMILY = "gaussian"
+CALIBRATION_REGIME = "all"
+
+
+def _calibration_pit_filename() -> str:
+    """`pit_<model-slug>_<family>_<regime>.csv`, matching
+    `uncertainty_calibration.py::main`'s `out / f"pit_{_slug(name)}_{family}_{regime}.csv"`
+    naming - kept here as one small function so the two sides can only drift if this
+    function itself is wrong, not by a hand-typed filename going stale under a rename.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", CALIBRATION_MODEL.lower()).strip("_")
+    return f"pit_{slug}_{CALIBRATION_FAMILY}_{CALIBRATION_REGIME}.csv"
+
+
+def _load_calibration_coverage(
+    dataset_dir: Path, dataset_label: str
+) -> pd.DataFrame | None:
+    """`coverage.csv`'s `(nominal, empirical)` pair for `CALIBRATION_MODEL` under its
+    native family and "all" regime, or `None` with a named warning if the partition or
+    that exact slice isn't there."""
+    cov_path = dataset_dir / "coverage.csv"
+    if not cov_path.exists():
+        logger.warning(f"{cov_path} not found - skipping {dataset_label} calibration")
+        return None
+    coverage = pd.read_csv(cov_path)
+    sliced = coverage[
+        (coverage["model"] == CALIBRATION_MODEL)
+        & (coverage["family"] == CALIBRATION_FAMILY)
+        & (coverage["regime"] == CALIBRATION_REGIME)
+    ][["nominal", "empirical"]].reset_index(drop=True)
+    if sliced.empty:
+        logger.warning(
+            f"{cov_path} has no {CALIBRATION_MODEL}/{CALIBRATION_FAMILY}/"
+            f"{CALIBRATION_REGIME} rows - skipping {dataset_label} calibration"
+        )
+        return None
+    return sliced
+
+
+def _load_calibration_pit(dataset_dir: Path, dataset_label: str) -> pd.DataFrame | None:
+    """The same `(model, family, regime)` slice's PIT histogram, or `None` with a named
+    warning if its per-slice file isn't there."""
+    pit_path = dataset_dir / _calibration_pit_filename()
+    if not pit_path.exists():
+        logger.warning(f"{pit_path} not found - skipping {dataset_label} PIT")
+        return None
+    return pd.read_csv(pit_path)
+
 
 def fig_calibration_coverage(
     own: pd.DataFrame,
@@ -1442,34 +1518,58 @@ def fig_calibration_pit(
 
 
 def _build_calibration_figures(args: argparse.Namespace, output_dir: Path) -> None:
+    """`uncertainty_calibration.py` writes one `coverage.csv` (every model/family/regime
+    combination) plus one `pit_<model>_<family>_<regime>.csv` per combination - not the
+    single combined `coverage_all.csv`/`pit_all.csv` this used to read, which stopped
+    being written when that analysis was ported and silently left both PNGs on disk
+    frozen at their 2026-08-19 values while the source data moved on underneath them.
+    """
     calibration_dir = analysis_dir(args.results_dir, "uncertainty_calibration")
-    own_cov = calibration_dir / "finetuned_stec_own" / "coverage_all.csv"
-    if not own_cov.exists():
-        logger.warning(f"{own_cov} not found - run uncertainty_calibration.py")
+    own_dir = calibration_dir / "finetuned_stec_own"
+    own_cov = _load_calibration_coverage(own_dir, "own test set")
+    if own_cov is None:
         return
-    mad_cov = calibration_dir / "finetuned_stec_madrigal" / "coverage_all.csv"
-    own_pit = calibration_dir / "finetuned_stec_own" / "pit_all.csv"
-    mad_pit = calibration_dir / "finetuned_stec_madrigal" / "pit_all.csv"
+
+    # The Madrigal partition of this analysis has no `rebuilt/` output yet (it is
+    # mid-re-inference - see CLAUDE.md's prediction-store notes); the only
+    # `finetuned_stec_madrigal/` on disk is under `pre_rebuild/`, scored against
+    # predictions from before the rebuild. Mixing that with a rebuilt "own" series would
+    # put two different generations of data on one axis with no way for a reader to tell,
+    # so this falls back to the own-only figure with a named warning instead - never a
+    # silent Madrigal-shaped gap.
+    mad_dir = calibration_dir / "finetuned_stec_madrigal"
+    if mad_dir.is_dir():
+        mad_cov = _load_calibration_coverage(mad_dir, "Madrigal")
+    else:
+        logger.warning(
+            f"{mad_dir} not found under {calibration_dir} - calibration figures cover "
+            "the own test set only until the Madrigal re-inference lands"
+        )
+        mad_cov = None
+
     coverage_path = (
         analysis_dir(args.results_dir, "madrigal_reference_offset")
         / "coverage_before_after.csv"
     )
 
-    prov = f"{calibration_dir} - daily fine-tuned models, prediction store"
+    prov = (
+        f"{own_dir / 'coverage.csv'} - daily fine-tuned models, prediction store, "
+        f"{CALIBRATION_MODEL} scored under its native {CALIBRATION_FAMILY} family"
+    )
     fig_calibration_coverage(
-        pd.read_csv(own_cov),
-        pd.read_csv(mad_cov) if mad_cov.exists() else None,
+        own_cov,
+        mad_cov,
         pd.read_csv(coverage_path) if coverage_path.exists() else None,
         output_dir,
         prov,
     )
-    if own_pit.exists():
-        fig_calibration_pit(
-            pd.read_csv(own_pit),
-            pd.read_csv(mad_pit) if mad_pit.exists() else None,
-            output_dir,
-            prov,
+
+    own_pit = _load_calibration_pit(own_dir, "own test set")
+    if own_pit is not None:
+        mad_pit = (
+            _load_calibration_pit(mad_dir, "Madrigal") if mad_dir.is_dir() else None
         )
+        fig_calibration_pit(own_pit, mad_pit, output_dir, prov)
 
 
 # --------------------------------------------------------------------------
