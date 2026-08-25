@@ -84,6 +84,22 @@ POSITIONING = str(
 WEIGHTING_RUN = str(
     _rel(paths.positioning_result_dir("20260216_2052")) / "multiday_summary.csv"
 )
+# oracle_benchmark reads this tree directly (stec/analysis/oracle_benchmark.py's
+# `load_oracle`: the day directories under positioning/results for the .pos solutions,
+# and positioning/evaluation/<day>/products for the SINEX) - never POSITIONING, unlike
+# every other stage below that reads the positioning_coverage output. Declared at
+# experiment-directory granularity, the same convention positioning_coverage uses for
+# the whole `experiments` tree it scans, narrowed to the one experiment oracle_benchmark
+# actually reads rather than the entire (640 GB) tree.
+#
+# A bare literal, like "experiments" above - not `_rel(paths.LEGACY_EXPERIMENTS / ...)`.
+# LEGACY_EXPERIMENTS is `LEGACY_ROOT / "experiments"`, and LEGACY_ROOT is deliberately
+# overridable *outside* REPO_ROOT via STEC_LEGACY_ROOT - a worktree, or the clean-clone
+# test, points it elsewhere on purpose (see LEGACY_ROOT's own docstring). `_rel()`'s
+# `relative_to(REPO_ROOT)` throws in exactly that case, which is a real regression this
+# literal avoids: fingerprinting still runs relative to CWD like every other declared
+# input, but nothing computes or resolves LEGACY_EXPERIMENTS at import time.
+ORACLE_EXPERIMENT_DIR = "experiments/Reference_STEC_Oracle"
 SWI = "data/omni_hourly_2010-2025.h5"
 
 # Every stec.analysis output directory, named once so a stage's command string,
@@ -1075,7 +1091,17 @@ STAGES: list[Stage] = [
         f"-m stec.analysis.oracle_benchmark --output-dir {ORACLE_BENCHMARK_DIR}",
         "R2.8",
         "positioning floor from reference STEC, on its own restricted set",
-        inputs=[POSITIONING],
+        # Not POSITIONING: oracle_benchmark.py never opens that file. It reads the
+        # oracle experiment tree directly (ORACLE_EXPERIMENT_DIR, see that constant's
+        # comment) and the frozen weighting run (WEIGHTING_RUN) for the baseline
+        # methods it pairs against - the same WEIGHTING_RUN dependency
+        # common_set_positioning declares above. Previously declared POSITIONING here
+        # instead, which never changes when the oracle tree does, so `pipeline status`
+        # reported this stage up to date while 166 of 242 oracle day-directories' SINEX
+        # symlinks silently went dangling underneath it (destroyed by another
+        # experiment's positioning cleanup rmtree-ing the products they pointed at -
+        # see positioning/geometry/recover_day.py's run_models for the fix).
+        inputs=[ORACLE_EXPERIMENT_DIR, WEIGHTING_RUN],
         outputs=[str(ORACLE_BENCHMARK_DIR)],
         caveats=[
             "NOT comparable with Table 5, by design and permanently. It uses elev "

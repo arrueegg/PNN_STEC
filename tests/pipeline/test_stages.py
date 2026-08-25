@@ -8,6 +8,8 @@ number ends up in a table it does not belong in.
 
 from __future__ import annotations
 
+import importlib
+import inspect
 from pathlib import Path
 
 import pytest
@@ -17,8 +19,11 @@ from stec.analysis.positioning_summary import METHOD_ORDER
 from stec.pipeline import registry
 from stec.pipeline.stages import (
     DAILY_METRICS_DIR,
+    ORACLE_EXPERIMENT_DIR,
+    POSITIONING,
     POSITIONING_SUMMARY_DIR,
     STAGES,
+    WEIGHTING_RUN,
     daily_metrics_summary_has_all_methods_and_datasets,
     positioning_summary_overall_has_all_four_methods,
 )
@@ -425,3 +430,66 @@ def test_epistemic_scale_diagnostic_reads_both_pretrained_store_partitions():
 def test_epistemic_scale_diagnostic_declares_its_diagnostic_not_retrain_caveat():
     caveats = " ".join(stage("epistemic_scale_diagnostic").caveats).lower()
     assert "not a retrain" in caveats
+
+
+# --- oracle_benchmark: declared inputs must match what the module actually reads -----
+#
+# Diagnosed 2026-08-25: the stage declared inputs=[POSITIONING], but
+# stec/analysis/oracle_benchmark.py never opens that file - it reads the oracle
+# experiment tree directly (load_oracle) and the frozen weighting run
+# (load_baselines), the same WEIGHTING_RUN dependency common_set_positioning declares.
+# Because the declared fingerprint never changed while the real inputs
+# (experiments/Reference_STEC_Oracle's SINEX symlinks) silently broke underneath it,
+# `pipeline status` reported this stage up to date the entire time its output had
+# shrunk from 242 days/~5,364 station-days to 76 days/1,810.
+
+
+def _module_for(stage_obj) -> str:
+    """The `-m <module>` target a stage's command runs, so a test can import the real
+    module and check its source against what the stage declares as input."""
+    parts = stage_obj.command.split()
+    assert parts[0] == "-m", (
+        f"{stage_obj.name}'s command does not start with -m: {parts}"
+    )
+    return parts[1]
+
+
+def _module_source_mentions(module_name: str, needle: str) -> bool:
+    module = importlib.import_module(module_name)
+    return needle in inspect.getsource(module)
+
+
+def test_oracle_benchmark_declares_the_inputs_it_reads():
+    inputs = stage("oracle_benchmark").inputs
+    assert WEIGHTING_RUN in inputs, (
+        "oracle_benchmark.py pairs the oracle run against the frozen weighting "
+        "summary (positioning_summary.DEFAULT_WEIGHTING_SUMMARY) - the same "
+        "dependency common_set_positioning declares for the same file."
+    )
+    assert ORACLE_EXPERIMENT_DIR in inputs, (
+        "oracle_benchmark.py reads Reference_STEC_Oracle's .pos solutions and SINEX "
+        "directly (load_oracle) - this is the tree that silently lost 166/242 SINEX "
+        "symlinks while undeclared here."
+    )
+    assert POSITIONING not in inputs, (
+        "oracle_benchmark.py never opens positioning_coverage's multiday_summary.csv "
+        "- declaring it here was the original defect: a fingerprint that can never "
+        "move when the module's real inputs do."
+    )
+
+    # Confirm against the real module source, not just the stage's own comment: the
+    # oracle tree is read directly, and the weighting run comes in through the shared
+    # DEFAULT_WEIGHTING_SUMMARY constant (the literal "20260216_2052" path segment
+    # lives in positioning_summary.py, not here - see that constant's own comment
+    # about being reused by both common_set_positioning and oracle_benchmark).
+    module = _module_for(stage("oracle_benchmark"))
+    assert _module_source_mentions(module, "Reference_STEC_Oracle")
+    assert _module_source_mentions(module, "DEFAULT_WEIGHTING_SUMMARY")
+
+
+def test_oracle_benchmark_and_common_set_positioning_share_the_weighting_run():
+    """The two stages read the same frozen weighting summary for the same reason
+    (pairing against the baseline methods) - pinned so a future edit cannot drift one
+    without the other."""
+    assert WEIGHTING_RUN in stage("common_set_positioning").inputs
+    assert WEIGHTING_RUN in stage("oracle_benchmark").inputs

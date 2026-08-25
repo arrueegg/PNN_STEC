@@ -133,6 +133,26 @@ def run_models(args, stations: list[str], rinex_dir: Path) -> None:
     fetch the geometry stage already did. download_rinex_file() skips any
     station/day already present in `rinex_dir`, so pointing every arm at the same
     directory turns the redundant re-fetches into no-ops instead.
+
+    Also passes `--no_cleanup`, for a reason unrelated to RINEX: any experiment's
+    `positioning/evaluation/<day>/products` can be a *lender*, not just a borrower -
+    `download_products.py::reuse_from_other_runs` symlinks a missing product in from
+    whichever other experiment already fetched it for the same day, globbing across
+    all of `experiments/` (see its own docstring). Without `--no_cleanup`,
+    run_positioning_evaluation.py's Step 8 `shutil.rmtree()`s this arm's `products_dir`
+    on the way out, which silently breaks every symlink any other experiment (present
+    or future) has pointed at one of these files - exactly what happened to
+    `experiments/Reference_STEC_Oracle`, whose SINEX symlinks into
+    `Pretrain_STEC_..._SWI`'s products were destroyed by this exact call, unnoticed
+    because `oracle_benchmark`'s declared pipeline input never tracked that tree (see
+    `stec/pipeline/stages.py`'s `oracle_benchmark` Stage). One experiment's cleanup
+    must never be able to invalidate another experiment's inputs; not cleaning up the
+    lender side of that relationship is the cheap way to guarantee it. Cost is small:
+    a `products_dir` is ~50-60 MB (SP3/CLK/ERP/OBX/GIM/SNX), not the ~1 GB/day RINEX
+    that `--no_cleanup` would also retain elsewhere - RINEX here is unaffected, because
+    `rinex_dir` is caller-owned (see `owns_rinex_dir` in
+    run_positioning_evaluation.py) and is already left alone regardless of
+    `--no_cleanup`; this module cleans it up itself via `--keep_rinex`.
     """
     date = pd.Timestamp(f"{args.year}-01-01") + pd.Timedelta(days=args.doy - 1)
     for kind in EXPERIMENT_PATTERNS:
@@ -172,6 +192,7 @@ def run_models(args, stations: list[str], rinex_dir: Path) -> None:
                 args.parallel,
                 "--rinex_dir",
                 rinex_dir,
+                "--no_cleanup",
             ]
         )
 
