@@ -21,6 +21,19 @@ would mean the check and the thing it checks share an implementation. `positioni
 is excluded while the station-recovery sweep is running: its inputs are being rewritten, so
 the two sides would read different trees and the comparison would measure the sweep.
 
+**2026-08-25, two more blind spots closed** (independent audit, `docs/revision/
+independent_audit.md` finding F7), joining the empty-difference-map and text-column gaps
+already recorded inline at `compare_frames`/`verdict_for`. (1) A schema-identical but 0-row
+CSV on both sides used to report MATCH: `compare_frames` reads a 0-length numeric column's
+max delta as 0.0, which trivially passes every tolerance check. `verdict_for` now takes the
+row counts and refuses to call anything MATCH - or DIVERGED-by-wildcard - when either side
+has 0 rows. (2) the `"*"` wildcard used to short-circuit straight to `("DIVERGED",
+[declared_reason])`, discarding every per-column difference `compare_frames` had already
+computed; `uncertainty_calibration` and `uncertainty_error_relation`, the two comparisons
+that declare it, verified nothing at column level as a result. The wildcard path now folds
+the columns that actually exceed tolerance into the same note. Both fixes affect only
+comparisons run from this date forward; no historical verdict changes retroactively.
+
     source .env.worktree
     python verification/gate_f_analysis_equivalence.py --only daily_metrics
 """
@@ -202,6 +215,32 @@ COMPARISONS: tuple[Comparison, ...] = (
         rebuilt="-m stec.analysis.computational_cost",
         legacy="src/analysis/computational_cost.py",
         outputs=("training_cost.csv", "cost_summary.csv"),
+        expected_divergence={
+            "value": "cost_summary.csv's pretrain row (item='pretraining, 150 "
+            "epochs') genuinely moved: the legacy script scales the pretrain's 150 "
+            "epochs by the daily fine-tune's measured per-epoch time, which is invalid "
+            "- the pretrain is I/O-bound, resampling 500,000 rows from the 103 GB "
+            "data/train.h5 every epoch (~7% measured GPU utilisation), where a "
+            "fine-tune reads one cached day, so the two per-epoch costs are not "
+            "comparable. That scaling produced 0.38 GPU-hours. The rebuilt module "
+            "(stec/analysis/computational_cost.py) instead reads a real measured "
+            "basis - 2.5 min/epoch from three consecutive steady-state epoch banners "
+            "in logs/epistemic_scale_retrain_ps0.466_train.log (2026-08-24, the "
+            "ps0.466 epistemic-scale retrain arm: same BayesianResNetSTEC "
+            "architecture and 500,000-samples/epoch subsample regime as the paper's "
+            "pretrain, only prior_sigma differs) - giving 6.25 GPU-hours, a 16x "
+            "correction over the scaled estimate (docs/revision/"
+            "manuscript_number_audit.md, 'Pretrain cost: the scaled estimate is 16x "
+            "low, now measured'). This is an intended correction, not drift: every "
+            "other row's value (fine-tune epoch/wall-clock/total, inference "
+            "throughput, inference per day) is unaffected and still expected to "
+            "MATCH.",
+            "measured": "same pretrain-row fix as 'value' (0.38 -> 6.25 GPU-hours): "
+            "the legacy row's `measured` flag reads 'no - scaled from the measured "
+            "fine-tune epoch cost', the rebuilt row now reads 'yes', because the "
+            "value behind it is now a real measurement rather than an invalid "
+            "scaling.",
+        },
     ),
     Comparison(
         name="activity_stratification",
@@ -394,8 +433,25 @@ def compare_frames(a: pd.DataFrame, b: pd.DataFrame) -> dict[str, float]:
 
 
 def verdict_for(
-    comparison: Comparison, differences: dict[str, float]
+    comparison: Comparison,
+    differences: dict[str, float],
+    row_counts: tuple[int, int],
 ) -> tuple[str, list[str]]:
+    # A schema-identical but 0-row CSV on both sides makes every column's max delta 0.0 -
+    # np.nanmax of an empty array never runs, so compare_frames falls through to its own
+    # `else 0.0` - and 0.0 trivially satisfies every "nothing exceeds tolerance" check
+    # below, the same vacuous MATCH the empty-difference-map guard just below exists to
+    # catch, reached by a different door. Checked first, ahead of that guard and ahead of
+    # the wildcard shortcut: a comparison that declares "*" and then produces 0 rows on
+    # both sides is not "diverged as declared", it is empty, and DIVERGED must not hide
+    # that any more than MATCH may. The asymmetric case (one side 0 rows, the other not)
+    # was already caught before this fix, via compare_frames's length-mismatch -> inf path
+    # - kept as is, verified by test_one_side_empty_is_not_match.
+    new_rows, old_rows = row_counts
+    if new_rows == 0 or old_rows == 0:
+        return "FAIL", [
+            f"{new_rows} vs {old_rows} rows - nothing was actually compared"
+        ]
     # Two frames sharing no numeric column produce an empty difference map, and an empty
     # map trivially satisfies every "nothing exceeds tolerance" test below. That is a pass
     # earned by comparing nothing - the same vacuous success this gate exists to detect,
@@ -405,7 +461,29 @@ def verdict_for(
     if not differences:
         return "FAIL", ["no numeric column in common - nothing was actually compared"]
     if "*" in comparison.expected_divergence:
-        return "DIVERGED", [comparison.expected_divergence["*"]]
+        # The wildcard declares that *some* divergence is expected, not that no evidence
+        # is needed to back it up - returning just the declaration text, as this used to
+        # do, discarded every per-column difference compare_frames had already computed.
+        # For the two comparisons that use it (uncertainty_calibration,
+        # uncertainty_error_relation), "DIVERGED as declared" verified nothing at column
+        # level. Fold the columns that actually exceed tolerance into the same note - not a
+        # second list entry - because `check()` only ever prints notes[:1] per comparison.
+        exceeded = sorted(
+            (
+                (column, delta)
+                for column, delta in differences.items()
+                if delta > RELATIVE_TOLERANCE
+            ),
+            key=lambda pair: -pair[1],
+        )
+        evidence = (
+            "; ".join(f"{column}={delta:.3g}" for column, delta in exceeded)
+            if exceeded
+            else "no column exceeded tolerance this run"
+        )
+        return "DIVERGED", [
+            f"{comparison.expected_divergence['*']} (columns that differ: {evidence})"
+        ]
 
     unexplained = [
         column
@@ -480,8 +558,11 @@ def check(comparison: Comparison, workspace: Path) -> str:
         if not new_path.exists() or not old_path.exists():
             print(f"  {comparison.name:<26} FAIL     {output} missing on one side")
             return "FAIL"
-        differences = compare_frames(pd.read_csv(new_path), pd.read_csv(old_path))
-        verdict, why = verdict_for(comparison, differences)
+        new_frame, old_frame = pd.read_csv(new_path), pd.read_csv(old_path)
+        differences = compare_frames(new_frame, old_frame)
+        verdict, why = verdict_for(
+            comparison, differences, row_counts=(len(new_frame), len(old_frame))
+        )
         notes.extend(why)
         if verdict == "FAIL":
             worst_verdict = "FAIL"

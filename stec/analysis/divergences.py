@@ -10,8 +10,13 @@ instead of prose-only: every intentional source of divergence gets one `Divergen
 carrying its status and, where it can be quantified without retraining or re-solving,
 its measured effect.
 
-Twelve entries, matching `docs/rebuild_plan.md` §9 one for one (methodology changes 1-4,
-`B`-classified defect fixes 5-8 from the §7 register, then 9-12):
+Sixteen entries. The first twelve match `docs/rebuild_plan.md` §9 one for one (methodology
+changes 1-4, `B`-classified defect fixes 5-8 from the §7 register, then 9-12); #13-15 were
+added after `docs/revision/independent_audit.md` (finding F6) established the register was
+missing three real divergences already documented elsewhere in prose; #16 was added
+2026-08-25 alongside the pretrain compute-cost fix (`docs/revision/
+manuscript_number_audit.md`), registering the corrected, now-measured pretrain-hours figure
+as a divergence from the legacy scaled estimate:
 
  1. IGS GIM day-lookup fix (Table 4 -> here Table 3/4, R1.4)          - measured
  2. Positioning population -> common set of the four `iono` arms      - unmeasurable now
@@ -25,6 +30,10 @@ Twelve entries, matching `docs/rebuild_plan.md` §9 one for one (methodology cha
 10. The storm/quiet definition, daily vs per-observation                - measured
 11. Positioning-coverage canonical variant selection                    - measured
 12. Defect 21, Madrigal local_time_hours longitude source (corrected)     - measured
+13. `materialize_batches` does not reshuffle per epoch                   - unmeasurable now
+14. `epistemic_share` redefinition in `uncertainty_error_relation`        - measured
+15. The subset-cache seed-check fix                                      - measured
+16. Pretrain compute cost, scaled 0.38 -> measured 6.25 GPU-hours         - measured
 
 Two things this module deliberately does NOT do, both by design:
 
@@ -40,15 +49,20 @@ Two things this module deliberately does NOT do, both by design:
   number stays reviewable).
 
 Not a numbered `Divergence` entry, because it does not move a published number the way the
-ten above do - but stated here anyway, since this is the register a reader auditing
-reproducibility claims would check: **best-checkpoint selection and early stopping are not
-ported, by decision, not as a remaining gap.** `stec.training.run_training` trains every
-epoch a config specifies and saves the final weights; it does not reproduce
-`src/training/base_trainer.py`'s selection of the best-validation-loss epoch, which is what
-chose each of the 3,583 published checkpoints. A rebuilt training run therefore converges
-to an equivalent model, never a byte-for-byte reproduction of any checkpoint on disk - see
-`docs/REPRODUCING.md` (reproducibility table) and `docs/revision/merge_plan.md` (Phase 1,
-"what will still not be reproducible") for the same statement.
+twelve above do - but stated here anyway, since this is the register a reader auditing
+reproducibility claims would check: **best-checkpoint selection and early stopping are now
+ported** - `stec.training.checkpointing.fit_with_best_checkpoint`, wired into
+`stec.training.run_training`, reproduces `src/training/base_trainer.py`'s strict-`<`
+best-validation-loss selection and its `patience`-counted early stop, `patience` read from
+`config[mode]["patience"]` the same way the legacy code reads it. That is the same
+bookkeeping that chose each of the 3,583 published checkpoints. What is still open is proof,
+not mechanism: no `stec/`-trained checkpoint has been compared end to end against a shipped
+one, because a full 150-epoch pretrain through this path has never been run to completion
+(wandb logging is a separate, still-`src/`-only gap, not a blocker for this comparison). Until
+that comparison exists, a rebuilt run is confirmed only to *select* a checkpoint the way the
+legacy code did, not to converge on the same weights - see `docs/REPRODUCING.md`
+(reproducibility table) and `docs/revision/merge_plan.md` (Phase 1, "what will still not be
+reproducible") for the same statement.
 
 Two layers of measurement, kept separate on purpose:
 
@@ -59,23 +73,32 @@ Two layers of measurement, kept separate on purpose:
   hand-computed answers.
 * **`Divergence.measure()`** is the harness itself: a zero-argument callable that re-derives
   the effect from the real, read-only trees this repo already resolves through
-  `stec.config.paths` (the OMNI archive, the positioning summaries, the prediction store).
-  For the six measurable entries it is real and re-runnable - rerun it after the recovery
-  sweep finishes and the numbers may move. #12 is the one exception to "cheap": it re-runs
-  a real checkpoint over a real Madrigal day rather than reading a CSV, because no analysis
-  stage produces this specific comparison - gated on the checkpoint and Madrigal file being
-  present, falling back to the frozen snapshot when they are not (e.g. a worktree without
-  `STEC_LEGACY_ROOT` mounted). For the six that cannot be measured without retraining,
-  re-solving PPPx, or the running jobs finishing, it always returns the same
-  `UnmeasurableEffect`, so calling it is never a silent no-op.
+  `stec.config.paths` (the OMNI archive, the positioning summaries, the prediction store,
+  the subset-index cache, the computational-cost table). For the nine measurable entries
+  it is real and re-runnable - rerun it after the recovery sweep finishes and the numbers
+  may move. #12 and #15 are the
+  exceptions to "cheap": #12 re-runs a real checkpoint over a real Madrigal day rather than
+  reading a CSV, because no analysis stage produces this specific comparison - gated on the
+  checkpoint and Madrigal file being present, falling back to the frozen snapshot when they
+  are not (e.g. a worktree without `STEC_LEGACY_ROOT` mounted). #15 loads every cached
+  subset file directly (`torch.load`, ~1,100 small files under
+  `stec.config.paths.SUBSET_INDEX_CACHE`) rather than reading a CSV a stage already wrote,
+  because no stage exists that would produce this count. #16 reads a filtered row off
+  `cost_summary.csv` rather than row position, matching the `_measure_gim_day_lookup`/
+  `_measure_vtec_family` filter idiom. For the seven that cannot be
+  measured without retraining, re-solving PPPx, a completed multi-epoch run, or the running
+  jobs finishing, it always returns the same `UnmeasurableEffect`, so calling it is never a
+  silent no-op.
 
 `Divergence.recorded_effect` is the frozen snapshot: what `measure()` returned when this
-harness was built (2026-08-21), read directly off already-produced artifacts
-(`multiday_results/daily_metrics_rebuilt/summary.csv`,
+harness was built (2026-08-21, extended 2026-08-25 with #13-16), read directly off
+already-produced artifacts (`multiday_results/daily_metrics_rebuilt/summary.csv`,
 `multiday_results/uncertainty_calibration_rebuilt/finetuned_stec_own/`,
-`multiday_results/storm_stratification_rebuilt/`, the three positioning summary trees, and
-- for #12 only - a live seeded run of the real `Finetune_STEC_2024_132` checkpoint over a
-real Madrigal day).
+`multiday_results/storm_stratification_rebuilt/`, the three positioning summary trees,
+`multiday_results/analyses/uncertainty_error_relation/{rebuilt,pre_rebuild}/` - for #12, a
+live seeded run of the real `Finetune_STEC_2024_132` checkpoint over a real Madrigal day,
+for #15, a live scan of every file under `stec.config.paths.SUBSET_INDEX_CACHE`, and for
+#16, `multiday_results/analyses/computational_cost/rebuilt/cost_summary.csv`).
 It is what `docs/revision/divergences.md` and the tests read, so both stay fast and
 reproducible without depending on the 640 GB tree being mounted at import time.
 """
@@ -91,6 +114,8 @@ import numpy as np
 import pandas as pd
 
 from ..config import paths
+
+logger = logging.getLogger(__name__)
 
 # --- pure measurement functions -----------------------------------------------------
 #
@@ -379,7 +404,9 @@ def _measure_vtec_family() -> Effect:
         return _VTEC_FAMILY_EFFECT
     frame = pd.read_csv(coverage_path)
     row = frame[
-        (frame["model"] == "VTEC + Mapping") & np.isclose(frame["nominal"], 0.5)
+        (frame["model"] == "VTEC + Mapping")
+        & (frame["regime"] == "all")
+        & np.isclose(frame["nominal"], 0.5)
     ]
     gaussian = float(row[row["family"] == "gaussian"]["empirical"].iloc[0])
     laplace = float(row[row["family"] == "laplace"]["empirical"].iloc[0])
@@ -388,7 +415,8 @@ def _measure_vtec_family() -> Effect:
         method=(
             "Read multiday_results/uncertainty_calibration_rebuilt/finetuned_stec_own/"
             "coverage.csv (produced by `stec.analysis.uncertainty_calibration`, which "
-            "scores every product under both families and tags which is native)."
+            "scores every product under both families and tags which is native), "
+            "regime='all'."
         ),
         measurements=(
             Measurement(
@@ -411,19 +439,27 @@ def _measure_vtec_family() -> Effect:
 _VTEC_FAMILY_EFFECT = MeasuredEffect(
     method=(
         "Read multiday_results/uncertainty_calibration_rebuilt/finetuned_stec_own/"
-        "coverage.csv, recorded 2026-08-20 (242 days, 9,475,585 observations)."
+        "coverage.csv, regime='all', recorded 2026-08-25 (242 days, 9,475,585 "
+        "observations recorded at the time this snapshot was first taken 2026-08-20; "
+        "refreshed 2026-08-25 after an independent audit (F6) found the coverage values "
+        "had drifted from 85.91/76.67 to the current 89.44/81.19 - the store this reads "
+        "grew and the calibration stage re-ran in between, so the coverage percentages "
+        "moved even though the scoring code did not; the n was not re-verified against "
+        "the current store and is carried over from the original snapshot - see "
+        "docs/revision/divergences.md #4 for the flagged discrepancy against the current "
+        "scores.csv observation count)."
     ),
     measurements=(
         Measurement(
             "VTEC + Mapping empirical coverage at nominal 50%, scored Gaussian "
             "(mis-specified)",
-            new_value=85.91,
+            new_value=89.44,
             unit="% coverage",
             n=9_475_585,
         ),
         Measurement(
             "VTEC + Mapping empirical coverage at nominal 50%, scored Laplace (native)",
-            new_value=76.67,
+            new_value=81.19,
             unit="% coverage",
             n=9_475_585,
         ),
@@ -643,7 +679,275 @@ _STORM_DEFINITION_EFFECT = MeasuredEffect(
 )
 
 
-# --- the six that cannot be measured right now ------------------------------------------
+# --- #14: epistemic_share redefinition in uncertainty_error_relation -------------------
+
+
+def _measure_epistemic_share_redefinition() -> Effect:
+    """Read the epistemic-share column directly off the two real artifacts - the rebuilt
+    module's corrected output and the pre-rebuild script's original output - rather than
+    recomputing either, since both are already declared, already-produced stage outputs
+    (`stec.analysis.uncertainty_error_relation` and its `src/` predecessor via
+    `verification/gate_f_analysis_equivalence.py`) and re-deriving them means a full stream
+    of the prediction store on one side and the legacy detailed-predictions CSVs on the
+    other.
+    """
+    rebuilt_path = (
+        paths.analysis_result_dir("uncertainty_error_relation", rebuilt=True)
+        / "by_uncertainty.csv"
+    )
+    legacy_path = (
+        paths.analysis_result_dir("uncertainty_error_relation", rebuilt=False)
+        / "by_sigma.csv"
+    )
+    if not (rebuilt_path.exists() and legacy_path.exists()):
+        return _EPISTEMIC_SHARE_REDEFINITION_EFFECT
+
+    rebuilt = pd.read_csv(rebuilt_path)
+    legacy = pd.read_csv(legacy_path)
+    original_pct = legacy["epistemic_share_%"]
+    corrected_pct = 100 * rebuilt["epistemic_share"]
+
+    return MeasuredEffect(
+        method=(
+            f"Read epistemic_share_% from {legacy_path} ({len(legacy)} first-day-decile "
+            f"bins, original square-of-means formula) and epistemic_share from "
+            f"{rebuilt_path} ({len(rebuilt)} fixed-TECU bins, corrected sum-of-squares "
+            "formula), converted to matching percentage units - the same two files "
+            "verification/gate_f_analysis_equivalence.py's uncertainty_error_relation "
+            "comparison already declares as an expected divergence."
+        ),
+        measurements=(
+            Measurement(
+                "epistemic_share_%, original square-of-means formula "
+                "(mean_epistemic**2 / (mean_epistemic**2 + mean_aleatoric**2), "
+                "Jensen-biased): minimum across bins",
+                new_value=round(float(original_pct.min()), 2),
+                unit="%",
+                n=len(legacy),
+            ),
+            Measurement(
+                "epistemic_share_%, original square-of-means formula: maximum across "
+                "bins",
+                new_value=round(float(original_pct.max()), 2),
+                unit="%",
+                n=len(legacy),
+            ),
+            Measurement(
+                "epistemic_share, corrected sum-of-squares formula "
+                "(sum_epistemic_sq / sum_total_sq, the mean of the squares): minimum "
+                "across bins",
+                new_value=round(float(corrected_pct.min()), 2),
+                unit="%",
+                n=len(rebuilt),
+            ),
+            Measurement(
+                "epistemic_share, corrected sum-of-squares formula: maximum across "
+                "bins",
+                new_value=round(float(corrected_pct.max()), 2),
+                unit="%",
+                n=len(rebuilt),
+            ),
+        ),
+    )
+
+
+_EPISTEMIC_SHARE_REDEFINITION_EFFECT = MeasuredEffect(
+    method=(
+        "Read epistemic_share_% from "
+        "multiday_results/analyses/uncertainty_error_relation/pre_rebuild/by_sigma.csv "
+        "(10 first-day-decile bins, original square-of-means formula) and "
+        "epistemic_share from "
+        "multiday_results/analyses/uncertainty_error_relation/rebuilt/by_uncertainty.csv "
+        "(11 fixed-TECU bins, corrected sum-of-squares formula), recorded 2026-08-25."
+    ),
+    measurements=(
+        Measurement(
+            "epistemic_share_%, original square-of-means formula "
+            "(mean_epistemic**2 / (mean_epistemic**2 + mean_aleatoric**2), "
+            "Jensen-biased): minimum across bins",
+            new_value=4.94,
+            unit="%",
+            n=10,
+        ),
+        Measurement(
+            "epistemic_share_%, original square-of-means formula: maximum across bins",
+            new_value=6.66,
+            unit="%",
+            n=10,
+        ),
+        Measurement(
+            "epistemic_share, corrected sum-of-squares formula "
+            "(sum_epistemic_sq / sum_total_sq, the mean of the squares): minimum "
+            "across bins",
+            new_value=3.07,
+            unit="%",
+            n=11,
+        ),
+        Measurement(
+            "epistemic_share, corrected sum-of-squares formula: maximum across bins",
+            new_value=16.39,
+            unit="%",
+            n=11,
+        ),
+    ),
+)
+
+
+# --- #15: the subset-cache seed-check fix ------------------------------------------------
+
+
+def _measure_subset_cache_seed_check() -> Effect:
+    """Load every cached subset file under `paths.SUBSET_INDEX_CACHE` and read its `seed`
+    key directly, rather than trusting the count `stec/data/splits.py`'s own docstring
+    reports. A file recording anything other than 42 (or missing the key) would mean the
+    old, seed-blind cache validation described there actually did hand some call site a
+    different seed's subset without anyone noticing.
+    """
+    import pickle  # noqa: PLC0415 - only needed for the torch.load except clause below
+    import torch  # noqa: PLC0415 - heavy, optional dependency; keep module import light
+
+    cache_dir = paths.SUBSET_INDEX_CACHE
+    files = sorted(cache_dir.glob("*.pt")) if cache_dir.exists() else []
+    if not files:
+        return _SUBSET_CACHE_SEED_EFFECT
+
+    seed_42 = 0
+    other = 0
+    for path in files:
+        try:
+            saved = torch.load(path, map_location="cpu", weights_only=False)
+        except (OSError, RuntimeError, EOFError, pickle.UnpicklingError) as exc:
+            # A truncated or non-torch file raises UnpicklingError rather than OSError -
+            # the same failure mode stec/data/splits.py's _load_cached already guards
+            # against for these exact cache files. Without it, one corrupt .pt among the
+            # ~1,129 scanned crashes this diagnostic instead of being counted in `other`.
+            logger.warning(f"skipping unreadable subset cache {path}: {exc}")
+            other += 1
+            continue
+        if isinstance(saved, dict) and saved.get("seed") == 42:
+            seed_42 += 1
+        else:
+            other += 1
+
+    return MeasuredEffect(
+        method=(
+            f"Loaded every one of {len(files)} *.pt files under {cache_dir} "
+            "(stec.config.paths.SUBSET_INDEX_CACHE) with torch.load and read each one's "
+            "'seed' key directly."
+        ),
+        measurements=(
+            Measurement(
+                "cached subset files carrying seed 42",
+                new_value=seed_42,
+                unit="files",
+                n=len(files),
+            ),
+            Measurement(
+                "cached subset files carrying a different (or unreadable/missing) seed",
+                new_value=other,
+                unit="files",
+                n=len(files),
+            ),
+        ),
+    )
+
+
+_SUBSET_CACHE_SEED_EFFECT = MeasuredEffect(
+    method=(
+        "Loaded every *.pt file under data/val_test_subsets_idx/ "
+        "(stec.config.paths.SUBSET_INDEX_CACHE) with torch.load and read each one's "
+        "'seed' key directly, recorded 2026-08-25 (1,129 files - one more than the 1,128 "
+        "`stec/data/splits.py` docstring recorded checking 2026-08-20; the extra file, "
+        "pretrain_val_1000000_seed42.pt, was added by the pretrain-infrastructure work "
+        "landed 2026-08-24 and itself carries seed 42)."
+    ),
+    measurements=(
+        Measurement(
+            "cached subset files carrying seed 42",
+            new_value=1129,
+            unit="files",
+            n=1129,
+        ),
+        Measurement(
+            "cached subset files carrying a different (or unreadable/missing) seed",
+            new_value=0,
+            unit="files",
+            n=1129,
+        ),
+    ),
+)
+
+
+# --- #16: pretrain compute cost, scaled estimate corrected to measured -------------------
+
+
+def _measure_pretrain_compute_cost() -> Effect:
+    """Read the pretrain-cost row directly off the rebuilt cost_summary.csv artifact,
+    filtered by its `item` label rather than trusted row position - the same filter idiom
+    `_measure_gim_day_lookup`/`_measure_vtec_family` use, since assuming row order is
+    exactly the kind of silent assumption that let the scaled 0.38 figure stand unchecked.
+    Falls back to the recorded snapshot if the artifact is not on disk.
+    """
+    cost_path = (
+        paths.analysis_result_dir("computational_cost", rebuilt=True)
+        / "cost_summary.csv"
+    )
+    if not cost_path.exists():
+        return _PRETRAIN_COMPUTE_COST_EFFECT
+    frame = pd.read_csv(cost_path)
+    row = frame[frame["item"] == "pretraining, 150 epochs"]
+    if not len(row):
+        return _PRETRAIN_COMPUTE_COST_EFFECT
+    return MeasuredEffect(
+        method=(
+            f"Read the 'pretraining, 150 epochs' row (filtered by its item label) from "
+            f"{cost_path}, written by stec.analysis.computational_cost."
+        ),
+        measurements=(
+            Measurement(
+                "pretraining, 150 epochs",
+                old_value=0.38,
+                new_value=float(row["value"].iloc[0]),
+                unit="GPU-hours",
+            ),
+        ),
+    )
+
+
+_PRETRAIN_COMPUTE_COST_EFFECT = MeasuredEffect(
+    method=(
+        "Read the 'pretraining, 150 epochs' row from multiday_results/analyses/"
+        "computational_cost/rebuilt/cost_summary.csv, recorded 2026-08-25. The legacy "
+        "src/analysis/computational_cost.py scales the pretrain's 150 epochs by the "
+        "daily fine-tune's measured per-epoch time, which is invalid: the pretrain is "
+        "I/O-bound, resampling 500,000 rows from the 103 GB data/train.h5 every epoch "
+        "(~7% measured GPU utilisation, 7 of 10 samples at 0%, peak 48%), where a "
+        "fine-tune reads one cached day - the two per-epoch costs are not comparable, "
+        "and the scaling produced 0.38 GPU-hours, 'measured: no'. "
+        "stec/analysis/computational_cost.py now reads a real measured basis instead - "
+        "2.5 min/epoch from three consecutive steady-state epoch banners in "
+        "logs/epistemic_scale_retrain_ps0.466_train.log (2026-08-24, the ps0.466 "
+        "epistemic-scale retrain arm: same BayesianResNetSTEC architecture and "
+        "500,000-samples/epoch subsample regime as the paper's pretrain, only "
+        "prior_sigma differs) - giving 6.25 GPU-hours, 'measured: yes', a 16x "
+        "correction over the scaled estimate. See docs/revision/"
+        "manuscript_number_audit.md, 'Pretrain cost: the scaled estimate is 16x low, "
+        "now measured', for the full derivation. The reviewer-facing docs "
+        "(response_to_reviewers.md, evidence_summary.md) were updated to the ~6.2 "
+        "GPU-hour figure alongside this fix."
+    ),
+    measurements=(
+        Measurement(
+            "pretraining, 150 epochs",
+            old_value=0.38,
+            new_value=6.25,
+            unit="GPU-hours",
+        ),
+    ),
+)
+
+
+# --- the seven that cannot be measured right now -----------------------------------------
 
 
 def _measure_positioning_population() -> Effect:
@@ -773,6 +1077,45 @@ _DEFECT19_MADRIGAL_TOLERANCE_EFFECT = _unmeasurable(
 )
 
 
+def _measure_materialize_batches_reshuffle() -> Effect:
+    return _MATERIALIZE_BATCHES_RESHUFFLE_EFFECT
+
+
+_MATERIALIZE_BATCHES_RESHUFFLE_EFFECT = _unmeasurable(
+    reason=(
+        "stec.training.run_training.materialize_batches shuffles the training tensor "
+        "once, with a seeded Generator, and returns a plain list; fit/"
+        "fit_with_best_checkpoint re-iterate that same list object every epoch (neither "
+        "has a per-epoch reshuffle hook, by design), so every epoch of a multi-epoch run "
+        "trains on the same row order. TrainManager.train_epoch (src/training/"
+        "train_manager.py) iterates a live DataLoader(shuffle=True) built fresh every "
+        "epoch instead, and DataLoader.__iter__ draws a new permutation on every call "
+        "even from the same seeded Generator - so the source reshuffles every epoch and "
+        "this driver does not. The difference is a training-time row-order effect across "
+        "multiple epochs, not a number derivable from an existing checkpoint: all 3,583 "
+        "shipped checkpoints were trained under the source's per-epoch reshuffle, so "
+        "there is no stec/-trained multi-epoch artifact to compare against yet. Gate C's "
+        "fixed 3-6 epoch synthetic check does not exercise this at all, because both "
+        "sides there are handed the identical, already-materialized batches - Gate C "
+        "passing is not evidence this divergence is harmless. "
+        "tests/training/test_run_training.py::"
+        "test_materialize_batches_returns_the_same_order_every_call pins the current "
+        "(non-reshuffling) behaviour, and the companion "
+        "test_a_live_dataloader_would_have_reshuffled_every_epoch demonstrates the "
+        "source's behaviour is genuinely different, not an equivalent reformulation."
+    ),
+    would_require=(
+        "Unlike the entries above, this one needs no new infrastructure to measure - "
+        "only a completed run: a real 50-150 epoch stec/-native fine-tune (or pretrain) "
+        "through materialize_batches's single fixed shuffle, with its loss_history.csv "
+        "compared against the equivalent src/ run's - the training-loop equivalence "
+        "check docs/revision/src_deletion_runbook.md requires before trusting this "
+        "driver as a full replacement for a multi-epoch run. That comparison has not "
+        "been run."
+    ),
+)
+
+
 _VARIANT_SELECTION_EFFECT = MeasuredEffect(
     method=(
         "Ran stec.analysis.positioning_coverage against the repaired tree with no sweep "
@@ -867,7 +1210,7 @@ def _measure_madrigal_local_time_convention() -> Effect:
     """Re-run the paper's real DOY-132 STEC checkpoint over a real Madrigal day, once under
     each `local_time_hours` convention, and report how far the mean prediction moves.
 
-    Unlike the six `UnmeasurableEffect` entries, this needs no retraining or PPPx re-run -
+    Unlike the `UnmeasurableEffect` entries, this needs no retraining or PPPx re-run -
     the checkpoint and the Madrigal day file are both external, immutable data already on
     disk in a full checkout, so it recomputes live rather than only ever returning the
     frozen snapshot. Falls back to the snapshot when either file is absent (e.g. a worktree
@@ -1203,6 +1546,106 @@ REGISTRY: tuple[Divergence, ...] = (
         applied="applied",
         recorded_effect=_MADRIGAL_LOCAL_TIME_EFFECT,
         measure=_measure_madrigal_local_time_convention,
+    ),
+    Divergence(
+        id="13",
+        description=(
+            "materialize_batches (stec/training/run_training.py) shuffles the training "
+            "tensor once with a seeded Generator and hands back a plain list; fit and "
+            "fit_with_best_checkpoint re-iterate that same list every epoch, so a "
+            "multi-epoch run trains on the same row order every epoch. The source "
+            "(TrainManager.train_epoch, src/training/train_manager.py) iterates a live "
+            "DataLoader(shuffle=True) built fresh each epoch, which draws a new "
+            "permutation on every call even from the same seeded Generator - the source "
+            "reshuffles every epoch and the rebuilt driver does not. Found while reading "
+            "run_training.py for the checkpoint-selection work, named explicitly in the "
+            "function's own docstring as 'a known, unverified divergence from the "
+            "source, not an equivalent reformulation.'"
+        ),
+        deliverable=(
+            "Any stec/-trained multi-epoch fine-tune or pretrain run (loss trajectory, "
+            "converged weights) - no shipped checkpoint is affected, since none was "
+            "trained through this driver yet"
+        ),
+        reviewer_comment=None,
+        applied="not_yet_ported",
+        recorded_effect=_MATERIALIZE_BATCHES_RESHUFFLE_EFFECT,
+        measure=_measure_materialize_batches_reshuffle,
+    ),
+    Divergence(
+        id="14",
+        description=(
+            "epistemic_share is redefined in stec.analysis.uncertainty_error_relation's "
+            "uncertainty-bin view (by_uncertainty.csv, not the by-elevation view, which "
+            "keeps the original bin-mean epistemic_share_% formula unchanged): the "
+            "pre-rebuild src/analysis/uncertainty_error_relation.py computed "
+            "mean_epistemic**2 / (mean_epistemic**2 + mean_aleatoric**2) - the square of "
+            "each bin's mean uncertainties - where the variance decomposition calls for "
+            "the mean of the squares, sum_epistemic_sq / sum_total_sq, which is what the "
+            "rebuilt module computes instead. The square-of-means formula is Jensen-"
+            "biased and compresses the reported range. This was undeclared until a port "
+            "audit (verification/gate_f_analysis_equivalence.py) found it; it is not the "
+            "only simultaneous change to this output - the bin edges also moved from the "
+            "first day's deciles to fixed absolute TECU bands, and the column changed "
+            "from a percentage to a fraction - so the widened range below is not "
+            "attributable to the formula fix alone."
+        ),
+        deliverable=(
+            "R1.2 epistemic-share diagnostic (uncertainty-bin view of "
+            "by_uncertainty.csv, formerly by_sigma.csv)"
+        ),
+        reviewer_comment="R1.2",
+        applied="applied",
+        recorded_effect=_EPISTEMIC_SHARE_REDEFINITION_EFFECT,
+        measure=_measure_epistemic_share_redefinition,
+    ),
+    Divergence(
+        id="15",
+        description=(
+            "The subset-index cache (get_fixed_subset_indices, stec/data/splits.py) "
+            "used to validate a cached selection by dataset length and k only, ignoring "
+            "the seed field it also wrote to disk - changing the seed at a call site "
+            "silently returned the previous seed's subset rather than a fresh one. The "
+            "fix validates len, k and seed together, gated behind CACHE_VERSION = 2 so "
+            "it does not start trusting an old cache written under the unchecked logic "
+            "just because the three fields happen to agree. Fixing a seed check that was "
+            "previously ignored is behaviour-changing by construction - any call site "
+            "whose seed changed after its cache was first written would get a different "
+            "subset under the fix - so it is registered as a divergence even though it "
+            "reproduces every currently cached selection."
+        ),
+        deliverable=(
+            "Val/test subset selection for any analysis or training run that reads a "
+            "cached subset (get_fixed_subset_indices callers in src/data_loader/"
+            "loaders.py, lines 180/232/383)"
+        ),
+        reviewer_comment=None,
+        applied="applied",
+        recorded_effect=_SUBSET_CACHE_SEED_EFFECT,
+        measure=_measure_subset_cache_seed_check,
+    ),
+    Divergence(
+        id="16",
+        description=(
+            "Pretrain compute cost: the legacy analysis (src/analysis/"
+            "computational_cost.py) scales the pretrain's 150 epochs by the daily "
+            "fine-tune's measured per-epoch time, which is invalid - the pretrain is "
+            "I/O-bound, resampling 500,000 rows from the 103 GB data/train.h5 every "
+            "epoch (~7% measured GPU utilisation) where a fine-tune reads one cached "
+            "day, so the two per-epoch costs are not comparable. That scaling produced "
+            "0.38 GPU-hours, 'measured: no'. stec.analysis.computational_cost now "
+            "reads a real measured basis instead - 2.5 min/epoch from three "
+            "consecutive steady-state epoch banners in "
+            "logs/epistemic_scale_retrain_ps0.466_train.log (2026-08-24) - giving "
+            "6.25 GPU-hours, a 16x correction. The reviewer-facing docs "
+            "(response_to_reviewers.md, evidence_summary.md) were updated to the "
+            "~6.2 GPU-hour figure alongside this fix."
+        ),
+        deliverable="R2.8h computational-cost table (pretrain row)",
+        reviewer_comment="R2.8h",
+        applied="applied",
+        recorded_effect=_PRETRAIN_COMPUTE_COST_EFFECT,
+        measure=_measure_pretrain_compute_cost,
     ),
 )
 

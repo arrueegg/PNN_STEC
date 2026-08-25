@@ -12,13 +12,19 @@ Two things are pinned separately, matching the module's own split:
   checked against small synthetic inputs with hand-computed answers, independent of the
   registry and of any real data tree.
 
-Deliberately not exercised here: `Divergence.measure()` for the six measured entries
-does real I/O against the read-only legacy trees (`stec.config.paths`) - #12 goes further
-and loads a real checkpoint for a live forward pass - which is what makes it a genuine,
-re-runnable harness rather than a frozen constant, but that also makes it
-environment-dependent, so it does not belong in a hermetic unit test. The
-`recorded_effect` snapshot each carries is what stays fast and reproducible, and is what
-this suite pins.
+Deliberately not exercised unconditionally here: `Divergence.measure()` for the eight
+measured entries does real I/O against the read-only legacy trees (`stec.config.paths`) -
+#12 goes further and loads a real checkpoint for a live forward pass, #15 loads ~1,100
+small cache files - which is what makes each a genuine, re-runnable harness rather than a
+frozen constant, but that also makes it environment-dependent, so it does not belong in a
+hermetic unit test. The `recorded_effect` snapshot each carries is what stays fast and
+reproducible, and is what most of this suite pins.
+
+Two `skipif`-guarded exceptions run `measure()` for real when the artifact it reads is
+actually present on the host (the same "live checkout, real data" idiom used elsewhere in
+`tests/`, e.g. `tests/baselines/test_gim.py`): #4's coverage numbers and #15's seed count
+have both drifted from a frozen snapshot before without anything catching it, so those two
+are worth checking live rather than only pinning the frozen constant.
 """
 
 from __future__ import annotations
@@ -34,7 +40,7 @@ from stec.analysis import divergences as dv
 
 
 def test_every_divergence_has_id_description_deliverable_and_status():
-    assert len(dv.REGISTRY) == 12
+    assert len(dv.REGISTRY) == 16
     for divergence in dv.REGISTRY:
         assert divergence.id
         assert divergence.description
@@ -64,7 +70,17 @@ def test_duplicate_id_is_rejected():
 
 def test_measured_divergence_carries_numeric_effect():
     measured = [d for d in dv.REGISTRY if d.status == "measured"]
-    assert {d.id for d in measured} == {"1", "4", "9", "10", "11", "12"}
+    assert {d.id for d in measured} == {
+        "1",
+        "4",
+        "9",
+        "10",
+        "11",
+        "12",
+        "14",
+        "15",
+        "16",
+    }
     for divergence in measured:
         effect = divergence.recorded_effect
         assert isinstance(effect, dv.MeasuredEffect)
@@ -76,7 +92,7 @@ def test_measured_divergence_carries_numeric_effect():
 
 def test_unmeasurable_divergence_carries_reason_and_no_number():
     unmeasurable = [d for d in dv.REGISTRY if d.status == "unmeasurable_now"]
-    assert {d.id for d in unmeasurable} == {"2", "3", "5", "6", "7", "8"}
+    assert {d.id for d in unmeasurable} == {"2", "3", "5", "6", "7", "8", "13"}
     for divergence in unmeasurable:
         effect = divergence.recorded_effect
         assert isinstance(effect, dv.UnmeasurableEffect)
@@ -92,6 +108,117 @@ def test_by_id_looks_up_and_raises_on_unknown():
     assert dv.by_id("1") is dv.REGISTRY[0]
     with pytest.raises(KeyError):
         dv.by_id("no-such-id")
+
+
+# --- drift guards: frozen fallbacks must match the live artifact when it exists ---------
+#
+# #4's frozen VTEC-family coverage numbers (85.91/76.67) went stale once the live
+# uncertainty_calibration store grew and the stage re-ran - nothing caught the drift until
+# an independent audit compared the frozen constant against the CSV by hand. These tests
+# make that comparison automatic, on whichever host happens to have the artifact checked
+# out (`pytest.mark.skipif`, matching the "live checkout, real data" idiom already used in
+# tests/baselines/test_gim.py and tests/positioning/test_metrics.py) rather than depending
+# on someone remembering to re-run this check.
+
+_VTEC_COVERAGE_CSV = (
+    dv.paths.analysis_result_dir("uncertainty_calibration", rebuilt=True)
+    / "finetuned_stec_own"
+    / "coverage.csv"
+)
+
+
+@pytest.mark.skipif(
+    not _VTEC_COVERAGE_CSV.exists(),
+    reason="live uncertainty_calibration coverage.csv not present on this host",
+)
+def test_frozen_vtec_family_fallback_matches_live_coverage_csv():
+    live = dv.by_id("4").measure()
+    frozen = dv.by_id("4").recorded_effect
+    assert isinstance(live, dv.MeasuredEffect)
+    assert isinstance(frozen, dv.MeasuredEffect)
+    live_values = [m.new_value for m in live.measurements]
+    frozen_values = [m.new_value for m in frozen.measurements]
+    assert live_values == frozen_values, (
+        "the frozen _VTEC_FAMILY_EFFECT fallback has drifted from the live "
+        f"coverage.csv - live={live_values}, frozen={frozen_values}. Refresh the "
+        "constant in stec/analysis/divergences.py and docs/revision/divergences.md."
+    )
+
+
+_SUBSET_CACHE_DIR = dv.paths.SUBSET_INDEX_CACHE
+
+
+@pytest.mark.skipif(
+    not _SUBSET_CACHE_DIR.exists(),
+    reason="live subset-index cache not present on this host",
+)
+def test_frozen_subset_cache_seed_fallback_matches_live_scan():
+    live = dv.by_id("15").measure()
+    frozen = dv.by_id("15").recorded_effect
+    assert isinstance(live, dv.MeasuredEffect)
+    assert isinstance(frozen, dv.MeasuredEffect)
+    # Only the "carries a different (or unreadable/missing) seed" count matters here -
+    # that is the number that must stay zero. The total file count is expected to grow
+    # over time (a new cache is added whenever a new call site or config runs), so pinning
+    # it exactly would make this test fail on drift that is not a bug.
+    live_other = live.measurements[1].new_value
+    assert live_other == 0, (
+        f"{live_other} cached subset files no longer carry seed 42 - the seed-check fix "
+        "did not hold, or the cache genuinely drifted."
+    )
+
+
+def test_subset_cache_seed_check_counts_a_truncated_file_instead_of_raising(
+    tmp_path, monkeypatch
+):
+    """A truncated or non-torch .pt file raises `pickle.UnpicklingError`, not `OSError` -
+    the same failure mode `stec/data/splits.py`'s `_load_cached` already guards against for
+    these exact cache files, and CLAUDE.md documents truncated files as a real, observed
+    failure mode on this filesystem. One corrupt file among the ~1,129 real ones must be
+    counted in `other`, not crash this diagnostic."""
+    import torch
+
+    monkeypatch.setattr(dv.paths, "SUBSET_INDEX_CACHE", tmp_path)
+
+    (tmp_path / "truncated.pt").write_bytes(b"not a real torch checkpoint")
+    torch.save(
+        {"len": 10, "k": 5, "seed": 42, "indices": [0, 1, 2, 3, 4]},
+        tmp_path / "good_seed42.pt",
+    )
+
+    effect = dv._measure_subset_cache_seed_check()
+
+    assert isinstance(effect, dv.MeasuredEffect)
+    seed_42, other = (m.new_value for m in effect.measurements)
+    assert seed_42 == 1, "the one genuinely good, seed-42 file must still be counted"
+    assert other == 1, "the truncated file must land in `other`, not raise"
+
+
+_COST_SUMMARY_CSV = (
+    dv.paths.analysis_result_dir("computational_cost", rebuilt=True)
+    / "cost_summary.csv"
+)
+
+
+@pytest.mark.skipif(
+    not _COST_SUMMARY_CSV.exists(),
+    reason="live computational_cost cost_summary.csv not present on this host",
+)
+def test_frozen_pretrain_compute_cost_fallback_matches_live_cost_summary_csv():
+    live = dv.by_id("16").measure()
+    frozen = dv.by_id("16").recorded_effect
+    assert isinstance(live, dv.MeasuredEffect)
+    assert isinstance(frozen, dv.MeasuredEffect)
+    live_value = live.measurements[0].new_value
+    frozen_value = frozen.measurements[0].new_value
+    assert live_value == frozen_value, (
+        "the frozen _PRETRAIN_COMPUTE_COST_EFFECT fallback has drifted from the live "
+        f"cost_summary.csv - live={live_value}, frozen={frozen_value}. Refresh the "
+        "constant in stec/analysis/divergences.py and docs/revision/divergences.md."
+    )
+    # The scaled-estimate figure must stay dead, not merely superseded - a regression that
+    # silently reintroduced the old scaling would still read as "measured" without this.
+    assert live_value != 0.38
 
 
 def test_measured_effect_rejects_empty_measurements():

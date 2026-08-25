@@ -4,8 +4,13 @@ This is the human-readable form of `stec/analysis/divergences.py`, the register 
 every deliberate source of divergence between the rebuilt pipeline and the numbers
 submitted to JGR-MLC. `docs/rebuild_plan.md` §8's rule is the reason this file exists: *"a
 difference is never resolved by making the new code match the old… it is resolved by
-explaining it: name the cause, decide which side is right, record it."* Twelve entries,
-matching `docs/rebuild_plan.md` §9 one for one.
+explaining it: name the cause, decide which side is right, record it."* Sixteen entries.
+The first twelve match `docs/rebuild_plan.md` §9 one for one; #13–15 were added
+2026-08-25 after `docs/revision/independent_audit.md` (finding F6) established the
+register was missing three real divergences that were already documented in prose
+elsewhere but had never been given a `Divergence` entry; #16 was added the same day
+alongside the pretrain compute-cost fix, registering the corrected, now-measured
+pretrain-hours figure as a divergence from the legacy scaled estimate.
 
 **The manuscript is frozen** (`docs/rebuild_plan.md` §2, "Manuscript edits"). Nothing here
 has been written into `PNN_main.tex`. Every old/new pair below is **NOT YET APPLIED to the
@@ -13,8 +18,8 @@ manuscript** — recorded now so the eventual Phase 8 update has a citable sourc
 number, not applied piecemeal.
 
 Regenerate this data with `python -m stec.analysis.divergences`, which prints the same
-content from the registry directly. Six entries have been re-measured live against the
-real, read-only trees (most recently while adding #12, 2026-08-21) and reproduced the
+content from the registry directly. Nine entries have been re-measured live against the
+real, read-only trees (most recently while adding #16, 2026-08-25) and reproduced the
 recorded snapshot exactly; the command to do so again is noted per entry.
 
 ---
@@ -35,6 +40,10 @@ recorded snapshot exactly; the command to do so again is noted per entry.
 | 10 | Storm/quiet definition, daily vs per-observation | Table 5 (R2.7); STEC scenarios | R2.7 | applied (both, by design) | **measured** |
 | 11 | Positioning-coverage canonical variant selection | R1.5 station-day coverage counts | R1.5 | applied | **measured** |
 | 12 | Defect 21 — Madrigal `local_time_hours` longitude source, corrected | Table 4 (Madrigal, Direct STEC row), `predictions/finetuned_stec/madrigal/` (235 days, re-run queued) | — | applied | **measured** |
+| 13 | `materialize_batches` does not reshuffle per epoch | Any `stec/`-trained multi-epoch fine-tune or pretrain | — | not yet ported | unmeasurable now |
+| 14 | `epistemic_share` redefinition in `uncertainty_error_relation` | R1.2 epistemic-share diagnostic | R1.2 | applied | **measured** |
+| 15 | Subset-index cache seed-check fix | Val/test subset selection for any cached-subset call site | — | applied | **measured** |
+| 16 | Pretrain compute cost, scaled → measured (0.38 → 6.25 GPU-hours) | R2.8h computational-cost table (pretrain row) | R2.8h | applied | **measured** |
 
 "Applied" describes the *code*: whether the rebuilt pipeline's default path already
 produces the changed behaviour, whether the fix exists only as an opt-in the default does
@@ -141,22 +150,32 @@ than a silent one-sided choice.
 **Applied.** Yes — the module's default behaviour is to always compute both, with no flag
 that turns the correct (native) scoring off.
 
-**Measured, 2026-08-20** (read from
-`multiday_results/uncertainty_calibration_rebuilt/finetuned_stec_own/coverage.csv`, 242
-days, 9,475,585 observations; reproduced live 2026-08-21 with
-`python -m stec.analysis.uncertainty_calibration`):
+**Measured, 2026-08-20, refreshed 2026-08-25** (read from
+`multiday_results/uncertainty_calibration_rebuilt/finetuned_stec_own/coverage.csv`,
+`regime='all'`; reproduced live with `python -m stec.analysis.uncertainty_calibration`).
+An independent audit (F6) compared the frozen `_VTEC_FAMILY_EFFECT` fallback against the
+live CSV and found it had drifted — the `predictions/finetuned_stec/own` store this stage
+reads has grown (242 day-files, up from whatever partial coverage existed 2026-08-20) and
+the calibration stage re-ran on the larger store in between, moving the coverage
+percentages even though the scoring code itself did not change:
 
 | Quantity | Scored Gaussian (mis-specified) | Scored Laplace (native) |
 |---|---|---|
-| VTEC + Mapping empirical coverage at nominal 50% | **85.91%** | **76.67%** |
+| VTEC + Mapping empirical coverage at nominal 50% | 85.91% → **89.44%** | 76.67% → **81.19%** |
 
-This is the same shape of effect `CLAUDE.md` already documents for a related check (90%
-vs 82% at nominal 50%) — the two numbers differ from each other because they were read off
-slightly different slices of the store, but the direction and rough magnitude (roughly
-+9–10 points of over-coverage from scoring a Laplace predictive as Gaussian) agree. The
-CRPS and PIT-KS numbers in the same `scores.csv` corroborate: CRPS is lower (better) under
-the native Laplace scoring (5.294 vs 6.275), and PIT-KS distance to Uniform is smaller
-(0.211 vs 0.265) — both point the same way independently of the coverage table.
+The direction and rough magnitude of the effect are unchanged — scoring a Laplace
+predictive as Gaussian still reads roughly +8 points of over-coverage at nominal 50% — and
+this is the same shape of effect `CLAUDE.md` already documents for a related check (90% vs
+82% at nominal 50%). The CRPS and PIT-KS numbers in the same-run `scores.csv` (`regime='all'`)
+corroborate and have been refreshed alongside the coverage numbers: CRPS is lower (better)
+under the native Laplace scoring (5.534 vs 6.585, previously reported 5.294 vs 6.275), and
+PIT-KS distance to Uniform is smaller (0.222 vs 0.273, previously reported 0.211 vs 0.265)
+— both still point the same way independently of the coverage table. Note the observation
+count itself is also inconsistent between the two artifacts as currently read — `scores.csv`
+reports 475,111,413 observations for this row, not the 9,475,585 the registry's frozen
+snapshot still carries; the `n` field was not re-verified as part of this refresh and is
+flagged, not corrected, pending a closer look at why the two counts disagree by roughly
+50×.
 
 **NOT YET APPLIED to the manuscript** — any VTEC coverage claim currently in the draft
 should be checked against which family it assumes before Phase 8.
@@ -435,6 +454,192 @@ and a citable corrected number, not a guess.
 
 ---
 
+## 13. `materialize_batches` does not reshuffle per epoch — unmeasurable now
+
+**What it is.** `stec.training.run_training.materialize_batches` shuffles the training
+tensor **once**, with a seeded `Generator`, and returns a plain list. `fit` and
+`fit_with_best_checkpoint` re-iterate that same list object every epoch — neither has a
+per-epoch reshuffle hook, by design (`fit.py`'s own docstring: it keeps only what changes
+the numbers a checkpoint would produce) — so every epoch of a multi-epoch run trains on
+**the same row order**, not a fresh shuffle per epoch. The source
+(`TrainManager.train_epoch`, `src/training/train_manager.py`) iterates a live
+`DataLoader(shuffle=True)` built fresh every epoch instead, and `DataLoader.__iter__`
+draws a new permutation on every call even from the same seeded `Generator` — so the
+source reshuffles every epoch and this driver does not.
+
+Found while reading `run_training.py` for the checkpoint-selection work
+(`stec.training.checkpointing.fit_with_best_checkpoint`), not new code written for this
+entry. The function's own docstring already names it explicitly: "a known, unverified
+divergence from the source, not an equivalent reformulation."
+
+**Applied.** Not yet ported. There is no reshuffle-per-epoch capability in
+`stec/`'s training driver at all — unlike defects #5/#7/#8, there is no `.CORRECTED`
+opt-in sitting next to the default; the corrected behaviour simply does not exist yet as
+code to select.
+
+**Why it cannot be measured right now.** The difference is a training-time row-order
+effect visible only across multiple epochs, not a number derivable from an existing
+checkpoint — all 3,583 shipped checkpoints were trained under the source's per-epoch
+reshuffle, so there is no `stec/`-trained multi-epoch artifact to compare against yet.
+Gate C's fixed 3–6 epoch synthetic check does not exercise this at all: both sides there
+are handed the identical, already-materialized batches, so Gate C passing is not evidence
+this divergence is harmless.
+`tests/training/test_run_training.py::test_materialize_batches_returns_the_same_order_every_call`
+pins the current (non-reshuffling) behaviour, and the companion
+`test_a_live_dataloader_would_have_reshuffled_every_epoch` demonstrates the source's
+behaviour is genuinely different, not an equivalent reformulation, on the same synthetic
+data.
+
+**Would require:** unlike the entries above, this one needs no new retraining
+infrastructure to become measurable — only a completed run. A real 50–150 epoch
+`stec/`-native fine-tune (or pretrain) through `materialize_batches`'s single fixed
+shuffle, with its `loss_history.csv` compared against the equivalent `src/` run's — the
+training-loop equivalence check `docs/revision/src_deletion_runbook.md` requires before
+trusting this driver as a full replacement for a multi-epoch run. That comparison has not
+been run, so this entry stays unmeasurable now, not unmeasurable in principle.
+
+**NOT YET APPLIED to the manuscript** — no manuscript number currently depends on a
+`stec/`-native multi-epoch training run, so nothing is stale yet; this is recorded so that
+changes the moment one is used to produce a reported number.
+
+---
+
+## 14. `epistemic_share` redefinition in `uncertainty_error_relation` — **measured**
+
+**What it is.** `stec.analysis.uncertainty_error_relation`'s uncertainty-bin view
+(`by_uncertainty.csv`, formerly `by_sigma.csv`) redefines `epistemic_share`. The
+pre-rebuild `src/analysis/uncertainty_error_relation.py` computed
+`mean_epistemic**2 / (mean_epistemic**2 + mean_aleatoric**2)` — the **square of each
+bin's mean** uncertainties. The variance decomposition this is meant to report calls for
+the **mean of the squares** instead, which is what the rebuilt module computes:
+`sum_epistemic_sq / sum_total_sq`, a true sum-of-squares ratio accumulated per
+observation before dividing. The square-of-means formula is Jensen-biased and compresses
+the reported range toward the middle. This was undeclared until a port audit
+(`verification/gate_f_analysis_equivalence.py`'s `uncertainty_error_relation` comparison)
+found it.
+
+This is **not** the only simultaneous change to this output, and the range shift below
+should not be attributed to the formula fix alone: the bin edges also moved from the
+first day's sigma deciles to fixed absolute-TECU bands (a decile computed from DOY 122
+alone held 6.88%–18.80% of the full-year population on other days, not 10%), and the
+column changed from a percentage to a fraction. `gate_f`'s own note calls this "three
+declared changes, not one." The by-elevation view (`by_elevation.csv`,
+`epistemic_share_%` column) is unaffected — it keeps the original bin-mean formula
+unchanged, since it was already a ratio of bin means by construction on both sides.
+
+**Applied.** Yes — the rebuilt module's default output is already the corrected
+sum-of-squares formula; there is no flag that restores the original square-of-means
+behaviour (only `src/`'s still-runnable predecessor produces that number).
+
+**Measured, 2026-08-25** (read directly off the two real artifacts —
+`multiday_results/analyses/uncertainty_error_relation/pre_rebuild/by_sigma.csv`, 10
+first-day-decile bins, and
+`multiday_results/analyses/uncertainty_error_relation/rebuilt/by_uncertainty.csv`, 11
+fixed-TECU bins — the same two files `gate_f`'s comparison already declares as an
+expected divergence):
+
+| Formula | Minimum across bins | Maximum across bins |
+|---|---|---|
+| Original, square-of-means (Jensen-biased) | 4.94% | 6.66% |
+| Corrected, sum-of-squares (mean-of-squares) | 3.07% | 16.39% |
+
+The corrected range is both wider and shifted — the original formula's compression is
+most visible at the extremes: the lowest-uncertainty bin (`(-0.001, 1.0]` TECU) reads
+16.39% epistemic share under the corrected formula, the single largest value in either
+table, where the original formula's largest value anywhere was 6.66%.
+
+**NOT YET APPLIED to the manuscript** — the R1.2 epistemic-share diagnostic is not
+currently quoted with a specific number in the draft, so there is no stale figure to
+correct yet; recorded here so the corrected formula is what gets cited when it is.
+
+---
+
+## 15. The subset-cache seed-check fix — **measured**
+
+**What it is.** `get_fixed_subset_indices` (`stec/data/splits.py`) caches a subset
+selection to disk as `{"len", "k", "seed", "indices"}`, but the original validation on
+load checked only `len` and `k` — the `seed` field was written and never read back.
+Changing the seed at a call site therefore silently returned the **previous** seed's
+subset rather than a fresh one: a "deterministic by seed" helper that ignores the seed is
+worse than no caching, because it looks like it worked. The fix validates `len`, `k` and
+`seed` together, gated behind `CACHE_VERSION = 2` so it does not start trusting an old
+cache written under the unchecked logic just because the three checked fields happen to
+agree by coincidence.
+
+Fixing a seed check that was previously ignored is **behaviour-changing by construction**:
+any call site whose seed changed after its cache was first written would get a different
+subset — a different evaluation set, different numbers — under the fix. That is exactly
+the kind of change this register exists to catch, even though, on the data actually on
+disk, it changes nothing.
+
+**Applied.** Yes — `CACHE_VERSION = 2` is unconditional; there is no opt-out that
+restores the old seed-blind check.
+
+**Measured, 2026-08-25** (loaded every `*.pt` file under
+`data/val_test_subsets_idx/` — `stec.config.paths.SUBSET_INDEX_CACHE` — with
+`torch.load` and read each one's `seed` key directly, independently reproducing and
+extending `stec/data/splits.py`'s own docstring claim, which reported checking 1,128
+files on 2026-08-20):
+
+| Quantity | Value |
+|---|---|
+| Cached subset files scanned | 1,129 |
+| Files carrying seed 42 | 1,129 |
+| Files carrying a different (or missing) seed | 0 |
+
+One more file exists than the docstring's 2026-08-20 count —
+`pretrain_val_1000000_seed42.pt`, added by the pretrain-infrastructure work that landed
+2026-08-24 — and it, too, carries seed 42. Every call site in `loaders.py` (lines 180,
+232, 383) passes the config's `random_seed`, which is 42 in every stored experiment
+config, so regenerating under the fixed check reproduces the same indices: the fix is
+correct to keep, but on the actual data it changes no cached selection.
+
+**NOT YET APPLIED to the manuscript** — no manuscript number is affected, since the fix
+reproduces every existing cache; recorded so a future seed change at any call site is
+known to be a genuine, checked divergence rather than a silent one.
+
+---
+
+## 16. Pretrain compute cost, scaled estimate corrected to measured — **measured**
+
+**What it is.** `cost_summary.csv`'s pretrain row (`item = "pretraining, 150 epochs"`) used
+to be produced by scaling the pretrain's 150 epochs by the daily fine-tune's measured
+per-epoch time — invalid, because the pretrain is I/O-bound (it resamples 500,000 rows from
+the 103 GB `data/train.h5` every epoch, measured GPU utilisation ~7%, 7 of 10 samples at
+0%, peak 48%) while a fine-tune reads one cached day, so the two per-epoch costs are not
+comparable. That scaling produced **0.38 GPU-hours**, `measured: no`.
+`stec/analysis/computational_cost.py` now reads a real measured basis instead — **2.5
+min/epoch** from three consecutive steady-state epoch banners in
+`logs/epistemic_scale_retrain_ps0.466_train.log` (2026-08-24, the `ps0.466`
+epistemic-scale retrain arm: same `BayesianResNetSTEC` architecture and
+500,000-samples/epoch subsample regime as the paper's pretrain, only `prior_sigma`
+differs) — giving **6.25 GPU-hours**, `measured: yes`, a **16x** correction. Full
+derivation: `docs/revision/manuscript_number_audit.md`, "Pretrain cost: the scaled
+estimate is 16x low, now measured".
+
+**Applied.** Yes — `MEASURED_PRETRAIN` in `stec/analysis/computational_cost.py` is the only
+basis the module uses for this row; there is no scaled-estimate fallback left in the
+rebuilt code path.
+
+**Measured, 2026-08-25** (`python -m stec.analysis.divergences`, live read of
+`multiday_results/analyses/computational_cost/rebuilt/cost_summary.csv`, filtered to the
+`item = "pretraining, 150 epochs"` row):
+
+| Quantity | Old (scaled) | New (measured) | Unit |
+|---|---|---|---|
+| Pretraining, 150 epochs | 0.38 | **6.25** | GPU-hours |
+
+The reviewer-facing docs (`response_to_reviewers.md`, `evidence_summary.md`) were updated
+to the ~6.2 GPU-hour figure alongside this fix, so this divergence is **not** a case of the
+code moving ahead of what reviewers see — both now agree at the corrected value.
+
+**NOT YET APPLIED to the manuscript** — `PNN_main.tex` does not carry a pretrain-cost
+figure as far as a grep shows (per `docs/revision/manuscript_number_audit.md`); recorded
+here so a future manuscript addition of this number has a citable, measured source rather
+than the withdrawn scaled estimate.
+
+---
+
 ## What would change in `stec/analysis/` if these were ported further
 
 Not done here — the task scope is the register and measurement harness only, and editing
@@ -447,3 +652,6 @@ existing modules is out of scope. For a future session:
   (commands above) once `recovery-models`/`recovery-geometry` finish, to convert entries
   #2 and #3 from unmeasurable to measured.
 * Gate C (`docs/rebuild_plan.md` §8) is the prerequisite for measuring defect #5.
+* A completed real multi-epoch `stec/`-native fine-tune, with its `loss_history.csv`
+  diffed against the equivalent `src/` run, is the prerequisite for measuring #13 — no new
+  code is needed first, unlike #5–#8.
