@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = os.path.abspath(os.path.join(Path(__file__).resolve().parents[1]))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-from stec.data.madrigal_builder import build_sample
+from stec.data.madrigal_builder import build_sample  # noqa: E402
 
 
 def main():

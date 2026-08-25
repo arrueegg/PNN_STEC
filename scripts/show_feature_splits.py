@@ -168,9 +168,7 @@ def show_vtec_features(splitter, feature_registry):
                 idx_to_feature[i] = f"{feature_name}[{i - idx.start}]"
 
     print("\nVTEC features are used to predict the ionospheric field (VTEC).")
-    print(
-        "These represent the electron content independent of observation geometry.\n"
-    )
+    print("These represent the electron content independent of observation geometry.\n")
     print(f"Total VTEC features: {len(vtec_indices)}\n")
 
     # Group VTEC features by type
@@ -246,9 +244,7 @@ def show_geometry_features(splitter, feature_registry):
                 idx_to_feature[i] = f"{feature_name}[{i - idx.start}]"
 
     print("\nGeometry features are used to predict the mapping factor (MF).")
-    print(
-        "These represent the geometric transformation from vertical to slant path.\n"
-    )
+    print("These represent the geometric transformation from vertical to slant path.\n")
     print(f"Total geometry features: {len(geom_indices)}\n")
 
     # Group geometry features by type
@@ -368,8 +364,10 @@ def main():
     feature_registry = initialize_feature_registry(config)
     config["feature_registry"] = feature_registry
 
-    # Initialize collation to set output indices
-    collate_fn = CollateWithSH(config)
+    # Initialize collation to set output indices on feature_registry (side effect
+    # read by show_transformed_features/show_vtec_features/show_geometry_features/
+    # show_elevation_extraction below); the collator object itself is not used.
+    CollateWithSH(config)
 
     # Create splitter
     splitter = FeatureSplitter(feature_registry)

@@ -14,6 +14,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import matplotlib
 
 matplotlib.use("Agg")
@@ -28,8 +29,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Re-use feature preparation from the inference script
 from infer_from_log import read_log_file, prepare_features  # noqa: E402
-from stec.config.config_parser import load_config
-from stec.data.feature_registry import initialize_feature_registry
+from stec.config.config_parser import load_config  # noqa: E402
+from stec.data.feature_registry import initialize_feature_registry  # noqa: E402
 
 
 def parse_args():
@@ -346,8 +347,6 @@ def load_stec_file(stec_path: str) -> "pd.DataFrame":
 
     Handles both 9-column (no GIM) and 10-column (with GIM) formats.
     """
-    import pandas as pd
-
     # Peek at first line to detect column count and presence of a text header
     with open(stec_path) as fh:
         first_line = fh.readline()
