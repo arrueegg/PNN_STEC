@@ -58,6 +58,20 @@ day-by-day pass rather than re-reading the store, using the daily minimum-Dst ru
 storm here is a storm there too (see that module's docstring for why the unrelated
 per-observation rule in ``scenario_evaluation.py`` is a different test and not used here).
 
+**Coverage default.** ``--year`` restricts the run to one year, but that must never be
+the silent default: ``pretrained_stec/own`` holds 544 day-files spanning 2014-2024, not
+just the 242 days of 2024, and a paper artifact that only ever reports the most recent
+year without saying so invites the obvious question of what happened on the other ten.
+Leaving ``--year`` unset now scores every year present in the partition - a no-op for
+``finetuned_stec/own``, which only ever holds 2024, and the fix for
+``pretrained_stec/own``. Storm/quiet classification still has to be read one year at a
+time (a bare day-of-year like 200 names a different calendar day, with a different Dst
+record, in each year - see ``load_storm_doys_by_year``), but the resulting labels are
+then pooled into the same "quiet"/"storm" buckets across every year, not reported
+per-year: -50 nT is a fixed physical Dst threshold, not one computed relative to each
+year, so a storm correctly classified in 2016 belongs in the same statistical bucket as
+one correctly classified in 2024, exactly the way "all" already pools every year.
+
 Usage::
 
     python -m stec.analysis.uncertainty_calibration --dataset own
@@ -127,31 +141,68 @@ PRODUCTS: dict[str, tuple[str, str, str]] = {
 }
 
 
-def load_storm_doys(swi_path: Path, year: int) -> set[int] | None:
-    """Day-of-year values whose minimum Dst reaches `STORM_DST_THRESHOLD`.
+def load_storm_doys_by_year(
+    swi_path: Path, years: Sequence[int]
+) -> dict[int, set[int]] | None:
+    """Storm days per year, for every year in `years`.
 
-    Returns `None` rather than raising when the OMNI archive is unavailable: the
-    regime split is a bonus axis on top of the unconditional "all" accumulation, not a
-    precondition for it, so a missing archive should degrade to unstratified output
-    rather than stop the analysis.
+    A bare day-of-year like 200 names a different calendar day - with a different Dst
+    record - in each year, so classifying it needs that year's own OMNI group; see
+    `accumulate()`'s docstring for why `doys` alone can never disambiguate a multi-year
+    store partition the same way `years` does. Pooling the resulting "storm"/"quiet"
+    labels *across* years afterwards is still correct, and is what the default (no
+    `--year`) run does: -50 nT is a fixed physical Dst threshold, not one computed
+    relative to each year, so a storm correctly classified in 2016 belongs in the same
+    bucket as one correctly classified in 2024. What this function exists to prevent is
+    the opposite mistake - applying one year's classification to another year's days.
+
+    Returns `None` rather than raising when the archive is missing, or when none of
+    `years` are in it: the regime split is a bonus axis on top of the unconditional
+    "all" accumulation, not a precondition for it, so a missing archive should degrade
+    to unstratified output rather than stop the analysis - the same contract
+    `load_storm_doys` has always offered. A year present in `years` but absent from the
+    archive is skipped with a warning and simply missing from the returned dict, so
+    `accumulate()` scores that year's days under "all" only rather than mislabelling
+    them.
     """
     if not swi_path.exists():
         logger.warning(f"{swi_path} not found - skipping the storm/quiet split")
         return None
+    result: dict[int, set[int]] = {}
     with h5py.File(swi_path, "r") as handle:
-        group = handle[str(year)]
-        doys = sorted(group.keys(), key=int)
-        columns = [
-            c.decode() if isinstance(c, bytes) else c
-            for c in group[doys[0]].attrs["columns"]
-        ]
-        dst_col = columns.index("Dst-index,_nT")
-        return {
-            int(doy)
-            for doy in doys
-            if float(np.nanmin(np.asarray(group[doy])[:, dst_col]))
-            <= STORM_DST_THRESHOLD
-        }
+        for year in years:
+            key = str(year)
+            if key not in handle:
+                logger.warning(
+                    f"{swi_path} has no data for {year} - its days are scored under "
+                    "'all' only, not 'quiet'/'storm'"
+                )
+                continue
+            group = handle[key]
+            doys = sorted(group.keys(), key=int)
+            columns = [
+                c.decode() if isinstance(c, bytes) else c
+                for c in group[doys[0]].attrs["columns"]
+            ]
+            dst_col = columns.index("Dst-index,_nT")
+            result[year] = {
+                int(doy)
+                for doy in doys
+                if float(np.nanmin(np.asarray(group[doy])[:, dst_col]))
+                <= STORM_DST_THRESHOLD
+            }
+    return result if result else None
+
+
+def load_storm_doys(swi_path: Path, year: int) -> set[int] | None:
+    """Day-of-year values whose minimum Dst reaches `STORM_DST_THRESHOLD`, for one year.
+
+    Thin single-year wrapper around `load_storm_doys_by_year`, kept because a
+    `--year`-scoped run only ever needs one year's classification and a flat set is the
+    simpler shape for that case.
+    """
+    per_year = load_storm_doys_by_year(swi_path, [year])
+    return None if per_year is None else per_year.get(year)
 
 
 def gaussian_crps(y: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> np.ndarray:
@@ -362,26 +413,33 @@ def accumulate(
     store_root: Path,
     doys: Sequence[int] | None = None,
     years: Sequence[int] | None = None,
-    storm_doys: set[int] | None = None,
+    storm_doys: dict[int, set[int]] | None = None,
+    allow_multi_year: bool = False,
 ) -> RegimeResults:
     """Stream the store day by day, scoring every product in `PRODUCTS` under both
     predictive families, and under every requested geomagnetic regime.
 
     Returns `{regime: {product_name: {"gaussian": accumulator, "laplace": accumulator}}}`,
     restricted to (regime, product) combinations that had usable data in at least one
-    requested day. Passing `storm_doys` (see `load_storm_doys`) adds "quiet"/"storm"
-    entries alongside "all" by re-using the same per-day frame already read for "all" -
-    it does not read any file twice. Scoring under both families - not only the native
-    one - is what makes the effect of the family choice auditable rather than a silent,
-    one-sided decision.
+    requested day. Passing `storm_doys` (see `load_storm_doys_by_year`) adds
+    "quiet"/"storm" entries alongside "all" by re-using the same per-day frame already
+    read for "all" - it does not read any file twice. Scoring under both families - not
+    only the native one - is what makes the effect of the family choice auditable rather
+    than a silent, one-sided decision.
 
-    `years` matters because `doys` alone is not enough to scope a store partition to one
-    test period: `finetuned_stec/own` happens to hold only 2024, but `pretrained_stec/own`
-    also carries 302 days from 2014-2023 (a separate, longer-run evaluation of the
-    pretrained checkpoint), and a bare DOY like 200 matches a file in every one of those
-    years. Leaving `years` unset there would silently pool eleven years of unrelated days
-    into "the" result, and would apply `storm_doys` - computed for one specific year - to
-    days it was never computed for.
+    `years=None` means "every year present in the partition" - the default a paper
+    artifact needs: `finetuned_stec/own` happens to hold only 2024, but
+    `pretrained_stec/own` also carries 302 days from 2014-2023 (a separate, longer-run
+    evaluation of the pretrained checkpoint). Passing `doys` together with `years=None`
+    is ambiguous on a multi-year partition - a bare DOY like 200 matches a file in every
+    one of those years - so `ps.day_paths` refuses it unless `allow_multi_year=True`
+    says the caller means every matching year on purpose (which is exactly what the
+    default, `--year`-unset invocation means). Pass `years=[...]` to pin one or more
+    specific years instead, which needs no such flag since it is already unambiguous.
+
+    `storm_doys` is keyed by year for the same reason: a "quiet"/"storm" label computed
+    for one year is meaningless applied to another, so each day's regime is looked up
+    under its own year's entry, never a flat cross-year set.
     """
     needed = sorted(
         {TRUTH_COLUMN, *(col for cols in PRODUCTS.values() for col in cols[:2])}
@@ -397,7 +455,12 @@ def accumulate(
     }
 
     paths = ps.day_paths(
-        model_variant, dataset, years=years, doys=doys, root=store_root
+        model_variant,
+        dataset,
+        years=years,
+        doys=doys,
+        root=store_root,
+        allow_multi_year=allow_multi_year,
     )
     if not paths:
         raise FileNotFoundError(
@@ -427,10 +490,17 @@ def accumulate(
         truth = frame[TRUTH_COLUMN].to_numpy(dtype=np.float64)
         if storm_doys is None:
             day_regimes = ("all",)
-        elif doy in storm_doys:
-            day_regimes = ("all", "storm")
         else:
-            day_regimes = ("all", "quiet")
+            year_storm_doys = storm_doys.get(year)
+            if year_storm_doys is None:
+                # This year was never classified (archive missing, or missing just
+                # this year - see load_storm_doys_by_year) - score it under "all"
+                # only rather than guessing its regime from another year's labels.
+                day_regimes = ("all",)
+            elif doy in year_storm_doys:
+                day_regimes = ("all", "storm")
+            else:
+                day_regimes = ("all", "quiet")
 
         for name, (mean_col, scale_col, _native) in PRODUCTS.items():
             if mean_col not in frame.columns or scale_col not in frame.columns:
@@ -505,6 +575,27 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
+def _available_years(
+    model_variant: str,
+    dataset: str,
+    store_root: Path,
+    doys: Sequence[int] | None,
+) -> list[int]:
+    """Years actually on disk for this store partition, optionally restricted to `doys`.
+
+    Backs the default (`--year` unset) scope in `main()`: the storm/quiet split needs a
+    concrete year list to read OMNI groups for, even though `accumulate()` itself is
+    told `years=None` and discovers every year present in one `ps.day_paths` call.
+    `ps.available_days` only globs filenames - no parquet content is read here, so this
+    stays cheap even against the 544-file pretrained_stec/own partition.
+    """
+    pairs = ps.available_days(model_variant, dataset, root=store_root)
+    if doys is not None:
+        wanted = set(doys)
+        pairs = [(year, doy) for year, doy in pairs if doy in wanted]
+    return sorted({year for year, _ in pairs})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store-root", type=Path, default=DEFAULT_STORE_ROOT)
@@ -522,11 +613,17 @@ def main() -> None:
     parser.add_argument(
         "--year",
         type=int,
-        default=2024,
-        help="Year to score: both which store partition is read (see accumulate()'s "
-        "docstring on why a store spanning multiple years needs this) and which year "
-        "the OMNI storm/quiet split is read for - the two must agree, since a "
-        "storm/quiet label computed for one year is meaningless applied to another.",
+        default=None,
+        help="Restrict to one year - both which store partition slice is read and "
+        "which single year the OMNI storm/quiet split is read for (a storm/quiet label "
+        "computed for one year is meaningless applied to another). Default: every year "
+        "present in the store partition, which is what a paper artifact must cover - a "
+        "no-op for finetuned_stec/own (2024 only), but pretrained_stec/own spans "
+        "2014-2024 and used to be silently clipped to 2024 alone by this flag's old "
+        "hardcoded default. Storm/quiet is still classified one year at a time "
+        "internally (see accumulate()'s docstring) and then pooled across years in the "
+        "reported 'quiet'/'storm' regimes, since -50 nT Dst is a fixed physical "
+        "threshold rather than one relative to each year.",
     )
     parser.add_argument(
         "--swi-path",
@@ -541,14 +638,30 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    storm_doys = load_storm_doys(args.swi_path, args.year)
+    if args.year is not None:
+        # Pinned to one year: unambiguous, so no allow_multi_year opt-in needed.
+        years: list[int] | None = [args.year]
+        scope_years = [args.year]
+        allow_multi_year = False
+    else:
+        # Default: every year present in the partition. accumulate() discovers that
+        # set itself via ps.day_paths(years=None, ...); the storm/quiet split needs
+        # the same set spelled out up front so it knows which OMNI groups to read.
+        years = None
+        scope_years = _available_years(
+            args.model_variant, args.dataset, args.store_root, args.doys
+        )
+        allow_multi_year = True
+
+    storm_doys = load_storm_doys_by_year(args.swi_path, scope_years)
     results = accumulate(
         args.model_variant,
         args.dataset,
         args.store_root,
         doys=args.doys,
-        years=[args.year],
+        years=years,
         storm_doys=storm_doys,
+        allow_multi_year=allow_multi_year,
     )
 
     out = args.output_dir / f"{args.model_variant}_{args.dataset}"

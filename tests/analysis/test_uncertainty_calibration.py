@@ -287,6 +287,62 @@ def test_load_storm_doys_returns_none_when_archive_missing(tmp_path):
     assert uc.load_storm_doys(tmp_path / "does_not_exist.h5", 2024) is None
 
 
+def _write_swi_fixture_multi_year(
+    path, year_to_doy_dst: dict[int, dict[int, float]]
+) -> None:
+    """Multi-year variant of `_write_swi_fixture`: one OMNI-shaped group per year."""
+    with h5py.File(path, "w") as handle:
+        for year, doy_to_dst_min in year_to_doy_dst.items():
+            group = handle.create_group(str(year))
+            for doy, dst_min in doy_to_dst_min.items():
+                dataset = group.create_dataset(f"{doy:03d}", data=np.array([[dst_min]]))
+                dataset.attrs["columns"] = ["Dst-index,_nT"]
+
+
+def test_load_storm_doys_by_year_classifies_each_year_from_its_own_dst_record(
+    tmp_path,
+):
+    """DOY 131 is a storm in 2016 but quiet in 2024 - the same day-of-year must not
+    borrow another year's Dst record, which is exactly the bug a flat cross-year
+    storm_doys set would reintroduce."""
+    swi_path = tmp_path / "omni.h5"
+    _write_swi_fixture_multi_year(
+        swi_path,
+        {
+            2016: {130: -10.0, 131: -80.0},  # 131 is a storm in 2016
+            2024: {130: -10.0, 131: -20.0},  # 131 is quiet in 2024
+        },
+    )
+
+    storm_doys = uc.load_storm_doys_by_year(swi_path, [2016, 2024])
+
+    assert storm_doys == {2016: {131}, 2024: set()}
+
+
+def test_load_storm_doys_by_year_skips_a_year_absent_from_the_archive(tmp_path):
+    """A year requested but not present in the OMNI archive is dropped with a warning,
+    not raised on and not silently mislabelled from a neighbouring year."""
+    swi_path = tmp_path / "omni.h5"
+    _write_swi_fixture_multi_year(swi_path, {2024: {131: -80.0}})
+
+    storm_doys = uc.load_storm_doys_by_year(swi_path, [2016, 2024])
+
+    assert storm_doys == {2024: {131}}
+    assert 2016 not in storm_doys
+
+
+def test_load_storm_doys_by_year_returns_none_when_archive_missing(tmp_path):
+    assert uc.load_storm_doys_by_year(tmp_path / "does_not_exist.h5", [2024]) is None
+
+
+def test_load_storm_doys_by_year_returns_none_when_no_requested_year_is_present(
+    tmp_path,
+):
+    swi_path = tmp_path / "omni.h5"
+    _write_swi_fixture_multi_year(swi_path, {2024: {131: -80.0}})
+    assert uc.load_storm_doys_by_year(swi_path, [2017]) is None
+
+
 def regime_day_frame(rows: int, seed: int) -> pd.DataFrame:
     """Same shape as `day_frame`, but every mean is offset by `seed` so quiet-day and
     storm-day accumulators are trivially distinguishable in the assertions below."""
@@ -304,7 +360,7 @@ def test_regime_split_is_an_additional_axis_not_a_replacement(tmp_path):
     ps.write_predictions(quiet_frame, "finetuned_stec", "own", 2024, 130, root=tmp_path)
     ps.write_predictions(storm_frame, "finetuned_stec", "own", 2024, 131, root=tmp_path)
 
-    results = uc.accumulate("finetuned_stec", "own", tmp_path, storm_doys={131})
+    results = uc.accumulate("finetuned_stec", "own", tmp_path, storm_doys={2024: {131}})
 
     assert set(results.keys()) == {"all", "quiet", "storm"}
     all_acc = results["all"]["Direct STEC"]["gaussian"]
@@ -331,7 +387,7 @@ def test_coverage_and_scores_tables_carry_a_regime_column(tmp_path):
     ps.write_predictions(quiet_frame, "finetuned_stec", "own", 2024, 130, root=tmp_path)
     ps.write_predictions(storm_frame, "finetuned_stec", "own", 2024, 131, root=tmp_path)
 
-    results = uc.accumulate("finetuned_stec", "own", tmp_path, storm_doys={131})
+    results = uc.accumulate("finetuned_stec", "own", tmp_path, storm_doys={2024: {131}})
     coverage = uc.coverage_table(results)
     scores = uc.scores_table(results)
 
@@ -340,6 +396,198 @@ def test_coverage_and_scores_tables_carry_a_regime_column(tmp_path):
     # Every regime still reports every (model, family) combination.
     for regime in ("all", "quiet", "storm"):
         assert set(scores.loc[scores["regime"] == regime, "model"]) == set(uc.PRODUCTS)
+
+
+# --- Multi-year coverage (the 44%-of-data defect this session fixes) ------------------
+#
+# `pretrained_stec/own` spans 2014-2024, not just the 2024 that `finetuned_stec/own`
+# holds. `accumulate()`'s own `years` parameter already accepted `None` to mean "every
+# year present" before this fix - the defect lived entirely in `main()`'s `--year`
+# argparse default (hardcoded to 2024) and the stage command that never overrode it, so
+# the regression tests below exercise `main()` itself, not just `accumulate()`.
+
+
+def test_available_years_lists_years_present_optionally_restricted_to_doys(tmp_path):
+    ps.write_predictions(
+        day_frame(10, seed=1), "pretrained_stec", "own", 2016, 130, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(10, seed=2), "pretrained_stec", "own", 2016, 200, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(10, seed=3), "pretrained_stec", "own", 2024, 130, root=tmp_path
+    )
+
+    assert uc._available_years("pretrained_stec", "own", tmp_path, doys=None) == [
+        2016,
+        2024,
+    ]
+    assert uc._available_years("pretrained_stec", "own", tmp_path, doys=[200]) == [2016]
+
+
+def _run_main(monkeypatch, argv: list[str]) -> None:
+    monkeypatch.setattr("sys.argv", ["uncertainty_calibration", *argv])
+    uc.main()
+
+
+def test_main_default_scores_every_year_present_not_just_2024(tmp_path, monkeypatch):
+    """This is the exact defect: with no `--year` passed - the shape of the real
+    `uncertainty_calibration_pretrained` stage command - `main()` used to default to
+    2024 alone and silently drop every other year in the partition. It must now cover
+    every year on disk. `--swi-path` points at a nonexistent file so the run degrades to
+    the unstratified "all" regime only, keeping this test about year coverage rather
+    than the storm/quiet split (covered separately below).
+    """
+    old_year_frame = day_frame(1_000, seed=40)
+    new_year_frame = day_frame(1_200, seed=41)
+    ps.write_predictions(
+        old_year_frame, "pretrained_stec", "own", 2016, 130, root=tmp_path
+    )
+    ps.write_predictions(
+        new_year_frame, "pretrained_stec", "own", 2024, 130, root=tmp_path
+    )
+    output_dir = tmp_path / "output"
+
+    _run_main(
+        monkeypatch,
+        [
+            "--store-root",
+            str(tmp_path),
+            "--model-variant",
+            "pretrained_stec",
+            "--dataset",
+            "own",
+            "--swi-path",
+            str(tmp_path / "no_such_omni.h5"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    scores = pd.read_csv(output_dir / "pretrained_stec_own" / "scores.csv")
+    row = scores[
+        (scores["regime"] == "all")
+        & (scores["model"] == "Direct STEC")
+        & (scores["family"] == "gaussian")
+    ]
+    assert len(row) == 1
+    assert int(row["observations"].iloc[0]) == len(old_year_frame) + len(new_year_frame)
+
+
+def test_main_year_flag_still_scopes_to_one_year_on_request(tmp_path, monkeypatch):
+    """`--year` must still work for a caller that deliberately wants one year - it just
+    must not be the silent default a paper artifact gets by doing nothing."""
+    old_year_frame = day_frame(900, seed=42)
+    new_year_frame = day_frame(1_100, seed=43)
+    ps.write_predictions(
+        old_year_frame, "pretrained_stec", "own", 2016, 130, root=tmp_path
+    )
+    ps.write_predictions(
+        new_year_frame, "pretrained_stec", "own", 2024, 130, root=tmp_path
+    )
+    output_dir = tmp_path / "output"
+
+    _run_main(
+        monkeypatch,
+        [
+            "--store-root",
+            str(tmp_path),
+            "--model-variant",
+            "pretrained_stec",
+            "--dataset",
+            "own",
+            "--year",
+            "2016",
+            "--swi-path",
+            str(tmp_path / "no_such_omni.h5"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    scores = pd.read_csv(output_dir / "pretrained_stec_own" / "scores.csv")
+    row = scores[
+        (scores["regime"] == "all")
+        & (scores["model"] == "Direct STEC")
+        & (scores["family"] == "gaussian")
+    ]
+    assert int(row["observations"].iloc[0]) == len(old_year_frame)
+
+
+def test_own_dataset_default_scope_matches_explicit_single_year_scope(tmp_path):
+    """`finetuned_stec/own` only ever holds one year, so the new "every year present"
+    default must be numerically identical to the old explicit `years=[2024]` call - this
+    is what pins that the fix leaves the own-dataset invocation's numbers unchanged."""
+    frame = day_frame(2_000, seed=50)
+    ps.write_predictions(frame, "finetuned_stec", "own", 2024, 132, root=tmp_path)
+
+    default_results = uc.accumulate("finetuned_stec", "own", tmp_path)
+    pinned_year_results = uc.accumulate("finetuned_stec", "own", tmp_path, years=[2024])
+
+    pd.testing.assert_frame_equal(
+        uc.scores_table(default_results), uc.scores_table(pinned_year_results)
+    )
+
+
+# --- Storm/quiet pooled correctly across years -----------------------------------------
+
+
+def test_regime_split_looks_up_storm_status_per_year_not_flat_doy(tmp_path):
+    """DOY 131 is a storm in 2016 but quiet in 2024 in this fixture. A flat, doy-only
+    storm_doys set (the pre-fix shape) cannot represent that at all - it would apply one
+    year's label to the other. The per-year dict must classify each year independently
+    and then pool "storm" (and "quiet") observations across years, the same way "all"
+    already pools every year."""
+    storm_2016 = regime_day_frame(1_000, seed=10)
+    quiet_2024 = regime_day_frame(1_200, seed=11)
+    ps.write_predictions(storm_2016, "pretrained_stec", "own", 2016, 131, root=tmp_path)
+    ps.write_predictions(quiet_2024, "pretrained_stec", "own", 2024, 131, root=tmp_path)
+
+    results = uc.accumulate(
+        "pretrained_stec",
+        "own",
+        tmp_path,
+        years=None,
+        allow_multi_year=True,
+        storm_doys={2016: {131}, 2024: set()},
+    )
+
+    storm_acc = results["storm"]["Direct STEC"]["gaussian"]
+    quiet_acc = results["quiet"]["Direct STEC"]["gaussian"]
+    all_acc = results["all"]["Direct STEC"]["gaussian"]
+
+    assert storm_acc.n == len(storm_2016)
+    assert quiet_acc.n == len(quiet_2024)
+    assert all_acc.n == storm_acc.n + quiet_acc.n
+
+
+def test_regime_split_treats_a_year_missing_from_storm_doys_as_all_only(tmp_path):
+    """A year present in the store but absent from the storm_doys dict (e.g. the OMNI
+    archive didn't cover it) must not be silently folded into "quiet" - it is
+    unclassified, not known-quiet, so its days stay out of both stratified regimes."""
+    unclassified_year = regime_day_frame(800, seed=12)
+    classified_year = regime_day_frame(600, seed=13)
+    ps.write_predictions(
+        unclassified_year, "pretrained_stec", "own", 2016, 131, root=tmp_path
+    )
+    ps.write_predictions(
+        classified_year, "pretrained_stec", "own", 2024, 131, root=tmp_path
+    )
+
+    results = uc.accumulate(
+        "pretrained_stec",
+        "own",
+        tmp_path,
+        years=None,
+        allow_multi_year=True,
+        storm_doys={2024: set()},  # 2016 absent entirely
+    )
+
+    all_acc = results["all"]["Direct STEC"]["gaussian"]
+    quiet_acc = results["quiet"]["Direct STEC"]["gaussian"]
+    assert all_acc.n == len(unclassified_year) + len(classified_year)
+    assert quiet_acc.n == len(classified_year)
+    assert "storm" not in results
 
 
 def _calibrated_sample(family: str, n: int = 200_000, seed: int = 7):
