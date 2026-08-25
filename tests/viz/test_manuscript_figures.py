@@ -431,6 +431,65 @@ def test_build_improvement_by_date_figures_end_to_end_from_synthetic_per_day_csv
     assert (target / "improvements_mae.png").exists()
 
 
+def test_build_improvement_by_date_figures_keeps_own_and_madrigal_distinct(tmp_path):
+    """Regression for the filename collision: `_build_improvement_by_date_figures` loops
+    `table.groupby("dataset")` over `own_vtec_gim` and `madrigal_vtec_gim`, and used to
+    write both through the same `improvements_{metric}` name - the second write silently
+    discarded the first, so only one dataset's Figure 10 ever reached disk. A test that
+    only checked "does improvements_rmse.png exist" would still pass on the broken code
+    (one of the two datasets always survives); this asserts both output files exist *and*
+    that each carries its own dataset's numbers, which the collision could not satisfy.
+    """
+    results_dir = tmp_path / "results"
+    daily_metrics_dir = mf.analysis_dir(results_dir, "daily_metrics")
+    daily_metrics_dir.mkdir(parents=True)
+    # Both models present for both datasets on the same day (doy=122 -> 2024-05-01, once
+    # `_build_improvement_by_date_figures` rebuilds the real calendar date from year+doy)
+    # so the improvement ratio is defined for each: own is Direct STEC 5.0 vs VTEC 10.0 ->
+    # 50%; Madrigal is Direct STEC 6.0 vs VTEC 8.0 -> 25%. Deliberately different values
+    # so the two CSVs cannot coincidentally agree.
+    per_day = pd.DataFrame(
+        {
+            "date": ["2024-122"] * 4,
+            "year": [2024] * 4,
+            "doy": [122] * 4,
+            "dataset": [
+                "own_vtec_gim",
+                "own_vtec_gim",
+                "madrigal_vtec_gim",
+                "madrigal_vtec_gim",
+            ],
+            "Model": [
+                "Direct STEC Model",
+                "VTEC + Mapping",
+                "Direct STEC Model",
+                "VTEC + Mapping",
+            ],
+            "RMSE": [5.0, 10.0, 6.0, 8.0],
+            "MAE": [2.5, 5.0, 3.0, 4.0],
+        }
+    )
+    per_day.to_csv(daily_metrics_dir / "per_day.csv", index=False)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    mf._build_improvement_by_date_figures(args, output_dir)
+
+    target = output_dir / mf.SOURCE_DIRS["finetuned"]
+    own_path = target / "improvements_rmse.csv"
+    madrigal_path = target / "improvements_rmse_madrigal.csv"
+    assert own_path.exists()
+    assert madrigal_path.exists()
+    assert (target / "improvements_rmse.png").exists()
+    assert (target / "improvements_rmse_madrigal.png").exists()
+
+    own = pd.read_csv(own_path).set_index("date")["improvement_pct"]
+    madrigal = pd.read_csv(madrigal_path).set_index("date")["improvement_pct"]
+    assert own.loc["2024-05-01"] == pytest.approx(50.0)
+    assert madrigal.loc["2024-05-01"] == pytest.approx(25.0)
+
+
 # --------------------------------------------------------------------------
 # Figure 11 - RMSE/MAE vs. elevation, mean +/- across-day std
 # --------------------------------------------------------------------------

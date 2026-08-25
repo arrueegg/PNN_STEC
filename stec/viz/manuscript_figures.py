@@ -1000,6 +1000,8 @@ def fig_improvement_by_date(
     metric: str,
     output_dir: Path,
     provenance: str,
+    *,
+    suffix: str = "",
 ) -> None:
     """Daily % improvement of Direct STEC over VTEC + Mapping and IGS GIM + Mapping.
 
@@ -1011,6 +1013,12 @@ def fig_improvement_by_date(
     preserving already-chronological row order, which a groupby is not guaranteed to;
     sorting cannot change a correctly-ordered source's output and removes that latent
     dependency.
+
+    `suffix` distinguishes the output filename across the multiple datasets
+    `_build_improvement_by_date_figures` loops over (empty for the manuscript's own-dataset
+    variant, `_madrigal` for the Madrigal one) - see `_IMPROVEMENT_DATASET_SUFFIXES`. Without
+    it, two datasets plotted through this function collide on the same
+    `improvements_{metric}` name and the second write silently discards the first.
     """
     pivot = daily.pivot(index="date", columns="Model", values=metric).sort_index()
     stec = pivot["Direct STEC"]
@@ -1055,12 +1063,23 @@ def fig_improvement_by_date(
     ax.set_title(f"Direct STEC {metric} improvement over baselines")
     _save(
         fig,
-        f"improvements_{metric.lower()}",
+        f"improvements_{metric.lower()}{suffix}",
         "finetuned",
         output_dir,
         provenance,
         pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(),
     )
+
+
+# `daily_metrics.per_day.csv`'s dataset labels (`daily_metrics.DATASET_LABELS`) to output
+# filename suffix. Empty for "own_vtec_gim" so the manuscript's Figure 10 (own dataset,
+# Tables 3-4's scope) keeps its pre-existing `improvements_{metric}` name - matching the
+# convention `revision_figures.py` already uses for its own multi-source loops (e.g.
+# `_DSTEC_SOURCES`'s `("", "", ...)` primary entry, `("_pretrained", ...)` for the rest):
+# suffix is empty for the canonical variant, `_<qualifier>` for every other one, so no two
+# variants can ever land on the same path. Any dataset label not listed here still gets a
+# distinct name rather than colliding.
+_IMPROVEMENT_DATASET_SUFFIXES = {"own_vtec_gim": "", "madrigal_vtec_gim": "_madrigal"}
 
 
 def _build_improvement_by_date_figures(
@@ -1078,12 +1097,15 @@ def _build_improvement_by_date_figures(
         table["doy"] - 1, unit="D"
     )
     for dataset, dataset_table in table.groupby("dataset"):
+        suffix = _IMPROVEMENT_DATASET_SUFFIXES.get(dataset, f"_{dataset}")
         for metric in ("RMSE", "MAE"):
             days = dataset_table["date"].nunique()
             prov = (
                 f"{path} - daily fine-tuned models, {dataset}, {days} test days of 2024"
             )
-            fig_improvement_by_date(dataset_table, metric, output_dir, prov)
+            fig_improvement_by_date(
+                dataset_table, metric, output_dir, prov, suffix=suffix
+            )
 
 
 # --------------------------------------------------------------------------
