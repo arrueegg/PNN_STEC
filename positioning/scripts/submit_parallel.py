@@ -77,7 +77,6 @@ def ensure_pretrain_exists(stec_config_path: str) -> str:
         config = yaml.safe_load(f)
 
     # Temporarily set mode to pretrain to compute pretrain experiment name
-    original_mode = config.get("mode", "pretrain")
     config["mode"] = "pretrain"
 
     # Import here to avoid circular imports. Both this insert and the module-level one

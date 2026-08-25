@@ -39,11 +39,11 @@ _repo_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "positioning"))
 
-from stec.config.config_parser import load_config
-from stec.data.feature_registry import initialize_feature_registry, FeatureType
-from stec.data.collation import CollateWithSH
-from torch.utils.data import Dataset, DataLoader
-from stec.baselines.gim import MappingFunction  # Import for VTEC -> STEC conversion
+from stec.config.config_parser import load_config  # noqa: E402
+from stec.data.feature_registry import initialize_feature_registry, FeatureType  # noqa: E402
+from stec.data.collation import CollateWithSH  # noqa: E402
+from torch.utils.data import Dataset, DataLoader  # noqa: E402
+from stec.baselines.gim import MappingFunction  # noqa: E402  (VTEC -> STEC conversion)
 
 
 def initialize_output_indices_for_registry(registry, config):

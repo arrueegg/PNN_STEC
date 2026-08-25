@@ -25,12 +25,14 @@ import seaborn as sns
 from pathlib import Path
 from datetime import datetime, timedelta
 from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import matplotlib.dates as mdates
 
 _repo_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "positioning"))
 
-from stec.config.config_parser import load_config, compute_exp_name
+from stec.config.config_parser import load_config, compute_exp_name  # noqa: E402
 
 
 def setup_logging():
@@ -87,9 +89,6 @@ def run_command(cmd, description, logger):
         logger.error(f"Stdout: {e.stdout}")
         logger.error(f"Stderr: {e.stderr}")
         return False
-
-
-import matplotlib.dates as mdates
 
 
 def get_robust_limits(data, percentile=99.0):
@@ -326,8 +325,8 @@ def plot_trends(df, output_dir):
         plt.grid(True, axis="y", linestyle="--", alpha=0.5)
 
         # Rename x-ticks
-        current_labels = [l.get_text() for l in plt.gca().get_xticklabels()]
-        new_labels = [get_style(l)[1] for l in current_labels]
+        current_labels = [label.get_text() for label in plt.gca().get_xticklabels()]
+        new_labels = [get_style(label)[1] for label in current_labels]
         ax = plt.gca()
         ax.set_xticklabels(new_labels)
 
@@ -413,9 +412,6 @@ def plot_trends(df, output_dir):
         print(
             f"Required columns (3d_rms or error_3d_rms, method) not found for plotting. Columns: {df.columns.tolist()}"
         )
-
-
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 def process_day(current_date, stec_base_config, vtec_base_config, args):

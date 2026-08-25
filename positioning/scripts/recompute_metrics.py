@@ -32,10 +32,10 @@ _repo_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "positioning"))
 
-from stec.config.config_parser import load_config, compute_exp_name
+from stec.config.config_parser import load_config, compute_exp_name  # noqa: E402
 
-from positioning_eval.download_products import download_products
-from positioning_eval.metrics import aggregate_daily_metrics
+from positioning_eval.download_products import download_products  # noqa: E402
+from positioning_eval.metrics import aggregate_daily_metrics  # noqa: E402
 
 
 def setup_logging():

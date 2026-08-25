@@ -10,7 +10,6 @@ Generates dynamic pppx.ini files for positioning evaluation with:
 
 import os
 from pathlib import Path
-from datetime import datetime
 
 
 def generate_pppx_ini(
@@ -26,11 +25,11 @@ def generate_pppx_ini(
     elev_mask=7,
     weight_opt="elev",
     use_relative_paths=True,
-    output_ini_dir=None
+    output_ini_dir=None,
 ):
     """
     Generate pppx.ini configuration file.
-    
+
     Args:
         year: Year (int)
         doy: Day of year (int)
@@ -45,7 +44,7 @@ def generate_pppx_ini(
         weight_opt: Weighting option - "elev" (elevation), "snr" (SNR), or "iono" (ionospheric uncertainty)
         use_relative_paths: Use relative paths in INI (for short paths)
         output_ini_dir: Directory where INI will be placed (for computing relative paths)
-    
+
     Returns:
         Path to generated INI file
     """
@@ -54,7 +53,7 @@ def generate_pppx_ini(
         ini_dir = Path(output_ini_dir)
     else:
         ini_dir = Path(output_path).parent
-    
+
     # Make product paths relative to INI location
     products_path = Path(products_dir)
     if use_relative_paths:
@@ -63,18 +62,18 @@ def generate_pppx_ini(
             products_path = Path(products_rel)
         except ValueError:
             pass  # Keep absolute if relpath fails
-    
+
     # Construct product filenames
     sp3_file = products_path / f"COD0OPSFIN_{year}{doy:03d}0000_01D_05M_ORB.SP3"
     clk_file = products_path / f"COD0OPSFIN_{year}{doy:03d}0000_01D_30S_CLK.CLK"
     erp_file = products_path / f"COD0OPSFIN_{year}{doy:03d}0000_01D_01D_ERP.ERP"
     obx_file = products_path / f"COD0OPSFIN_{year}{doy:03d}0000_01D_30S_ATT.OBX"
-    
+
     # Determine ionosphere file
     # PPPx uses iono_model = "IONEX" for both IONEX and CSV files
     # It auto-detects the format based on file extension (.INX vs .csv)
     iono_model = "IONEX"
-    
+
     if ion_path:
         ion_p = Path(ion_path)
         if use_relative_paths:
@@ -87,7 +86,7 @@ def generate_pppx_ini(
     else:
         # Default to CODE GIM if no path provided
         iono_file = products_path / f"COD0OPSFIN_{year}{doy:03d}0000_01D_01H_GIM.INX"
-    
+
     # Get table directory - relative to INI location
     pppx_dir = Path(__file__).parent
     if use_relative_paths:
@@ -98,15 +97,15 @@ def generate_pppx_ini(
             table_dir = pppx_dir / "table"
     else:
         table_dir = pppx_dir / "table"
-    
+
     # Use relative path for output
     output_dir_path = Path(output_dir)
-    
+
     # Generate INI content
     ini_content = f"""; PPPx configuration file - Auto-generated
 ; Date: {year}/{doy:03d}
 ; Ionosphere: {ion_source}
-; Station: {station_name if station_name else 'N/A'}
+; Station: {station_name if station_name else "N/A"}
 
 [session]
 interval =                      ; opt: 0:RINEX-OBS default [sec]
@@ -164,32 +163,39 @@ orography = {table_dir}/orography_ell
 path  = {output_dir_path}
 level = info                    ; opt: off/critical/error/warn/info/debug/trace
 """
-    
+
     # Write to file
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_file, 'w') as f:
+
+    with open(output_file, "w") as f:
         f.write(ini_content)
-    
+
     return output_file
 
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Generate pppx.ini configuration")
     parser.add_argument("--year", type=int, required=True)
     parser.add_argument("--doy", type=int, required=True)
     parser.add_argument("--output", type=str, required=True, help="Output INI path")
     parser.add_argument("--products_dir", type=str, required=True)
-    parser.add_argument("--ion_source", type=str, default="IONEX", choices=["IONEX", "CSV"])
+    parser.add_argument(
+        "--ion_source", type=str, default="IONEX", choices=["IONEX", "CSV"]
+    )
     parser.add_argument("--ion_path", type=str, default=None)
     parser.add_argument("--station", type=str, default=None)
-    parser.add_argument("--weight_opt", type=str, default="elev", help="Weighting option (elev, snr, iono)")
-    
+    parser.add_argument(
+        "--weight_opt",
+        type=str,
+        default="elev",
+        help="Weighting option (elev, snr, iono)",
+    )
+
     args = parser.parse_args()
-    
+
     ini_path = generate_pppx_ini(
         args.year,
         args.doy,
@@ -198,7 +204,7 @@ if __name__ == "__main__":
         ion_source=args.ion_source,
         ion_path=args.ion_path,
         station_name=args.station,
-        weight_opt=args.weight_opt
+        weight_opt=args.weight_opt,
     )
-    
+
     print(f"Generated: {ini_path}")
