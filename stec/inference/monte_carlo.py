@@ -69,6 +69,7 @@ from dataclasses import dataclass
 import torch
 
 from ..models import determinism
+from ..models.architectures import DeepEnsemble
 from ..models.capabilities import Capabilities
 
 # A single unbatched forward pass over a ~2M-row Madrigal day asks for one activation
@@ -221,4 +222,62 @@ def monte_carlo_uncertainty(
         aleatoric_std=torch.sqrt(aleatoric_var),
         total_std=torch.sqrt(total_var),
         samples=samples,
+    )
+
+
+def ensemble_uncertainty(
+    ensemble: DeepEnsemble,
+    inputs: torch.Tensor,
+    batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
+) -> UncertaintyDecomposition:
+    """The ensemble counterpart of `monte_carlo_uncertainty`, for a `DeepEnsemble` of
+    already-trained members rather than a single model with weights to resample.
+
+    Ported from `InferenceManager.bayesian_inference_total_uncertainty`'s `is_ensemble`
+    branch (`src/training/inference_manager.py:129-138`, the `DE_MLP` / `model_type ==
+    "DE_MLP"` path): it called `model.get_uncertainties(inputs)` once per dataloader batch
+    and flattened the result. There is no dataloader in this module, so row-chunking here
+    plays the same role that per-batch loop did - one unbatched call over a ~2M-row Madrigal
+    day would allocate one activation tensor per ensemble member sized for the whole day at
+    once, the same OOM `DEFAULT_INFERENCE_BATCH_SIZE`'s docstring measures for a single
+    model. Every member is a fixed, already-trained network with no per-call randomness, so
+    chunking the row dimension changes nothing about the arithmetic any individual row goes
+    through - same argument as `determinism.monte_carlo`'s docstring, one layer up.
+
+    `DeepEnsemble.get_uncertainties` (`stec/models/architectures.py`) already is the ported
+    decomposition math (aleatoric = mean of member variances, epistemic = variance of member
+    means, population variance for a Laplacian ensemble per Mao et al. 2025) - this function
+    only adds the chunking and wraps the result in the same `UncertaintyDecomposition` shape
+    `monte_carlo_uncertainty` returns, so a caller with either a single model or an ensemble
+    reads one uniform type back. `DeepEnsemble` has no Bayesian layers of its own to
+    resample and no `capabilities` declaration - its uncertainty comes from disagreement
+    between deterministic members, not posterior sampling - so this is a separate function
+    rather than another branch inside `monte_carlo_uncertainty`, mirroring
+    `stec.inference.run_baselines.compute_vtec_baseline`'s explicit `isinstance` dispatch
+    between the two.
+
+    `samples` on the returned `UncertaintyDecomposition` is the member count, not a
+    stochastic-pass count - the closest analogue for an ensemble, and consistent with
+    `capabilities.monte_carlo_samples`'s meaning of "how many forward passes contributed to
+    this estimate".
+    """
+    rows = inputs.shape[0]
+    chunk_size = batch_size or rows
+    means, aleatoric_vars, epistemic_vars, total_vars = [], [], [], []
+    with torch.no_grad():
+        for start in range(0, rows, chunk_size):
+            mean, aleatoric_var, epistemic_var, total_var = ensemble.get_uncertainties(
+                inputs[start : start + chunk_size]
+            )
+            means.append(mean)
+            aleatoric_vars.append(aleatoric_var)
+            epistemic_vars.append(epistemic_var)
+            total_vars.append(total_var)
+
+    return UncertaintyDecomposition(
+        mean=torch.cat(means),
+        epistemic_std=torch.sqrt(torch.cat(epistemic_vars)),
+        aleatoric_std=torch.sqrt(torch.cat(aleatoric_vars)),
+        total_std=torch.sqrt(torch.cat(total_vars)),
+        samples=len(ensemble.ensemble_models),
     )

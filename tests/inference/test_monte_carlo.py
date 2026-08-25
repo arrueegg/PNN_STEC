@@ -20,6 +20,7 @@ from torch import nn
 from stec.inference import monte_carlo
 from stec.models import capabilities as caps
 from stec.models import determinism
+from stec.models.architectures import DeepEnsemble
 
 
 class FixedSequenceModel(nn.Module):
@@ -255,3 +256,68 @@ def test_mismatched_mean_and_spread_shapes_are_rejected():
         assert "different shapes" in str(error)
     else:
         raise AssertionError("expected a ValueError for mismatched mean/spread shapes")
+
+
+# --- ensemble_uncertainty: DeepEnsemble.get_uncertainties, chunked -------------------------
+
+
+def test_ensemble_uncertainty_matches_get_uncertainties_unchunked():
+    """The whole point of this function is to add row-chunking without changing a single
+    number `DeepEnsemble.get_uncertainties` itself would produce."""
+    members = [FixedSequenceModel([(mean, 1.0)]) for mean in (10.0, 12.0, 14.0)]
+    ensemble = DeepEnsemble(members, model_type="Gaussian")
+    inputs = torch.zeros(5, 1)
+
+    ref_mean, ref_alea_var, ref_epi_var, ref_total_var = ensemble.get_uncertainties(
+        inputs
+    )
+    result = monte_carlo.ensemble_uncertainty(ensemble, inputs, batch_size=1000)
+
+    assert torch.allclose(result.mean, ref_mean)
+    assert torch.allclose(result.aleatoric_std, torch.sqrt(ref_alea_var))
+    assert torch.allclose(result.epistemic_std, torch.sqrt(ref_epi_var))
+    assert torch.allclose(result.total_std, torch.sqrt(ref_total_var))
+    assert result.samples == 3
+
+
+def test_ensemble_uncertainty_row_chunking_does_not_change_the_result():
+    """Every member is a fixed, already-trained network with no per-call randomness, so
+    splitting the row dimension across several forward calls must reproduce the single
+    unbatched call exactly - the same invariant `determinism.monte_carlo` proves for a
+    Bayesian forward pass."""
+    torch.manual_seed(0)
+    members = [nn.Linear(4, 2) for _ in range(3)]
+
+    class WrapLinear(nn.Module):
+        def __init__(self, linear: nn.Linear) -> None:
+            super().__init__()
+            self.linear = linear
+
+        def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            out = self.linear(x)
+            mean, raw_spread = torch.split(out, 1, dim=1)
+            return mean, F.softplus(raw_spread) + 1e-3
+
+    ensemble = DeepEnsemble([WrapLinear(m) for m in members], model_type="Gaussian")
+    inputs = torch.randn(37, 4)  # not a multiple of any chunk size below
+
+    unchunked = monte_carlo.ensemble_uncertainty(ensemble, inputs, batch_size=1000)
+    chunked = monte_carlo.ensemble_uncertainty(ensemble, inputs, batch_size=10)
+
+    assert torch.equal(unchunked.mean, chunked.mean)
+    assert torch.equal(unchunked.epistemic_std, chunked.epistemic_std)
+    assert torch.equal(unchunked.aleatoric_std, chunked.aleatoric_std)
+    assert torch.equal(unchunked.total_std, chunked.total_std)
+
+
+def test_ensemble_uncertainty_laplacian_uses_population_variance():
+    """`DeepEnsemble.get_uncertainties`'s own `unbiased=not is_laplacian` (Mao et al.
+    2025); this only checks the function this module adds still reaches that branch."""
+    members = [FixedSequenceModel([(mean, 1.0)]) for mean in (1.0, 2.0)]
+    ensemble = DeepEnsemble(members, model_type="Laplacian")
+    inputs = torch.zeros(1, 1)
+
+    result = monte_carlo.ensemble_uncertainty(ensemble, inputs, batch_size=1000)
+
+    # Population variance (ddof=0) of {1.0, 2.0} is 0.25, not the unbiased 0.5.
+    assert torch.allclose(result.epistemic_std, torch.full((1, 1), 0.5))

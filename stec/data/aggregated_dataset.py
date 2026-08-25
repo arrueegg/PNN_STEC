@@ -19,6 +19,28 @@ fine-tune - load every requested row into one tensor - would mean materialising 
 a host with 30 GB of RAM shared with a desktop session. `EpochRandomSampler` only ever needs
 500,000 arbitrary row indices resolved at a time; this Dataset is what lets it fetch exactly
 those rows, on demand, via h5py random access, and nothing else.
+
+**Read amplification, measured, not assumed.** `data/train.h5`'s `data` dataset is chunked at
+8,192 rows x 80 bytes/row = 655,360 bytes/chunk (`h5py`'s `.chunks`). A `DataLoader` drawing
+rows uniformly at random from 1.37e9 rows almost never asks for two rows in the same chunk
+inside one epoch's worth of draws (~167,700 distinct chunks in the file; 500,000 draws barely
+scratch that), and h5py's default 1 MB chunk cache holds only ~1.6 chunks, so it cannot carry
+a chunk forward from one `__getitem__` call to the next unrelated one. Every single-row fetch
+therefore reads a fresh 655 KB chunk to deliver one 80-byte row - confirmed by
+`/proc/self/io` against the real file: 659,241 measured bytes read per row, matching the
+chunk size almost exactly. Two things follow from a chunk-size mismatch, not from "HDF5 is
+slow": (1) reading one row at a time can never get faster than one chunk-fetch per row no
+matter how the bytes are shaped into Python objects, so batching many rows into a single
+h5py fancy-index call (`__getitems__`, below) does not reduce bytes read - the birthday
+bound on collisions inside one 1,024-row batch drawn from 167,700 chunks is ~3 pairs, i.e.
+noise: what it removes is 1,024 separate Python/HDF5 call overheads collapsed into one. (2)
+The actual fix for wall-clock time is concurrency: a single synchronous reader can only have
+one 655 KB read in flight at a time, so throughput is capped at one chunk-latency per row;
+`src/data_loader/datasets.py`'s `H5Dataset` reads the same file the same random-row way but
+under a `DataLoader` with `num_workers=12`, `prefetch_factor=4`, giving the storage many
+outstanding reads at once - measured 12x faster on the same host, matching a queue-depth
+explanation rather than a bytes-read explanation (see `stec.training.run_training`'s
+`build_pretrain_batches` for the worker wiring this class now supports).
 """
 
 from __future__ import annotations
@@ -90,19 +112,27 @@ def _load_swi_cache(path: Path) -> tuple[dict[tuple[int, int], np.ndarray], list
 
 
 class AggregatedSplitDataset(Dataset):
-    """One row of `data/<split>.h5` per `__getitem__`, keyed the same way
-    `stec.data.day_reader.read_day` keys a whole day, so a caller assembling this Dataset's
-    output needs no per-row special case distinct from the day-at-a-time path.
+    """One row of `data/<split>.h5` per `__getitem__` (or many, batched, per `__getitems__`),
+    keyed the same way `stec.data.day_reader.read_day` keys a whole day, so a caller
+    assembling this Dataset's output needs no per-row special case distinct from the
+    day-at-a-time path.
 
     `space_weather_path=None` disables the space-weather join entirely (columns simply
     absent from every row, exactly like `read_day` when no OMNI file is given); pass a path
     to enable it, or leave it as the default (`stec.config.paths.OMNI_INDICES`), which is
     what `stec.training.run_training` does for the day-at-a-time path already.
 
-    Not thread- or fork-safe: like `H5Dataset`, the h5py file handle is opened once here and
-    reused for every `__getitem__`, so a multi-worker `DataLoader` would need each worker to
-    open its own handle (a `worker_init_fn`) rather than share this one across a fork. This
-    driver only ever uses `num_workers=0`; see `stec.training.run_training` for why.
+    Fork- and spawn-safe by construction: `__init__` never opens the h5py file itself, only a
+    throwaway handle (`with h5py.File(...) as probe`) to read `len(probe["data"])`, closed
+    before `__init__` returns. The real handle is opened lazily, in `_ensure_open`, on the
+    first row access - which happens *inside* each `DataLoader` worker process, not in the
+    main process before the workers are forked. Opening eagerly in `__init__` (the previous
+    version of this class, and what `H5Dataset` in `src/` still does) would hand every forked
+    worker a *copy of the same already-open handle* instead of a handle of its own - it
+    happens to work for read-only access (that is why `H5Dataset` has survived on it), but
+    `persistent_workers=False # FIXED: Disable to prevent H5 file handle leaks`
+    (`src/data_loader/loaders.py`) is a scar from relying on it. `num_workers>0` is
+    supported here without needing that workaround.
     """
 
     # A sentinel, not `paths.OMNI_INDICES` itself, as the default: a plain default binds
@@ -121,8 +151,12 @@ class AggregatedSplitDataset(Dataset):
         self._h5_path = Path(h5_path)
         if not self._h5_path.exists():
             raise FileNotFoundError(f"no aggregated split file at {self._h5_path}")
-        self._file = h5py.File(self._h5_path, "r", swmr=True)
-        self._table = self._file["data"]
+        # A throwaway handle, closed before __init__ returns - see the class docstring for
+        # why the real handle is not opened (and kept open) here.
+        with h5py.File(self._h5_path, "r", swmr=True) as probe:
+            self._length = len(probe["data"])
+        self._file: h5py.File | None = None
+        self._table: h5py.Dataset | None = None
 
         if space_weather_path is self._DEFAULT_SPACE_WEATHER:
             space_weather_path = paths.OMNI_INDICES
@@ -134,12 +168,19 @@ class AggregatedSplitDataset(Dataset):
                 Path(space_weather_path)
             )
 
+    def _ensure_open(self) -> None:
+        """Open this process's own h5py handle on first use - see the class docstring."""
+        if self._file is None:
+            self._file = h5py.File(self._h5_path, "r", swmr=True)
+            self._table = self._file["data"]
+
     def __len__(self) -> int:
-        return len(self._table)
+        return self._length
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        row = self._table[idx]
-
+    def _row_to_tensors(self, row: np.void) -> dict[str, torch.Tensor]:
+        """One structured-array record -> the raw-column tensor dict `read_day` also
+        produces. Shared by `__getitem__` and `__getitems__` so the two paths can never
+        drift apart on what a row means, only on how many are fetched per h5py call."""
         raw: dict[str, torch.Tensor] = {
             name: torch.tensor(float(row[name]), dtype=torch.float32)
             for name in RAW_COLUMNS
@@ -172,6 +213,31 @@ class AggregatedSplitDataset(Dataset):
             # rather than silently training on a zero (see day_reader.py's own docstring).
 
         return raw
+
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        self._ensure_open()
+        return self._row_to_tensors(self._table[idx])
+
+    def __getitems__(self, indices: list[int]) -> list[dict[str, torch.Tensor]]:
+        """Batched counterpart to `__getitem__`, picked up automatically by `DataLoader`
+        (`torch.utils.data._utils.fetch._MapDatasetFetcher` calls this instead of looping
+        `__getitem__` once per index, whenever a Dataset defines it - no DataLoader/sampler
+        changes needed to opt in). One h5py fancy-index read replaces `len(indices)`
+        separate ones; it does not reduce bytes read from disk (see the module docstring -
+        collisions inside one batch are rare), only the per-row Python/HDF5 call overhead.
+
+        h5py requires fancy-index arrays to be strictly increasing with no duplicates, so
+        indices are deduplicated and sorted via `np.unique`, then expanded back to
+        `indices`' original order (duplicates included - `EpochRandomSampler` samples with
+        replacement, so the same row can legitimately appear twice in one batch) via the
+        inverse mapping `np.unique` hands back. Row *content* and the (input, batch-position)
+        pairing are identical to what a loop over `__getitem__` would produce; only the read
+        order changes.
+        """
+        self._ensure_open()
+        sorted_unique, inverse = np.unique(np.asarray(indices), return_inverse=True)
+        rows = self._table[sorted_unique]
+        return [self._row_to_tensors(rows[i]) for i in inverse]
 
     def __del__(self) -> None:
         if getattr(self, "_file", None) is not None:

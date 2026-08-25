@@ -26,7 +26,8 @@ baseline is an exogenous IONEX lookup keyed on position and epoch, not on this m
 So this module re-infers only the STEC-model-owned columns and merges them into the
 untouched baseline columns already on disk - but "untouched" is a claim, not an assumption:
 `_verify_alignment` checks a handful of columns that do not depend on `local_time_hours`
-(station identity, `sod`, `satazi`, `satele`, `lat_ipp`, `lon_ipp`) line up row-for-row
+(station identity, `sod`, `satazi`, `lat_ipp`, `lon_ipp`, `true_stec` - see `ALIGNMENT_COLUMNS`
+for why `satele` is deliberately not among them) line up row-for-row
 against the file already there before any baseline column is copied across. The corrected
 read reaches these rows through a different code path
 (`stec.data.madrigal_reader.read_madrigal_day`) than the legacy loader that built the file
@@ -39,7 +40,12 @@ is exactly the gap this runtime check closes, rather than assuming the untested 
 Idempotent and resumable, per CLAUDE.md's "unattended queues" guidance: each completed day
 is appended to a manifest CSV, and a re-run skips any day already recorded there - so an
 interrupted sweep restarted under `Restart=on-failure` picks up where it left off rather
-than re-inferring days already merged.
+than re-inferring days already merged. The manifest also records, per day, which of
+`BASELINE_COLUMNS_TO_PRESERVE` that day's file lacked and therefore could not carry
+forward (see `_present_baseline_columns`) - two files (DOY 196, 217) predate the
+VTEC-uncertainty schema fix and are missing all three `_unc` columns, which is what
+crash-looped this job past DOY 195 until this module read each file's schema before
+asking `pd.read_parquet` for columns that were not there.
 
 Usage::
 
@@ -56,6 +62,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import torch
 import yaml
 
@@ -89,12 +96,72 @@ BASELINE_COLUMNS_TO_PRESERVE = [
     "gim_stec",
 ]
 
+
+def _present_baseline_columns(store_path: Path) -> list[str]:
+    """Which of `BASELINE_COLUMNS_TO_PRESERVE` this file's schema actually has.
+
+    Checked schema-only across all 235 files (`pq.ParquetFile(path).schema.names`,
+    metadata not data, cheap): two days - DOY 196 and 217, not a contiguous range and not
+    "everything before/after DOY 195" - predate the VTEC-uncertainty schema fix and carry
+    only `vtec_model_stec`/`gim_stec`, missing all three `_unc` columns. Every other file,
+    including all 74 already re-inferred here, has the full set.
+
+    `pd.read_parquet(path, columns=[...])` raises `pyarrow.lib.ArrowInvalid` rather than
+    returning a missing column as null, which is what crash-looped this job past DOY 195
+    (`No match for FieldRef.Name(vtec_model_stec_total_unc)`). Restricting the read - and
+    later the merge - to columns a given file actually has, rather than refusing the day
+    or inventing a placeholder, matches the `_wanted_columns` idiom already used
+    identically for this exact situation in `daily_metrics`, `uncertainty_calibration`,
+    `ionex_rms_benchmark`, `stratified_comparison`, `elevation_metrics_finetuned`,
+    `pretrained_test_diagnostics`, `uncertainty_error_relation` and
+    `epistemic_scale_diagnostic` - a store day missing a column another day has is a
+    known, already-handled shape, not a new one. It is also what `write_predictions`
+    itself already documents: "not every column exists for every evaluation ... a frame
+    missing one of these is still valid". Skipping DOY 196/217 entirely would leave them
+    permanently on the stale station-longitude convention, since nothing else revisits
+    this partition; recomputing the missing VTEC uncertainty is out of scope for a driver
+    that exists specifically because it cannot recompute baseline columns (see the module
+    docstring).
+    """
+    schema_names = set(pq.ParquetFile(store_path).schema.names)
+    return [column for column in BASELINE_COLUMNS_TO_PRESERVE if column in schema_names]
+
+
+def local_time_convention(store_path: Path) -> str:
+    """Which `local_time_hours` convention this file's rows carry - readable from the
+    store alone, no manifest required.
+
+    While this partition is mid-correction, a day's file is either legacy (built by
+    `src/compare_stec_vtec_gim.py`, station-longitude local time) or corrected (built by
+    this module, IPP local time). `sat` distinguishes them directly rather than by
+    correlation: it is written by `build_prediction_frame` on every day this module
+    processes (via `read_madrigal_day(..., with_identity=True)`, same as every other
+    geometry column), and by nothing that wrote a Madrigal file before this module
+    existed - the legacy build never carried satellite identity for Madrigal at all (see
+    `ALIGNMENT_COLUMNS`'s comment: 230 of the original 235 files predate the column). So
+    `sat`'s presence is a direct consequence of which code path wrote the file, not an
+    incidental correlation with the manifest that a lost or edited manifest could break.
+
+    The manifest (`missing_baseline_columns` included) stays the place to check for a
+    day's other properties - stec_pred/local_time_hours deltas, which baseline columns
+    survived - but "has this day been corrected at all" does not need it.
+    """
+    schema_names = set(pq.ParquetFile(store_path).schema.names)
+    return "ipp" if "sat" in schema_names else "station"
+
+
 # Columns that must line up row-for-row against the file on disk before a baseline column
 # is trusted - see the module docstring for why this is checked, not assumed. "station" is
 # compared separately below (it is a string, not a float tolerance).
-ALIGNMENT_COLUMNS = ["sod", "satazi", "satele", "lat_ipp", "lon_ipp"]
+#
+# `true_stec` is the one entry here whose name differs between the two frames being
+# compared: the store calls it `true_stec`, `read_madrigal_day` (matching `read_day`'s own
+# convention) calls it `stec` - `_RAW_COLUMN_NAMES` bridges that for the lookup in
+# `raw`, below.
+ALIGNMENT_COLUMNS = ["sod", "satazi", "lat_ipp", "lon_ipp", "true_stec"]
+_RAW_COLUMN_NAMES = {"true_stec": "stec"}
 ALIGNMENT_TOLERANCE = (
-    1e-2  # degrees/seconds; covers the float32 round-trip through parquet
+    1e-2  # degrees/seconds/TECU; covers the float32 round-trip through parquet
 )
 
 # satazi is stored 0-360 (the legacy store-build path normalised it) but read_madrigal_day
@@ -111,16 +178,38 @@ ALIGNMENT_TOLERANCE = (
 ANGULAR_COLUMNS = frozenset({"satazi", "lon_ipp"})
 ANGULAR_PERIOD_DEG = 360.0
 
-# satele is not periodic (elevation is bounded, not wraparound) but earns its own, looser
-# tolerance for a distinct, verified-benign reason: right at the zenith singularity
-# (elevation ~90 deg, where azimuth is undefined and the smallest geometry perturbation
-# swings it wildly) elevation itself differs by up to 0.032 deg between the corrected read
-# and the legacy-built file, on exactly 2 of 2,036,513 rows in 2024-122 - both rows where
-# station/sod/lat_ipp/true_stec matched exactly, so this is floating-point sensitivity of
-# az/el geometry near zenith, not a different observation. 0.05 deg is still two-plus
-# orders of magnitude tighter than any real misalignment would produce (a different
-# satellite's IPP lands degrees away, not hundredths of a degree).
-ELEVATION_TOLERANCE_DEG = 0.05
+# satele is deliberately NOT an alignment column. It is a *value* column carrying an
+# unexplained legacy discrepancy, not an identity column: on 2024-122 the raw Madrigal `elm`
+# reaches 89.971 deg while the legacy-built store never exceeds 89.918 deg anywhere, so the
+# original build transformed near-zenith elevation in some way nobody has identified. Any
+# tolerance on it can only be fitted to whichever days have been sampled, never justified by
+# a mechanism - and that is exactly what went wrong: a 0.05 deg tolerance derived from day
+# 122 (2 rows of 2,036,513, max 0.032 deg) crash-looped this job 16 times on day 127, which
+# has a row at 0.0588 deg. Sampling 12 more days spread across the full 122-366 range
+# (2026-08-24) confirmed it is not a day-122 fluke: satele exceeds 0.05 deg on 127, 214, 322
+# and 344 (up to 0.077 deg on 322), while every one of `sod`/`satazi`/`lat_ipp`/`lon_ipp`
+# stayed within 4e-3 of the two reads agreeing exactly on all 12 days - satele is the only
+# alignment candidate that behaves this way, which is what makes it a value bug rather than
+# an identity signal that merely needs a looser number.
+#
+# `true_stec` (the physical `los_tec` measurement, untouched by the local_time_hours
+# correction this whole module applies) replaces satele's discriminating power instead of
+# just being dropped: on the same 12-day sample it matched the file on disk to 0.00000 TECU
+# on every single sampled row, and unlike satele/satazi/lat_ipp/lon_ipp - all of them
+# geometry derived from station+IPP position through a coordinate transform, so all
+# similarly exposed to a repeat of whatever silently altered satele - it comes from a
+# different part of the pipeline entirely, so it cannot fail for the same unidentified
+# reason. Two different satellites observed by the same station in the same second do not
+# coincidentally share a TEC measurement to five decimal places, so this is at least as
+# sensitive a check as satele ever was, without inheriting its problem. (`sat`, the
+# station+sod+satellite triple `stec.inference.prediction_store.IDENTITY_COLUMNS` treats as
+# the store's real row identity, would be the more direct check, but 230 of the 235 files
+# in this partition predate the column that carries it and do not have it to compare
+# against - confirmed against every file in `predictions/finetuned_stec/madrigal/`,
+# 2026-08-24. Uniqueness of station+sat+sod on the *freshly read* side was checked instead,
+# on the same 12 days: zero duplicate keys on every one of them, confirming this identity is
+# well-defined going forward even though today's guard cannot compare it to the legacy
+# files directly.)
 
 
 def _angular_diff(
@@ -140,6 +229,11 @@ MANIFEST_COLUMNS = (
     "mean_stec_pred_delta_tecu",
     "rmse_stec_pred_delta_tecu",
     "max_abs_local_time_delta_hours",
+    # Empty for the vast majority of days; ";"-joined names of BASELINE_COLUMNS_TO_PRESERVE
+    # this day's file predated (DOY 196, 217 - see _present_baseline_columns) and which
+    # therefore did not get merged. Recorded per row so the gap is visible from the
+    # manifest alone, without re-deriving it from parquet schemas a second time.
+    "missing_baseline_columns",
     "timestamp",
 )
 
@@ -174,7 +268,7 @@ def _verify_alignment(
             f"{len(raw['stec'])} re-read) - refusing to merge positionally"
         )
     for column in ALIGNMENT_COLUMNS:
-        new_values = raw[column].astype(np.float64)
+        new_values = raw[_RAW_COLUMN_NAMES.get(column, column)].astype(np.float64)
         old_values = existing[column].to_numpy(dtype=np.float64)
         if not len(new_values):
             continue
@@ -182,11 +276,8 @@ def _verify_alignment(
             diff = _angular_diff(new_values, old_values)
         else:
             diff = np.abs(new_values - old_values)
-        tolerance = (
-            ELEVATION_TOLERANCE_DEG if column == "satele" else ALIGNMENT_TOLERANCE
-        )
         max_diff = float(np.max(diff))
-        if max_diff > tolerance:
+        if max_diff > ALIGNMENT_TOLERANCE:
             raise RuntimeError(
                 f"{year}-{doy:03d}: {column} misaligned after re-read (max |delta| "
                 f"{max_diff:.4f}) - the corrected read landed on different rows than the "
@@ -241,6 +332,17 @@ def reinference_day(
         )
 
     store_path = ps.store_path(MODEL_VARIANT, DATASET, year, doy, root=store_root)
+    baseline_columns_present = _present_baseline_columns(store_path)
+    missing_baseline_columns = [
+        column
+        for column in BASELINE_COLUMNS_TO_PRESERVE
+        if column not in baseline_columns_present
+    ]
+    if missing_baseline_columns:
+        logger.warning(
+            f"{year}-{doy:03d}: file predates {missing_baseline_columns} - merging "
+            "without them rather than refusing the day (see _present_baseline_columns)"
+        )
     existing = pd.read_parquet(
         store_path,
         columns=[
@@ -248,7 +350,7 @@ def reinference_day(
             "stec_pred",
             "local_time_hours",
             *ALIGNMENT_COLUMNS,
-            *BASELINE_COLUMNS_TO_PRESERVE,
+            *baseline_columns_present,
         ],
     )
 
@@ -297,7 +399,7 @@ def reinference_day(
     new_frame = build_prediction_frame(raw, decomposition)
 
     merged = new_frame.copy()
-    for column in BASELINE_COLUMNS_TO_PRESERVE:
+    for column in baseline_columns_present:
         merged[column] = existing[column].to_numpy()
 
     delta = merged["stec_pred"].to_numpy() - existing["stec_pred"].to_numpy()
@@ -324,8 +426,33 @@ def reinference_day(
         "max_abs_local_time_delta_hours": round(
             float(np.abs(local_time_delta).max()), 4
         ),
+        "missing_baseline_columns": ";".join(missing_baseline_columns),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _migrate_manifest_schema(manifest_path: Path) -> None:
+    """Backfill a manifest written before `missing_baseline_columns` existed so every row
+    shares one schema with the header. The 74 rows already on disk (DOY 122-195) all
+    predate that column but were all written from files with the full baseline column
+    set (see `_present_baseline_columns`), so "" is the correct backfilled value, not a
+    placeholder standing in for unknown data. Idempotent: a manifest already on the
+    current schema is left untouched, so this is safe to call on every run.
+    """
+    if not manifest_path.exists():
+        return
+    with manifest_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames == list(MANIFEST_COLUMNS):
+            return
+        rows = list(reader)
+    for row in rows:
+        row.setdefault("missing_baseline_columns", "")
+    with manifest_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    logger.info(f"{manifest_path}: migrated {len(rows)} row(s) to the current schema")
 
 
 def _load_done_days(manifest_path: Path) -> set[tuple[int, int]]:
@@ -392,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     device = torch.device(args.device)
+    _migrate_manifest_schema(args.manifest)
     days = ps.available_days(MODEL_VARIANT, DATASET, root=args.store_root)
     done = _load_done_days(args.manifest)
     logger.info(

@@ -414,6 +414,46 @@ def test_materialize_batches_covers_every_row_on_the_right_device():
         assert batch_targets.device.type == "cpu"
 
 
+def test_materialize_batches_returns_the_same_order_every_call():
+    """Pins the documented divergence from the source: `materialize_batches` shuffles once
+    with a fixed seed, so calling it twice (standing in for "two epochs reusing the same
+    materialized list", which is what `fit`/`fit_with_best_checkpoint` actually do) gives
+    the identical row order both times - unlike a live `DataLoader(shuffle=True)`, which
+    reshuffles on every fresh iteration even from the same seeded generator (see the
+    companion test below)."""
+    inputs = torch.arange(50 * 3, dtype=torch.float32).reshape(50, 3)
+    targets = torch.arange(50, dtype=torch.float32)
+
+    first = materialize_batches(
+        inputs, targets, batch_size=8, shuffle=True, seed=0, device=torch.device("cpu")
+    )
+    second = materialize_batches(
+        inputs, targets, batch_size=8, shuffle=True, seed=0, device=torch.device("cpu")
+    )
+
+    for (first_inputs, _), (second_inputs, _) in zip(first, second):
+        assert torch.equal(first_inputs, second_inputs)
+
+
+def test_a_live_dataloader_would_have_reshuffled_every_epoch():
+    """The source's actual per-epoch behaviour, for contrast with the test above: a real
+    `DataLoader(shuffle=True)`, even given an explicit seeded `Generator`, draws a *new*
+    permutation on every fresh iteration - so `TrainManager.train_epoch`'s live dataloader
+    (`src/training/train_manager.py`) genuinely reshuffles each epoch, which
+    `materialize_batches`'s single fixed shuffle does not reproduce."""
+    from torch.utils.data import DataLoader, TensorDataset
+
+    dataset = TensorDataset(torch.arange(50))
+    loader = DataLoader(
+        dataset, batch_size=8, shuffle=True, generator=torch.Generator().manual_seed(0)
+    )
+
+    epoch_1_order = torch.cat([batch[0] for batch in loader])
+    epoch_2_order = torch.cat([batch[0] for batch in loader])
+
+    assert not torch.equal(epoch_1_order, epoch_2_order)
+
+
 def test_build_arg_parser_defaults():
     args = build_arg_parser().parse_args(["--config", "some/config.yaml"])
     assert args.output_dir is None

@@ -311,13 +311,56 @@ def shape_from_state_dict(state: dict) -> dict:
     }
 
 
-def load_checkpoint(path, map_location="cpu") -> tuple[BayesianResNetSTEC, dict]:
-    """Build the model a checkpoint describes, and load it. Returns (model, shape)."""
+def detect_architecture(
+    state: dict,
+) -> type[BayesianResNetSTEC] | type[ResNet_BNN_NLL] | type[MLP_LaplacianNLL]:
+    """Which of the three ported architectures wrote this checkpoint, read from its own
+    tensor names - the same "a checkpoint records its architecture in its shapes" premise
+    `shape_from_state_dict` already relies on, one level up.
+
+    `BayesianResNetSTEC` and `ResNet_BNN_NLL` share every name (`input_layer`/`res_blocks`/
+    `output_layer`) - the one structural difference is that `ResNet_BNN_NLL`'s residual
+    blocks are `bnn.BayesLinear` (state keys `weight_mu`/`weight_log_sigma`), not plain
+    `nn.Linear` (`weight`/`bias`), so that is what distinguishes them. `MLP_LaplacianNLL`
+    uses a disjoint naming convention (`layers.N`/`output_layer`, no `input_layer`) and is
+    checked first since it needs no `res_blocks` disambiguation at all.
+    """
+    if "layers.0.weight" in state:
+        return MLP_LaplacianNLL
+    if "input_layer.0.weight" in state:
+        is_bayesian_block = any(
+            key.startswith("res_blocks.") and key.endswith("fc1.weight_mu")
+            for key in state
+        )
+        return ResNet_BNN_NLL if is_bayesian_block else BayesianResNetSTEC
+    raise ValueError(
+        "checkpoint state_dict matches none of the ported architectures "
+        "(BayesianResNetSTEC, ResNet_BNN_NLL, MLP_LaplacianNLL) - has keys "
+        f"{sorted(state.keys())[:5]}..."
+    )
+
+
+def load_checkpoint(path, map_location="cpu") -> tuple[torch.nn.Module, dict]:
+    """Build the model a checkpoint describes, and load it. Returns (model, shape).
+
+    Architecture-aware: `detect_architecture` reads the checkpoint's own tensor names to
+    decide which of the three ported architectures to instantiate, so callers
+    (`run_inference`, `divergences`, `reinference_madrigal_local_time`, `run_training`) load
+    a `ResNet_BNN_NLL` or `MLP_LaplacianNLL` checkpoint the same way they already load a
+    `BayesianResNetSTEC` one, rather than only ever building the latter regardless of what
+    the file actually holds. `load_vtec_checkpoint` still exists unchanged for callers that
+    already know their checkpoint is `MLP_LaplacianNLL` and want that in the return type.
+    """
     state = torch.load(path, map_location=map_location, weights_only=True)
     if isinstance(state, dict) and "model_state_dict" in state:
         state = state["model_state_dict"]
-    shape = shape_from_state_dict(state)
-    model = BayesianResNetSTEC(**shape)
+    architecture = detect_architecture(state)
+    shape = (
+        shape_from_vtec_state_dict(state)
+        if architecture is MLP_LaplacianNLL
+        else shape_from_state_dict(state)
+    )
+    model = architecture(**shape)
     model.load_state_dict(state)
     model.eval()
     return model, shape

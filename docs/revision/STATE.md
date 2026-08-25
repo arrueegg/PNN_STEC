@@ -10,7 +10,7 @@ do not re-scan the tree to answer "where are we".
 | `fb-retrain` | **done** (finished ~07:26, per `logs/fb_retrain.log`) | — |
 | `weekend-recovery` | DOY sweep, 242 days | Mon afternoon |
 | `post-retrain-chain` | **done** — `pretrained_stec/own` rebuilt (0→544 files), `pretrained_stec_resnet_bnn_nll/own` evaluated, repair check RMSE 13.06 TECU vs published 13.45 | — |
-| `madrigal-local-time-reinference` | queued, waiting on `weekend-recovery` + GPU idle (confirmed twice, 240 s gap) | starts once the machine is free |
+| `madrigal-local-time-reinference` | **running** — see "2026-08-25, schema mismatch..." at the bottom of this file for current status; **do not read this row's old text as current** | ~14 h remaining as of that section |
 | merge, `r22-eval` | **done** — corrected result recorded in `r22_fully_bayesian_analysis.md` | — |
 
 ### A contamination I caused, and its repair
@@ -435,3 +435,386 @@ stage's caveats for a human to resolve.
 
 **Verified at this point**: `pytest tests/ -q` -> **778 passed**; **31 stages** declared,
 registry validates.
+
+## 2026-08-24 19:00 — GPU work reordered, and a printed number with no provenance
+
+**User correction, and it was right**: the three epistemic arms were scheduled ahead of work
+the paper actually needs. They are exploratory R2.6 follow-up; nothing printed depends on them.
+Reordered, highest priority first:
+
+1. **Verification pretrain through `stec/`** (~6.2 h measured) — running now. The only thing
+   that turns "component-verified" into "shown to train the paper's model". Its first log line
+   confirms the real regime: *"sampling 500,000 of 1,373,845,972 train rows per epoch, with
+   replacement"* — the lazy dataset and `EpochRandomSampler` working at paper scale, which had
+   never been demonstrated.
+2. **Madrigal local-time re-inference** (~3-6 days) — repairs divergence 12 on printed numbers.
+   Resumes from its manifest; 6 of 235 days done.
+3. **The three epistemic arms** (~19 h at the measured 6.2 h each) — last.
+
+Driven by `logs/priority_chain.sh` / `priority-chain.service`. The arms' own guard now requires
+a `loss_history.csv` with real epochs, so the arm interrupted at epoch 9 by this reorder is
+quarantined and retrained rather than skipped.
+
+### Table 4's Pretrained row cannot be regenerated
+
+`PNN_main.tex`'s `tab:testset_performance_madrigal` prints **Pretrained Direct STEC = 17.37 ±
+4.78 TECU** (MAE 11.83, R² 0.79). `stec.analysis.daily_metrics` emits only three Madrigal rows:
+
+| | published | daily_metrics |
+|---|---|---|
+| Direct STEC | 14.70 | 14.668 ✓ |
+| **Pretrained Direct STEC** | **17.37** | **absent** |
+| VTEC + Mapping | 13.60 | 13.584 ✓ |
+| IGS GIM | 15.64 | 15.452 (repaired, known) |
+
+`predictions/pretrained_stec/madrigal/` holds **zero files**. Three of four rows reproduce; the
+Pretrained row came from a run that no longer exists.
+
+Being investigated before assuming a 3-6 day rebuild: Table 3's Pretrained row comes from
+`pretrained_stec_pred`, a **column inside** `finetuned_stec/own`, not from the
+`pretrained_stec/own` partition. If `finetuned_stec/madrigal` carries the same column, the
+number is computable today with no new inference and `daily_metrics` simply is not emitting it.
+
+### Do not run `madrigal_reference_offset` right now
+
+`predictions/finetuned_stec/madrigal/` is **mid-rewrite** — 6 of 235 days are under the
+corrected IPP local-time convention and 229 are still under the legacy station-longitude one.
+Any analysis reading that partition today mixes two conventions. It will be valid again when
+the re-inference completes.
+
+### The day's pattern, worth keeping
+
+Nearly every defect found today was **a check that could not fail**, not a computation that was
+wrong — and the test suite was green throughout:
+
+- a resume guard keyed on a file existing rather than training having finished (would have
+  reported an arm killed after 5 minutes, val 3.66 vs converged 2.07, as its result);
+- a declared pipeline input with **no producer**, so `positioning_summary` (`canonical_for:
+  Table 5`) reported itself up to date against data that had changed;
+- `doys=` without `years=`, correct against a single-year partition and silently wrong against
+  a multi-year one;
+- a config template that trained a different architecture than the paper's;
+- a `.exists()` fallback that degraded station filtering to "use all stations";
+- provenance counting CSV rows by raw newlines;
+- `min_rows` on a directory, which can never be satisfied and so never fails.
+
+The registry enforces one owner per *output*. Nothing enforces that every declared *input* has
+a producer — that gap is what made the Table 5 staleness invisible, and it is worth closing.
+
+## 2026-08-24 19:16 — the lazy dataset is correct but not usable, measured
+
+The verification pretrain was started and **stopped after 20 minutes**. It is not viable as
+built, and the measurement is unambiguous:
+
+- **516 GB read at a sustained 840 MB/s, zero epochs completed.**
+- An epoch needs **0.04 GB** of actual data (500,000 rows x ~76 bytes).
+- That is ~1 MB of disk read per 76-byte row.
+- GPU utilisation **0%** throughout.
+
+Cause: `AggregatedSplitDataset.__getitem__` fetches one row at a time, and every row-read pulls
+a whole HDF5 chunk from `data/train.h5`. With `num_workers=0` — forced, because the dataset
+holds a single h5py handle and is not fork-safe — nothing overlaps the latency. Extrapolated,
+one epoch plus validation is ~30 min, so 150 epochs is **~75 hours**. The `src/` path performs
+the same random sampling in **2.5 min/epoch** using 12 workers.
+
+**The dataset is correct** — row-equivalence against the eager path was verified on real data
+during the build. It is simply not performant enough to run a pretrain, so the raw->trained
+model claim is **not yet achievable through `stec/`**, and today's "the data path is closed"
+note above is too strong. Corrected here rather than left standing.
+
+Two candidate fixes, neither attempted yet: batch-oriented reads (sort indices within a batch
+and fetch contiguous slices, which does not change *which* rows are drawn, only the read
+order), and fork-safe per-worker handles so `num_workers>0` becomes available. Probably both.
+
+## Table 4's 17.37 is recoverable, not lost
+
+Found at full precision in
+`multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv`:
+`madrigal_vtec_gim, Pretrained STEC, 17.3677, 4.7845, 11.8326, 3.8061, 0.7874, 0.1030, 238` —
+the original 238-day legacy sweep, **pre-GIM-repair**. So the printed number has a source; what
+it lacks is any current code path that regenerates it.
+
+**Not derivable from a column.** Checked one file's schema each (no store scan):
+`finetuned_stec/own` carries `pretrained_stec_pred`; `finetuned_stec/madrigal` **does not** — on
+all 235 files, absent rather than null. `daily_metrics.collect()` already reads that column
+generically and needs no code change; the missing row is a genuine data gap.
+
+Rebuild scheduled in `logs/pretrained_stec_madrigal_inference.sh`, queued ahead of the
+epistemic arms without editing any running script. 241 of 245 days have a Madrigal source here;
+DOY 199-202 do not. **Building the partition is only half the fix** — `daily_metrics` reads
+`pretrained_stec_pred` as a column inside `finetuned_stec/madrigal`, so an identity-key join is
+still needed afterwards, and it was deliberately left unwritten because it depends on data that
+does not exist yet.
+
+### A recurring trap, third instance
+
+`stec.inference.run_inference` and `prediction_store.DEFAULT_STORE_ROOT` default to
+`artifacts/predictions/` (44 KB, near-empty), **not** the real 71 GB store at
+`paths.LEGACY_PREDICTIONS`. `--store-root` must be passed explicitly. This already made the
+Madrigal re-inference a silent no-op that exited zero, and it would have done the same to the
+pretrained/madrigal build. Worth changing the default rather than documenting it a third time.
+
+### Diagnosed and fixed — but the fix is concurrency, not fewer bytes
+
+`data/train.h5`'s `data` dataset is chunked at **8,192 rows x 80 bytes = 655,360 bytes/chunk**.
+1.37e9 rows spread over ~167,700 chunks means consecutive random draws essentially never share
+a chunk, and h5py's default 1 MB cache holds ~1.6 of them. Measured: **659,241 bytes read per
+row** — one full chunk per 80-byte row.
+
+**The batching hypothesis was tested and refuted.** Sorting indices within a batch does not
+help: the birthday bound on chunk collisions inside a 1,024-row batch drawn from 167,700 chunks
+is ~3 pairs, i.e. noise. Measured after implementing sorted batch reads at `num_workers=0`:
+still 655,539 bytes/row. **`src/`'s `H5Dataset` reads the same file the same single-row random
+way** (`self.data[idx]`, no batching, no sorting) — its whole 12x advantage is
+`pretrain.num_workers: 12` with `prefetch_factor: 4`, keeping many reads outstanding.
+
+So the amplification is **inherent to random sampling from a chunked HDF5**; concurrency masks
+the latency rather than reducing the bytes. Any future plan that assumes "make the reads
+smarter" will not work — the lever is queue depth.
+
+**Fixed**: the h5py handle now opens lazily inside each worker (`_ensure_open()`) rather than in
+`__init__`, which is real fork-safety rather than `H5Dataset`'s reliance on forked FDs being
+shared; `__getitems__` added so `DataLoader` fetches a batch in one fancy-index read; and
+`num_workers`/`prefetch_factor` are read from config and wired into both loaders.
+
+**Measured**: 2 workers 2.0x, 4 workers 3.4x. **12 workers not measured** — the host is running
+the Madrigal re-inference and is under memory pressure, so testing stayed at <=4 workers,
+`nice -n 10`. Reaching `src/`'s 2.5 min/epoch at 12 workers is consistent with the trend but
+**not demonstrated**.
+
+**Row equivalence preserved**: a full pretrain path at `num_workers=0` vs `num_workers=2`, same
+seed, real forked workers, produces **bit-identical final checkpoint weights**.
+
+**Still to do**: re-run the verification pretrain with the fix once the GPU frees. Not queued —
+the chain already holds Madrigal (3-6 days) then the `pretrained_stec/madrigal` build (3-6
+days) then the arms (~19 h), and stacking a fourth unattended job behind two weeks of compute
+is speculative. Queue it deliberately when the earlier work lands.
+
+**Verified at this point**: `pytest tests/ -q` -> **836 passed**.
+
+## 2026-08-24 19:40 — a tolerance fitted to one day, and 16 restarts
+
+The Madrigal re-inference crash-looped **16 times** on:
+
+```
+RuntimeError: 2024-127: satele misaligned after re-read (max |delta| 0.0588)
+```
+
+`ELEVATION_TOLERANCE_DEG = 0.05` was set earlier today from **a single day's sample**: on
+2024-122 exactly 2 rows of 2,036,513 differed, by at most 0.032°, both at the near-zenith
+singularity. Day 127 has one at 0.0588°. With 229 days left, raising the tolerance would just
+relocate the failure to whichever day holds the next-largest near-zenith row.
+
+**The deeper mistake is using `satele` as an identity column at all.** The guard exists to prove
+the freshly-read frame landed on the *same rows in the same order* as the file on disk, so that
+stale `vtec_model_stec*`/`gim_stec` columns merge onto the right observations. But `satele` is a
+**value** column carrying a known, unexplained legacy discrepancy — day 122's raw `elm` reaches
+89.971° while the legacy store never exceeds 89.918° anywhere, and nobody has found what
+transformed it. A tolerance on that cannot be justified by a mechanism, only fitted to a sample.
+
+Being fixed by identifying rows on columns that actually identify them (`station` + `sod` +
+`sat` + `true_stec`; note station-second alone is *not* unique, several satellites are observed
+simultaneously), and checking the distribution across several days rather than one before
+declaring it solved.
+
+**This is the same shape as everything else found today**: not a wrong computation, but a check
+that could not do its job — here, one calibrated on a sample too small to represent the range it
+guards. Restarted as `madrigal-reinference-fixed4` once corrected; it resumes from the manifest,
+5 days done.
+
+### Resolved 19:58 — satele removed from the identity check, day 127 through
+
+`satele` is no longer an alignment column. It is a **value** column with an unexplained legacy
+transform (2024-122: raw `elm` reaches 89.971 deg, the legacy store never exceeds 89.918 deg
+anywhere), so any tolerance on it can only be fitted to sampled days, never justified by a
+mechanism — which is precisely how a 0.05 deg window derived from day 122's two rows crash-looped
+16 times on day 127's 0.0588 deg row.
+
+**Removing it costs no discriminating power.** Misalignment means a *different satellite*, whose
+IPP lands **degrees** away, so `lat_ipp`/`lon_ipp` at 1e-2 deg catch it far more sensitively than
+a 0.05 deg elevation window did — and `station` was already compared exactly on every row.
+
+Two tests added, **red-green verified against the old guard**: a 0.4 deg near-zenith elevation
+difference must not raise, and a different-satellite row (elevation *and* IPP moved) still must.
+
+**Day 127 completed** — manifest `2024,127,2011467,0.0024,1.0075,9.9006`, now running day 128,
+0 restarts, zero-perturbation control 0.0, GPU 100%.
+
+**Throughput corrected**: days land in **~4-8 min**, not the 20-35 min quoted from CLAUDE.md for
+a different job. 229 remaining is **~23 hours**, finishing tomorrow evening — not 3-6 days. The
+downstream queue (`pretrained_stec/madrigal` build, then the arms) starts correspondingly sooner.
+
+**Note on delegation**: the agent given this task returned after 39 tool calls having changed
+nothing and left the job stopped. Fixed directly instead. Worth checking a subagent's actual
+diff rather than its report.
+
+### Correction to the entry above: the evidence is worse, and my tests were vacuous
+
+Sampled across **12 days spanning 127-366**, `satele` exceeds the day-122-fitted 0.05 deg
+tolerance on **four of them**: 0.0588 (127), 0.0601 (214), 0.0770 (322), 0.0692 (344). Not a
+day-122 fluke and not a day-127 fluke — **no fixed tolerance would have held**. Every other
+column matched to float32 noise or exactly on every sampled day; `station` had zero mismatches
+anywhere.
+
+`true_stec` replaces it as the identity column, chosen for a **mechanism** rather than a fitted
+threshold: it is the raw `los_tec` measurement, untouched by the `local_time_hours` correction
+and produced by a different part of the pipeline than the geometry columns, so it is not exposed
+to whatever transforms near-zenith elevation. It matched **exactly (0.00000)** on all 12 days.
+
+Final identity set: `station` (exact string, every row) + `sod`, `satazi`, `lat_ipp`, `lon_ipp`,
+`true_stec`. The store's own convention is `station+sat+sod` (verified unique — zero duplicate
+keys across 12 days of 1.2-2.1 M rows), but **`sat` exists in only 5 of 235 files**; the other
+230 predate the column, so it cannot serve an old-vs-new comparison.
+
+**Two tests written for this were vacuous and are now fixed.** They passed a `satele_new=` kwarg
+that `_synthetic_alignment_frames` never injected, so `satele` was never in the compared frames —
+the "red-green" failure they showed was a missing column, not the assertion the test names
+claimed. Rewritten to inject `satele` into both frames. Reverting only the source fix while
+keeping the tests now breaks 7 of 11, so they are genuinely coupled to the behaviour.
+
+**The irony is the point**: a day spent finding checks that could not do their job, and the fix
+for the last one shipped with a check that could not do its job. It was caught by delegated
+verification, not by the author. Green tests are evidence about the tests.
+
+**839 passed.** Madrigal healthy, 0 restarts, day 128+.
+
+**A distinction worth keeping**: editing a *Python* source file while a process runs is safe —
+the module is fully compiled at import — unlike a *bash* script, which is re-read by file offset
+and is the hazard CLAUDE.md documents. The two are not the same risk.
+
+## Overnight state, 2026-08-24 22:46 — what runs unattended and what it will show
+
+**`madrigal-reinference-fixed4`**: 39 of 235 days, **9.8 min/day steady, 0 restarts**, finishing
+**~Wed 06:30**. (Earlier "4-8 min/day" was optimistic; 9.8 is the settled rate over 39 days.)
+
+**The local-time erratum is now measured, not estimated**: mean **+0.0176 TECU**, RMSE
+**1.0144 TECU** across 39 days, tightly consistent with day 122's 1.0044. The original seeded
+probe said 0.80 TECU. So divergence 12 is real, slightly larger than first measured, and stable
+across the range — not a tail effect.
+
+**Queued behind it**: the `pretrained_stec/madrigal` build, then the three epistemic arms.
+`checkpoint-snapshotter` stays up.
+
+**Deliberately not queued**: the verification pretrain. The dataset fix is verified for
+fork-safety and bit-identical weights at `num_workers=0` vs 2, but measured only to 4 workers —
+the 12-worker target that would make a 150-epoch pretrain a ~6 h job is extrapolated. Queue it
+once the box is free and time one real epoch first.
+
+### Stages left stale on purpose
+
+`elevation_metrics_finetuned` (never run), `madrigal_reference_offset`, `activity_stratification`,
+`daily_metrics`, `manuscript_figures` — all read either the prediction store or `daily_metrics`
+output, and `predictions/finetuned_stec/madrigal/` is **mid-conversion**: 39 days corrected, 196
+still legacy. Any read today blends two local-time conventions. Safe once the re-inference lands.
+`figures` and `hyperparameter_search` were refreshed (neither touches the store).
+
+### dSTEC full coverage is cheap — the day list barely matters
+
+Costed rather than guessed: `dstec_evaluation` requests 11 of 35 columns, so parquet pruning puts
+per-day I/O at ~50 MB. The remaining 224 days are **~11 GB and roughly 30-45 min** (estimate, not
+a measurement — time one real day to firm it up). Full 242-day coverage is therefore cheap enough
+to simply do rather than defend an 18-day subset in the response letter.
+
+### Activity figures: fixed, but not yet exercised on real data
+
+`_wrap_activity_bin_labels` restores two-line axis labels at the plot side after
+`activity_stratification` started flattening them at the CSV write site. Verified by unit and
+integration tests against the module's *stated* new format — the on-disk `by_dst.csv` still holds
+the **old** multi-line format and has not been regenerated, so the fix will first meet real data
+whenever `activity_stratification` legitimately re-runs. Flagged rather than forced.
+
+### For the morning, in order of consequence
+
+1. **Positioning: the abstract's 30% does not hold on any population.** 20.3% matched
+   (N=7,741); 24.4% by the abstract's own unmatched method on the recovered set. Storm/quiet
+   moves the same way: 31.9/26.3% -> 25.4/19.6%.
+2. **Table 4's Pretrained row (17.37)** exists only in a pre-GIM-repair legacy sweep. Partition
+   build is queued; a join is still needed afterwards.
+3. **Reproducibility**: every paper number regenerates from stored checkpoints, proven. Training
+   from raw is wired end to end but **has never completed a run**.
+4. dSTEC day list (now cheap), and whether map/IONEX backs any cited figure.
+
+## 2026-08-25, schema mismatch that stopped the Madrigal sweep at DOY 195 — diagnosed and fixed
+
+The `madrigal-reinference-fixed4` crash loop (`Start request repeated too quickly`,
+`pyarrow.lib.ArrowInvalid: No match for FieldRef.Name(vtec_model_stec_total_unc)`) flagged in
+`weekend_report.md` on 2026-08-24 was not a transient blip. **Diagnosed before touching
+anything**: read every one of the 235 files' parquet *schema* (metadata only,
+`pq.ParquetFile(path).schema.names`, no data read) rather than assuming the gap was where the
+crash first appeared.
+
+**Finding**: three schema groups, not two, and the boundary is not DOY 195/196:
+
+| Group | Days | `vtec_model_stec*_unc` columns | `sat` |
+|---|---|---|---|
+| 0 | 122-195 (74, contiguous - already re-inferred) | present | present |
+| 1 | **196, 217 only** - not contiguous, not "everything after 195" | **absent** | absent |
+| 2 | the other 159 stale days | present | absent |
+
+So exactly two of the 235 files - DOY 196 and 217 - predate the VTEC-uncertainty schema fix
+and carry only `vtec_model_stec`/`gim_stec`, missing all three `_unc` columns. Every other
+stale day has the full baseline column set; the crash-looping assumption that "everything past
+DOY 195" was affected would have been wrong.
+
+**Decision**: merge without the missing columns for those two days, rather than skip them or
+invent a placeholder. Checked what downstream readers actually do with a missing store column
+before deciding, rather than assuming: nine analysis modules
+(`daily_metrics`, `uncertainty_calibration`, `ionex_rms_benchmark`, `stratified_comparison`,
+`elevation_metrics_finetuned`, `pretrained_test_diagnostics`, `uncertainty_error_relation`,
+`epistemic_scale_diagnostic`, and now `reinference_madrigal_local_time` itself) already carry
+an identically-named `_wanted_columns` helper that restricts a read to columns a given file's
+schema actually has - "a store day missing a column another day has" is already a known,
+handled shape in this codebase, not a new one. Skipping DOY 196/217 would leave them
+permanently on the stale station-longitude convention, since nothing else revisits this
+partition. Recomputing the VTEC uncertainty is out of scope for a driver that exists
+specifically because it cannot recompute baseline columns at all (see the module's own
+docstring) - and `write_predictions` already documents "not every column exists for every
+evaluation" as a normal state, not an error.
+
+**Fix** (`stec/inference/reinference_madrigal_local_time.py`): `_present_baseline_columns(path)`
+reads the schema before either the `columns=[...]` read or the merge loop, so both use only
+columns the file actually has. The manifest gained a `missing_baseline_columns` column
+(migrated in place for the 74 existing rows - all empty, since all 74 had the full set) so the
+gap is visible from the manifest alone. Added `local_time_convention(path)`: a reader of the
+**store alone**, no manifest needed, can tell a day's convention because `sat` is written by
+every day this driver processes and by nothing that wrote a Madrigal file before it existed -
+cross-checked against the manifest over all 235 real files, **zero mismatches**.
+
+**Regression test** (`tests/inference/test_reinference_madrigal_local_time.py`): reproduces the
+exact file shape (drops the three `_unc` columns from a fixture day, matching DOY 196/217)
+and confirms the merge completes, the manifest row names the missing columns, and the file
+still lacks them afterward (not recomputed, not a placeholder). Verified red before the fix by
+temporarily reverting the two changed lines and re-running just this test - it reproduces the
+identical `pyarrow.lib.ArrowInvalid` from the real crash log, not a different failure.
+13/13 tests in this module pass with the fix in place.
+
+**Launched** `madrigal-local-time-reinference.service` (`systemd-run --user`, `MemoryHigh=10G
+MemoryMax=14G Nice=5 Restart=on-failure`, the same resource profile `priority_chain.sh` used
+for its predecessor) directly - GPU was confirmed idle (318 MiB) and the epistemic arms had
+already been stopped, so nothing to queue behind. **Verified on real production data, not just
+the fixture**: DOY 196 (the exact day that crashed 6 times) completed in one pass, warned
+correctly, and the manifest row reads `missing_baseline_columns=
+vtec_model_stec_total_unc;vtec_model_stec_aleatoric_unc;vtec_model_stec_epistemic_unc` exactly
+as expected. DOY 197 (an ordinary day) followed 5m05s later, confirming the fix does not
+regress the steady-state path.
+
+**Status as of 2026-08-25 09:45 CEST: 76 of 235 days corrected (2 more than the 74 the crash
+left behind - DOY 196, 197), 159 remaining.** At the measured ~5.1 min/day steady-state rate,
+completion is **~13.5 h out**, i.e. late evening 2026-08-25. This is **not done** - the
+partition is still mixed and must not be read by `daily_metrics` or `madrigal_reference_offset`
+until it finishes. Check real progress with either of two independently-verified methods
+(cross-checked against each other over all 235 files with zero disagreement):
+
+```bash
+tail logs/madrigal_local_time_reinference_manifest.csv   # or, from the store alone:
+python -c "from stec.inference.reinference_madrigal_local_time import local_time_convention; \
+    from pathlib import Path; import collections; \
+    print(collections.Counter(local_time_convention(p) for p in \
+    Path('predictions/finetuned_stec/madrigal/year=2024').glob('doy=*.parquet')))"
+systemctl --user status madrigal-local-time-reinference.service --no-pager
+```
+
+A file count of 235 is not evidence of completion (it never was - 235 files existed the whole
+time this partition was mixed); only one of the two commands above, or the day-file count
+inside `pretrained_stec/madrigal` growing alongside a `missing_baseline_columns`-aware
+manifest, is.

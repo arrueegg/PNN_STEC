@@ -111,6 +111,48 @@ def test_space_weather_is_joined_when_the_day_matches(tmp_path):
     assert row["Kp_index"].item() == pytest.approx(expected_kp)
 
 
+def test_handle_is_not_opened_until_the_first_row_access(tmp_path):
+    """Fork-safety regression guard: `__init__` (and `__len__`, which every `DataLoader`/
+    `EpochRandomSampler` calls in the main process before any worker is forked) must not
+    open the real h5py handle - only `_ensure_open`, triggered by an actual row access,
+    may. A handle opened eagerly in `__init__` would be inherited by every forked
+    `DataLoader` worker as a *copy of the same* handle rather than each worker getting its
+    own, which is the failure mode this class's docstring describes `H5Dataset` surviving
+    on rather than being immune to.
+    """
+    path = tmp_path / "train.h5"
+    build_aggregated_split_h5(path, n_rows=10)
+    dataset = AggregatedSplitDataset(path, space_weather_path=None)
+    assert dataset._file is None
+
+    assert len(dataset) == 10
+    assert dataset._file is None  # __len__ must not trigger an open
+
+    dataset[0]
+    assert dataset._file is not None  # a real row access must
+
+
+def test_getitems_matches_a_getitem_loop_over_the_same_indices(tmp_path):
+    """`__getitems__` (the batched fancy-index path `DataLoader` picks up automatically -
+    see its own docstring) must return exactly what looping `__getitem__` would, including
+    when the same index appears twice - `EpochRandomSampler` samples with replacement, so a
+    duplicate index within one batch is a real, if rare, case, not a hypothetical one.
+    """
+    path = tmp_path / "train.h5"
+    build_aggregated_split_h5(path, n_rows=50)
+    dataset = AggregatedSplitDataset(path, space_weather_path=None)
+
+    indices = [37, 2, 2, 49, 0, 15, 15, 15, 8]  # unsorted, with duplicates
+    looped = [dataset[i] for i in indices]
+    batched = dataset.__getitems__(indices)
+
+    assert len(batched) == len(indices)
+    for expected, actual in zip(looped, batched, strict=True):
+        assert set(expected) == set(actual)
+        for name in expected:
+            assert torch.equal(expected[name], actual[name])
+
+
 def test_collate_assembled_batch_matches_the_layout_width(tmp_path):
     path = tmp_path / "train.h5"
     build_aggregated_split_h5(path, n_rows=6)
@@ -173,6 +215,36 @@ def test_lazy_rows_match_an_eager_vectorised_read_of_the_same_indices():
 
     assert torch.equal(lazy_targets, eager_target)
     assert torch.allclose(lazy_inputs, eager_inputs, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.skipif(not TRAIN_H5_AVAILABLE, reason="data/train.h5 not available")
+def test_getitems_matches_getitem_on_the_real_aggregate():
+    """Same equivalence as `test_lazy_rows_match_an_eager_vectorised_read_of_the_same_indices`,
+    but for the batched `__getitems__` a `DataLoader` actually calls once per training batch
+    (see that method's own docstring) - proves the performance fix (one h5py fancy-index
+    read per batch instead of one `__getitem__` call per row) draws the exact same rows
+    against the real, production-sized file, not just the small synthetic fixture above.
+    """
+    indices = [
+        12_345_678,
+        0,
+        137,
+        137,
+        5_000_003,
+        500_000,
+        1,
+    ]  # unsorted, with a duplicate
+
+    dataset = AggregatedSplitDataset(
+        paths.aggregated_split_h5("train"), space_weather_path=None
+    )
+    looped = [dataset[i] for i in indices]
+    batched = dataset.__getitems__(indices)
+
+    for expected, actual in zip(looped, batched, strict=True):
+        assert set(expected) == set(actual)
+        for name in expected:
+            assert torch.equal(expected[name], actual[name])
 
 
 def test_default_space_weather_path_is_resolved_live_not_at_import_time(

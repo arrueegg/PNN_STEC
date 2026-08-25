@@ -121,6 +121,7 @@ PRETRAINED_TEST_DIAGNOSTICS_DIR = _analysis_dir(
 ELEVATION_METRICS_FINETUNED_DIR = _analysis_dir(
     "elevation_metrics_finetuned", rebuilt=True
 )
+DSTEC_EVALUATION_DIR = _analysis_dir("dstec_evaluation", rebuilt=True)
 
 # The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
 # full evaluation tree, not a `stec.analysis` output, so it lives under
@@ -890,6 +891,45 @@ STAGES: list[Stage] = [
             "own and madrigal are both collected by default; manuscript_figures reads "
             "only the 'own' rows (Tables 3-4's scope) and leaves madrigal for a caller "
             "who wants that variant.",
+        ],
+    ),
+    Stage(
+        # Default day list added 2026-08-25 (DEFAULT_TEST_DOYS, the full 2024 test
+        # period) - every run before this one only ever covered 18 of 242 days, because
+        # --doys had no default and nothing forced a canonical choice. Full-period run
+        # (672,542 arcs) barely moved the 18-day numbers (model dSTEC RMSE pooled 5.17 ->
+        # 5.16 TECU, GIM 6.68 -> 6.64), so the 18-day estimate was already representative
+        # - but that was luck, not something the 18-day invocation guaranteed. Placed
+        # here, before figures/manuscript_figures like every other multiday_results
+        # producer, not appended after them (see test_figures_and_manuscript_figures_
+        # run_last).
+        "dstec_evaluation",
+        f"-m stec.analysis.dstec_evaluation --output-dir {DSTEC_EVALUATION_DIR}",
+        "R1.3",
+        "differential STEC (gradient-only) RMSE vs IGS GIM - cancels per-arc DCB/"
+        "levelling offsets by construction, isolating the comparability concern from "
+        "the model's own accuracy",
+        inputs=[STORE_OWN],
+        outputs=[
+            str(DSTEC_EVALUATION_DIR),
+            str(DSTEC_EVALUATION_DIR / "pass_statistics.csv"),
+        ],
+        # Keyed on the per-arc CSV, not the directory: a tree digest carries files/size/
+        # mtime but no row count, so a min_rows on a directory can never be satisfied.
+        # 500,000 is a floor, not the expected count (672,542 on the full 242-day store) -
+        # comfortably above what an accidental partial run (e.g. the old 18-day default,
+        # ~51,547) would produce, comfortably below normal day-to-day variation.
+        min_rows={str(DSTEC_EVALUATION_DIR / "pass_statistics.csv"): 500_000},
+        canonical_for="dSTEC (differential STEC) RMSE vs GIM, R1.3",
+        caveats=[
+            "Tests the TEC gradient along a pass, not the absolute level - a low dSTEC "
+            "error is evidence the model gets the pass *shape* right, not evidence about "
+            "the absolute calibration Tables 3/4 report. Read model_abs_rmse_pooled/ "
+            "gim_abs_rmse_pooled alongside the dSTEC numbers, never as a substitute.",
+            "Runs on finetuned_stec/own (--model-variant/--dataset default) - the "
+            "scientifically sharper Madrigal comparison is parameterised and ready "
+            "(see the module docstring) but blocked on the Madrigal local-time "
+            "re-inference finishing first.",
         ],
     ),
     # Last: reads the metric CSVs every stage above writes, so it must follow all of them.

@@ -202,6 +202,36 @@ def test_pretrain_aggregate_different_seeds_diverge(tmp_path, monkeypatch):
     assert not torch.equal(first, second)
 
 
+def test_pretrain_aggregate_num_workers_does_not_change_the_checkpoint(
+    tmp_path, monkeypatch
+):
+    """The performance fix (lazy per-process h5py handles + batched `__getitems__` reads,
+    see `stec.data.aggregated_dataset`) must change *how* rows are fetched, never *which*
+    rows a given seed draws or the order a batch assembles them in. `num_workers=0` (every
+    other test in this file) and `num_workers=2` (real `DataLoader` multiprocessing, forked
+    workers) must therefore train to bit-identical weights for the same seed - the only
+    thing this test changes is `pretrain.num_workers`.
+    """
+
+    def run(tag: str, num_workers: int) -> dict:
+        output_dir = tmp_path / tag
+        checkpoint_path = _train(
+            tmp_path,
+            monkeypatch,
+            output_dir,
+            seed=7,
+            epochs=3,
+            pretrain={"num_workers": num_workers},
+        )
+        model, _ = load_checkpoint(checkpoint_path)
+        return model.state_dict()
+
+    single_process = run("workers_0", num_workers=0)
+    multi_process = run("workers_2", num_workers=2)
+    for name, tensor in single_process.items():
+        assert torch.equal(tensor, multi_process[name]), name
+
+
 def test_pretrain_aggregate_memory_stays_bounded(tmp_path, monkeypatch):
     """Not a substitute for measuring the real ~1.37e9-row `data/train.h5` (done separately,
     outside pytest - see the report this task produced), but a regression guard: peak RSS

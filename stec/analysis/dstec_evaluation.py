@@ -64,7 +64,11 @@ magnitude smaller than a day's raw rows, so days accumulate cheaply.
 
 Usage::
 
+    python -m stec.analysis.dstec_evaluation
     python -m stec.analysis.dstec_evaluation --doys 132 150 200
+
+Bare invocation covers the full 2024 test period (DEFAULT_TEST_DOYS); pass --doys
+explicitly for a subset.
 """
 
 from __future__ import annotations
@@ -89,6 +93,17 @@ DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("dstec_evaluation", rebuilt=True)
 # Matches positioning/scripts/evaluate_dstec.py's EVALUATION_CONFIG["dstec"] defaults.
 DEFAULT_ELEVATION_DIFF_THRESHOLD_DEG = 20.0
 DEFAULT_MIN_SAMPLES_PER_PASS = 10
+
+# The 2024 test period every daily fine-tune covers (CLAUDE.md's "Which results are
+# canonical" table; confirmed directly against the store by
+# stec.analysis.temporal_regime_split - every predictions/pretrained_stec/own file with
+# year=2024 has doy in this range). DOY 303, 338 and 348 have no store partition on this
+# host (see CLAUDE.md's positioning-products gotcha) - `prediction_store.day_paths` skips
+# whatever glob finds nothing for, so listing the full nominal range here is equivalent to
+# listing exactly the 242 present days without hardcoding which three are absent. This
+# used to be a required `--doys` argument with no canonical default, which is why every
+# run before 2026-08-25 only ever covered 18 of 242 days.
+DEFAULT_TEST_DOYS = list(range(122, 367))
 
 # Always needed regardless of which arc-detection/truth-source fallback applies.
 BASE_REQUIRED_COLUMNS = ["station", "sat", "satele", "sod", "true_stec", "stec_pred"]
@@ -414,7 +429,14 @@ def default_output_dir(model_variant: str, dataset: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--doys", type=int, nargs="+", required=True)
+    parser.add_argument(
+        "--doys",
+        type=int,
+        nargs="+",
+        default=DEFAULT_TEST_DOYS,
+        help="Defaults to the full 2024 test period (DOY 122-366, see "
+        "DEFAULT_TEST_DOYS) - pass explicitly to run a subset.",
+    )
     parser.add_argument(
         "--years",
         type=int,

@@ -235,3 +235,110 @@ rather than a convention.
 
 ## Epistemic-scale calibration retrain queue 2026-08-24 18:34:12
 
+
+## Priority chain 2026-08-24 19:00:17 - paper-critical GPU work first
+
+## Pretrained/Madrigal provenance investigation 2026-08-24 (no GPU, autonomous)
+
+Table 4's "Pretrained Direct STEC" row (17.37 +/- 4.78 / 11.83 +/- 3.81 / 0.79 +/- 0.10)
+was checked against every candidate source rather than assumed lost:
+
+- **Found**: matches `multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv`
+  (`madrigal_vtec_gim,Pretrained STEC,...`) to full precision - the original 238-day legacy
+  CSV sweep this repo has always cited (already documented in CLAUDE.md's canonical-results
+  table as pre-GIM-repair, kept for provenance). Not lost; also already flagged in
+  `docs/revision/phase0_verification.md`, `phase8_checklist.md` (items 12/21) and
+  `manuscript_number_audit.md` by earlier sessions - this session corroborated it directly
+  against the CSV rather than trusting the docs alone.
+- **Not derivable today from an existing column**: `stec.analysis.daily_metrics` reads
+  `pretrained_stec_pred` as a column inside `finetuned_stec/<dataset>` (same mechanism for
+  all four rows - see its own `MODELS` dict and comment). Reading one file's schema with
+  `pyarrow.parquet.read_schema` (no store scan) confirms `finetuned_stec/own` carries that
+  column and `finetuned_stec/madrigal` does not - absent, not null, on all 235 files.
+  `daily_metrics.py`'s `collect()` already asks only for columns present per-day
+  (`_wanted_columns`), so it needs zero code changes once the column exists; the empty
+  Madrigal Pretrained row in the canonical `daily_metrics/pre_rebuild/summary.csv` is a
+  genuine data gap, not a bug in the analysis.
+- **Rebuild is genuinely required**, in two parts:
+  1. Populate `predictions/pretrained_stec/madrigal/` (0 files today) via
+     `stec.inference.run_inference --model-variant pretrained_stec --dataset madrigal`,
+     using the paper's own checkpoint
+     (`experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/model/pretrain_BayesianResNetSTEC_seed42.pth`).
+     241 of the 245 days in DOY 122-366 have a Madrigal source file on this host (confirmed
+     by listing `/home/space/data/iono/Madrigal_STEC/2024/`); DOY 199-202 do not and are
+     excluded. Queued as `logs/pretrained_stec_madrigal_inference.sh` (new file, resumable,
+     one day per subprocess, guards `pretrained_stec/own`'s 544-file count every day).
+  2. **Not yet built**: a follow-up join of that partition's `stec_pred` into
+     `finetuned_stec/madrigal` as `pretrained_stec_pred` (station+sat+year+doy+sod key),
+     which is what `daily_metrics` actually needs. The legacy pipeline
+     (`src/compare_stec_vtec_gim.py:1250`) did this positionally, trusting matching
+     dataloader order between two inference passes in the same process; an identity-column
+     join is safer and is what the new partition's full raw frame supports, but it has to
+     run *after* both this partition and the Madrigal local-time re-inference (this chain's
+     step 2) finish, so it is deliberately left as an open item rather than written blind
+     tonight against data that doesn't exist yet.
+- **A separate landmine found and worked around, not fixed at the source**:
+  `stec.inference.run_inference`'s own `--store-root` default, and
+  `stec.inference.prediction_store.DEFAULT_STORE_ROOT`, both resolve to
+  `stec.config.paths.PREDICTIONS` (`ARTIFACT_ROOT/predictions`,
+  i.e. `artifacts/predictions/` - 44 KB, smoke fixtures only), not the real 71 GB store at
+  `<repo>/predictions` (`paths.LEGACY_PREDICTIONS`). `reinference_madrigal_local_time.py`
+  already discovered this and hardcodes `LEGACY_PREDICTIONS` as ITS own `--store-root`
+  default (see its own comment). `logs/pretrained_stec_madrigal_inference.sh` passes
+  `--store-root` explicitly for the same reason. Neither module's default was changed
+  tonight - that is a design decision (align `stec.config.paths`'s artifact/legacy split)
+  better made with someone who knows whether other in-flight jobs depend on the current
+  default, not fixed silently mid-investigation.
+
+**Queued, not run**: `logs/pretrained_stec_madrigal_inference.sh` is prepended to
+`logs/epistemic_scale_retrain_queue.sh` (dispatched only in `priority_chain.sh`'s own step
+3, after step 2 finishes) rather than edited into `priority_chain.sh` itself, which is
+being executed by `priority-chain.service` right now (bash reads a running script by file
+offset - see the shell-script gotcha in CLAUDE.md). `epistemic_scale_retrain_queue.sh` was
+confirmed via `lsof` and `ps` to not be open by any process before and after the edit.
+Estimated cost once it runs: comparable order of magnitude to the Madrigal local-time
+re-inference (~3-6 days), since it is one Monte Carlo forward pass per day over a similar
+row count; not benchmarked, since running it tonight would contend with the verification
+pretrain on the GPU.
+- **verification pretrain FAILED**; see `logs/verification_pretrain.log`. First time the assembled stec/ training path has run at scale, so a failure is information, not a regression.
+- Madrigal re-inference resumed (skips days already in its manifest)
+
+## Pretrained STEC / Madrigal inference 2026-08-25 08:53:09
+- Builds `predictions/pretrained_stec/madrigal/` (0 files -> target 241; DOY 199-202 have no Madrigal source file on this host, confirmed by directory listing). This is step 1 of 2 for Table 4's Pretrained row - the join into `finetuned_stec/madrigal`'s `pretrained_stec_pred` column is a separate, not-yet-written follow-up (see this script's header).
+
+## Epistemic-scale calibration retrain queue 2026-08-25 09:14:13
+
+**Relaunch decisions, recorded because this run deliberately diverged from the queue's
+default behaviour:**
+
+- **The "Madrigal re-inference completed" premise this session started from is wrong.**
+  `logs/madrigal_local_time_reinference_manifest.csv` stops at DOY 195 (74 of 235 target
+  days), last written 2026-08-25 01:45:30 CEST. `madrigal-reinference-fixed4.service`
+  failed 6 times in the same second at 01:45:3{1..9} and gave up
+  (`Start request repeated too quickly`) - real bug, not a transient blip:
+  `pyarrow.lib.ArrowInvalid: No match for FieldRef.Name(vtec_model_stec_total_unc)` reading
+  the next day's file, i.e. some `finetuned_stec/madrigal` day(s) beyond DOY 195 predate a
+  schema change and are missing a column `reinference_madrigal_local_time.py` expects.
+  161 of 235 days still carry the uncorrected local-time data (divergence #12). Not fixed
+  here - `stec/inference/reinference_madrigal_local_time.py` is someone else's in-flight
+  work and this session's task was the epistemic arms, not this bug - but flagged rather
+  than silently left for the next session to rediscover via the same failed-unit trail.
+- **Step 0 (`pretrained_stec/madrigal inference`) skipped this run**
+  (`SKIP_MADRIGAL_STEC_STEP=1`), not run to completion. Measured at ~9 min/day
+  (5.25 min inference + a 4 min `wait_for_free_machine` confirmation gap *before every
+  single day*, not once) x 241 days = ~36 h - which would have delayed arm ps0.466's first
+  training epoch by that long, and this session's actual assigned task was the three arms
+  progressing with checkable epoch counts. Nothing lost: `doy=122.parquet` (the one day
+  this step completed) stays; resume the rest with
+  `bash logs/pretrained_stec_madrigal_inference.sh`. The queue script's default is
+  unchanged - a bare invocation still runs step 0 first.
+- **`priority_chain.sh` (the explicit "verification pretrain -> Madrigal re-inference ->
+  epistemic arms, last" ordering from 2026-08-24 19:00) is not still driving anything.**
+  It failed step 1 in 16 minutes and was manually stopped 22 minutes into step 2's wait
+  loop (19:38:57); nothing has resumed it since, and `priority-chain.service` no longer
+  exists to check. Both of its higher-priority items are themselves currently stalled on
+  bugs outside this session's scope, so deferring the arms further to respect that
+  ordering would mean waiting on an indefinite fix, not a near-term GPU conflict - decided
+  against continuing to honour it for that reason, not because the ordering itself was
+  wrong.
+

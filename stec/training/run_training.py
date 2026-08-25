@@ -183,11 +183,26 @@ def materialize_batches(
 ) -> list[Batch]:
     """`fit`'s expected `Sequence[Batch]`: already batched, already on the model's device.
 
-    `fit` re-iterates the same sequence every epoch - it has no per-epoch reshuffle hook, by
-    design (`fit.py`'s docstring: it keeps only what changes the numbers a checkpoint would
-    produce). A live `DataLoader` handed to it would therefore serve the *same* shuffled
-    order on every epoch anyway, so batching once into a plain list here costs nothing
-    against that and avoids re-shuffling machinery `fit` would never exercise.
+    Shuffled once, with `seed`, and returned as a plain list - not a live `DataLoader`.
+    `fit`/`fit_with_best_checkpoint` re-iterate this same list object every epoch (neither
+    has a per-epoch reshuffle hook, by design - `fit.py`'s docstring: it keeps only what
+    changes the numbers a checkpoint would produce), so every epoch of a multi-epoch run
+    trains on **the same row order**, not a fresh shuffle per epoch.
+
+    **This is a known, unverified divergence from the source**, not an equivalent
+    reformulation: `TrainManager.train_epoch` (`src/training/train_manager.py`) iterates a
+    live `DataLoader(shuffle=True)` fresh every epoch, and `DataLoader.__iter__` draws a new
+    permutation on every call - even from the same seeded `Generator` - so the source
+    reshuffles every epoch and this driver does not
+    (`tests/training/test_run_training.py::test_materialize_batches_returns_the_same_order_every_call`
+    demonstrates the fixed-seed determinism this relies on; a companion check against a live
+    `DataLoader` shows the source's behaviour is different, not equivalent). Gate C's fixed
+    3-6 epoch synthetic check does not exercise this - both sides there were handed the
+    identical fixed batches - so it has not caught this. Whether the difference is large
+    enough to matter for a real 50-150 epoch fine-tune has not been measured: doing so needs
+    a real fine-tune day's `loss_history.csv` to compare against, which is the kind of
+    training-loop equivalence check `docs/revision/src_deletion_runbook.md` requires before
+    trusting this driver as a full replacement for a multi-epoch run.
     """
     dataset = TensorDataset(inputs, targets)
     generator = torch.Generator().manual_seed(seed)
@@ -207,15 +222,24 @@ def build_pretrain_batches(
 ) -> tuple[ResampledEpochBatches, list[Batch], int, int]:
     """`train_batches`/`val_batches` for `mode: pretrain`.
 
-    Mirrors `src/data_loader/loaders.py::get_data_loaders` exactly: `EpochRandomSampler`
-    draws `data.train_subset_size` rows with replacement from the full train aggregate each
-    epoch, and `get_fixed_subset_indices` draws a fixed `data.val_size` subset from the val
+    Mirrors `src/data_loader/loaders.py::get_data_loaders`: `EpochRandomSampler` draws
+    `data.train_subset_size` rows with replacement from the full train aggregate each epoch,
+    and `get_fixed_subset_indices` draws a fixed `data.val_size` subset from the val
     aggregate once - just sourced from `AggregatedSplitDataset` instead of `H5Dataset`.
-    `num_workers=0` throughout: `AggregatedSplitDataset` opens one h5py handle in `__init__`
-    and reuses it for every row, which is not fork-safe across `DataLoader` worker
-    processes (see that class's own docstring) - a real 150-epoch run would want a
-    `worker_init_fn` that reopens the file per worker, which this driver does not add
-    because it has never been run at that scale to justify the extra machinery.
+
+    `pretrain.num_workers`/`pretrain.prefetch_factor` (config/config_BNN.yaml: 12 / 4) now
+    reach the `DataLoader`, not just `src/`'s: `AggregatedSplitDataset` opens its h5py handle
+    lazily, one per worker process, rather than once in `__init__` (see that class's own
+    docstring), so it no longer needs `num_workers=0` to stay fork-safe. Reading
+    `data/train.h5`'s random single-row access pattern under one synchronous reader measured
+    659,241 bytes read per 80-byte row (a full 8,192-row/655 KB chunk per row - see the
+    module docstring) and only ~1,350 rows/sec; `src/data_loader/datasets.py`'s `H5Dataset`
+    reads the same file the same way but under `num_workers=12`, giving the storage many
+    outstanding reads at once, and that concurrency - not a change in bytes read - is what
+    makes it ~12x faster on this host. `persistent_workers=False`, matching
+    `src/data_loader/loaders.py`'s own `# FIXED: Disable to prevent H5 file handle leaks` -
+    each epoch's workers open a fresh handle and let it go rather than holding one across
+    `ResampledEpochBatches`' per-epoch resample.
     """
     swi_path = space_weather if space_weather is not None else stec_paths.OMNI_INDICES
     train_dataset = AggregatedSplitDataset(
@@ -226,10 +250,19 @@ def build_pretrain_batches(
     )
     collate = functools.partial(collate_assembled_batch, assembler=assembler)
 
+    # Absent in every existing test fixture's `config["pretrain"]` block (see
+    # tests/training/test_run_training_pretrain.py), so this defaults to the old, always-safe
+    # num_workers=0 rather than requiring every caller to opt in explicitly.
+    num_workers = int(config["pretrain"].get("num_workers", 0))
+    # DataLoader raises if prefetch_factor is set without num_workers>0.
+    prefetch_factor = (
+        config["pretrain"].get("prefetch_factor") if num_workers > 0 else None
+    )
+
     train_subset_size = int(config["data"]["train_subset_size"])
     logger.info(
         f"pretrain: sampling {train_subset_size:,} of {len(train_dataset):,} train rows "
-        "per epoch, with replacement"
+        f"per epoch, with replacement ({num_workers} worker(s))"
     )
     sampler = EpochRandomSampler(
         train_dataset, replacement=True, num_samples=train_subset_size, base_seed=seed
@@ -238,7 +271,9 @@ def build_pretrain_batches(
         train_dataset,
         batch_size=batch_size,
         sampler=sampler,
-        num_workers=0,
+        num_workers=num_workers,
+        prefetch_factor=prefetch_factor,
+        persistent_workers=False,
         collate_fn=collate,
     )
     train_batches = ResampledEpochBatches(train_loader, sampler, device)
@@ -257,7 +292,9 @@ def build_pretrain_batches(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=num_workers,
+        prefetch_factor=prefetch_factor,
+        persistent_workers=False,
         collate_fn=collate,
     )
     val_batches = [

@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
+from stec.analysis.activity_stratification import DST_LABELS, F107_LABELS
 from stec.viz import revision_figures as rf
 from stec.viz import style
 
@@ -297,3 +298,84 @@ def test_dstec_evaluation_pretrained_source_without_gim_skips_only_that_source(
     assert (target / "dstec_absolute_comparison.png").stat().st_size > 0
     assert not (target / "dstec_absolute_comparison_pretrained.png").exists()
     assert not (target / "dstec_win_rate_pretrained.png").exists()
+
+
+def test_wrap_activity_bin_labels_maps_flattened_csv_form_back_to_two_line():
+    """activity_stratification.py writes DST_LABELS/F107_LABELS to CSV with the embedded
+    "\n" replaced by a space (see its module docstring, and
+    tests/analysis/test_activity_stratification.py for the write side). This is the read
+    side: _wrap_activity_bin_labels must recover the original two-line label for every
+    entry in both tables, keyed by the column name each is stratified on."""
+    dst_wrap = rf._wrap_activity_bin_labels("dst_bin")
+    for label in DST_LABELS:
+        assert dst_wrap[label.replace("\n", " ")] == label
+
+    f107_wrap = rf._wrap_activity_bin_labels("f107_bin")
+    for label in F107_LABELS:
+        assert f107_wrap[label.replace("\n", " ")] == label
+
+
+def _write_activity_stratification_csv(activity_dir, filename, bin_col, labels) -> None:
+    """Synthetic `by_dst.csv`/`by_f107.csv`, matching the flattened, single-line bin
+    labels activity_stratification.py actually writes (one row per (Model, bin) pair,
+    two of the four bins populated - enough to exercise the figure without needing all
+    four)."""
+    flattened = [label.replace("\n", " ") for label in (labels[0], labels[-1])]
+    table = pd.DataFrame(
+        {
+            "Model": ["Direct STEC Model", "IGS GIM"] * 2,
+            bin_col: [flattened[0], flattened[0], flattened[1], flattened[1]],
+            "RMSE": [10.0, 12.0, 5.0, 6.0],
+            "improvement_over_gim_%": [16.7, 0.0, 16.7, 0.0],
+            "days": [3, 3, 100, 100],
+            "observations": [1000, 1000, 50000, 50000],
+        }
+    )
+    table.to_csv(activity_dir / filename, index=False)
+
+
+def test_activity_figures_restore_two_line_bin_labels_for_the_plot(
+    tmp_path, monkeypatch
+):
+    """The regression this pins: `_activity_figures` reads `by_dst.csv`/`by_f107.csv`,
+    which hold the flattened, single-line bin labels activity_stratification.py writes
+    (see its module docstring), and used to feed that flattened column straight into
+    `_grouped_bars` -> `ax.set_xticklabels`, silently losing the two-line axis label the
+    published figures rely on. `_activity_figures` must instead pass the wrapped,
+    two-line form as `_grouped_bars`'s `groups` argument while still filtering rows by
+    the flattened value the CSV actually holds. Captured with a `_grouped_bars` spy,
+    since the newline only ever lives in that call's `groups` argument - `_grouped_bars`
+    itself strips it back out (`str(g).replace("\n", " ")`) for the CSV it returns, so
+    reading the written `*.csv` back could not tell a wrapped call from an unwrapped one.
+    """
+    results_dir = tmp_path / "results"
+    activity_dir = rf.analysis_dir(results_dir, "activity_stratification")
+    activity_dir.mkdir(parents=True)
+    _write_activity_stratification_csv(
+        activity_dir, "by_dst.csv", "dst_bin", DST_LABELS
+    )
+    _write_activity_stratification_csv(
+        activity_dir, "by_f107.csv", "f107_bin", F107_LABELS
+    )
+
+    seen_groups: list[list[str]] = []
+    original_grouped_bars = rf._grouped_bars
+
+    def spy_grouped_bars(ax, groups, *args, **kwargs):
+        seen_groups.append(list(groups))
+        return original_grouped_bars(ax, groups, *args, **kwargs)
+
+    monkeypatch.setattr(rf, "_grouped_bars", spy_grouped_bars)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    rf._build_activity_figures(args, output_dir)
+
+    # Two stratifiers x two figures (absolute, improvement) each = 4 calls.
+    assert len(seen_groups) == 4
+    expected_dst = [DST_LABELS[0], DST_LABELS[-1]]
+    expected_f107 = [F107_LABELS[0], F107_LABELS[-1]]
+    for groups in seen_groups:
+        assert groups in (expected_dst, expected_f107)
+        assert all("\n" in g for g in groups)

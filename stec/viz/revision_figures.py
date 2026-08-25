@@ -72,6 +72,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ..analysis.activity_stratification import DST_LABELS, F107_LABELS
 from ..config import paths
 from .style import (
     APPROACH_COLORS,
@@ -540,6 +541,18 @@ _ACTIVITY_STRATA = (
     ("activity_f107", "by_f107.csv", "f107_bin", "Daily mean F10.7"),
 )
 
+# activity_stratification.py flattens the embedded "\n" out of DST_LABELS/F107_LABELS
+# before writing the CSV (a raw newline inside a cell breaks provenance's line-counted row
+# count), so the two-line axis label has to be rebuilt here rather than read off disk. Same
+# idiom _grouped_bars already uses in reverse (str(g).replace("\n", " ")) for its returned
+# CSV column.
+_ACTIVITY_BIN_LABELS = {"dst_bin": DST_LABELS, "f107_bin": F107_LABELS}
+
+
+def _wrap_activity_bin_labels(bin_col: str) -> dict[str, str]:
+    """Map a flattened bin label, as read back from CSV, to its original two-line form."""
+    return {label.replace("\n", " "): label for label in _ACTIVITY_BIN_LABELS[bin_col]}
+
 
 def _activity_figures(
     table: pd.DataFrame,
@@ -560,6 +573,11 @@ def _activity_figures(
     bins = list(dict.fromkeys(d[bin_col]))
     series = [m for m in METHOD_ORDER if m in set(d["Model"])]
 
+    # Filtering stays keyed on the flattened labels the CSV actually holds; only the
+    # x-tick labels handed to _grouped_bars get the newline restored.
+    wrap = _wrap_activity_bin_labels(bin_col)
+    display_bins = [wrap.get(b, b) for b in bins]
+
     values = {
         m: [d[(d.Model == m) & (d[bin_col] == b)]["RMSE"].iloc[0] for b in bins]
         for m in series
@@ -567,7 +585,7 @@ def _activity_figures(
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     plotted = _grouped_bars(
         ax,
-        bins,
+        display_bins,
         series,
         values,
         [APPROACH_COLORS[m] for m in series],
@@ -589,7 +607,7 @@ def _activity_figures(
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     plotted = _grouped_bars(
         ax,
-        bins,
+        display_bins,
         rel_series,
         rel_values,
         [APPROACH_COLORS[m] for m in rel_series],

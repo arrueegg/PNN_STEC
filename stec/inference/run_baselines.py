@@ -91,7 +91,11 @@ from ..data.day_reader import read_day
 from ..data.madrigal_reader import DEFAULT_ELEVATION_THRESHOLD_DEG, read_madrigal_day
 from ..models.architectures import DeepEnsemble, load_vtec_checkpoint
 from . import prediction_store as ps
-from .monte_carlo import DEFAULT_INFERENCE_BATCH_SIZE, monte_carlo_uncertainty
+from .monte_carlo import (
+    DEFAULT_INFERENCE_BATCH_SIZE,
+    ensemble_uncertainty,
+    monte_carlo_uncertainty,
+)
 from .run_inference import (
     _numeric_tensors,
     build_layout_and_assembler,
@@ -219,37 +223,6 @@ def load_vtec_model(checkpoint_path: Path, device: torch.device) -> torch.nn.Mod
     return DeepEnsemble(models, model_type="Laplacian").to(device)
 
 
-def _ensemble_uncertainty(
-    ensemble: DeepEnsemble, inputs: torch.Tensor, batch_size: int
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """`DeepEnsemble.get_uncertainties`, chunked over rows for the same reason
-    `determinism.monte_carlo` chunks a Bayesian forward pass: one unbatched call over a
-    ~2M-row day allocates one activation tensor per ensemble member sized for the whole
-    day at once. Every member is a fixed, already-trained network with no per-call
-    randomness, so chunking the row dimension changes nothing about the arithmetic any
-    individual row goes through - same argument as `determinism.monte_carlo`'s docstring,
-    one layer up.
-    """
-    rows = inputs.shape[0]
-    chunk_size = batch_size or rows
-    means, aleatoric_vars, epistemic_vars, total_vars = [], [], [], []
-    with torch.no_grad():
-        for start in range(0, rows, chunk_size):
-            mean, aleatoric_var, epistemic_var, total_var = ensemble.get_uncertainties(
-                inputs[start : start + chunk_size]
-            )
-            means.append(mean)
-            aleatoric_vars.append(aleatoric_var)
-            epistemic_vars.append(epistemic_var)
-            total_vars.append(total_var)
-    return (
-        torch.cat(means),
-        torch.cat(aleatoric_vars),
-        torch.cat(epistemic_vars),
-        torch.cat(total_vars),
-    )
-
-
 def compute_vtec_baseline(
     raw: dict[str, np.ndarray],
     vtec_config: dict,
@@ -267,7 +240,9 @@ def compute_vtec_baseline(
     requirement 4 for why `vtec_model` may be a single `MLP_LaplacianNLL` or a
     `DeepEnsemble` of them - the two need different uncertainty machinery (Bayesian-weight
     Monte Carlo vs. deterministic-member spread), so this branches on which it was given
-    rather than forcing one abstraction over both.
+    rather than forcing one abstraction over both. Both branches return the same
+    `UncertaintyDecomposition` shape (`stec.inference.monte_carlo`), so everything below the
+    branch reads one uniform type regardless of which kind of model produced it.
     """
     _layout, assembler = build_layout_and_assembler(vtec_config)
     inputs = assembler.assemble(_numeric_tensors(raw)).to(device)
@@ -279,9 +254,7 @@ def compute_vtec_baseline(
     check_zero_perturbation(vtec_model, inputs, seed)
 
     if isinstance(vtec_model, DeepEnsemble):
-        mean_t, aleatoric_var_t, epistemic_var_t, total_var_t = _ensemble_uncertainty(
-            vtec_model, inputs, batch_size
-        )
+        decomposition = ensemble_uncertainty(vtec_model, inputs, batch_size)
     else:
         decomposition = monte_carlo_uncertainty(
             vtec_model,
@@ -291,10 +264,10 @@ def compute_vtec_baseline(
             seed=seed,
             batch_size=batch_size,
         )
-        mean_t = decomposition.mean
-        aleatoric_var_t = decomposition.aleatoric_std**2
-        epistemic_var_t = decomposition.epistemic_std**2
-        total_var_t = decomposition.total_std**2
+    mean_t = decomposition.mean
+    aleatoric_var_t = decomposition.aleatoric_std**2
+    epistemic_var_t = decomposition.epistemic_std**2
+    total_var_t = decomposition.total_std**2
 
     vtec_mean = mean_t.squeeze(-1).detach().cpu().numpy()
     elevation = raw["satele"]

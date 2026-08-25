@@ -24,8 +24,10 @@ from stec.inference import prediction_store as ps
 from stec.inference.reinference_madrigal_local_time import (
     ALIGNMENT_COLUMNS,
     BASELINE_COLUMNS_TO_PRESERVE,
+    _present_baseline_columns,
     _verify_alignment,
     checkpoint_paths_for_doy,
+    local_time_convention,
     reinference_day,
 )
 from stec.inference.run_inference import run_inference
@@ -166,12 +168,12 @@ def test_reinference_preserves_baselines_and_updates_stec_columns(tmp_path):
         tmp_path, experiments_root, database_root, space_weather
     )
 
-    before = pd.read_parquet(
-        ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
-    )
+    store_path = ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
+    before = pd.read_parquet(store_path)
     # Backward compatibility: the real 235-day partition has no `sat` column yet - the
     # reader that adds it (`stec.data.madrigal_reader`) postdates every file on disk.
     assert "sat" not in before.columns
+    assert local_time_convention(store_path) == "station"
 
     row = reinference_day(
         YEAR,
@@ -190,15 +192,17 @@ def test_reinference_preserves_baselines_and_updates_stec_columns(tmp_path):
     )
     assert row["rows"] == len(before)
 
-    after = pd.read_parquet(
-        ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
-    )
+    after = pd.read_parquet(store_path)
     assert len(after) == len(before)
 
     # The corrected re-read populates `sat` for free - it comes from `read_madrigal_day`
     # like every other raw column, with no dataset-specific merge logic needed for it.
     assert "sat" in after.columns
     assert after["sat"].notna().all()
+
+    # A reader of the store alone (no manifest) can tell this day was corrected, because
+    # `sat`'s presence is what changed.
+    assert local_time_convention(store_path) == "ipp"
 
     # The VTEC/GIM baseline columns are untouched by this driver - it never recomputes
     # them, only carries them forward from the file already on disk.
@@ -223,6 +227,98 @@ def test_reinference_preserves_baselines_and_updates_stec_columns(tmp_path):
     )
     np.testing.assert_allclose(
         after["lat_ipp"].to_numpy(), before["lat_ipp"].to_numpy(), atol=1e-2
+    )
+
+
+def test_present_baseline_columns_reports_only_what_the_file_has(tmp_path):
+    """`_present_baseline_columns` reads schema, not data - a fast, direct check of the
+    helper the crash-reproducing test below exercises end to end."""
+    full = tmp_path / "full.parquet"
+    pd.DataFrame(
+        {
+            "station": ["AAAA"],
+            "vtec_model_stec": [10.0],
+            "vtec_model_stec_total_unc": [1.0],
+            "vtec_model_stec_aleatoric_unc": [0.8],
+            "vtec_model_stec_epistemic_unc": [0.2],
+            "gim_stec": [11.0],
+        }
+    ).to_parquet(full)
+    assert _present_baseline_columns(full) == BASELINE_COLUMNS_TO_PRESERVE
+
+    # DOY 196/217's real shape: the mean and GIM baseline exist, none of the three
+    # uncertainty columns do.
+    partial = tmp_path / "partial.parquet"
+    pd.DataFrame(
+        {"station": ["AAAA"], "vtec_model_stec": [10.0], "gim_stec": [11.0]}
+    ).to_parquet(partial)
+    assert _present_baseline_columns(partial) == ["vtec_model_stec", "gim_stec"]
+
+
+def test_reinference_merges_without_columns_the_file_predates(tmp_path):
+    """Regression for the exact crash that stopped the real 235-day sweep at DOY 195: two
+    of the real files (DOY 196, 217) predate the VTEC-uncertainty schema fix and have no
+    `vtec_model_stec_total_unc`/`_aleatoric_unc`/`_epistemic_unc` columns at all -
+    `pd.read_parquet(path, columns=[...])` raises `pyarrow.lib.ArrowInvalid` rather than
+    returning an absent column as null. This reproduces that exact file shape (rather than
+    trusting the fix by reading the source) and checks the merge completes, carries
+    forward only what the file actually has, and reports the gap in the manifest row."""
+    database_root, space_weather = _build_fixture(tmp_path)
+    experiments_root = _write_canonical_checkpoint(
+        tmp_path, database_root, space_weather
+    )
+    store_root, madrigal_root = _build_old_madrigal_store_day(
+        tmp_path, experiments_root, database_root, space_weather
+    )
+
+    missing_columns = [
+        "vtec_model_stec_total_unc",
+        "vtec_model_stec_aleatoric_unc",
+        "vtec_model_stec_epistemic_unc",
+    ]
+    path = ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
+    frame = pd.read_parquet(path).drop(columns=missing_columns)
+    ps.write_predictions(
+        frame, "finetuned_stec", "madrigal", YEAR, DOY, root=store_root
+    )
+    before = pd.read_parquet(path)
+    assert not any(column in before.columns for column in missing_columns)
+
+    row = reinference_day(
+        YEAR,
+        DOY,
+        experiments_root=experiments_root,
+        store_root=store_root,
+        device=torch.device("cpu"),
+        seed=42,
+        samples=4,
+        split=None,
+        madrigal_root=madrigal_root,
+        space_weather=space_weather,
+    )
+
+    assert row["missing_baseline_columns"] == ";".join(missing_columns)
+
+    after = pd.read_parquet(path)
+    # Not recomputed and not filled with a placeholder - the file never had these columns
+    # and still does not.
+    assert not any(column in after.columns for column in missing_columns)
+
+    # The baseline columns the file DID have are still carried forward untouched.
+    np.testing.assert_array_equal(
+        after["vtec_model_stec"].to_numpy(), before["vtec_model_stec"].to_numpy()
+    )
+    np.testing.assert_array_equal(
+        after["gim_stec"].to_numpy(), before["gim_stec"].to_numpy()
+    )
+
+    # The STEC-model columns this driver does recompute are still corrected, exactly as
+    # in the full-schema case.
+    assert not np.allclose(
+        after["local_time_hours"].to_numpy(), before["local_time_hours"].to_numpy()
+    )
+    assert not np.allclose(
+        after["stec_pred"].to_numpy(), before["stec_pred"].to_numpy()
     )
 
 
@@ -272,17 +368,24 @@ def test_reinference_raises_when_no_canonical_checkpoint_exists(tmp_path):
 
 def _synthetic_alignment_frames(**column_overrides) -> tuple[dict, pd.DataFrame]:
     """Minimal raw-dict/existing-frame pair carrying only what `_verify_alignment` reads
-    (`ALIGNMENT_COLUMNS` plus `station`/`stec`), for testing the comparison logic directly
-    rather than through a full inference pass. `column_overrides` are `{"<column>_new":
-    ..., "<column>_old": ...}` pairs; anything not overridden is identical on both sides."""
+    (`ALIGNMENT_COLUMNS` plus `station`), for testing the comparison logic directly rather
+    than through a full inference pass. `column_overrides` are `{"<column>_new": ...,
+    "<column>_old": ...}` pairs, named after the `existing`/store side (`true_stec`, not
+    `stec`); anything not overridden is identical on both sides.
+
+    `satele` is deliberately not part of this fixture - it is not in `ALIGNMENT_COLUMNS` any
+    more (see that constant's comment), so it is not something `_verify_alignment` reads at
+    all. A test that needs it (proving exactly that) adds it directly to the returned
+    frames instead.
+    """
     n = 5
     old = {
         "station": np.array(["AAAA"] * n),
         "sod": np.arange(n, dtype=np.float64) * 30.0,
         "satazi": np.full(n, 10.0),
-        "satele": np.full(n, 45.0),
         "lat_ipp": np.full(n, 30.0),
         "lon_ipp": np.full(n, -120.0),
+        "true_stec": np.full(n, 12.5),
     }
     new = dict(old)
     for column in ALIGNMENT_COLUMNS:
@@ -293,9 +396,11 @@ def _synthetic_alignment_frames(**column_overrides) -> tuple[dict, pd.DataFrame]
 
     existing = pd.DataFrame(old)
     raw = {
-        "stec": np.zeros(n),
         "station": new["station"],
-        **{c: new[c] for c in ALIGNMENT_COLUMNS},
+        **{c: new[c] for c in ALIGNMENT_COLUMNS if c != "true_stec"},
+        # read_madrigal_day's raw dict calls this column "stec", not "true_stec" -
+        # _RAW_COLUMN_NAMES bridges the same rename in _verify_alignment itself.
+        "stec": new["true_stec"],
     }
     return raw, existing
 
@@ -348,3 +453,62 @@ def test_verify_alignment_still_rejects_a_near_zenith_sized_azimuth_shift():
     )
     with pytest.raises(RuntimeError, match="satazi misaligned"):
         _verify_alignment(raw, existing, 2024, 122)
+
+
+def test_verify_alignment_catches_misalignment_via_true_stec():
+    """true_stec is satele's replacement in `ALIGNMENT_COLUMNS`: the physical measurement,
+    untouched by the local_time_hours correction this module applies, that two different
+    satellites observed at the same station and second are not expected to coincidentally
+    share. Confirm it actually participates in the check (not just declared in
+    `ALIGNMENT_COLUMNS` while `_verify_alignment` silently skips it) by making it the only
+    column that disagrees."""
+    raw, existing = _synthetic_alignment_frames(
+        true_stec_new=np.array([12.5, 12.5, 12.5, 12.5, 40.0])
+    )
+    with pytest.raises(RuntimeError, match="true_stec misaligned"):
+        _verify_alignment(raw, existing, 2024, 122)
+
+
+def test_verify_alignment_ignores_a_near_zenith_elevation_difference():
+    """satele is a value column with an unexplained legacy transform, not an identity
+    column any more (it was dropped from `ALIGNMENT_COLUMNS` - see that constant's comment),
+    so a near-zenith difference must not read as misalignment - not "tolerated up to some
+    number", genuinely not looked at. `satele` is not part of `_synthetic_alignment_frames`'
+    own fixture (see its docstring), so it is added directly here rather than through the
+    `*_old`/`*_new` override mechanism, which only understands `ALIGNMENT_COLUMNS`.
+
+    This is the regression for a real crash loop: a 0.05 deg elevation tolerance fitted to
+    2024-122 (2 rows of 2,036,513, max 0.032 deg) failed 16 times on 2024-127, which holds a
+    row at 0.0588 deg. The size of that difference is not the point - no tolerance derived
+    from a sample can be justified for the 229 days nobody looked at - so this uses 0.4 deg,
+    an order of magnitude past even the largest real value seen across a 12-day sample
+    (0.077 deg, 2024-322).
+    """
+    raw, existing = _synthetic_alignment_frames()
+    raw["satele"] = np.array([89.9, 89.9, 89.9, 89.9, 89.5])
+    existing = existing.copy()
+    existing["satele"] = np.array(
+        [89.9, 89.9, 89.9, 89.9, 89.9]
+    )  # 0.4 deg on the last row
+    _verify_alignment(raw, existing, 2024, 127)  # must not raise
+
+
+def test_verify_alignment_catches_misalignment_that_satele_would_have_caught():
+    """Dropping satele must not open a hole: a genuinely different observation is still
+    caught even when satele itself happens to agree (the fixture's "different satellite"
+    below keeps a matching satele on purpose, to prove the catch comes from lat_ipp/true_stec
+    and not from satele coincidentally still disagreeing too) - because a different
+    satellite's IPP lands degrees away and lat_ipp is compared at 1e-2 deg, a stricter check
+    than the 0.05 deg elevation window ever was."""
+    raw, existing = _synthetic_alignment_frames(
+        lat_ipp_new=np.array(
+            [30.0, 30.0, 30.0, 30.0, 34.0]
+        )  # a different satellite's IPP, degrees away
+    )
+    raw["satele"] = np.full(5, 45.0)
+    existing = existing.copy()
+    existing["satele"] = np.full(
+        5, 45.0
+    )  # satele agrees everywhere - not what catches this
+    with pytest.raises(RuntimeError, match="lat_ipp misaligned"):
+        _verify_alignment(raw, existing, 2024, 127)
