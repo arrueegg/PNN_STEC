@@ -10,6 +10,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "lib"))
 
 import missing_data_selection as selection  # noqa: E402
@@ -47,6 +50,145 @@ class TestStoreDays:
         assert selection.store_days(tmp_path, "finetuned_stec", "own") == {122}
         assert selection.store_days(tmp_path, "finetuned_stec", "madrigal") == {200}
         assert selection.store_days(tmp_path, "pretrained_stec", "madrigal") == set()
+
+
+def _write_parquet_day(
+    store_root: Path,
+    model_variant: str,
+    dataset: str,
+    year: int,
+    doy: int,
+    columns: dict,
+) -> None:
+    """A real (tiny) parquet file, for the schema-completeness tests - a `.touch()`d
+    empty file has no footer to read, so those tests need actual pyarrow output."""
+    day_dir = store_root / model_variant / dataset / f"year={year}"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.table(columns), day_dir / f"doy={doy:03d}.parquet")
+
+
+class TestHasRequiredColumns:
+    def test_true_when_every_required_column_is_present(self, tmp_path: Path) -> None:
+        path = tmp_path / "day.parquet"
+        pq.write_table(pa.table({"a": [1], "b": [2], "c": [3]}), path)
+
+        assert selection._has_required_columns(path, ["a", "b"]) is True
+
+    def test_false_when_a_required_column_is_absent(self, tmp_path: Path) -> None:
+        path = tmp_path / "day.parquet"
+        pq.write_table(pa.table({"a": [1], "b": [2]}), path)
+
+        assert selection._has_required_columns(path, ["a", "b", "c"]) is False
+
+    def test_false_and_logs_when_the_file_is_truncated(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        """Mirrors the real failure mode CLAUDE.md documents: a per-day store file
+        truncated mid-write by a killed job. Opening it raises `pyarrow.ArrowInvalid`
+        (confirmed empirically - "Parquet magic bytes not found in footer") rather than
+        returning a schema; this must be treated as an incomplete day, not an uncaught
+        crash of the whole day-selection scan."""
+        path = tmp_path / "day.parquet"
+        pq.write_table(pa.table({"a": [1], "b": [2]}), path)
+        whole_file = path.read_bytes()
+        path.write_bytes(whole_file[: len(whole_file) // 2])
+
+        with caplog.at_level("WARNING"):
+            result = selection._has_required_columns(path, ["a", "b"])
+
+        assert result is False
+        assert str(path) in caplog.text
+
+    def test_false_when_the_file_is_zero_bytes(self, tmp_path: Path) -> None:
+        """A day whose write died before any bytes landed - `.touch()`d, not truncated
+        from real content - is the same failure mode with a different pyarrow message
+        ("Parquet file size is 0 bytes")."""
+        path = tmp_path / "day.parquet"
+        path.touch()
+
+        assert selection._has_required_columns(path, ["a", "b"]) is False
+
+
+class TestStoreDaysSchemaCompleteness:
+    """Mirrors the real orphan: predictions/pretrained_stec/madrigal/year=2024/
+    doy=122.parquet exists (27 columns) but carries none of the baseline columns
+    (gim_stec, vtec_model_stec, ...) the rest of that partition is expected to have."""
+
+    def test_omitting_required_columns_keeps_the_old_existence_only_behavior(
+        self, tmp_path: Path
+    ) -> None:
+        _touch_store_day(tmp_path, "pretrained_stec", "madrigal", 2024, 122)
+
+        assert selection.store_days(tmp_path, "pretrained_stec", "madrigal") == {122}
+
+    def test_schema_incomplete_day_is_excluded_when_required_columns_given(
+        self, tmp_path: Path
+    ) -> None:
+        _write_parquet_day(
+            tmp_path,
+            "pretrained_stec",
+            "madrigal",
+            2024,
+            122,
+            {"true_stec": [1.0], "stec_pred": [1.0], "satele": [45.0]},
+        )
+
+        assert (
+            selection.store_days(
+                tmp_path,
+                "pretrained_stec",
+                "madrigal",
+                required_columns=["gim_stec", "vtec_model_stec"],
+            )
+            == set()
+        )
+
+    def test_truncated_day_is_excluded_when_required_columns_given(
+        self, tmp_path: Path
+    ) -> None:
+        """The real DOY-166/176/323-style failure: a genuinely truncated parquet file,
+        not merely one missing a column - the whole footer is unreadable, and the
+        day-selection scan must skip it (as recoverable) rather than crash."""
+        _write_parquet_day(
+            tmp_path,
+            "pretrained_stec",
+            "madrigal",
+            2024,
+            124,
+            {"true_stec": [1.0], "gim_stec": [1.0], "vtec_model_stec": [1.0]},
+        )
+        path = (
+            tmp_path / "pretrained_stec" / "madrigal" / "year=2024" / "doy=124.parquet"
+        )
+        whole_file = path.read_bytes()
+        path.write_bytes(whole_file[: len(whole_file) // 2])
+
+        assert (
+            selection.store_days(
+                tmp_path,
+                "pretrained_stec",
+                "madrigal",
+                required_columns=["gim_stec", "vtec_model_stec"],
+            )
+            == set()
+        )
+
+    def test_schema_complete_day_still_counts_as_done(self, tmp_path: Path) -> None:
+        _write_parquet_day(
+            tmp_path,
+            "pretrained_stec",
+            "madrigal",
+            2024,
+            123,
+            {"true_stec": [1.0], "gim_stec": [1.0], "vtec_model_stec": [1.0]},
+        )
+
+        assert selection.store_days(
+            tmp_path,
+            "pretrained_stec",
+            "madrigal",
+            required_columns=["gim_stec", "vtec_model_stec"],
+        ) == {123}
 
 
 class TestMadrigalSourceExists:
@@ -204,6 +346,82 @@ class TestMain:
         assert exit_code == 0
         assert "recoverable=2024-224" in captured.out
         assert "unrecoverable=2024-199" in captured.out
+
+    def test_required_columns_flags_a_schema_incomplete_madrigal_day_as_recoverable(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        """The pretrained_stec/madrigal use case: doy=122 exists in madrigal but is
+        missing every baseline column, so it must still show up as recoverable rather
+        than being counted as already done."""
+        store_root = tmp_path / "predictions"
+        madrigal_root = tmp_path / "Madrigal_STEC"
+        _touch_store_day(store_root, "pretrained_stec", "own", 2024, 122)
+        _write_parquet_day(
+            store_root,
+            "pretrained_stec",
+            "madrigal",
+            2024,
+            122,
+            {"true_stec": [1.0], "stec_pred": [1.0]},  # no baseline columns
+        )
+        _touch_madrigal_file(madrigal_root, 2024, 5, 1)  # DOY 122 source present
+
+        exit_code = selection.main(
+            [
+                "madrigal-gap",
+                "--store-root",
+                str(store_root),
+                "--madrigal-root",
+                str(madrigal_root),
+                "--model-variant",
+                "pretrained_stec",
+                "--required-columns",
+                "gim_stec,vtec_model_stec",
+                "--year",
+                "2024",
+            ]
+        )
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "recoverable=2024-122" in captured.out
+
+    def test_without_required_columns_the_same_day_is_not_recoverable(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        """Confirms the flag, not some other difference, is what changes the outcome -
+        existence alone already satisfies the old behavior."""
+        store_root = tmp_path / "predictions"
+        madrigal_root = tmp_path / "Madrigal_STEC"
+        _touch_store_day(store_root, "pretrained_stec", "own", 2024, 122)
+        _write_parquet_day(
+            store_root,
+            "pretrained_stec",
+            "madrigal",
+            2024,
+            122,
+            {"true_stec": [1.0], "stec_pred": [1.0]},
+        )
+        _touch_madrigal_file(madrigal_root, 2024, 5, 1)
+
+        exit_code = selection.main(
+            [
+                "madrigal-gap",
+                "--store-root",
+                str(store_root),
+                "--madrigal-root",
+                str(madrigal_root),
+                "--model-variant",
+                "pretrained_stec",
+                "--year",
+                "2024",
+            ]
+        )
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "recoverable=" in captured.out
+        assert "recoverable=2024-122" not in captured.out
 
     def test_merge_safe_writer_present_command_exit_code(self, tmp_path: Path) -> None:
         assert (

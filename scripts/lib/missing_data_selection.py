@@ -26,8 +26,15 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import logging
 import sys
+from collections.abc import Sequence
 from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+logger = logging.getLogger(__name__)
 
 # The exact marker compare_stec_vtec_gim.py logs when its primary model is not a
 # fine-tuned one. Its disappearance is how this module detects that someone has since
@@ -37,18 +44,64 @@ from pathlib import Path
 _PRETRAINED_MADRIGAL_GUARD_MARKER = "Pretrained model detected - Madrigal evaluation only supported for finetuned models"
 
 
-def store_days(store_root: Path, model_variant: str, dataset: str) -> set[int]:
+def _has_required_columns(path: Path, required_columns: Sequence[str]) -> bool:
+    """Schema-only completeness check: reads the parquet FOOTER, never the row data.
+
+    `ParquetFile(path).schema` is metadata I/O - it does not touch the row groups - which
+    matters here because `store_days` is a day-selection scan that can run over a
+    partition holding tens of GB; it must never pay for a real read just to decide
+    whether a day is done.
+
+    CLAUDE.md documents real per-day store files truncated mid-write by a killed
+    recovery-sweep job. Opening one of those raises `pyarrow.ArrowInvalid` ("Parquet
+    magic bytes not found in footer" for a torn footer, "Parquet file size is 0 bytes"
+    for one caught at the very start of a write) rather than returning a schema -
+    confirmed by truncating a real parquet file at several points and reading a genuine
+    zero-byte file. Treated the same as a day with a missing column: not done, worth
+    logging so the truncation is visible rather than silently re-queued forever without
+    explanation.
+    """
+    try:
+        schema_columns = set(pq.ParquetFile(path).schema.names)
+    except pa.ArrowInvalid:
+        logger.warning(f"{path}: could not read parquet footer (truncated or corrupt)")
+        return False
+    return set(required_columns).issubset(schema_columns)
+
+
+def store_days(
+    store_root: Path,
+    model_variant: str,
+    dataset: str,
+    required_columns: Sequence[str] | None = None,
+) -> set[int]:
     """DOYs already on disk for one (model_variant, dataset) prediction-store partition.
 
     Reads the parquet filenames directly (`year=*/doy=*.parquet`) rather than importing
     `evaluation.prediction_store.available_days`, which lives under the data root's `src/`
     tree and must not become an import-time dependency of code that also needs to run from
     the worktree.
+
+    `required_columns`, when given, redefines "done" as "the file exists AND its schema
+    carries every one of these columns" rather than existence alone. Existence alone is
+    not always enough: `predictions/pretrained_stec/madrigal/year=2024/doy=122.parquet`
+    is a real, unremarkable-looking file (2,036,513 rows, passed its own
+    zero-perturbation control) whose driver died before the run that adds this
+    partition's baseline columns finished - existence-only selection would count it as
+    done forever and silently skip it on every future gap-fill. Every existing caller
+    omits this argument and keeps the old existence-only behavior unchanged.
     """
     base = store_root / model_variant / dataset
     if not base.is_dir():
         return set()
-    return {int(path.stem.split("=")[1]) for path in base.glob("year=*/doy=*.parquet")}
+    days: set[int] = set()
+    for path in base.glob("year=*/doy=*.parquet"):
+        if required_columns is not None and not _has_required_columns(
+            path, required_columns
+        ):
+            continue
+        days.add(int(path.stem.split("=")[1]))
+    return days
 
 
 def madrigal_source_exists(madrigal_root: Path, year: int, doy: int) -> bool:
@@ -137,6 +190,18 @@ def main(argv: list[str] | None = None) -> int:
     gap.add_argument("--madrigal-root", type=Path, required=True)
     gap.add_argument("--model-variant", default="finetuned_stec")
     gap.add_argument("--year", type=int, default=2024)
+    gap.add_argument(
+        "--required-columns",
+        default=None,
+        help="Comma-separated column names the MADRIGAL side's parquet footer must "
+        "carry for a day to count as done; a day whose file exists but is missing one "
+        "of these is still reported as recoverable. Only ever applied to the madrigal "
+        "side, never to own - own is the reference set of candidate days, not itself "
+        "subject to the completeness question. Omit (the default) to keep the old "
+        "exists-only behavior. Needed for pretrained_stec/madrigal, where doy=122 "
+        "exists but lacks every baseline column (docs/revision/independent_audit.md's "
+        "F8 finding).",
+    )
 
     writer = subparsers.add_parser(
         "merge-safe-writer-present",
@@ -153,8 +218,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "madrigal-gap":
+        required_columns = (
+            [name.strip() for name in args.required_columns.split(",")]
+            if args.required_columns
+            else None
+        )
         own = store_days(args.store_root, args.model_variant, "own")
-        madrigal = store_days(args.store_root, args.model_variant, "madrigal")
+        madrigal = store_days(
+            args.store_root,
+            args.model_variant,
+            "madrigal",
+            required_columns=required_columns,
+        )
         gap_days = madrigal_gap(own, madrigal)
         recoverable, unrecoverable = partition_recoverable(
             gap_days, args.madrigal_root, args.year

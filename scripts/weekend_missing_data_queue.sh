@@ -2,18 +2,23 @@
 # Fills the three bodies of data that keep JGR-MLC resubmission numbers from being
 # independently checkable against the prediction store, verified on 2026-08-21:
 #
-#   1. pretrained_stec/madrigal inference - 0 of 242 days.
-#      BLOCKED, not merely unscheduled: nothing in this codebase can write this
-#      partition today. src/compare_stec_vtec_gim.py skips Madrigal outright whenever
-#      the primary model is not a fine-tuned one, and the rebuilt
-#      stec.inference.run_inference raises on --dataset madrigal because nothing in
-#      stec/ reads Madrigal geometry as a model *input* yet (see that module's own
-#      docstring, and docs/revision/task_board.md S10/S11). This queue checks for the
-#      capability every run (missing_data_selection.py
-#      pretrained-madrigal-driver-available) and skips loudly rather than guessing at
-#      a command that does not exist - building the missing driver is a separate,
-#      reviewed engineering task, not something to improvise inside an unattended
-#      overnight run.
+#   1. pretrained_stec/madrigal inference - 1 of 242 days (DOY 122 only), and that one day
+#      is schema-incomplete, not a clean start on the partition. An ad hoc driver
+#      (logs/pretrained_stec_madrigal_inference.sh, gitignored, not part of this queue)
+#      wrote DOY 122 on 2026-08-25 and died starting DOY 123 with no completion, no
+#      error, and no surviving process - see predictions/pretrained_stec/madrigal/
+#      README.md for the full account. This queue's own capability check
+#      (missing_data_selection.py pretrained-madrigal-driver-available) still tests the
+#      old marker-based signal on src/compare_stec_vtec_gim.py and does not know that
+#      ad hoc driver exists, so body 1 below still reports itself skipped/blocked - that
+#      report is now stale in the same way the "0 of 242" figure was, and is left
+#      unchanged here on purpose (see the caution above this script's edit history: a
+#      logic change belongs in a session that has verified the queue is not running,
+#      done the design work, and can test it, not a comment-only pass). Before this
+#      queue's body 1 is wired to a real driver, that driver's day-selection must use
+#      missing_data_selection.py::store_days's schema-completeness option
+#      (`required_columns=`) rather than existence alone, or DOY 122 gets silently
+#      skipped forever exactly as the README describes.
 #
 #   2. finetuned_stec/madrigal - 235 of 242 days; the 7 missing are 2024 DOY
 #      199,200,201,202,224,229,294. Only 224/229/294 are recoverable: DOY 199-202 have

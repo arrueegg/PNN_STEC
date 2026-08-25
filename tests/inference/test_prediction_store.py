@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -179,6 +181,48 @@ def test_read_predictions_propagates_the_multi_year_guard(tmp_path):
         "pretrained_stec", "own", doys=[132], root=tmp_path, allow_multi_year=True
     )
     assert set(out["year"].unique()) == {2020, 2024}
+
+
+def test_write_leaves_no_temp_file_behind(tmp_path):
+    """A successful write's temp file must not survive the `os.replace`."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    assert [p.name for p in day_dir.iterdir()] == ["doy=132.parquet"]
+
+
+def test_in_progress_temp_file_is_invisible_to_every_reader(tmp_path):
+    """A reader hitting the partition mid-write (a real concern: the Madrigal local-time
+    re-inference job rewrites day files while other analyses read siblings) must never
+    see the temp name through any of the store's own glob-based readers."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    (day_dir / ".doy=133.parquet.tmp").write_bytes(b"not yet a complete parquet file")
+
+    assert ps.available_days("finetuned_stec", "own", root=tmp_path) == [(2024, 132)]
+    assert len(ps.day_paths("finetuned_stec", "own", root=tmp_path)) == 1
+
+
+def test_failed_write_leaves_no_final_file_and_no_stale_temp(tmp_path, monkeypatch):
+    """A write that dies partway through `to_parquet` (disk full, killed process) must
+    not leave a torn final file or an orphaned temp file behind.
+
+    The mock writes partial bytes to the temp path it was given *before* raising, so a
+    temp file genuinely exists on disk at the moment of failure - a mock that raises
+    immediately would make this test pass even if `_write_parquet_atomically`'s cleanup
+    were deleted, since there would be nothing on disk to clean up either way.
+    """
+
+    def raise_after_partial_write(self, path, *args, **kwargs):
+        Path(path).write_bytes(b"not a complete parquet file")
+        raise OSError("simulated disk-full failure mid-write")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", raise_after_partial_write)
+
+    with pytest.raises(OSError, match="simulated disk-full failure"):
+        ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    assert list(day_dir.iterdir()) == []
 
 
 def test_available_days_supports_resume(tmp_path):

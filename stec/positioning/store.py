@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import re
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
@@ -131,6 +132,28 @@ def missing_columns(
     return [col for col in columns if col not in df.columns]
 
 
+def _write_parquet_atomically(df: pd.DataFrame, path: Path) -> None:
+    """Write `df` to `path` without ever exposing a partially-written file.
+
+    Same fix as `prediction_store._write_parquet_atomically`: write to a temp file in
+    `path`'s own directory, then `os.replace` it into place (same filesystem, so the
+    replace is atomic). The temp name starts with "." rather than the partition's own
+    "doy=" prefix, so `day_paths`/`available_days`'s `year=*/doy=*.parquet` glob cannot
+    match it. The PID is embedded in the name too, so two concurrent writers to the
+    same partition get distinct temp files instead of one clobbering the other's
+    in-progress write out from under it. On any failure - including inside
+    `to_parquet` itself - the temp file is removed and the exception re-raised, so a
+    crashed write leaves neither a stale temp nor a corrupt final file.
+    """
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        df.to_parquet(temp_path, index=False, compression="snappy")
+        os.replace(temp_path, path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 def write_epochs(
     df: pd.DataFrame,
     method: str,
@@ -176,7 +199,7 @@ def write_epochs(
 
     path = store_path(method, weighting, year, doy, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(path, index=False, compression="snappy")
+    _write_parquet_atomically(out, path)
 
     absent = missing_columns(out)
     logger.info(

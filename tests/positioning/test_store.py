@@ -120,6 +120,47 @@ def test_round_trip_preserves_values(tmp_path):
     assert set(out["doy"].unique()) == {183}
 
 
+def test_write_leaves_no_temp_file_behind(tmp_path):
+    """Same atomic-write contract as `prediction_store` - see that module's test for
+    the incident this guards against (a live job rewriting day files that other
+    analyses read concurrently)."""
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 183, root=tmp_path)
+    day_dir = tmp_path / "STEC" / "iono" / "year=2024"
+    assert [p.name for p in day_dir.iterdir()] == ["doy=183.parquet"]
+
+
+def test_in_progress_temp_file_is_invisible_to_every_reader(tmp_path):
+    ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 183, root=tmp_path)
+    day_dir = tmp_path / "STEC" / "iono" / "year=2024"
+    (day_dir / ".doy=184.parquet.tmp").write_bytes(b"not yet a complete parquet file")
+
+    assert ps.available_days("STEC", "iono", root=tmp_path) == [(2024, 183)]
+    assert len(ps.day_paths("STEC", "iono", root=tmp_path)) == 1
+
+
+def test_failed_write_leaves_no_final_file_and_no_stale_temp(tmp_path, monkeypatch):
+    """A write that dies partway through `to_parquet` must not leave a torn final file
+    or an orphaned temp file behind.
+
+    The mock writes partial bytes to the temp path it was given *before* raising, so a
+    temp file genuinely exists on disk at the moment of failure - a mock that raises
+    immediately would make this test pass even if `_write_parquet_atomically`'s cleanup
+    were deleted, since there would be nothing on disk to clean up either way.
+    """
+
+    def raise_after_partial_write(self, path, *args, **kwargs):
+        Path(path).write_bytes(b"not a complete parquet file")
+        raise OSError("simulated disk-full failure mid-write")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", raise_after_partial_write)
+
+    with pytest.raises(OSError, match="simulated disk-full failure"):
+        ps.write_epochs(epoch_frame(), "STEC", "iono", 2024, 183, root=tmp_path)
+
+    day_dir = tmp_path / "STEC" / "iono" / "year=2024"
+    assert list(day_dir.iterdir()) == []
+
+
 def test_station_is_normalised_to_uppercase(tmp_path):
     ps.write_epochs(epoch_frame(), "STEC", "elev", 2024, 132, root=tmp_path)
     out = ps.read_epochs("STEC", "elev", doys=[132], root=tmp_path)

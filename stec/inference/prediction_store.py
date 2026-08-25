@@ -32,6 +32,7 @@ is a sum or a count.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -151,6 +152,34 @@ def missing_columns(
     return [col for col in columns if col not in df.columns]
 
 
+def _write_parquet_atomically(df: pd.DataFrame, path: Path) -> None:
+    """Write `df` to `path` without ever exposing a partially-written file.
+
+    Writes to a temp file in the same directory as `path`, then `os.replace`s it into
+    place - same filesystem, so the replace is atomic. A reader that globs
+    `year=*/doy=*.parquet` (`day_paths`, `available_days`) mid-write sees either the
+    complete old file, the complete new file, or nothing, never a torn one. The temp
+    name starts with "." rather than the partition's own "doy=" prefix, so it cannot
+    match that glob pattern at all, dotfile-hiding aside. The PID is embedded in the
+    name too, so two concurrent writers to the same day-file (a real shape: the
+    Madrigal local-time re-inference job and a manual backfill both target
+    `finetuned_stec/madrigal`) get distinct temp files rather than one clobbering the
+    other's in-progress write - `path.with_name(f".{path.name}.tmp")` alone was
+    deterministic, so the loser of that race would see its own temp file vanish under
+    it mid-write and fail with a confusing `FileNotFoundError` from `os.replace`. On any
+    failure - including a failure inside `to_parquet` itself - the temp file is removed
+    and the exception is re-raised, so a crashed write never leaves a stale temp or a
+    corrupt final file.
+    """
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        df.to_parquet(temp_path, index=False, compression="snappy")
+        os.replace(temp_path, path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 def write_predictions(
     df: pd.DataFrame,
     model_variant: str,
@@ -202,7 +231,7 @@ def write_predictions(
 
     path = store_path(model_variant, dataset, year, doy, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(path, index=False, compression="snappy")
+    _write_parquet_atomically(out, path)
 
     absent = missing_columns(out)
     expensive_gaps = [col for col in EXPENSIVE_TO_RECOVER if col in absent]

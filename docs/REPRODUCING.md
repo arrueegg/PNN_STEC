@@ -81,6 +81,16 @@ python -m stec.cli manifest --strict
 python -m stec.cli runs --experiments experiments --output multiday_results/run_index.csv
 ```
 
+The root `requirements.txt` is the exact pinned environment the paper's numbers were
+produced with, and is the one to use if `pip install -e .`'s unpinned floors ever resolve
+to something that behaves differently (`pip install -r requirements.txt` before the
+editable install). It also matters for two packages `pip install -e .` alone used to
+miss entirely: `spacepy` (geographic <-> solar-magnetic coordinate transforms) and
+`cartopy` (Figure 2's ground track map) are both real runtime dependencies —
+`coordinate_transforms.py` degrades silently to a geographic-coordinate placeholder
+without spacepy, and `manuscript_figures.py` crashes outright without cartopy — and are
+now declared in `pyproject.toml` alongside everything else.
+
 Every result the paper reports is a declared `Stage` in `stec/pipeline/stages.py`: what it
 reads, what it writes, which reviewer comment it answers, and the minimum it must produce to
 count as done. Stage order there is significant — `repair_gim_baseline` must run before
@@ -184,14 +194,20 @@ authors; not distributed with this release):
   `.pipeline/*.json` record naming the commit and inputs that produced each one;
 - retraining, given the raw STEC database and OMNI indices (the pretrained model: 150
   epochs on the full multi-year set; each daily fine-tune: 258 separate runs) — **but not
-  a byte-for-byte reproduction of any released checkpoint.** `stec.training.run_training`
-  trains every configured epoch and saves the final weights; it does not port
-  `src/training/base_trainer.py`'s best-validation-loss checkpoint selection or early
-  stopping. The 3,583 published checkpoints were each selected as the best epoch of its
-  run, not the last, so a rebuilt run converges to an equivalent model, not the same
-  weights. This is a deliberate scope decision, not a gap to be closed later — see
-  `stec/analysis/divergences.py` for the same statement in the register that tracks
-  known rebuilt-vs-legacy differences;
+  a proven byte-for-byte reproduction of any released checkpoint.**
+  `stec.training.run_training` now calls `stec.training.checkpointing.
+  fit_with_best_checkpoint`, which ports `src/training/base_trainer.py`'s
+  best-validation-loss checkpoint selection and early stopping — the same strict-`<`
+  comparison and `patience`-counted stop, `patience` read from `config[mode]["patience"]`
+  exactly as the legacy code reads it. The 3,583 published checkpoints were each selected
+  as the best epoch of its run, not the last, and a rebuilt run now selects a checkpoint
+  the same way. What is not yet established is that this produces the same result end to
+  end: no `stec/`-trained checkpoint has been compared against a shipped one, because a
+  full 150-epoch pretrain through this path has never been run to completion (wandb
+  logging remains a separate, still-`src/`-only gap). Until that comparison exists, treat
+  the checkpoint-selection mechanism as ported and the equivalence claim as unproven, not
+  as "a rebuilt run converges to the same weights" — see `stec/analysis/divergences.py`
+  for the same statement in the register that tracks known rebuilt-vs-legacy differences;
 - the positioning evaluation, given RINEX, orbit/clock/ERP/attitude products and a working
   PPPx build (see the PPPx SuiteSparse note in the project `CLAUDE.md` — Debian 13 needs a
   local compat runtime, fetched by `positioning/positioning_eval/lib_compat/fetch_libs.sh`).
