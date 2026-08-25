@@ -379,6 +379,40 @@ these gates do.
   it (and, for the 2 permanent skips, until the underlying blocker — sharing an implementation
   with itself, or a live-rewritten input — is no longer true).
 
+- **Gate F (figures)** — a second, sibling gate at the same layer, `verification/
+  gate_f_figures.py`. `gate_f_analysis_equivalence.py` proves an analysis reproduces its
+  predecessor; nothing checked that a *figure* actually plots what its analysis produced —
+  an independent audit recorded this as its own gap (finding F3) once every `stec/viz/`
+  figure generator existed but none of them had ever been checked for correctness, only for
+  running without crashing. This gate closes that gap for a declared subset (10 checks: daily
+  RMSE/MAE improvement behind Tables 3–4, the four positioning figures behind Table 5, two of
+  the pretrained-model diagnostic figures, one stratified-comparison family, and Figure 11
+  declared as a structural skip — its input analysis has never been run at full coverage) —
+  not all ~40 figure kinds `stec/viz/` produces, which was explicitly out of scope for this
+  pass.
+
+  It compares each figure's plotted-data CSV (`<name>.csv`, written by every `_save()` helper
+  alongside the PNG) against an **independent recomputation from the upstream artifact** —
+  plain pandas/numpy, never by calling the `stec.viz` function under test. Rendered pixels
+  were considered and rejected as the comparison target: matplotlib version, backend and font
+  differences swamp any signal, the port deliberately changed some styling (seaborn's
+  `colorblind` palette → `APPROACH_COLORS`), and the manuscript's embedded PNGs have no
+  recorded provenance to diff against in the first place. Because the two sides here are
+  unrelated code paths rather than two implementations of the same script, this gate merges
+  each comparison on declared join keys instead of comparing by row position the way
+  `gate_f_analysis_equivalence.compare_frames` does — a row present on only one side is folded
+  into the difference map as its own `_row_count` entry rather than silently vanishing inside
+  a smaller matched-only slice. Otherwise it reuses the same three-valued verdict
+  (`MATCH`/`DIVERGED`/`FAIL`) and the same 0-row guard.
+
+  **What a `MATCH` here proves, and what it does not.** It proves the figure plots the values
+  its declared upstream source contains — that the column read, the filter applied, and the
+  join performed are the ones that produce the number on the axis. It does **not** prove that
+  upstream source is scientifically right (`daily_metrics`, `positioning_coverage`,
+  `stratified_comparison` and `pretrained_test_diagnostics` each have their own correctness
+  questions this gate is downstream of), and it does not check styling, layout, colour choice,
+  or that the right figure was drawn for the right table.
+
 ---
 
 ## Where this leaves a new contributor
