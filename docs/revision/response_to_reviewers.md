@@ -31,13 +31,38 @@ same-day data. ⏳ text
 
 ## Reviewer 1
 
-### R1.2 — Bayesian only in the output layer ⏳ evidence
-Correct, and we will relabel the small epistemic component in Section 4.2 as a **limitation of
-the last-layer design** rather than a finding. A fully-Bayesian variant is implemented; its two
-existing runs are not usable evidence (half the hidden width, 10× the learning rate, stopped at
-epochs 10 and 7 of 150). A matched run is under way; we will report both accuracy and the
-magnitude of the epistemic component, and note that the published architecture initialises its
-output bias to the dataset mean STEC while the fully-Bayesian variant does not.
+### R1.2 — Bayesian only in the output layer ✅
+Correct, and we relabel the small epistemic component in Section 4.2 as a **limitation of
+the last-layer design** rather than a finding. The fully-Bayesian variant (`ResNet_BNN_NLL`,
+Bayesian residual blocks plus head) is now pretrained with matched initialisation and otherwise
+identical hyperparameters to the paper model, evaluated on the same 10,000,000-observation test
+set:
+
+| | Paper model (output-layer Bayesian) | Fully Bayesian, matched init |
+|---|---|---|
+| RMSE | 11.67 | 15.54 (1.33×) |
+| R² | 0.897 | 0.818 |
+| mean predicted uncertainty | 7.14 TECU | 19.57 TECU (2.74×) |
+| uncertainty–error correlation | 0.568 | **0.575** |
+
+The fully Bayesian variant is substantially *less* accurate (RMSE 1.33× the paper model's), so
+a Bayesian backbone is not a free improvement; a first comparison run with mismatched
+output-layer initialisation overstated that gap at 1.69× RMSE, and correcting the
+initialisation closed about half of it. Its uncertainty–error correlation is marginally
+*better* than the paper model's (0.575 against 0.568) — ranking ability is not what
+last-layer-only Bayesian costs. What it costs is calibration: predicted uncertainty is 2.74×
+the paper model's against only a 1.33× RMSE increase, i.e. inflated well past what the accuracy
+loss justifies.
+
+**A second diagnostic asks whether the paper model's own epistemic under-dispersion (1σ
+coverage 9.4% against 68.3% nominal) is a scale problem or a structural one.** A post-hoc
+multiplier `s* = 4.66` on the epistemic term alone restores 1σ coverage to nominal, while the
+uncertainty–error Spearman correlation is essentially unchanged (0.5609 at s = 1 → 0.5625 at
+s\*, if anything improving). **The deficit is scale, not structure**: a single post-hoc
+multiplier repairs coverage without costing ranking ability, so the case for a retrain with a
+different `prior_sigma`/KL weight rests on getting that scale from training rather than on a
+post-hoc fix being unable to work. Detail: `docs/revision/r22_fully_bayesian_analysis.md`;
+sweep data in `multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/`.
 
 ### R1.3 — comparability of STEC products ✅ (accepted as a limitation)
 **The reviewer is right, and we accept the point rather than argue it.** GNSS-derived STEC, IGS
@@ -76,8 +101,8 @@ needs no mapping at all.** We regard that as a property of the method rather tha
 path, not a measure of the GIM's intrinsic quality, and we will relabel it in the text to say so.
 
 **3. Madrigal is the only place a second reference enters, and we downgrade what we claim from
-it.** Model and GIM disagree with Madrigal the same way at 67 stations: both exceed it at 96% of
-stations, Spearman ρ = +0.697 between their per-station offsets, and removing a per-station
+it.** Model and GIM disagree with Madrigal the same way at 67 stations: both exceed it at 95.5%
+of stations, Spearman ρ = +0.698 between their per-station offsets, and removing a per-station
 constant drops the model's Madrigal RMSE from 15.05 to 11.13 TECU — **45% of that column is a
 station-dependent reference offset**. The mean offset, 6.69 TECU, is 24× the reference's own
 stated slant precision (0.28 TECU), so it is systematic, not noise. We therefore present Table 4's
@@ -88,6 +113,13 @@ the offset-removed value beside it.
 a sparse arm of large-offset stations (+0.617 restricted to |offset| < 15 TECU, n = 53), which is
 why we quote the rank correlation and the sign agreement instead. `leverage_check.csv` has every
 cut-off.
+
+*[All Madrigal-derived numbers in this section are computed from the pre-correction Madrigal
+store — the published Madrigal comparison used receiver-longitude local time
+(`local_time_longitude="station"`) where every other convention in this codebase uses IPP
+longitude, an erratum, not a deliberate choice. A re-inference under the IPP convention is
+under way; these numbers will be regenerated once it and the downstream Madrigal analyses
+re-run.]*
 
 **4. What Section 2 will gain.** The reference processing is currently described only as
 CamaliotGNSS with CAS DCB. From the database: DCBs are applied per day — one receiver DCB per
@@ -168,49 +200,63 @@ by a constant in practice, which is why it is not a bar.
 
 **We will moderate the manuscript's claim accordingly.** Uncertainty weighting yields a small
 but consistent gain, and only where the uncertainty is genuinely observation-level and
-model-derived; the majority of the ~31% improvement over IGS GIM comes from the STEC
-correction itself.
+model-derived; the majority of the improvement over IGS GIM comes from the STEC correction
+itself — ~20.3% on the matched, apples-to-apples population (N = 7,741, both weightings
+solved) and ~24.4% on the full recovered population (N = 8,636 vs 10,837), both below the
+abstract's previously reported 30.9%.
 
 ### R1.6 — calibration diagnostics ✅
 Conceded: monotonic association is not calibration. Treating each prediction as the Gaussian
-the training loss assumes, on the own test set (43.6 M observations):
+the training loss assumes, on the own test set (475.1 M observations, full 242-day store):
 
 | nominal | empirical |
 |---|---|
-| 50% | 48.8% |
-| 68% | 65.0% |
-| 90% | 84.0% |
+| 50% | 49.9% |
+| 68% | 65.9% |
+| 90% | 84.3% |
 | 95% | 88.9% |
 
 The uncertainties are close to calibrated centrally and over-confident in the tails. CRPS is
-**2.80 against 3.11** for a constant-sigma model, so the per-observation uncertainty carries
-about 10% on a proper score. Coverage degrades under storms (95% → 87.6%, against 89.8% quiet).
+**2.89 against 3.24** for a constant-sigma model, so the per-observation uncertainty carries
+about 11% on a proper score. Coverage degrades under storms (95% → 87.8%, against 89.1% quiet).
 
 **On dataset shift we will be explicit about what the Madrigal numbers do and do not show.**
 Coverage there is far below nominal, but so is any estimator's against a reference carrying a
 systematic per-station offset: correcting for the offset established in R1.3 moves 95%
-coverage from 63.8% to 77.0%. We therefore do not present the Madrigal calibration as evidence
+coverage from 61.4% to 73.8%. *[Madrigal figures in this paragraph are computed from the
+pre-correction Madrigal store, under the old receiver-longitude local-time convention; they
+will be regenerated once the local-time re-inference and downstream Madrigal analyses re-run.]*
+We therefore do not present the Madrigal calibration as evidence
 about the model's out-of-distribution behaviour. The diagnostics that hold the processing
 chain fixed — the storm/quiet split and the station-distance analysis — are the ones we use
 for that.
 
 ### R1.7 — convergence, tails, vertical/horizontal, storm-time ✅
-*Storm-time.* 39 storm days (daily min Dst ≤ −50 nT) of 242. Direct STEC retains **+31.9% over
-IGS GIM in quiet conditions and +26.3% during storms**, and degrades least of the machine-learning
-models (+21.1% quiet→storm, against +46.6% for the pretrained-only variant).
+*Storm-time.* 39 storm days (daily min Dst ≤ −50 nT) of 242. Direct STEC retains **+25.4% over
+IGS GIM in quiet conditions and +19.6% during storms**, and degrades least of the machine-learning
+models (+19.6% quiet→storm, against +41.2% for the pretrained-only variant). These figures are
+smaller than an earlier version of this document reported (+31.9%/+26.3%), because the
+2026-08-24 station-recovery sweep enlarged the evaluated positioning population; the advantage
+over IGS GIM holds in both regimes, at a reduced margin.
 
-*Tails.* Also best: p95 3.16 m against 4.11 m for IGS GIM, p99 5.08 against 5.67, and 13.7%
-of station-days above 2 m against 28.3%.
+*Tails.* Direct STEC remains best through the 95th percentile — p95 3.66 m against 4.10 m for
+IGS GIM — but at the very tail IGS GIM is now lower: p99 5.66 m against Direct STEC's 6.24 m, a
+reversal from an earlier, smaller population. 15.9% of Direct STEC station-days sit above 2 m,
+against 28.1% for IGS GIM.
 
-*Vertical vs horizontal.* Vertical error reduced 32% (0.92 m against 1.34 m), horizontal 28%.
+*Vertical vs horizontal.* Vertical error reduced 25% (1.00 m against 1.34 m), horizontal 22%
+(0.68 m against 0.87 m) — both smaller reductions than an earlier version of this document
+reported (32%/28%), again due to the enlarged post-recovery-sweep population.
 
 *Convergence time.* Not derivable from the stored solutions and not meaningful for the
 kinematic, daily-reprocessed single-frequency PPP used here; we will say so rather than
 report a quantity the processing strategy does not support.
 
 A methodological note we will include: without the 10 m outlier exclusion already used in
-Figure 12, 102 of 35,652 station-days (0.29%) dominate the quiet-period mean strongly enough
-to reverse the storm/quiet ordering.
+Figure 12, a small number of station-days out of the current 37,209 (grown from 35,652
+pre-recovery-sweep) dominate the quiet-period mean strongly enough to reverse the storm/quiet
+ordering *[the previously reported count, 102 station-days / 0.29%, has not been recomputed
+against the recovered population — no artifact currently supports that recount]*.
 
 ### R1.8 — observation-derived upper bound ⏳ provisional
 Applying the GNSS-derived reference STEC directly as the ionospheric correction gives **0.128 m**
@@ -295,7 +341,11 @@ freezing). We will make both more prominent.
 ### R2.8h — computational cost ✅
 Daily STEC fine-tuning: median 25 epochs, 9.0 s/epoch, 3.6 min/day, 15.4 GPU-hours over the
 242 test days. Inference: 8,605 observations/s at T = 100, i.e. 4.7 min per evaluation day.
-Pretraining ≈ 0.4 GPU-hours (scaled from the measured epoch cost). Hardware: RTX 4070 Ti.
+Pretraining: measured at ≈6.2 GPU-hours over 150 epochs (2.5 min/epoch, steady) — the pretrain
+draws 500,000 random rows with replacement from the full 103 GB training set every epoch and is
+I/O-bound (~7% GPU utilisation), so it does not scale from the fine-tune's cache-friendly
+per-epoch cost the way an earlier estimate (≈0.4 GPU-hours) assumed; that estimate was 16×
+low. Hardware: RTX 4070 Ti.
 
 ---
 
@@ -317,16 +367,18 @@ day's** global map. Twelve days of the 242-day 2024 test period are affected: **
 * The model's own predictions are unaffected — the network consumed the normalised value
   directly and never round-tripped it.
 * The VTEC + Mapping baseline is unaffected; it involves no date lookup.
-* **All positioning results are unaffected** — Table 5, Figures 12/13/A1/A2 and the ~31%
-  improvement claim. The positioning pipeline takes the day from its `--date` argument
+* **All positioning results are unaffected** — Table 5, Figures 12/13/A1/A2 and the headline
+  improvement claim (currently ~20.3% on the matched population, ~24.4% unmatched; see R1.5).
+  The positioning pipeline takes the day from its `--date` argument
   (`run_positioning_evaluation.py`), never from a data frame. This was verified explicitly.
 * Only the IGS GIM column of the STEC-domain comparison is wrong, on those 12 days.
 
 **Corrected numbers.** Table 4's IGS GIM entry moves from 8.56 to **≈8.31 TECU** on the own test
 set, so the Direct STEC advantage over IGS GIM falls from 19.1% to **≈16.7%**. On Madrigal the
-GIM entry moves from 15.64 to ≈15.50 TECU (advantage 6.1% → 5.2%). Four of the twelve days are
-recomputed exactly; the remaining eight are projected at the median unaffected daily RMSE and
-will be exact once the store covers them.
+GIM entry moves from 15.64 to ≈15.50 TECU (advantage 6.1% → 5.2%) *[computed from the
+pre-correction Madrigal store; to be regenerated once the local-time re-inference and downstream
+Madrigal analyses re-run]*. Four of the twelve days are recomputed exactly; the remaining eight
+are projected at the median unaffected daily RMSE and will be exact once the store covers them.
 
 The knock-on is the R1.4 activity stratification, whose conclusion **reverses** — see that
 section.

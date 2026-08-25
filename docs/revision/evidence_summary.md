@@ -31,24 +31,24 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R1.5 elevation vs uncertainty | **READY** | Final — already all 242 days. |
 | R1.7 storm, tails, components | **READY** | Final — already all 242 days. |
 | R2.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
-| R1.3 Madrigal reference offset | **READY** | 67 stations, 235/238 possible days. Quote Spearman +0.697 and 96% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. |
+| R1.3 Madrigal reference offset | **READY** | 67 stations, 235/238 possible days. Quote Spearman +0.698 and 95.5% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. Computed from the pre-correction Madrigal store (old local-time convention); a re-inference is under way. |
 | R1.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
 | R1.8 oracle bound | **PENDING** | 48/242 days and still moving. Framing is safe; numbers are not. Uses **elev** weighting and paired station-days, so it is not comparable with Table 5. |
 | R1.5 fixed-variance arm | **READY** | 242 days. Constant sigma is 11.5% *worse* than elevation weighting; the model's sigma is 2.6% better. |
 | R2.6 uncertainty vs error, fine-tuned | **READY** | Built; final once the store covers 242 days. |
-| R1.2 fully-Bayesian comparison | **PENDING** | Not run (~1 GPU-hour). Text can already concede the limitation. |
+| R1.2 fully-Bayesian comparison | **READY** | Done — matched-init retrain evaluated. Paper model RMSE 11.67 vs fully-Bayesian 15.54 (1.33×); uncertainty–error correlation marginally favours the fully-Bayesian arm (0.575 vs 0.568); epistemic-scale diagnostic shows the paper model's under-dispersion is scale, not structure. |
 | R1.4b Figure 4 stratified | **PENDING** | Pretrained pass is queued; the stratification itself is not built. |
 | Tables 3 & 4 corrected | **PENDING** | `daily_metrics.py` recomputes them from the store; exact only at 242/242 days. |
 | R1.6b uncertainty vs IONEX RMS | **READY** | Final on 43 days; will only firm up as the store grows. |
 | IGS GIM baseline correction | **ACTION NEEDED** | Table 4's GIM column and the R1.4 text must be updated before resubmission. |
 
-**So: 11 of 19 items can be written today**, including the framing change that matters most.
-Two more are provisional — safe to draft, worth rechecking the exact figures. Five need
-results that do not exist yet; draft around them and leave the numbers as placeholders.
+**So: 12 of 19 items can be written today**, including the framing change that matters most and,
+as of this pass, R1.2 (the fully-Bayesian comparison, now done — see below). Two more are
+provisional — safe to draft, worth rechecking the exact figures. Four need results that do not
+exist yet; draft around them and leave the numbers as placeholders.
 
-Nothing in the PENDING list is expected to *change direction* — the oracle will stay an order
-of magnitude below the models, and the fully-Bayesian run is expected to confirm rather than
-overturn the limitation in R1.2. They are missing precision, not missing answers.
+Nothing in the remaining PENDING list is expected to *change direction* — the oracle will stay
+an order of magnitude below the models. They are missing precision, not missing answers.
 
 ---
 
@@ -107,9 +107,13 @@ warmup epochs), the predictive-variance floor, and the output-bias initialisatio
 ### R2.8h — computational cost
 STEC daily fine-tune: median 25 epochs, 9.0 s/epoch, 3.6 min/day, **15.4 GPU-hours over 242
 days**. VTEC: 6.8 min/day, 19.4 GPU-hours. Inference: 8,605 observations/s at T = 100, i.e.
-4.7 min per evaluation day. Pretraining ≈ 0.4 GPU-hours (scaled from the measured epoch cost,
-not measured). Hardware: RTX 4070 Ti, 24 cores.
-`multiday_results/computational_cost/cost_summary.csv`
+4.7 min per evaluation day. Pretraining: **measured** at ≈6.2 GPU-hours over 150 epochs (2.5
+min/epoch, steady) — the pretrain draws 500,000 random rows with replacement from the full
+103 GB training set every epoch and is I/O-bound (~7% GPU utilisation), so it does not scale
+from the fine-tune's per-epoch cost; an earlier scaled estimate (≈0.4 GPU-hours) was 16× low.
+Hardware: RTX 4070 Ti, 24 cores.
+`multiday_results/computational_cost/cost_summary.csv` ·
+`docs/revision/manuscript_number_audit.md` (measured figure)
 
 ### R2.8f, R2.8g — fine-tuning details
 Already in the manuscript (Sec 3.4: training stations only; Sec 3.3: all parameters updated,
@@ -117,20 +121,42 @@ no freezing). Make more prominent; no new work.
 
 ---
 
-### R1.2 — Bayesian only in the output layer — **PENDING**
-Accepted as a limitation; relabel the small epistemic component in Sec 4.2 accordingly.
-A matched fully-Bayesian run (`config/config_A4_fully_bayesian.yaml`, identical except
-`model_type: ResNet_BNN_NLL`) is **pending** (~1 GPU-hour). Confound to report: the published
-architecture initialises its output bias to the dataset mean STEC, the fully-Bayesian variant
-does not.
+### R1.2 — Bayesian only in the output layer — **DONE**
+Accepted as a limitation; relabel the small epistemic component in Sec 4.2 accordingly. A
+matched fully-Bayesian run (`ResNet_BNN_NLL`, Bayesian residual blocks plus head, identical
+hyperparameters and — after a corrected retrain — identical output-layer initialisation to the
+paper model) is now evaluated on the same 10 M-observation test set: RMSE 15.54 against the
+paper model's 11.67 (1.33×), R² 0.818 vs 0.897, mean predicted uncertainty 19.57 TECU vs 7.14
+(2.74×). The fully-Bayesian variant is substantially less accurate; its uncertainty–error
+correlation is marginally *better* (0.575 vs 0.568), so what last-layer-only Bayesian costs is
+calibration, not ranking. A first comparison with mismatched initialisation overstated the
+accuracy gap (1.69× RMSE); matching it closed about half the gap.
+
+**Epistemic-scale diagnostic strengthens the answer**: sweeping a post-hoc scalar `s` on the
+paper model's epistemic term alone, `s* = 4.66` restores its badly under-dispersed 1σ coverage
+(9.4% vs 68.3% nominal) to nominal, while the uncertainty–error Spearman correlation is
+essentially unchanged (0.5609 at s=1 → 0.5625 at s\*, marginally improving). **The deficit is
+scale, not structure** — a single post-hoc multiplier repairs coverage without costing ranking
+ability.
+`docs/revision/r22_fully_bayesian_analysis.md` ·
+`multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/*.csv`.
+Note: the analysis file names itself "R2.2"; in the response letter's numbering the
+fully-Bayesian question is **R1.2** (R2.2 is the solar-maximum attribution, a different
+question, below) — use R1.2 consistently when citing this result.
 
 ### R1.3 — products may have inconsistent bias references — **PROVISIONAL** ✅ decisive
 On the Madrigal geometries there are three independent estimates of the same slant path: the
 model, the IGS GIM mapped to that line of sight, and Madrigal. The model and the GIM share
-nothing in their construction, yet **corr(offset_model, offset_gim) = +0.946** over 66
-stations, both exceed Madrigal at 91% of stations, mean offsets +5.63 and +7.76 TECU.
-Removing a per-station constant drops the model's Madrigal RMSE from 13.64 → 10.10 TECU:
-**45% of the Table 4 variance is a reference offset, not model error.**
+nothing in their construction, yet Spearman ρ = **+0.698** between their per-station offsets
+over **67** stations, and both exceed Madrigal at **95.5%** of stations. The Pearson
+correlation over all 67 is +0.925, but that is inflated by a sparse arm of large-offset
+stations — restricted to |offset| < 15 TECU it falls to +0.617 at n = 53, which is why the
+rank correlation and sign agreement are quoted instead. Removing a per-station constant drops
+the model's Madrigal RMSE from **15.05 → 11.13 TECU** (mean |offset| 6.69 TECU): **45% of the
+Table 4 variance is a reference offset, not model error.**
+*[All Madrigal-derived numbers in this section are computed from the pre-correction Madrigal
+store, under the old receiver-longitude local-time convention; they will be regenerated once
+the local-time re-inference and downstream Madrigal analyses re-run.]*
 `multiday_results/madrigal_reference_offset/` ·
 `plots/revision/stec_finetuned_2024/madrigal_reference_offset_notitle.png`
 
@@ -142,8 +168,8 @@ retracted.
 
 | Dst bin | days | Direct STEC | Pretrained | VTEC+Map | IGS GIM | Direct vs GIM |
 |---|---|---|---|---|---|---|
-| quiet (> −30 nT) | 165 | 6.78 | 12.69 | 8.95 | 8.30 | +18.4% |
-| weak (−50 to −30) | 38 | 7.07 | 13.91 | 8.98 | 8.63 | +18.0% |
+| quiet (> −30 nT) | 165 | 6.78 | 12.69 | 8.95 | 8.14 | +16.7% |
+| weak (−50 to −30) | 38 | 7.07 | 13.90 | 8.98 | 8.51 | +16.9% |
 | moderate (−100 to −50) | 25 | 7.41 | 15.62 | 9.10 | 8.65 | +14.3% |
 | intense (≤ −100) | 14 | **8.04** | 24.26 | 9.59 | 9.02 | **+10.9%** |
 
@@ -151,8 +177,9 @@ The claim that survives: Direct STEC is most accurate in every bin and degrades 
 to intense (+19%, against +9% VTEC + Mapping, +9% IGS GIM, +91% pretrained-only). F10.7
 terciles: +20/+15/+17%. Bins: 14/25/38/165 days (Dst), 81/81/80 (F10.7).
 
-⚠️ The quiet row still holds 8 days awaiting recomputation; expect it to fall ~1.5 points, which
-narrows the spread further. Intense/moderate/weak are final.
+All 242 days are now in place, including the 12 whose GIM was recomputed — 8 of them in the
+quiet bin, which is why that row moved from +18.4% to +16.7% (and weak from +18.0% to +16.9%)
+while moderate and intense did not change. All four rows are final.
 `multiday_results/activity_stratification/` ·
 `plots/revision/stec_finetuned_2024/activity_{dst,f107}_{absolute,improvement}_notitle.png`
 
@@ -210,7 +237,9 @@ both are written.
 `compare_stec_vtec_gim.py` picked the IONEX file from a `doy` that had round-tripped through
 float32 normalisation, so a truncating cast loaded the previous day's map on **DOY 184–189 and
 225–230** (12 of 242 days). Table 4's IGS GIM entry moves 8.56 → **≈8.31 TECU** (own) and
-15.64 → ≈15.50 (Madrigal); the Direct STEC advantage over GIM falls 19.1% → ≈16.7%. Model and
+15.64 → ≈15.50 (Madrigal, *computed from the pre-correction Madrigal store — to be regenerated
+once the local-time re-inference re-runs*); the Direct STEC advantage over GIM falls
+19.1% → ≈16.7%. Model and
 VTEC baselines untouched; **all positioning results untouched** (the positioning pipeline takes
 the day from `--date`). Fixed at source; `src/analysis/repair_gim_baseline.py` repairs stored
 days and reproduces the unaffected ones to 1.5e-5 TECU.
@@ -220,21 +249,25 @@ days and reproduces the unaffected ones to 1.5e-5 TECU.
 Paired station-days, uncertainty vs elevation weighting: Direct STEC **+3.0%** (better on
 55.9% of station-days), VTEC + Mapping −2.7%, IGS GIM −0.1%.
 **Moderate the manuscript claim accordingly**: uncertainty weighting gives a small real gain
-only where the uncertainty is observation-level and model-derived; the bulk of the ~31%
-improvement over GIM comes from the STEC correction itself, not the weighting.
+only where the uncertainty is observation-level and model-derived; the bulk of the improvement
+over GIM comes from the STEC correction itself, not the weighting — ~20.3% on the matched
+population (N = 7,741) and ~24.4% on the full recovered, unmatched population (N = 8,636 vs
+10,837), both below the abstract's previously reported 30.9%.
 The fixed-variance arm is **running** (full 242 days).
 `multiday_results/weighting_ablation/paired.csv` ·
 `plots/revision/positioning_2024/weighting_ablation_notitle.png`
 
 ### R1.6 — calibration diagnostics — **PROVISIONAL** ✅
-Conceded: monotonic association is not calibration. On the own test set (43.6 M observations)
-the uncertainties are close to calibrated centrally and over-confident in the tails —
-50% nominal → 48.8% empirical, 90% → 84.0%, 95% → 88.9%. **CRPS 2.80 against 3.11 for a
-constant sigma**, so the per-observation uncertainty is worth ~10% on a proper score.
-Coverage degrades under storms (95% → 87.6% vs 89.8% quiet).
+Conceded: monotonic association is not calibration. On the own test set (475.1 M observations,
+full 242-day store) the uncertainties are close to calibrated centrally and over-confident in
+the tails — 50% nominal → 49.9% empirical, 68% → 65.9%, 90% → 84.3%, 95% → 88.9%. **CRPS 2.89
+against 3.24 for a constant sigma**, so the per-observation uncertainty is worth ~11% on a
+proper score. Coverage degrades under storms (95% → 87.8% vs 89.1% quiet).
 
 ⚠️ **The Madrigal calibration figures are largely a reference artefact** — see R1.3. Coverage
-at 95% goes 63.8% → 77.0% once the per-station offset is removed. **Do not cite the Madrigal
+at 95% goes 61.4% → 73.8% once the per-station offset is removed *[computed from the
+pre-correction Madrigal store; to be regenerated once the local-time re-inference and
+downstream Madrigal analyses re-run]*. **Do not cite the Madrigal
 calibration as evidence about out-of-distribution uncertainty.** The claims that hold the
 processing chain fixed — storm/quiet, and station distance — are the ones that carry
 generalisation arguments.
@@ -242,16 +275,22 @@ generalisation arguments.
 `plots/revision/stec_finetuned_2024/calibration_{coverage,pit}_notitle.png`
 
 ### R1.7 — convergence, tails, vertical/horizontal, storm-time ✅
-*Storm:* Direct STEC keeps **+31.9% over GIM in quiet and +26.3% in storm** conditions, and
-degrades least of the ML models (+21.1% quiet→storm, against the pretrained variant's +46.6%).
-*Tails:* also best — p95 3.16 m vs GIM 4.11 m, p99 5.08 vs 5.67, and 13.7% of station-days
-above 2 m against GIM's 28.3%.
-*Components:* vertical error cut 32% (0.92 m vs 1.34 m), horizontal 28%.
+*Storm:* Direct STEC keeps **+25.4% over GIM in quiet and +19.6% in storm** conditions, and
+degrades least of the ML models (+19.6% quiet→storm, against the pretrained variant's +41.2%).
+Smaller than an earlier version of this document (+31.9%/+26.3%) because the 2026-08-24
+station-recovery sweep enlarged the evaluated population; the advantage holds in both regimes.
+*Tails:* best through p95 — 3.66 m vs GIM 4.10 m — but IGS GIM's p99 is now lower than Direct
+STEC's: 5.66 m vs 6.24 m, a reversal from the earlier, smaller population. 15.9% of
+station-days above 2 m against GIM's 28.1%.
+*Components:* vertical error cut 25% (1.00 m vs 1.34 m), horizontal 22% (0.68 m vs 0.87 m) —
+both smaller than an earlier version of this document (32%/28%), same population change.
 *Convergence time:* not derivable from the stored solutions and not meaningful for kinematic,
 daily-reprocessed SF-PPP — decline that sub-point explicitly.
-⚠️ Methodological note worth including: without the paper's own 10 m outlier rule, 102 of
-35,652 station-days (0.29%) dominate the quiet-period mean enough to **reverse** the
-storm/quiet ordering.
+⚠️ Methodological note worth including: without the paper's own 10 m outlier rule, a small
+number of station-days out of the current 37,209 (grown from 35,652 pre-recovery-sweep)
+dominate the quiet-period mean enough to **reverse** the storm/quiet ordering *[the previously
+reported count, 102 station-days / 0.29%, has not been recomputed against the recovered
+population — no artifact currently supports that recount]*.
 `multiday_results/{storm_stratification,positioning_robustness,positioning_summary}/` ·
 `plots/revision/positioning_2024/{storm_positioning_*,positioning_tail}_notitle.png`
 
@@ -280,7 +319,6 @@ GIM arm at max |Δ| = 0.0000 m over 45 station-days.
 | GIM repair on the remaining 8 affected days | waits on the store; re-run `repair_gim_baseline.py --apply`, then `activity_stratification.py` |
 | Regenerate daily metrics from the store | replaces `all_results.csv`, retires the repair patch in `activity_stratification.py` |
 | R2.6 uncertainty vs error, fine-tuned | pending, needs the store |
-| R1.2 fully-Bayesian comparison | pending, ~1 GPU-hour |
 | R1.4b Figure 4 stratified (pretrained) | pending, ~30 GPU-min |
 
 Numbers above are from the current data. When the jobs finish, `build_all.py --figures`
