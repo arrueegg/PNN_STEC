@@ -12,12 +12,26 @@ trained rather than a single representative run.
 Two numbers in this module cannot be recomputed on this or any other machine and are
 read as recorded values rather than re-measured:
 
-* **Pretraining wall-clock.** The pretraining run predates the per-epoch timestamp
-  logging that daily fine-tuning has, so there is no log to parse for it. Its cost is
-  estimated by scaling the measured fine-tuning epoch time by the pretraining epoch
-  count (from ``loss_history.csv``) - both stages share the architecture and 500,000
-  samples/epoch, only the batch size differs (1024 vs 512) - and is reported labelled
-  as an estimate, never presented as a measurement.
+* **Pretraining wall-clock (``MEASURED_PRETRAIN``).** The published pretraining run
+  predates the per-epoch timestamp logging that daily fine-tuning has, so it cannot be
+  recomputed from its own log. This used to be estimated by scaling the fine-tune's
+  measured epoch time by the pretrain's epoch count, which was wrong: the pretrain
+  draws 500,000 random rows *with replacement* from the full 103 GB training set every
+  epoch (I/O-bound, ~7% measured GPU utilisation) while a fine-tune reads one cached
+  day, so the two are not comparable and the scaled estimate came out 16x low (0.38
+  GPU-hours vs ~6.2 measured). Measured instead on 2026-08-24, on the ``ps0.466``
+  epistemic-scale retrain arm - same architecture and 500,000-samples/epoch subsample
+  regime as the paper's pretrain, only ``prior_sigma`` differs - from three consecutive
+  steady-state epoch banners once the run had warmed up
+  (``logs/epistemic_scale_retrain_ps0.466_train.log``: 18:46:15 -> 18:48:48 ->
+  18:51:18, ~2.5 min/epoch). See ``docs/revision/manuscript_number_audit.md``'s
+  "Pretrain cost: the scaled estimate is 16x low, now measured" section for the full
+  derivation. Pinned as a constant rather than parsed from that log at runtime, for the
+  same reason as ``MEASURED_INFERENCE`` below - the log is gitignored and lives only on
+  the training host - and additionally because that one file holds three separate
+  restarts of the arm, so an automatic parser would have to choose the right segment,
+  which is exactly the kind of silent judgement call that produced the 16x-low estimate
+  in the first place.
 * **Inference throughput (``MEASURED_INFERENCE``).** Timed once, on the reference
   machine that produced the paper's numbers (``HARDWARE`` below), for one full
   evaluation day of the own test set (2,426,735 observations) at T = 100 Monte Carlo
@@ -59,6 +73,14 @@ MEASURED_INFERENCE = {
     "seconds": 4.7 * 60,
 }
 HARDWARE = "NVIDIA GeForce RTX 4070 Ti (12 GB), 24 CPU cores"
+
+# Pretraining wall-clock, measured 2026-08-24 on the `ps0.466` epistemic-scale retrain
+# arm - not recomputable in this or any other session, see the module docstring.
+MEASURED_PRETRAIN = {
+    "epoch_minutes": 2.5,
+    "source": "docs/revision/manuscript_number_audit.md (measured 2026-08-24, "
+    "logs/epistemic_scale_retrain_ps0.466_train.log)",
+}
 
 DEFAULT_PRETRAIN_LOSS_HISTORY = paths.LEGACY_EXPERIMENTS / (
     "Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_"
@@ -159,27 +181,28 @@ def main() -> None:
     print("=== Daily fine-tuning, measured from per-epoch log timestamps ===")
     print(summary.round(2).to_string())
 
-    # Pretraining: same model and samples-per-epoch, so scale the measured fine-tune
-    # epoch cost by the epochs actually run. See the module docstring for why this is
-    # an estimate, not a measurement.
     epoch_seconds = stec["median_epoch_s"].median()
+
+    # Pretraining epoch count comes from the paper's own run (`loss_history.csv`); its
+    # per-epoch cost comes from `MEASURED_PRETRAIN`, a real measurement on a comparable
+    # arm - not from this fine-tune's epoch time. See the module docstring for why the
+    # two are not interchangeable and `MEASURED_PRETRAIN`'s comment for the source.
     pretrain_epochs = (
         len(pd.read_csv(args.pretrain_loss_history))
         if args.pretrain_loss_history.exists()
         else 0
     )
     if args.pretrain_loss_history.exists():
-        estimate_h = pretrain_epochs * epoch_seconds / 3600
+        measured_h = pretrain_epochs * MEASURED_PRETRAIN["epoch_minutes"] / 60
         print(
-            f"\n=== Pretraining (estimated, no timestamped log) ===\n"
+            f"\n=== Pretraining (measured, see module docstring) ===\n"
             f"epochs run: {pretrain_epochs}\n"
-            f"at the measured {epoch_seconds:.1f} s/epoch -> ~{estimate_h:.1f} GPU-hours\n"
-            "Estimate only: same architecture and 500k samples/epoch as fine-tuning,\n"
-            "but batch size 1024 vs 512, so the true cost is of this order, not exact."
+            f"at the measured {MEASURED_PRETRAIN['epoch_minutes']:.1f} min/epoch "
+            f"({MEASURED_PRETRAIN['source']}) -> ~{measured_h:.1f} GPU-hours"
         )
     else:
         logger.warning(
-            f"⚠️  {args.pretrain_loss_history} not found - skipping pretrain estimate"
+            f"⚠️  {args.pretrain_loss_history} not found - skipping pretrain cost"
         )
 
     inference_rate = MEASURED_INFERENCE["observations"] / MEASURED_INFERENCE["seconds"]
@@ -229,9 +252,11 @@ def main() -> None:
         rows.append(
             {
                 "item": "pretraining, 150 epochs",
-                "value": round(pretrain_epochs * epoch_seconds / 3600, 2),
+                "value": round(
+                    pretrain_epochs * MEASURED_PRETRAIN["epoch_minutes"] / 60, 2
+                ),
                 "unit": "GPU-hours",
-                "measured": "no - scaled from the measured fine-tune epoch cost",
+                "measured": "yes",
             }
         )
     pd.DataFrame(rows).to_csv(args.output_dir / "cost_summary.csv", index=False)

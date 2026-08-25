@@ -166,12 +166,11 @@ def test_main_omits_pretrain_row_when_loss_history_is_missing(
     assert any("not found" in message for message in caplog.messages)
 
 
-def test_main_reports_recorded_units_for_measured_and_estimated_items(
-    tmp_path, monkeypatch
-):
+def test_main_reports_recorded_units_for_measured_items(tmp_path, monkeypatch):
     """Pins the unit strings a reader of cost_summary.csv depends on, and confirms the
-    inference row reflects `MEASURED_INFERENCE` - the one number this module cannot
-    re-measure and instead reports as a recorded constant (see the module docstring)."""
+    inference row reflects `MEASURED_INFERENCE` and the pretrain row reflects
+    `MEASURED_PRETRAIN` - the two numbers this module cannot re-measure and instead
+    reports as recorded constants (see the module docstring)."""
     write_training_log(
         tmp_path
         / "per_day"
@@ -209,11 +208,11 @@ def test_main_reports_recorded_units_for_measured_and_estimated_items(
         cost_summary.loc["STEC daily fine-tune, total over all days", "unit"]
         == "GPU-hours"
     )
-    assert cost_summary.loc["pretraining, 150 epochs", "unit"] == "GPU-hours"
-    assert (
-        cost_summary.loc["pretraining, 150 epochs", "measured"]
-        == "no - scaled from the measured fine-tune epoch cost"
-    )
+    pretrain_row = cost_summary.loc["pretraining, 150 epochs"]
+    assert pretrain_row["unit"] == "GPU-hours"
+    assert pretrain_row["measured"] == "yes"
+    expected_pretrain_hours = 150 * cc.MEASURED_PRETRAIN["epoch_minutes"] / 60
+    assert float(pretrain_row["value"]) == pytest.approx(expected_pretrain_hours)
 
     inference_row = cost_summary.loc["inference throughput"]
     assert (
@@ -224,3 +223,48 @@ def test_main_reports_recorded_units_for_measured_and_estimated_items(
         cc.MEASURED_INFERENCE["observations"] / cc.MEASURED_INFERENCE["seconds"], 0
     )
     assert float(inference_row["value"]) == pytest.approx(expected_rate)
+
+
+def test_pretrain_row_uses_measured_epoch_rate_not_finetune_epoch_time(
+    tmp_path, monkeypatch
+):
+    """Regression test for the bug this stage used to ship: the pretrain row must come
+    from `MEASURED_PRETRAIN`, not from whatever the fine-tune logs happen to report.
+    Scaling from the fine-tune's epoch time was wrong (the pretrain is I/O-bound on a
+    500,000-row random resample every epoch, the fine-tune is not) and read 16x low -
+    0.38 GPU-hours instead of the ~6.2 actually measured. A fine-tune epoch time picked
+    deliberately far from `MEASURED_PRETRAIN['epoch_minutes']` must not move the
+    pretrain row at all."""
+    write_training_log(
+        tmp_path
+        / "per_day"
+        / "2024"
+        / "150"
+        / "temp_config_stec_2024_150_training.log",
+        datetime(2024, 6, 1, 10, 0, 0),
+        epoch_gaps_s=[500.0, 500.0],
+        max_epochs=30,
+    )
+    loss_history = tmp_path / "loss_history.csv"
+    pd.DataFrame({"epoch": range(150), "loss": [0.1] * 150}).to_csv(
+        loss_history, index=False
+    )
+    output_dir = tmp_path / "out"
+
+    run_main(
+        monkeypatch,
+        [
+            "--multiday-dir",
+            str(tmp_path),
+            "--pretrain-loss-history",
+            str(loss_history),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    cost_summary = pd.read_csv(output_dir / "cost_summary.csv").set_index("item")
+    pretrain_row = cost_summary.loc["pretraining, 150 epochs"]
+    assert pretrain_row["measured"] == "yes"
+    expected_hours = 150 * cc.MEASURED_PRETRAIN["epoch_minutes"] / 60
+    assert float(pretrain_row["value"]) == pytest.approx(expected_hours)

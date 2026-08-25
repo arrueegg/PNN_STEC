@@ -432,9 +432,22 @@ I/O-bound, not compute-bound, so a per-epoch cost measured on the fine-tune's mu
 cache-friendly read does not transfer.
 
 **Not in the manuscript** as far as a grep of `PNN_main.tex` shows — the cost figures the paper
-carries are the fine-tune ones, which were genuinely measured. Correct `cost_summary.csv`
-before it is ever quoted, and re-run `computational_cost` once an arm finishes, so the number
-comes from a real 150-epoch pretrain rather than either estimate.
+carries are the fine-tune ones, which were genuinely measured.
+
+**Fixed 2026-08-25, at the source, not just in this document.**
+`stec/analysis/computational_cost.py` no longer scales the fine-tune epoch time for the
+pretrain row at all: it now reads a hardcoded `MEASURED_PRETRAIN` constant (the same 2.5
+min/epoch basis measured above) and the module docstring records the derivation and why it
+cannot be recomputed automatically. `multiday_results/analyses/computational_cost/rebuilt/
+cost_summary.csv` was regenerated the same day and its `"pretraining, 150 epochs"` row now
+reads **6.25 GPU-hours**, `measured: yes` — the artifact this section used to say "was never
+regenerated" now carries the corrected figure. The legacy `pre_rebuild/cost_summary.csv`
+cited above is untouched by design (it is `src/`'s frozen output) and still reads 0.38; that
+difference is registered as `stec.analysis.divergences` entry #16
+(`docs/revision/divergences.md` §16) and declared as a targeted `expected_divergence` in
+`verification/gate_f_analysis_equivalence.py`'s `computational_cost` comparison, so Gate F
+does not flag it as an unexplained regression. `response_to_reviewers.md` and
+`evidence_summary.md` were updated to the ~6.2 GPU-hour figure alongside this fix.
 
 **Practical consequence**: three arms are ~19 h of training, not ~1.2 h. Any future plan that
 budgeted pretrains from the 0.38 figure is wrong by the same factor.
