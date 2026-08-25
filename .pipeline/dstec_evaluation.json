@@ -1,0 +1,40 @@
+{
+  "answers": "R1.3",
+  "canonical_for": "dSTEC (differential STEC) RMSE vs GIM, R1.3",
+  "caveats": [
+    "Tests the TEC gradient along a pass, not the absolute level - a low dSTEC error is evidence the model gets the pass *shape* right, not evidence about the absolute calibration Tables 3/4 report. Read model_abs_rmse_pooled/ gim_abs_rmse_pooled alongside the dSTEC numbers, never as a substitute.",
+    "Runs on finetuned_stec/own (--model-variant/--dataset default) - the scientifically sharper Madrigal comparison is parameterised and ready (see the module docstring) but blocked on the Madrigal local-time re-inference finishing first."
+  ],
+  "code": {
+    "commit": "fbac2fc59b392fc5579c09f21de911685845f405",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.dstec_evaluation --output-dir multiday_results/analyses/dstec_evaluation/rebuilt",
+  "description": "differential STEC (gradient-only) RMSE vs IGS GIM - cancels per-arc DCB/levelling offsets by construction, isolating the comparability concern from the model's own accuracy",
+  "duration_s": 269.2,
+  "fingerprint": "710726cdaed1c99e02ee9eda184957090759c6e312c9fcfdc3d5739a1f205990",
+  "inputs": {
+    "predictions/finetuned_stec/own": {
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787093614574123406,
+      "size": 40389607818
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/dstec_evaluation/rebuilt": {
+      "present": true,
+      "size": 98
+    },
+    "multiday_results/analyses/dstec_evaluation/rebuilt/pass_statistics.csv": {
+      "present": true,
+      "rows": 672542,
+      "sha256": "eaf8498780257afd34e3aae9dd94cef3a1140a0f73f22b8b50273378469f90aa",
+      "size": 180995242
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-25T09:37:04.451320+00:00",
+  "stage": "dstec_evaluation",
+  "supersedes": []
+}
