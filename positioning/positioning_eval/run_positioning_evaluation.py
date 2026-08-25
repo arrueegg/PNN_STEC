@@ -268,7 +268,13 @@ def process_single_station(
                 break
 
     if not rinex_file:
-        logger.warning(f"RINEX file not found for {station}")
+        # This is a positioning-time re-check, not the download itself - the actual
+        # cause (timeout / http_404 / auth_failure / other) was already logged, per
+        # station, at "Step 3: Downloading RINEX files" above.
+        logger.warning(
+            f"RINEX file not found for {station} in {rinex_dir} - see the "
+            "'Downloading RINEX files' step above for why the download failed"
+        )
         return results
 
     # Setup output directories
@@ -406,6 +412,20 @@ def main():
         help="Skip product/RINEX downloads (use existing files)",
     )
     parser.add_argument(
+        "--rinex_dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory holding (or to hold) RINEX observation files. Defaults to "
+            "<experiment>/positioning/evaluation/<date>/rinex. Pass a shared "
+            "directory (e.g. recover_day.py's geometry-stage rinex dir) to reuse "
+            "RINEX already downloaded there instead of re-fetching it for this "
+            "arm - download_rinex_file() skips any station/day already present. "
+            "When set, this directory is treated as caller-owned and is never "
+            "deleted by --no_cleanup's absence; the caller is responsible for it."
+        ),
+    )
+    parser.add_argument(
         "--no_cleanup",
         action="store_true",
         help="Do not clean up downloaded products and RINEX after processing (default is to clean up)",
@@ -482,8 +502,21 @@ def main():
             / f"{year}{doy:03d}"
             / "products"
         )
+        # A caller (e.g. recover_day.py) may pass a shared directory so this arm reuses
+        # RINEX another arm - or the geometry stage - already downloaded for the same
+        # day, instead of re-fetching the same station-days from CDDIS a third or
+        # fourth time. `owns_rinex_dir` gates the cleanup step below: a shared
+        # directory belongs to the caller, not to this run, and must not be deleted
+        # out from under whichever arm runs next.
+        owns_rinex_dir = args.rinex_dir is None
         rinex_dir = (
-            experiment_dir / "positioning" / "evaluation" / f"{year}{doy:03d}" / "rinex"
+            args.rinex_dir
+            if args.rinex_dir is not None
+            else experiment_dir
+            / "positioning"
+            / "evaluation"
+            / f"{year}{doy:03d}"
+            / "rinex"
         )
 
         # Step 1: Download products
@@ -529,7 +562,7 @@ def main():
             logger.info("\n📥 Step 3: Downloading RINEX files...")
             # Use more threads for downloading (I/O bound) than processing (CPU bound)
             download_threads = max(4, args.parallel * 4)
-            rinex_results = download_rinex_batch(
+            rinex_results, rinex_failures = download_rinex_batch(
                 stations,
                 year,
                 doy,
@@ -540,6 +573,10 @@ def main():
             logger.info(
                 f"✓ Downloaded {len(rinex_results)}/{len(stations)} RINEX files"
             )
+            # download_rinex_batch already logs each failure's distinguishable cause
+            # (timeout / http_404 / auth_failure / other) as it happens; nothing more
+            # to do here than let process_single_station's later "not found" check
+            # point back at this log for the reason.
         else:
             logger.info("\n⏭️  Skipping RINEX download")
 
@@ -714,12 +751,19 @@ def main():
                 shutil.rmtree(products_dir)
                 logger.info("✓ Removed downloaded products")
 
-            # Remove RINEX files
-            if rinex_dir.exists():
+            # Remove RINEX files - but only ours. A caller-supplied --rinex_dir is
+            # shared with other arms (or the geometry stage) that may still need it;
+            # deleting it here would make whichever arm runs next re-download
+            # everything, defeating the point of sharing the directory.
+            if owns_rinex_dir and rinex_dir.exists():
                 import shutil
 
                 shutil.rmtree(rinex_dir)
                 logger.info("✓ Removed downloaded RINEX files")
+            elif not owns_rinex_dir:
+                logger.info(
+                    f"✓ Left shared RINEX directory in place (caller-owned): {rinex_dir}"
+                )
 
         logger.info("\n" + "=" * 80)
         logger.info("✅ POSITIONING EVALUATION COMPLETED!")
