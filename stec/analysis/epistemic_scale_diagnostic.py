@@ -35,6 +35,15 @@ diagnostic actually needs as float32, and concatenates them - about 200 MB for t
 read one day at a time through `prediction_store.iter_days`, never as a single unbounded
 multi-file read.
 
+**Matched population.** ``main()`` reads the paper model and the fully-Bayesian
+reference from two independent store partitions (see the store-partition gotcha in
+CLAUDE.md), which are independent backfills, not guaranteed to hold the same days.
+``matched_day_pairs`` checks that before either partition is streamed and, on a
+mismatch, restricts both sweeps to the (year, doy) pairs they share, logging a warning
+that names how many days were excluded from each side - the diagnostic's whole premise
+is comparing the two models' epistemic terms under the same conditions, so an unmatched
+population would silently compare them on different solar activity instead.
+
 Usage::
 
     python -m stec.analysis.epistemic_scale_diagnostic
@@ -133,17 +142,33 @@ def collect_arrays(
     store_root: Path,
     doys: list[int] | None = None,
     years: list[int] | None = None,
+    day_pairs: set[tuple[int, int]] | None = None,
 ) -> dict[str, np.ndarray]:
     """Stream the store day by day and concatenate the narrow set of columns this
     diagnostic needs into compact float32 arrays (see module docstring for why this,
-    unlike a sum-only analysis, must retain row-level data)."""
+    unlike a sum-only analysis, must retain row-level data).
+
+    `day_pairs`, if given, restricts the read to exactly these (year, doy) pairs - a
+    different axis from `doys`/`years`, which each filter independently (an AND of two
+    sets, not paired combinations) and so cannot express "only the days both a paper
+    and a reference partition happen to share". `main()` uses it to intersect the two
+    partitions `epistemic_scale_diagnostic` compares (see its own day-set check).
+    """
     day_files = ps.day_paths(
         model_variant, dataset, years=years, doys=doys, root=store_root
     )
+    if day_pairs is not None:
+        day_files = [
+            path
+            for path in day_files
+            if (int(path.parent.name.split("=")[1]), int(path.stem.split("=")[1]))
+            in day_pairs
+        ]
     if not day_files:
         raise FileNotFoundError(
             f"No prediction files matched for {model_variant}/{dataset} "
-            f"(years={years}, doys={doys}) under {store_root}"
+            f"(years={years}, doys={doys}, day_pairs restricted to "
+            f"{len(day_pairs) if day_pairs is not None else 'all'}) under {store_root}"
         )
 
     abs_error_parts: list[np.ndarray] = []
@@ -336,6 +361,47 @@ def stratified_calibrating_scale(
     return pd.DataFrame(rows)
 
 
+def matched_day_pairs(
+    model_variant: str,
+    reference_model_variant: str,
+    dataset: str,
+    store_root: Path,
+) -> set[tuple[int, int]]:
+    """(year, doy) pairs present in both `model_variant` and `reference_model_variant`'s
+    store partitions - the population `main()` restricts both sweeps to below.
+
+    The two partitions are independent backfills (see CLAUDE.md's store-partition
+    gotcha for why they are separate trees at all), not guaranteed to land in lockstep,
+    and this diagnostic's whole premise is comparing the two models' epistemic terms:
+    scoring the paper model over one set of days and the reference model over a
+    different set would silently compare them under different solar conditions rather
+    than a shared one. Cheap - `ps.available_days` only globs filenames, no parquet
+    content is read here.
+
+    Warns rather than raises when the two disagree: a handful of days ahead on one side
+    while a backfill catches up on the other is not a reason to refuse the comparison
+    on the days both partitions already share, but it must not pass silently either -
+    this codebase has a documented history of an implicit-matching assumption like this
+    one turning into a silent bug (CLAUDE.md's Gotchas).
+    """
+    paper_days = set(ps.available_days(model_variant, dataset, root=store_root))
+    reference_days = set(
+        ps.available_days(reference_model_variant, dataset, root=store_root)
+    )
+    common = paper_days & reference_days
+    if paper_days != reference_days:
+        only_paper = paper_days - reference_days
+        only_reference = reference_days - paper_days
+        logger.warning(
+            f"{model_variant}/{dataset} ({len(paper_days)} days) and "
+            f"{reference_model_variant}/{dataset} ({len(reference_days)} days) do not "
+            f"cover the same days - {len(only_paper)} day(s) only in {model_variant}, "
+            f"{len(only_reference)} only in {reference_model_variant}. Restricting both "
+            f"sweeps to the {len(common)} day(s) they share."
+        )
+    return common
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store-root", type=Path, default=DEFAULT_STORE_ROOT)
@@ -352,10 +418,16 @@ def main() -> None:
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    common_days = matched_day_pairs(
+        args.model_variant, args.reference_model_variant, args.dataset, args.store_root
+    )
+
     logger.info(
         f"collecting {args.model_variant}/{args.dataset} from {args.store_root}"
     )
-    paper_arrays = collect_arrays(args.model_variant, args.dataset, args.store_root)
+    paper_arrays = collect_arrays(
+        args.model_variant, args.dataset, args.store_root, day_pairs=common_days
+    )
     logger.info(f"{paper_arrays['abs_error'].size:,} observations collected")
 
     paper_sweep = sweep_scale(paper_arrays)
@@ -396,7 +468,10 @@ def main() -> None:
         f"from {args.store_root}"
     )
     reference_arrays = collect_arrays(
-        args.reference_model_variant, args.dataset, args.store_root
+        args.reference_model_variant,
+        args.dataset,
+        args.store_root,
+        day_pairs=common_days,
     )
     reference_sweep = sweep_scale(reference_arrays)
     reference_sweep.to_csv(

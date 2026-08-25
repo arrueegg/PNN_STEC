@@ -23,6 +23,7 @@ from stec.pipeline.stages import (
     POSITIONING,
     POSITIONING_SUMMARY_DIR,
     STAGES,
+    STORE_PRETRAINED,
     WEIGHTING_RUN,
     daily_metrics_summary_has_all_methods_and_datasets,
     positioning_summary_overall_has_all_four_methods,
@@ -493,3 +494,70 @@ def test_oracle_benchmark_and_common_set_positioning_share_the_weighting_run():
     without the other."""
     assert WEIGHTING_RUN in stage("common_set_positioning").inputs
     assert WEIGHTING_RUN in stage("oracle_benchmark").inputs
+
+
+# --- population/scope caveats on every stage reading a multi-year-capable partition --
+#
+# predictions/pretrained_stec/own (and its fully-Bayesian twin) spans 2014-2024, not
+# just the 2024 the finetuned_stec/own four-method comparisons use.
+# uncertainty_calibration_pretrained used to silently default to 2024 alone - 242 of
+# 544 days, 44% of the partition - with nothing in coverage.csv/scores.csv or the
+# stage's own caveats saying so. A reader holding only the output CSV could not tell
+# which population it covered; these pin that every stage reading that partition now
+# says so in its `caveats`, the one documentation field that reaches a
+# `<output>.caveats.json` sidecar next to the artifact itself.
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "temporal_regime_split",
+        "temporal_regime_activity_matched",
+        "uncertainty_calibration_pretrained",
+        "epistemic_scale_diagnostic",
+        "pretrained_test_diagnostics",
+        "diagnostic_figures",
+    ],
+)
+def test_stages_reading_the_pretrained_partition_state_their_population(name):
+    assert STORE_PRETRAINED in stage(name).inputs, (
+        f"{name} is not declared to read {STORE_PRETRAINED} - update this "
+        "parametrisation if that changed deliberately"
+    )
+    caveats = " ".join(stage(name).caveats).lower()
+    assert caveats, f"{name} must state the population it covers"
+    assert "2014-2024" in caveats, (
+        f"{name}'s caveats must name the actual year range covered, not just assert "
+        "that a scope exists"
+    )
+    assert "544" in caveats, f"{name}'s caveats must name the day count covered"
+
+
+def test_epistemic_scale_diagnostic_caveat_explains_the_matched_population():
+    """Distinct from the other five: this stage compares *two* partitions, so its
+    caveat must explain the day-set match/restriction, not just name a year range."""
+    caveats = " ".join(stage("epistemic_scale_diagnostic").caveats).lower()
+    assert "day sets" in caveats or "day set" in caveats or "days" in caveats
+    assert "warning" in caveats
+
+
+# --- stratified_comparison: declared inputs must match what the module actually reads,
+# the mirror of the oracle_benchmark defect above - there a real input was undeclared;
+# here a non-input is declared. ---------------------------------------------------------
+
+
+def test_stratified_comparison_does_not_declare_the_pretrained_partition_as_input():
+    """The invoked command takes no --model-variant/--dataset override, so it only
+    ever reads the finetuned_stec/own default (STORE_OWN) - confirmed against the real
+    module source: 'Pretrained Direct STEC' reads the pretrained_stec_pred *column*,
+    merged into STORE_OWN's own parquet files (the same arrangement daily_metrics.py's
+    MODELS dict documents), never a separate read of predictions/pretrained_stec/own."""
+    inputs = stage("stratified_comparison").inputs
+    assert STORE_PRETRAINED not in inputs
+
+    command = stage("stratified_comparison").command
+    assert "--model-variant" not in command
+    assert "--dataset" not in command
+
+    module = _module_for(stage("stratified_comparison"))
+    assert _module_source_mentions(module, '"pretrained_stec_pred"')

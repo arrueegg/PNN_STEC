@@ -248,6 +248,65 @@ def test_coverage_table_tags_native_family(tmp_path):
     assert set(uc.NOMINAL_LEVELS) <= set(coverage["nominal"])
 
 
+# --- coverage.csv states its own population (scores.csv always has; coverage.csv used
+# to carry no such column, so a reader had to cross-reference the sibling file to know
+# what a row was computed over) -----------------------------------------------------
+
+
+def test_coverage_table_carries_observations_matching_accumulator_n():
+    rng = np.random.default_rng(15)
+    n = 12_345
+    mu = np.zeros(n)
+    sigma = np.full(n, 2.0)
+    accumulator = uc.CalibrationAccumulator("gaussian")
+    accumulator.update(rng.normal(0.0, 2.0, n), mu, sigma)
+
+    coverage = accumulator.coverage_table()
+    assert "observations" in coverage.columns
+    # Same population backs every nominal level within one accumulator.
+    assert (coverage["observations"] == accumulator.n).all()
+    assert accumulator.n == n
+
+
+def test_coverage_csv_observations_column_matches_independent_count(
+    tmp_path, monkeypatch
+):
+    """End-to-end regression: coverage.csv's own `observations` column - not only
+    scores.csv's, which already had one - must equal a count computed independently
+    of the module, on a synthetic fixture with a known row count."""
+    frame = day_frame(3_333, seed=60)
+    ps.write_predictions(frame, "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    output_dir = tmp_path / "output"
+
+    _run_main(
+        monkeypatch,
+        [
+            "--store-root",
+            str(tmp_path),
+            "--model-variant",
+            "finetuned_stec",
+            "--dataset",
+            "own",
+            "--swi-path",
+            str(tmp_path / "no_such_omni.h5"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    coverage = pd.read_csv(output_dir / "finetuned_stec_own" / "coverage.csv")
+    assert "observations" in coverage.columns
+    direct_stec_gaussian = coverage[
+        (coverage["regime"] == "all")
+        & (coverage["model"] == "Direct STEC")
+        & (coverage["family"] == "gaussian")
+    ]
+    assert len(direct_stec_gaussian) == len(uc.NOMINAL_LEVELS)
+    # `day_frame` never introduces a NaN, so every row of the synthetic fixture is
+    # usable - the independently computed population is just its row count.
+    assert set(direct_stec_gaussian["observations"]) == {len(frame)}
+
+
 # --- Storm/quiet regime split (R1.6: "uncertainty behaviour under ... disturbed
 # conditions"), restored on top of the model x family axes above -------------------------
 

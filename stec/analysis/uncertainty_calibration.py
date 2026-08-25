@@ -308,10 +308,18 @@ class CalibrationAccumulator:
         )[0]
 
     def coverage_table(self) -> pd.DataFrame:
+        """`observations` is `self.n` broadcast onto every row, so a reader of
+        coverage.csv alone - not just scores.csv, which has always carried this number -
+        can tell what population a given (regime, model, family) row was computed over
+        without cross-referencing another file. Same fix in spirit as the "44%-of-
+        partition" defect elsewhere in this module (see the "Coverage default" docstring
+        section): a number with no stated population is how a partial-coverage run goes
+        unnoticed."""
         return pd.DataFrame(
             {
                 "nominal": list(NOMINAL_LEVELS),
                 "empirical": [self.covered[level] / self.n for level in NOMINAL_LEVELS],
+                "observations": self.n,
             }
         ).assign(deviation=lambda d: d["empirical"] - d["nominal"])
 

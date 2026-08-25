@@ -520,6 +520,14 @@ STAGES: list[Stage] = [
         min_rows={str(TEMPORAL_REGIME_SPLIT_DIR / "temporal_regime_comparison.csv"): 2},
         canonical_for="R2.1 interpolation/extrapolation temporal split",
         caveats=[
+            "Population: every year present in predictions/pretrained_stec/own - "
+            "2014-2024, 544 days (302 interpolation days 2014-2023, 242 extrapolation "
+            "days 2024) - not the 2024-only period the four-method comparisons "
+            "(daily_metrics etc.) use. Deliberate, not an oversight: the "
+            "interpolation/extrapolation question this stage answers does not exist "
+            "without years on both sides of the 2024-05-01 boundary, so the full "
+            "held-out range is the right scope for this standalone characterisation of "
+            "the pretrained model, not a population matched to the other baselines.",
             "Answers the R2.1 reviewer-response number (14.05 vs 7.65 TECU, 26.9% vs "
             "31.0% normalised), not a printed manuscript table - the manuscript has 5 "
             "tables and no lettered appendix.",
@@ -580,6 +588,12 @@ STAGES: list[Stage] = [
         canonical_for="R2.1 interpolation/extrapolation temporal split, "
         "activity-matched correction",
         caveats=[
+            "Same population as temporal_regime_split, for the same reason: "
+            "predictions/pretrained_stec/own's full 2014-2024, 544 days, not the "
+            "2024-only period the four-method comparisons use. The activity-matched "
+            "correction needs both regimes' full day lists to find whatever F10.7 "
+            "overlap exists between them, so it cannot be narrowed to a matched "
+            "population the way a cross-model comparison would be.",
             "Does not supersede temporal_regime_split - that stage reproduces the "
             "published R2.1 headline number faithfully and is kept for provenance. This "
             "stage is the corrected interpretation: two of the four fixed F10.7 bands "
@@ -759,7 +773,18 @@ STAGES: list[Stage] = [
         f"-m stec.analysis.stratified_comparison --output-dir {STRATIFIED_COMPARISON_DIR}",
         "R1.4",
         "all four methods by elevation, geomagnetic latitude, local time and season",
-        inputs=[STORE_OWN, STORE_PRETRAINED],
+        # Not STORE_PRETRAINED: the invoked command takes no --model-variant/--dataset
+        # flags, so it runs against the defaults (finetuned_stec/own = STORE_OWN) only.
+        # "Pretrained Direct STEC" in stratified_comparison.py's own METHODS dict reads
+        # the pretrained_stec_pred *column*, merged into STORE_OWN's own parquet files
+        # alongside stec_pred - the same arrangement daily_metrics.py documents for its
+        # own MODELS dict - never a separate read of predictions/pretrained_stec/own.
+        # The mirror of the oracle_benchmark defect (see that stage's own comment and
+        # tests/pipeline/test_stages.py's dedicated tests): there a real input was
+        # undeclared; here a non-input was declared, which can never fail to fingerprint
+        # correctly (STORE_PRETRAINED changing is irrelevant to this stage) but invites
+        # exactly the same "declared input the module never reads" confusion.
+        inputs=[STORE_OWN],
         outputs=[str(STRATIFIED_COMPARISON_DIR)],
     ),
     Stage(
@@ -839,6 +864,15 @@ STAGES: list[Stage] = [
         inputs=[STORE_PRETRAINED, SWI],
         outputs=[str(UNCERTAINTY_CALIBRATION_DIR / "pretrained_stec_own")],
         caveats=[
+            "No --year passed, so this scores every year present in "
+            "predictions/pretrained_stec/own by default: 2014-2024, 544 days - not the "
+            "2024 alone that used to be main()'s silent --year default (uncertainty_"
+            "calibration.py's 'Coverage default' docstring section and its regression "
+            "test name this as the fixed 44%-of-partition defect: 242 of 544 days is "
+            "44.5%). Deliberate, not an oversight: this is a standalone characterisation "
+            "of the pretrained checkpoint's own calibration, not a comparison against "
+            "the other three baselines, so nothing requires it to match "
+            "finetuned_stec/own's narrower 2024-only test period.",
             "Only 'Direct STEC' scores here - pretrained_stec/own carries stec_pred and "
             "pred_total_unc but no vtec_model_stec column, so 'VTEC + Mapping' is absent "
             "from this variant's coverage.csv/scores.csv. Expected, not a bug: VTEC + "
@@ -907,6 +941,16 @@ STAGES: list[Stage] = [
             "pretrained_stec_resnet_bnn_nll) - see CLAUDE.md's store-partition "
             "gotcha for why these two live in separate store partitions at all. Do "
             "not read one file's numbers onto the other model.",
+            "Both partitions default to every year present (2014-2024, up to 544 days "
+            "each), and main() now checks the two day sets match before scoring either "
+            "one: this diagnostic's whole premise is comparing the two models' "
+            "epistemic terms, so an unmatched population would silently score the "
+            "paper model on one set of solar conditions and the reference model on "
+            "another. A mismatch is not treated as fatal - both sweeps are restricted "
+            "to the days the two partitions share, with a logged warning naming how "
+            "many days were excluded from each side - because the two are independent "
+            "backfills (CLAUDE.md's store-partition gotcha) that are not guaranteed to "
+            "stay in lockstep as more days land on one side before the other.",
             "High coverage at large `s` is not evidence of a good uncertainty "
             "estimate on its own - Spearman rho must be read alongside coverage, "
             "since coverage alone can always be bought by inflating sigma; the "
@@ -1134,6 +1178,16 @@ STAGES: list[Stage] = [
         # row count in the pipeline's provenance record, same reasoning as
         # inference_smoke/data_prep_smoke. 11 years, so 11 is exact, not a floor.
         min_rows={str(PRETRAINED_TEST_DIAGNOSTICS_DIR / "manifest.csv"): 11},
+        caveats=[
+            "Population: predictions/pretrained_stec/own in full - 2014-2024, 544 "
+            "sampled days (~30/year for 2014-2023, all 242 of 2024), 10,000,000 "
+            "observations - not the 2024-only period the four-method comparisons use. "
+            "Deliberate: Figures 4-9 characterise the pretrained checkpoint's own "
+            "residual/uncertainty behaviour standalone, matching src/inference_testset."
+            "py's original scope (test_df was never filtered by year before "
+            "plot_test_metrics), not a like-for-like comparison against Direct STEC/"
+            "VTEC/IGS GIM that would need a population matched to theirs.",
+        ],
     ),
     Stage(
         # The diagnostic-plot parity port: ~20 residual/spatial/uncertainty plots
@@ -1173,6 +1227,12 @@ STAGES: list[Stage] = [
         canonical_for="src/ diagnostic-plot parity (spatial/az-el/residual-feature/"
         "uncertainty diagnostics)",
         caveats=[
+            "Same population as pretrained_test_diagnostics, and for the same reason: "
+            "predictions/pretrained_stec/own's full 2014-2024, 544 days - these are "
+            "standalone diagnostics of the pretrained model's own residual/uncertainty/"
+            "spatial behaviour, not a cross-model comparison, so the full held-out "
+            "range is the right scope rather than the 2024-only period the four-method "
+            "comparisons use.",
             "Reads its own per-observation cache (stec.analysis."
             "diagnostic_test_observations, a second pass over "
             "predictions/pretrained_stec/own with a wider column set than "

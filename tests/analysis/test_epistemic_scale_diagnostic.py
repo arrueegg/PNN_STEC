@@ -275,3 +275,144 @@ def test_stratified_calibrating_scale_year_is_categorical_not_binned():
         arrays, "year", bin_edges=None, min_observations=1_000
     )
     assert set(table["bin"]) == {"2020", "2021"}
+
+
+# --- matched_day_pairs: the paper and reference partitions are independent backfills,
+# not guaranteed to cover the same days - this is what checks that before either is
+# streamed and scored -----------------------------------------------------------------
+
+
+def test_matched_day_pairs_returns_full_set_with_no_warning_when_matched(
+    tmp_path, caplog
+):
+    ps.write_predictions(
+        day_frame(10, seed=1), "pretrained_stec", "own", 2024, 130, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(10, seed=2),
+        "pretrained_stec_resnet_bnn_nll",
+        "own",
+        2024,
+        130,
+        root=tmp_path,
+    )
+
+    with caplog.at_level("WARNING", logger="stec.analysis.epistemic_scale_diagnostic"):
+        common = esd.matched_day_pairs(
+            "pretrained_stec", "pretrained_stec_resnet_bnn_nll", "own", tmp_path
+        )
+
+    assert common == {(2024, 130)}
+    # write_predictions warns separately about this fixture's missing uncertainty
+    # column (day_frame carries no pred_total_unc) - filter to this module's own
+    # records so that unrelated warning does not fail this assertion.
+    own_records = [
+        r
+        for r in caplog.records
+        if r.name == "stec.analysis.epistemic_scale_diagnostic"
+    ]
+    assert not own_records
+
+
+def test_matched_day_pairs_restricts_to_intersection_and_warns_when_mismatched(
+    tmp_path, caplog
+):
+    """The concrete regression this check exists to catch: the paper model's partition
+    has a day (2024, 131) the reference partition does not - a real possibility since
+    the two are independent backfills (CLAUDE.md's store-partition gotcha). The
+    mismatch must not pass silently."""
+    ps.write_predictions(
+        day_frame(10, seed=1), "pretrained_stec", "own", 2024, 130, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(10, seed=2), "pretrained_stec", "own", 2024, 131, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(10, seed=3),
+        "pretrained_stec_resnet_bnn_nll",
+        "own",
+        2024,
+        130,
+        root=tmp_path,
+    )
+
+    with caplog.at_level("WARNING", logger="stec.analysis.epistemic_scale_diagnostic"):
+        common = esd.matched_day_pairs(
+            "pretrained_stec", "pretrained_stec_resnet_bnn_nll", "own", tmp_path
+        )
+
+    assert common == {(2024, 130)}
+    own_records = [
+        r
+        for r in caplog.records
+        if r.name == "stec.analysis.epistemic_scale_diagnostic"
+    ]
+    assert len(own_records) == 1
+    assert "1 day(s) only in pretrained_stec" in own_records[0].message
+
+
+def test_collect_arrays_day_pairs_restricts_to_the_given_days(tmp_path):
+    ps.write_predictions(
+        day_frame(500, seed=20), "pretrained_stec", "own", 2024, 140, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(700, seed=21), "pretrained_stec", "own", 2024, 141, root=tmp_path
+    )
+
+    arrays = esd.collect_arrays(
+        "pretrained_stec", "own", tmp_path, day_pairs={(2024, 140)}
+    )
+    assert arrays["abs_error"].size == 500
+
+
+def test_main_passes_the_same_common_day_pairs_to_both_collect_arrays_calls(
+    tmp_path, monkeypatch
+):
+    """End-to-end: both `collect_arrays` calls `main()` makes must be restricted to the
+    same shared day set, not just that `matched_day_pairs` computes it correctly in
+    isolation. (2024, 151) exists only in the paper model's partition and must be
+    excluded from both."""
+    ps.write_predictions(
+        day_frame(400, seed=30), "pretrained_stec", "own", 2024, 150, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(300, seed=31), "pretrained_stec", "own", 2024, 151, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(400, seed=32),
+        "pretrained_stec_resnet_bnn_nll",
+        "own",
+        2024,
+        150,
+        root=tmp_path,
+    )
+    output_dir = tmp_path / "output"
+
+    seen_day_pairs = []
+    real_collect_arrays = esd.collect_arrays
+
+    def spy(*args, **kwargs):
+        seen_day_pairs.append(kwargs.get("day_pairs"))
+        return real_collect_arrays(*args, **kwargs)
+
+    monkeypatch.setattr(esd, "collect_arrays", spy)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "epistemic_scale_diagnostic",
+            "--store-root",
+            str(tmp_path),
+            "--model-variant",
+            "pretrained_stec",
+            "--reference-model-variant",
+            "pretrained_stec_resnet_bnn_nll",
+            "--dataset",
+            "own",
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+    esd.main()
+
+    assert len(seen_day_pairs) == 2
+    assert seen_day_pairs[0] == seen_day_pairs[1] == {(2024, 150)}
