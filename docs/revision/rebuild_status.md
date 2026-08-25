@@ -1,5 +1,24 @@
 # Rebuild status
 
+**HISTORICAL — predates the merge, kept as the record of the rebuild's phases and gate
+results, not as current status.** Everything below describes the state of the separate
+`pipeline-rebuild` worktree on 2026-08-21, two days before that branch merged into
+`paper-revision-jgr-mlc` at commit `5a1d873` (2026-08-23 13:31:36, see
+`docs/revision/weekend_report.md`'s "Merge completed" section). The "worktree" vs. "live
+checkout"/"data root" distinction this document draws throughout no longer exists — both are
+the same tree today. Numbers that have visibly moved since and should not be quoted from here:
+**435 tests** (now 855); **"Twenty-one of the 23 declared stages"** (now 34 stages declared,
+several ported since this was written — `docs/revision/retirement_inventory.md`'s later
+sections and `docs/revision/STATE.md` are current); the `src/` retirement counts in this
+file's "Findings"/"What the rebuild package contains" sections (see CLAUDE.md's "`src/`'s
+status" section for the current count and its own caveat about an unresolved bookkeeping
+disagreement). The gate results and defects-found tables below are historically accurate
+statements about the port work and are not superseded by anything — a defect found in 2024-08
+stays found — only the "current status" framing around them is stale. For current status, read
+`docs/revision/STATE.md`; for current file-by-file `src/` disposition, read
+`docs/revision/retirement_inventory.md` (also written pre-merge, also flagged accordingly, but
+the more detailed of the two).
+
 Branch `pipeline-rebuild`, in the worktree `/scratch2/arrueegg/WP4/PNN_STEC_rebuild`. The
 live checkout stays on `paper-revision-jgr-mlc` and is untouched, so the four long-running
 jobs keep executing unmodified code. Base of the rebuild is tagged `pre-rebuild`.

@@ -1,17 +1,29 @@
 # Current state — the one file to update, not re-derive
 
-Updated 2026-08-21 22:20. Supersedes ad-hoc status checks. Update this when something lands;
-do not re-scan the tree to answer "where are we".
 
-## Running — updated 2026-08-24 09:53
+> **Superseded for planning, 2026-08-25 evening.** An independent audit and a day of
+> remediation landed after this file was last written. For what to run next, read
+> `work_queue.md` (the single ordered list). For what was found and fixed, read
+> `independent_audit.md`. This file remains accurate as a record of where things stood
+> this morning; it is not a current plan.
+
+Updated 2026-08-25 10:30. Supersedes ad-hoc status checks. Update this when something lands;
+do not re-scan the tree to answer "where are we". **Read the bottom of the file first** — it
+is chronological and the newest section is the most trustworthy one; several rows in the table
+immediately below are stale and say so themselves.
+
+## Running — updated 2026-08-25 10:30
 
 | Job | State | ETA |
 |---|---|---|
-| `fb-retrain` | **done** (finished ~07:26, per `logs/fb_retrain.log`) | — |
-| `weekend-recovery` | DOY sweep, 242 days | Mon afternoon |
+| `fb-retrain` | **done** (finished ~07:26 on 08-24, per `logs/fb_retrain.log`) | — |
+| `weekend-recovery` | **done** (finished 2026-08-24 15:07:57) | — |
 | `post-retrain-chain` | **done** — `pretrained_stec/own` rebuilt (0→544 files), `pretrained_stec_resnet_bnn_nll/own` evaluated, repair check RMSE 13.06 TECU vs published 13.45 | — |
-| `madrigal-local-time-reinference` | **running** — see "2026-08-25, schema mismatch..." at the bottom of this file for current status; **do not read this row's old text as current** | ~14 h remaining as of that section |
+| `madrigal-local-time-reinference` | **running** — see "2026-08-25, schema mismatch..." section for the fix, and "Madrigal progress, checked 2026-08-25 10:14" below that for the current count; **do not read this row's old text as current** | ~13-14 h remaining as of 10:14 |
 | merge, `r22-eval` | **done** — corrected result recorded in `r22_fully_bayesian_analysis.md` | — |
+| `dstec_evaluation`, full 242-day store | **done** (2026-08-25 09:03) — see "dSTEC: full 242-day run" below | — |
+| `epistemic_scale_diagnostic` | **done** (2026-08-24 11:53) — see "Epistemic-scale diagnostic" below | — |
+| `epistemic-scale-retrain.service` (3 `prior_sigma`/`kl_weight` arms, R2.6) | **stopped, not running** — started arm `ps0.466` retraining at 09:18:13 today, reached epoch 3, deliberately stopped 09:25:55 (`journalctl --user`: "Stopping epistemic-scale-retrain.service"), to keep the GPU clear for the Madrigal re-inference. Queued, deprioritised to last, not in flight. | queued behind Madrigal |
 
 ### A contamination I caused, and its repair
 
@@ -226,8 +238,10 @@ Madrigal gap under dSTEC is direct evidence the degradation is calibration rathe
 error. Blocked on the re-inference, and needs a time-gap arc fallback since Madrigal has no
 `slipc`. The arc-detection method must be recorded in the output, never silently substituted.
 
-**Still the user's call**: the canonical day list (currently 18 of 242). `dstec_evaluation`
-is deliberately not yet a declared Stage, because declaring it would freeze that choice.
+~~**Still the user's call**: the canonical day list (currently 18 of 242). `dstec_evaluation`
+is deliberately not yet a declared Stage, because declaring it would freeze that choice.~~
+**RESOLVED 2026-08-25**: full 242-day coverage, `dstec_evaluation` is now a declared Stage —
+see "dSTEC: full 242-day run, 2026-08-25 09:03" further down this file for the numbers.
 
 ## 2026-08-24 evening — the reproducibility push
 
@@ -818,3 +832,119 @@ A file count of 235 is not evidence of completion (it never was - 235 files exis
 time this partition was mixed); only one of the two commands above, or the day-file count
 inside `pretrained_stec/madrigal` growing alongside a `missing_baseline_columns`-aware
 manifest, is.
+
+## Madrigal progress, checked 2026-08-25 10:14
+
+`logs/madrigal_local_time_reinference_manifest.csv`: **81 of 235 days** corrected (up from 76
+at 09:45), 154 remaining. `systemctl --user status madrigal-local-time-reinference.service`:
+active, running since 09:34:59, PID 2356206, `nvidia-smi --query-compute-apps` confirms this
+is the *only* process holding the GPU right now (8,584 MiB) - the epistemic arms below are not
+competing with it. At the ~5.1-5.5 min/day steady rate this has held since the DOY 196/217 fix,
+completion is still on track for **late evening 2026-08-25 through early 2026-08-26**. Re-run
+the two commands in the section above for a fresh count rather than trusting this one as the
+day advances.
+
+## dSTEC: full 242-day run, 2026-08-25 09:03
+
+The 18-day subset question the 2026-08-24 evening section below left as "the user's call" is
+resolved: `logs/dstec_evaluation_full_period.log` shows a full run against the whole store
+completed at 09:03 today, writing
+`multiday_results/analyses/dstec_evaluation/rebuilt/{summary.csv,pass_statistics.csv}`
+(672,543 lines including header - one row per station/satellite/day arc).
+
+| | model | GIM |
+|---|---|---|
+| n_arcs | 672,542 | 672,542 |
+| dSTEC RMSE, pooled | **5.1552** | 6.6372 |
+| dSTEC RMSE, mean-of-arcs | 3.7460 | 5.3679 |
+| absolute-STEC RMSE, pooled (same masked obs) | 6.3361 | 7.8893 |
+
+`n_masked_obs = 210,271,598`, `arc_method = slipc`, `truth_source = gfphase`. This barely
+moved the earlier 18-day estimate (5.17→5.16, 6.68→6.64 pooled, per the stage's own inline
+comment in `stec/pipeline/stages.py`), which was luck rather than something the 18-day
+invocation guaranteed - full coverage turned out cheap (per-day I/O is ~50 MB once parquet
+pruning limits the read to the 11 of 35 columns this analysis needs), so there is no reason to
+keep defending a subset.
+
+`dstec_evaluation` is a **declared Stage** (`canonical_for` R1.3), added in the same commit
+that fixed the Madrigal DOY 196/217 issue (`fbac2fc`) - but this run was a manual invocation,
+not `python -m stec.pipeline run --only dstec_evaluation`, so **no `.pipeline/
+dstec_evaluation.json` exists yet** even though real, full-coverage output does. Running it
+through the pipeline once would give this result a provenance record; until then, `python -m
+stec.pipeline status` correctly reports it `never run`, which understates what is actually on
+disk.
+
+Still open, from the stage's own caveats: this runs on `finetuned_stec/own` only. The
+scientifically sharper Madrigal comparison (dSTEC cancels per-arc offsets, which is direct
+evidence about whether the Madrigal degradation is calibration or model error - see CLAUDE.md's
+"two evaluations that are not what they look like") is parameterised and ready but blocked on
+the Madrigal local-time re-inference finishing first.
+
+## Epistemic-scale diagnostic, 2026-08-24 11:47-11:53
+
+Answers a cheaper question before committing ~14-19 h of GPU time to the three `prior_sigma`/
+`kl_weight` retrain arms below: is the paper model's badly under-dispersed epistemic
+uncertainty (1σ coverage 9.4% against 68.3% nominal, per `r22_fully_bayesian_analysis.md` §6) a
+**scale** problem fixable by a post-hoc multiplier, or a **structural** one where the frozen
+deterministic backbone has thrown away information no rescaling can restore?
+
+`stec/analysis/epistemic_scale_diagnostic.py` (not a declared Stage) sweeps a scalar `s` on
+`sigma_epistemic` alone, computing `sigma_total(s) = sqrt((s*epistemic)^2 + aleatoric^2)`, and
+tracks `coverage_1sigma` and `spearman(sigma_total(s), |error|)` against it. Because scaling one
+term of a quadrature sum changes the combined ranking (even though it cannot change
+epistemic's own ranking against error), a scale that restores coverage while holding or
+improving Spearman is real evidence the deficit is scale, not structure.
+
+**Result, from `logs/epistemic_scale_diagnostic.log` and
+`multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/*.csv`**:
+
+- **`s* = 4.6641`** restores 1σ coverage to nominal (68.3%) on `pretrained_stec/own` (10M rows,
+  544 days).
+- **Spearman improves slightly at s\***: 0.5609 (s=1) → 0.5625 (s=s\*) - rescaling epistemic
+  does not cost ranking ability, it marginally helps it. This is the answer: **the deficit is
+  scale, not structure** - a single post-hoc multiplier on the epistemic term would fix
+  coverage without hurting the uncertainty-error relationship, so the case for a `prior_sigma`/
+  KL-weight retrain rests on wanting the scale to come from training, not on scale-only
+  post-hoc correction being unable to work.
+- **The calibrating scale is not year-uniform** (`calibrating_scale_by_year.csv`): 2014 and
+  2016-2021 all calibrate to `s=0` (already at or above nominal coverage at s=1 for those
+  years), 2015 and 2022 to ~1.9, 2023 to **8.87**, 2024 (the test year, 5.6M of the 10M rows)
+  to **6.49**. A single global multiplier of 4.66 is therefore a compromise across regimes that
+  actually want very different corrections - worth stating plainly if s\* is ever quoted as if
+  it were one number that means the same thing every year. Also stratified by elevation
+  (calibrating scale climbs from 3.68 near-horizon to ~4.9 at mid-elevation, back to 4.92 at
+  zenith) and geomagnetic latitude (2.72 at the magnetic equator band to 5.94 in the southern
+  auroral/polar bin) - neither as extreme as the year split, but both real.
+- The same sweep run against the fully-Bayesian reference model
+  (`pretrained_stec_resnet_bnn_nll/own`) starts already near nominal at s=1 (90.4% coverage,
+  over-covering, consistent with `r22_fully_bayesian_analysis.md`), so s\* there would be less
+  than 1, not comparable to the paper model's 4.66 - the two models need this diagnostic read
+  separately, not as a single cross-model number.
+
+Not yet a declared pipeline stage; not yet cited in `response_to_reviewers.md` or
+`evidence_summary.md`.
+
+## A real, unfixed divergence: `materialize_batches` does not reshuffle per epoch
+
+Found while reading `stec/training/run_training.py` for the checkpoint-selection work above,
+not new code from this session. `materialize_batches` (line 176) shuffles the training tensor
+**once**, with a seeded `Generator`, and returns a plain list; `fit`/`fit_with_best_checkpoint`
+re-iterate that same list object every epoch, so every epoch of a multi-epoch run trains on the
+same row order. The source (`TrainManager.train_epoch`) iterates a live
+`DataLoader(shuffle=True)` built fresh every epoch, and `DataLoader.__iter__` draws a new
+permutation on every call even from the same seeded `Generator` - so the source reshuffles every
+epoch and this driver does not.
+
+The function's own docstring names this explicitly as "a known, unverified divergence from the
+source, not an equivalent reformulation." `tests/training/test_run_training.py::
+test_materialize_batches_returns_the_same_order_every_call` pins the current (non-reshuffling)
+behaviour so a future fix would have to change the test deliberately, not by accident. Gate C's
+fixed 3-6 epoch synthetic check does not exercise this at all - both sides there were handed
+identical fixed batches - so Gate C passing is not evidence this divergence is harmless.
+
+**Not measured, not registered.** Whether it matters for a real 50-150 epoch fine-tune needs a
+real fine-tune day's `loss_history.csv` compared against the equivalent `src/` run, which has not
+been done. It is also not yet in `stec/analysis/divergences.py`'s registry of 12 - it would be
+divergence #13 if added, and until it is, this section is the only record of it. Closing it
+needs the fix (give `fit`/`fit_with_best_checkpoint` a per-epoch reshuffle hook, or accept the
+divergence and measure its effect) plus a multi-epoch retrain to compare against.

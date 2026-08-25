@@ -1,5 +1,39 @@
 # Task board — PNN-STEC pipeline rebuild
 
+
+> **Superseded for planning, 2026-08-25 evening.** An independent audit and a day of
+> remediation landed after this file was last written. For what to run next, read
+> `work_queue.md` (the single ordered list). For what was found and fixed, read
+> `independent_audit.md`. This file remains accurate as a record of where things stood
+> this morning; it is not a current plan.
+
+**HISTORICAL — predates the merge and the driver work that followed it, most of this
+document's central claims are now false.** Written 2026-08-21, this board's headline finding
+(Row 1 of §1, restated in §10 "Gap 1") is that `stec/data`, `stec/training` and
+`stec/inference` are verified *libraries* with **no runnable driver anywhere** — "no `Stage` in
+`stages.py`", "no CLI/`main()` anywhere". That gap is closed: `stec/data/run_data_prep.py`
+(`ab34769`), `stec/training/run_training.py` (`2b32aca`, and since gained best-checkpoint
+selection/early stopping via `stec/training/checkpointing.py`, and a working 500K-per-epoch
+pretrain subsample via `stec/data/aggregated_dataset.py` — see CLAUDE.md's "`src/`'s status"
+section) and `stec/inference/run_inference.py` (`2b32aca`) all exist, are declared as
+`training_smoke`/`inference_smoke`/`baselines_smoke`/`data_prep_smoke` stages, and
+`stec/runs/daily_sweep.py` orchestrates all three per day. The rebuild branch merged into
+`paper-revision-jgr-mlc` at `5a1d873` (2026-08-23) — the "worktree" vs. "live checkout" split
+this document assumes throughout is gone; there is one tree. Gap 2 (manuscript figures) is
+also substantially closed (`stec/viz/manuscript_figures.py` now wires all 14 code-generated
+figures). §7's Gate F count (17 of 19) and the pre-1072c8b results-layout paths are likewise
+stale — the restructure this document treats as upcoming has long since applied. **What is
+still true and still worth reading**: the gap *analysis* itself — why each gap existed, what
+a driver would need (command/inputs/outputs/assertions), and the reasoning behind decisions
+like the PPPx-execution boundary (§11) and the "don't retrain if Gate C passes" policy — these
+motivated the work that closed most of the gaps and remain a good record of why the rebuild was
+sequenced the way it was. For current stage counts and status, run `python -m stec.pipeline
+status` or read `docs/revision/STATE.md`; for current `src/` disposition, read
+`docs/revision/retirement_inventory.md` (also pre-merge, also flagged, but more current than
+this document since it received a 2026-08-24 addendum).
+
+---
+
 The single place that says, for every stage from raw data to the paper's artifacts, what is
 done, what is verified and with what evidence, and what is outstanding. Read this before
 re-checking anything below — every claim here cites the document or command that established

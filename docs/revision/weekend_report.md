@@ -1,5 +1,18 @@
 # Weekend report — started 2026-08-21 21:55
 
+**This is a chronological run log, not a status file — read `docs/revision/STATE.md` for
+current status.** Each section below was true when appended and is left as written; later
+sections correct earlier ones in place (search "corrected" / "wrong") but a claim made early
+in the file (e.g. "~212 outstanding days", "the merge waits", "deliberately not run this
+weekend") can be flatly overtaken by something that happened days later without this file
+saying so at the point where it would matter. Known instance: the file's own last section
+(2026-08-25 09:14:13) repeats a diagnosis — "some `finetuned_stec/madrigal` day(s) beyond DOY
+195 predate a schema change" — that turned out to be wrong in the specific way `STATE.md`'s
+"Corrections to make explicitly" section warns about: it is exactly **two** isolated days
+(DOY 196 and 217), not an era starting at DOY 195. See `docs/revision/STATE.md`'s
+"2026-08-25, schema mismatch..." section and commit `fbac2fc` for the corrected diagnosis and
+fix; that correction was made *after* this file's last entry and was never appended here.
+
 One file to read on Monday. Two systemd units are running unattended; both are
 `Restart=on-failure` and resumable, so a crash costs the in-flight day, not the weekend.
 
@@ -341,4 +354,25 @@ default behaviour:**
   ordering would mean waiting on an indefinite fix, not a near-term GPU conflict - decided
   against continuing to honour it for that reason, not because the ordering itself was
   wrong.
+
+## Addendum, 2026-08-25 morning — what happened after this file's last entry
+
+Not written contemporaneously; added while bringing the revision docs into line with the tree,
+to close the dangling thread above rather than leave it looking current.
+
+- The "schema change" diagnosis two entries up was wrong in exactly the way it guessed it might
+  be right about worrying over: reading all 235 parquet *schemas* (not data) showed the gap is
+  **two isolated days, DOY 196 and 217**, not an era starting at DOY 195. Fixed and verified
+  red-green in commit `fbac2fc` (09:51). See `docs/revision/STATE.md`'s "2026-08-25, schema
+  mismatch..." section for the full diagnosis.
+- `dstec_evaluation` completed a full 242-day run at 09:03 (672,542 arcs, model dSTEC RMSE
+  pooled 5.155 vs GIM 6.637 TECU) - resolves the "still the user's call" day-list question
+  `STATE.md`'s dSTEC section used to record.
+- `epistemic-scale-retrain.service` (arm `ps0.466`) started retraining at 09:18:13, reached
+  epoch 3, and was deliberately stopped at 09:25:55 to keep the GPU clear for the Madrigal
+  re-inference - the three R2.6 arms remain queued, not running, as of this addendum.
+- Madrigal re-inference continues on its own, unaffected by any of the above: 81 of 235 days as
+  of 10:14, ~5.1-5.5 min/day, still on track for late evening 2026-08-25 into early 08-26.
+
+Current status lives in `STATE.md`, not here.
 
