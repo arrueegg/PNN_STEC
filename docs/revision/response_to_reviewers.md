@@ -161,11 +161,19 @@ date defect described below, and it is retracted. Two of the fourteen intense-st
 (DOY 225, Dst −188; DOY 226, Dst −103) had been compared against the *previous* day's IONEX map,
 giving IGS GIM 22.1 and 23.9 TECU instead of 8.96 and 7.85.
 
-What survives, and is the defensible claim: Direct STEC is the most accurate model in every
-activity bin and degrades least from quiet to intense (+19%, against +9% for VTEC + Mapping,
-+9% for IGS GIM and +91% for the pretrained-only variant). Across F10.7 terciles (low
-137–181, medium 181–221, high 221–413 sfu; 81/81/80 days) the margin over IGS GIM is
-+18.5/+15.1/+14.8%.
+What survives, and is the defensible claim: **Direct STEC is the most accurate model in every
+activity bin** — its RMSE is lowest of all four methods in all four Dst bins, quiet through
+intense. Quiet-to-intense degradation is +19% for Direct STEC, +7% for VTEC + Mapping, +11%
+for IGS GIM and +91% for the pretrained-only variant. **We are correcting our own earlier claim
+here, not just its numbers**: an earlier version of this document said Direct STEC "degrades
+least from quiet to intense" against a stated +9%/+9% for the two baselines — the artifact does
+not support that. Recomputed correctly, Direct STEC's own relative degradation (+19%) is larger
+than either baseline's, not smaller; the two baselines happening to look identical at +9% each
+was itself a symptom of the error, not a coincidence. Direct STEC degrades least only relative
+to the pretrained-only variant (+91%); relative to VTEC + Mapping and IGS GIM it degrades *more*
+in percentage terms, even though it remains the most accurate model in absolute RMSE at every
+activity level. Across F10.7 terciles (low 137–181, medium 181–221, high 221–413 sfu; 81/81/80
+days) the margin over IGS GIM is +18.5/+15.1/+14.8%.
 
 All 242 days are now in place, including the 12 whose GIM was recomputed — 8 of them in the
 quiet bin, which is why that row moved from +18.4% to +16.7% while moderate and intense did not

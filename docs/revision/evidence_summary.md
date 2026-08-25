@@ -197,10 +197,15 @@ retracted.
 | moderate (−100 to −50) | 25 | 7.41 | 15.62 | 9.10 | 8.65 | +14.3% |
 | intense (≤ −100) | 14 | **8.04** | 24.26 | 9.59 | 9.02 | **+10.9%** |
 
-The claim that survives: Direct STEC is most accurate in every bin and degrades least from quiet
-to intense (+19%, against +9% VTEC + Mapping, +9% IGS GIM, +91% pretrained-only). F10.7
-terciles (low 137–181 / medium 181–221 / high 221–413 sfu): +18.5/+15.1/+14.8%. Bins:
-14/25/38/165 days (Dst), 81/81/80 (F10.7).
+The claim that survives: **Direct STEC is most accurate in every bin** (lowest RMSE of all four
+methods in all four Dst bins). Quiet-to-intense degradation: +19% Direct STEC, +7% VTEC +
+Mapping, +11% IGS GIM, +91% pretrained-only. **Correcting this entry's own earlier claim**
+("degrades least from quiet to intense" against a stated +9%/+9% for the two baselines): the
+artifact does not support it — Direct STEC's own relative degradation (+19%) is *larger* than
+either baseline's (+7%, +11%), not smaller; the identical +9%/+9% was itself the tell that the
+number was wrong, not two baselines that genuinely tie. Direct STEC degrades least only against
+the pretrained-only variant. F10.7 terciles (low 137–181 / medium 181–221 / high 221–413 sfu):
++18.5/+15.1/+14.8%. Bins: 14/25/38/165 days (Dst), 81/81/80 (F10.7).
 
 All 242 days are now in place, including the 12 whose GIM was recomputed — 8 of them in the
 quiet bin, which is why that row moved from +18.4% to +16.7% (and weak from +18.0% to +16.9%)
