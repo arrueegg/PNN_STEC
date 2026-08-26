@@ -6,13 +6,13 @@
     "Madrigal rows carry the madrigal_reference_offset caveat."
   ],
   "code": {
-    "commit": "64b1d60ecc86ae490bacc1c007a6a181159e95a2",
-    "dirty": true
+    "commit": "24ef4ee31bb96eb13d8185b917704708864f6b2b",
+    "dirty": false
   },
   "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
   "description": "per-day and pooled STEC metrics recomputed from the prediction store",
-  "duration_s": 86.1,
-  "fingerprint": "6429c8b1425ac3a4caa1dde8f03940d9f38cddc8616f2720fd1b1e97eb3e2f19",
+  "duration_s": 123.5,
+  "fingerprint": "d45478105002cfc676c3ccb54632f187b260593e5669ed35435db8109a416f9f",
   "inputs": {
     "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
       "files": 2,
@@ -23,8 +23,8 @@
     "predictions/finetuned_stec/madrigal": {
       "files": 238,
       "kind": "tree",
-      "mtime_ns": 1787739293125086072,
-      "size": 35960554331
+      "mtime_ns": 1787747500045952027,
+      "size": 35987612575
     },
     "predictions/finetuned_stec/own": {
       "files": 242,
@@ -47,18 +47,18 @@
     "multiday_results/analyses/daily_metrics/rebuilt/per_day.csv": {
       "present": true,
       "rows": 1682,
-      "sha256": "4fa248f0ce5d236fd1dc6901e3fa8592f073a5dbbfa4757fd41a380b07c9e134",
-      "size": 248296
+      "sha256": "b3ac8d76cd774406da6826a3e3b068492d3c1e315fcd8313113503d4d36448d5",
+      "size": 248297
     },
     "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
       "present": true,
       "rows": 7,
-      "sha256": "59840bd69a902f2a2dd2b7787aae1516c6a0db1ed457cd674083538f9856f056",
+      "sha256": "c0741471fd04ad643ebaf6904860685ad8815f5d76e53609387c0be8e7b20aa5",
       "size": 1484
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T11:42:03.145433+00:00",
+  "recorded_at": "2026-08-26T12:35:23.095254+00:00",
   "stage": "daily_metrics",
   "supersedes": [
     "multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv"

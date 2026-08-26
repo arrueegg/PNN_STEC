@@ -6,19 +6,19 @@
     "Does not support claims about the model's out-of-distribution uncertainty - dataset shift and reference-chain difference are confounded here."
   ],
   "code": {
-    "commit": "0c13f6e9b47921d276e44f62ffc4e79838648d79",
+    "commit": "24ef4ee31bb96eb13d8185b917704708864f6b2b",
     "dirty": true
   },
   "command": "-m stec.analysis.madrigal_reference_offset --output-dir multiday_results/analyses/madrigal_reference_offset/rebuilt",
   "description": "how much of the Madrigal error is a per-station reference offset",
-  "duration_s": 78.6,
-  "fingerprint": "81866e94fef3cfb928d5f77d897e653fe1321cf357c8ad3b14daf5fa41eccb20",
+  "duration_s": 76.9,
+  "fingerprint": "d8ed0687de527e9826814378fbaaaaddefeec9c960ebf76820e558158ee58324",
   "inputs": {
     "predictions/finetuned_stec/madrigal": {
       "files": 238,
       "kind": "tree",
-      "mtime_ns": 1787739293125086072,
-      "size": 35960554331
+      "mtime_ns": 1787747500045952027,
+      "size": 35987612575
     }
   },
   "outputs": {
@@ -29,18 +29,18 @@
     "multiday_results/analyses/madrigal_reference_offset/rebuilt/decomposition.csv": {
       "present": true,
       "rows": 6,
-      "sha256": "21691aba2f203ac46ed9fea098877b557bf49bbfabb6e7dabd6a68f6dbf3dc08",
+      "sha256": "5cbd8ee33525fe82deab7c5ad790e40fb2651de464db0d4c451c86655270e0a0",
       "size": 227
     },
     "multiday_results/analyses/madrigal_reference_offset/rebuilt/per_station_offsets.csv": {
       "present": true,
       "rows": 67,
-      "sha256": "d1f3a643c5e3828ec2d0625c307a41200eacbfdc45c2fc346a1788884da3eda2",
-      "size": 4634
+      "sha256": "d7e345c7aa874d4a5a1e90cda883b019deb2dd029d9eb7c975e0ac0269994a5e",
+      "size": 4641
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T11:11:24.062362+00:00",
+  "recorded_at": "2026-08-26T12:38:02.130436+00:00",
   "stage": "madrigal_reference_offset",
   "supersedes": []
 }
