@@ -90,6 +90,82 @@ def test_load_oracle_raises_when_nothing_is_found(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# load_oracle's day-coverage assertion: whole days silently vanishing, the shape of the
+# 2026-08-25 regression (166 of 242 days aggregated nothing while `pipeline status` still
+# reported success), not partial station-day loss within a day.
+# ---------------------------------------------------------------------------
+
+
+def _build_day(root, year, doy, *, with_sinex=True):
+    day_dir = root / "positioning" / "results" / f"{year}{doy:03d}"
+    for method_dir in ("model", "gim"):
+        station_dir = day_dir / method_dir / "AIRA"
+        station_dir.mkdir(parents=True)
+        (station_dir / "AIRA_run.pos").write_text(_POS_FIXTURE)
+
+    if with_sinex:
+        products_dir = (
+            root / "positioning" / "evaluation" / f"{year}{doy:03d}" / "products"
+        )
+        products_dir.mkdir(parents=True)
+        (products_dir / "IGS0OPSSNX_CRD.SNX").write_text(_SINEX_FIXTURE)
+    return day_dir
+
+
+def test_load_oracle_passes_when_every_found_day_aggregates(tmp_path):
+    experiment_root = tmp_path / "Reference_STEC_Oracle"
+    doys = [132, 133, 134, 135, 136]
+    for doy in doys:
+        _build_day(experiment_root, 2024, doy)
+    results_root = experiment_root / "positioning" / "results"
+
+    oracle = ob.load_oracle(results_root)  # must not raise
+
+    assert set(oracle["doy"]) == set(doys)
+
+
+def test_load_oracle_raises_when_many_days_drop(tmp_path):
+    """Reproduces the regression's shape: most found day directories contribute zero
+    rows (dangling/missing SINEX), well beyond ALLOWED_MISSING_DAYS. The message must
+    name the doys that vanished, not just report a count."""
+    experiment_root = tmp_path / "Reference_STEC_Oracle"
+    good_doys = [132, 133, 134, 135]
+    dropped_doys = [140, 141, 142, 143, 144, 145]
+    for doy in good_doys:
+        _build_day(experiment_root, 2024, doy, with_sinex=True)
+    for doy in dropped_doys:
+        _build_day(experiment_root, 2024, doy, with_sinex=False)
+    results_root = experiment_root / "positioning" / "results"
+
+    with pytest.raises(AssertionError) as exc_info:
+        ob.load_oracle(results_root)
+
+    message = str(exc_info.value)
+    for doy in dropped_doys:
+        assert f"2024{doy:03d}" in message
+
+
+def test_load_oracle_passes_when_only_known_missing_days_drop(tmp_path):
+    """DOY 303/338/348 (2024) have no positioning products on this host at all (see
+    CLAUDE.md and ALLOWED_MISSING_DAYS's own comment) - a day directory that exists but
+    never got a SINEX is the closest reproducible shape. Exactly ALLOWED_MISSING_DAYS of
+    them dropping must still pass; the assertion's boundary is inclusive."""
+    experiment_root = tmp_path / "Reference_STEC_Oracle"
+    good_doys = [122, 150, 200, 250, 290, 320, 360]
+    missing_doys = [303, 338, 348]
+    assert len(missing_doys) == ob.ALLOWED_MISSING_DAYS
+    for doy in good_doys:
+        _build_day(experiment_root, 2024, doy, with_sinex=True)
+    for doy in missing_doys:
+        _build_day(experiment_root, 2024, doy, with_sinex=False)
+    results_root = experiment_root / "positioning" / "results"
+
+    oracle = ob.load_oracle(results_root)  # must not raise
+
+    assert set(oracle["doy"]) == set(good_doys)
+
+
+# ---------------------------------------------------------------------------
 # load_baselines: elevation weighting only, not the uncertainty-weighted arms
 # ---------------------------------------------------------------------------
 

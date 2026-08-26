@@ -72,6 +72,21 @@ DEFAULT_ORACLE_RESULTS = (
 )
 DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("oracle_benchmark", rebuilt=True)
 
+# DOY 303, 338 and 348 (2024) have no positioning products anywhere on this host
+# (CLAUDE.md's "Positioning products are recoverable from sibling experiments, not from
+# the network" gotcha; confirmed directly against this tree too - `experiments/
+# Reference_STEC_Oracle/positioning/results` has never had a day directory for any of the
+# three, since the oracle run needs the same products as everything else). Those three
+# never enter `load_oracle`'s glob at all, so `days_found` below is already net of them,
+# not gross - this tolerance is not "spend it on those 3 by name". It is sized to the same
+# small order of magnitude, for a day directory that *does* exist but still contributes no
+# rows (missing SINEX, no .pos files, or every station's metrics coming back None) for
+# some other legitimate reason. It must stay small: the regression this assertion exists
+# to catch - 166 of 242 found day directories silently contributing nothing, because their
+# SINEX symlinks had gone dangling - would have passed at any tolerance above 166, and a
+# day-count check only earns its keep by staying tight enough to fail on that shape again.
+ALLOWED_MISSING_DAYS = 3
+
 
 def load_oracle(results_root: Path) -> pd.DataFrame:
     """Aggregate the oracle runs straight from their ``.pos`` solutions.
@@ -80,9 +95,19 @@ def load_oracle(results_root: Path) -> pd.DataFrame:
     evaluation ran last, so a single-station rerun silently truncates it to one row while
     the ``.pos`` files stay complete. The solutions are the durable artefact, so they are
     the input.
+
+    Asserts day coverage, not station-day coverage: the regression this guards against
+    (166 of 242 day directories silently contributing zero rows because their SINEX
+    symlinks were dangling) was a whole day vanishing, not a partial loss within one, and
+    a station-day-count assertion would not have distinguished "every day lost a few
+    stations" from "two-thirds of days lost everything".
     """
+    day_dirs = sorted(results_root.glob("[0-9]" * 7))
+    days_found = len(day_dirs)
+
     rows = []
-    for day_dir in sorted(results_root.glob("[0-9]" * 7)):
+    days_with_no_rows = []
+    for day_dir in day_dirs:
         year, doy = int(day_dir.name[:4]), int(day_dir.name[4:])
         sinex = sorted(
             (day_dir.parent.parent / "evaluation" / day_dir.name / "products").glob(
@@ -91,9 +116,11 @@ def load_oracle(results_root: Path) -> pd.DataFrame:
         )
         if not sinex:
             logger.warning(f"no SINEX for {day_dir.name} - skipping")
+            days_with_no_rows.append(day_dir.name)
             continue
         truth = pm.load_sinex_coords(sinex[0])
 
+        rows_before = len(rows)
         for method_dir, label in ORACLE_METHODS.items():
             for pos_path in sorted((day_dir / method_dir).glob("*/*.pos")):
                 station = pos_path.parent.name
@@ -112,10 +139,23 @@ def load_oracle(results_root: Path) -> pd.DataFrame:
                         **metrics,
                     }
                 )
+        if len(rows) == rows_before:
+            days_with_no_rows.append(day_dir.name)
 
     if not rows:
         raise FileNotFoundError(f"No oracle .pos solutions under {results_root}")
     logger.info(f"aggregated {len(rows)} oracle solutions from .pos files")
+
+    days_aggregated = days_found - len(days_with_no_rows)
+    assert days_aggregated >= days_found - ALLOWED_MISSING_DAYS, (
+        f"oracle_benchmark aggregated only {days_aggregated} of {days_found} day "
+        f"directories found under {results_root} (tolerance {ALLOWED_MISSING_DAYS} - see "
+        f"ALLOWED_MISSING_DAYS). Day(s) that produced no rows: "
+        f"{sorted(days_with_no_rows)}. This is a day going silently missing, the shape of "
+        f"the 2026-08-25 regression where 166 of 242 days aggregated nothing behind a "
+        f"`pipeline status` that still reported success."
+    )
+
     return pd.DataFrame(rows)
 
 
