@@ -6,35 +6,35 @@
     "Runs on finetuned_stec/own (--model-variant/--dataset default) - the scientifically sharper Madrigal comparison is parameterised and ready (see the module docstring) but blocked on the Madrigal local-time re-inference finishing first."
   ],
   "code": {
-    "commit": "fbac2fc59b392fc5579c09f21de911685845f405",
+    "commit": "8c333bac600008c6376f4bee3842c4bebfc88478",
     "dirty": true
   },
   "command": "-m stec.analysis.dstec_evaluation --output-dir multiday_results/analyses/dstec_evaluation/rebuilt",
   "description": "differential STEC (gradient-only) RMSE vs IGS GIM - cancels per-arc DCB/levelling offsets by construction, isolating the comparability concern from the model's own accuracy",
-  "duration_s": 269.2,
-  "fingerprint": "710726cdaed1c99e02ee9eda184957090759c6e312c9fcfdc3d5739a1f205990",
+  "duration_s": 259.2,
+  "fingerprint": "a594145336695f94d4bb84f96eadefc2105d379d6ab0f217020be778d2efcfee",
   "inputs": {
     "predictions/finetuned_stec/own": {
       "files": 242,
       "kind": "tree",
-      "mtime_ns": 1787093614574123406,
-      "size": 40389607818
+      "mtime_ns": 1787691428111099229,
+      "size": 40362775492
     }
   },
   "outputs": {
     "multiday_results/analyses/dstec_evaluation/rebuilt": {
       "present": true,
-      "size": 98
+      "size": 186
     },
     "multiday_results/analyses/dstec_evaluation/rebuilt/pass_statistics.csv": {
       "present": true,
       "rows": 672542,
-      "sha256": "eaf8498780257afd34e3aae9dd94cef3a1140a0f73f22b8b50273378469f90aa",
-      "size": 180995242
+      "sha256": "c6bde381732936059bd836d0e296cb8f93d12e4da39294b6ffde49e963b078ff",
+      "size": 180995514
     }
   },
   "params": {},
-  "recorded_at": "2026-08-25T09:37:04.451320+00:00",
+  "recorded_at": "2026-08-26T08:34:42.864697+00:00",
   "stage": "dstec_evaluation",
   "supersedes": []
 }

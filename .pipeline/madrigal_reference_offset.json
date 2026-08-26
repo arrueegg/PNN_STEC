@@ -6,41 +6,41 @@
     "Does not support claims about the model's out-of-distribution uncertainty - dataset shift and reference-chain difference are confounded here."
   ],
   "code": {
-    "commit": "81697783f9fbc134729bb5512f7bcdc2ce703ebb",
+    "commit": "8c333bac600008c6376f4bee3842c4bebfc88478",
     "dirty": true
   },
   "command": "-m stec.analysis.madrigal_reference_offset --output-dir multiday_results/analyses/madrigal_reference_offset/rebuilt",
   "description": "how much of the Madrigal error is a per-station reference offset",
-  "duration_s": 77.7,
-  "fingerprint": "0c21c2e37bd2a68d3105273a4cfa6460b7511d7407dcf2577837692e35d71673",
+  "duration_s": 80.9,
+  "fingerprint": "fd9a0c7b7a6f252345795447b1169bf322b85ad22af9d4d2c84deb59ae24bcb8",
   "inputs": {
     "predictions/finetuned_stec/madrigal": {
-      "files": 235,
+      "files": 238,
       "kind": "tree",
-      "mtime_ns": 1787689086161746708,
-      "size": 35509495180
+      "mtime_ns": 1787691852947909410,
+      "size": 35960555269
     }
   },
   "outputs": {
     "multiday_results/analyses/madrigal_reference_offset/rebuilt": {
       "present": true,
-      "size": 212
+      "size": 368
     },
     "multiday_results/analyses/madrigal_reference_offset/rebuilt/decomposition.csv": {
       "present": true,
       "rows": 6,
-      "sha256": "0151e4c316588da58491034574cbb4655e1be3b7c12f08d4e8a6defd23c66d97",
-      "size": 227
+      "sha256": "e7140eaacbd2a67505c612214f910f89cb211b1584d706b118c09a4b7409f6d3",
+      "size": 225
     },
     "multiday_results/analyses/madrigal_reference_offset/rebuilt/per_station_offsets.csv": {
       "present": true,
       "rows": 67,
-      "sha256": "cf16dfce8e1a8ba38b9f532c59b6c43cd898faa937e99931b9861f05c5698bfa",
-      "size": 4620
+      "sha256": "e0eb2d00fe1cd30db96ad6b3d7a651e46e740801d6263c49c7cc91c723fb83d7",
+      "size": 4633
     }
   },
   "params": {},
-  "recorded_at": "2026-08-25T20:22:01.186546+00:00",
+  "recorded_at": "2026-08-26T08:24:16.667715+00:00",
   "stage": "madrigal_reference_offset",
   "supersedes": []
 }

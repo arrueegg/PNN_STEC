@@ -6,29 +6,29 @@
     "Must stay on the frozen, pre-rebuild script, permanently: this stage is the regression check for the GIM day-lookup repair, and porting it into stec/ would mean the check and the thing it checks share an implementation."
   ],
   "code": {
-    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
+    "commit": "f547293f4da30a439a51f290c0a75cd05a7a8a32",
     "dirty": true
   },
   "command": "stec/frozen/analysis/repair_gim_baseline.py --apply --store_root /scratch2/arrueegg/WP4/PNN_STEC/predictions --output_dir multiday_results/analyses/repair_gim_baseline/pre_rebuild",
   "description": "recompute the IGS GIM baseline against the correct day's IONEX map",
-  "duration_s": 188.2,
-  "fingerprint": "710726cdaed1c99e02ee9eda184957090759c6e312c9fcfdc3d5739a1f205990",
+  "duration_s": 189.5,
+  "fingerprint": "a594145336695f94d4bb84f96eadefc2105d379d6ab0f217020be778d2efcfee",
   "inputs": {
     "predictions/finetuned_stec/own": {
       "files": 242,
       "kind": "tree",
-      "mtime_ns": 1787093614574123406,
-      "size": 40389607818
+      "mtime_ns": 1787691428111099229,
+      "size": 40362775492
     }
   },
   "outputs": {
     "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
       "present": true,
-      "size": 42
+      "size": 66
     }
   },
   "params": {},
-  "recorded_at": "2026-08-24T08:54:30.852015+00:00",
+  "recorded_at": "2026-08-26T07:27:12.581138+00:00",
   "stage": "repair_gim_baseline",
   "supersedes": []
 }

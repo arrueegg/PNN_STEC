@@ -6,22 +6,24 @@
     "F10.7 bins are now fixed absolute bands (0/100/150/200/1000 sfu), not the previous data-derived terciles. The terciles split the test period 81/81/80 by construction - three equal-population groups regardless of what F10.7 actually did - while the real distribution against the fixed bands is 7/108/127: the old bins ranked the sample rather than the activity level, and would label a different third of any other period 'high'."
   ],
   "code": {
-    "commit": "ff8f58f2e6e344ce2fec5dfe6af4f9a5b08761e7",
+    "commit": "8c333bac600008c6376f4bee3842c4bebfc88478",
     "dirty": true
   },
   "command": "-m stec.analysis.activity_stratification --output-dir multiday_results/analyses/activity_stratification/rebuilt",
   "description": "STEC error stratified by Dst and F10.7",
-  "duration_s": 1.4,
-  "fingerprint": "11190fad29301558882ec6fe0eb09bb93713ab417fc2dee8c1606ecd22de14ca",
+  "duration_s": 1.2,
+  "fingerprint": "6ee4298877e05dda5f0032d17ca0df1abd0c9a958dd90c61d837151498cc2491",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
-      "kind": "missing"
+      "kind": "file",
+      "sha256": "e9625d79287f7c7c840468417a437c6ef482636b629c3cc652ef0b380678a27a",
+      "size": 33024928
     },
     "multiday_results/analyses/daily_metrics/rebuilt": {
-      "files": 3,
+      "files": 5,
       "kind": "tree",
-      "mtime_ns": 1787335335631691562,
-      "size": 248880
+      "mtime_ns": 1787729464726893024,
+      "size": 250725
     }
   },
   "outputs": {
@@ -31,7 +33,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T18:27:06.540751+00:00",
+  "recorded_at": "2026-08-26T07:57:39.544956+00:00",
   "stage": "activity_stratification",
   "supersedes": []
 }
