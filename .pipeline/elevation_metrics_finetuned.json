@@ -6,19 +6,19 @@
     "own and madrigal are both collected by default; manuscript_figures reads only the 'own' rows (Tables 3-4's scope) and leaves madrigal for a caller who wants that variant."
   ],
   "code": {
-    "commit": "0c13f6e9b47921d276e44f62ffc4e79838648d79",
+    "commit": "109ed27aabe3f22cc25f061ac5073a677819cf10",
     "dirty": true
   },
   "command": "-m stec.analysis.elevation_metrics_finetuned --output-dir multiday_results/analyses/elevation_metrics_finetuned/rebuilt",
   "description": "per-day, per-elevation-bin RMSE/MAE for all four methods, own and madrigal",
-  "duration_s": 178.6,
-  "fingerprint": "f220e0fc0e6e39052046ff68ce317b20ed9f1e626ce6e1c62abe1bc439f4cd2b",
+  "duration_s": 243.3,
+  "fingerprint": "12c043237f0aa6f58e088f94e22226cce3d67e5b49f180e1691302df8ecf0e07",
   "inputs": {
     "predictions/finetuned_stec/madrigal": {
       "files": 238,
       "kind": "tree",
-      "mtime_ns": 1787739293125086072,
-      "size": 35960554331
+      "mtime_ns": 1787747500045952027,
+      "size": 35987612575
     },
     "predictions/finetuned_stec/own": {
       "files": 242,
@@ -35,12 +35,12 @@
     "multiday_results/analyses/elevation_metrics_finetuned/rebuilt/per_day_by_elevation.csv": {
       "present": true,
       "rows": 28594,
-      "sha256": "8d1e54be05b21c4a1938d229fce241ddbdae4733313f6deb6be6c96739e7d701",
-      "size": 2124328
+      "sha256": "65927bd5fecd93bd9ce6c425472dc05802cbd505d06dad42aec669e33dfd3278",
+      "size": 2124341
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T11:14:37.388189+00:00",
+  "recorded_at": "2026-08-26T12:45:09.881442+00:00",
   "stage": "elevation_metrics_finetuned",
   "supersedes": []
 }
