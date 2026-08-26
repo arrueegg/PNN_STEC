@@ -44,36 +44,22 @@ observations and fine-tuned per day. It is evaluated against three baselines: a 
 neural model combined with a mapping function, the IGS global ionosphere maps combined with the
 same mapping function, and the model's own pretrained checkpoint without daily fine-tuning.
 
-### Two implementations, one seam
+### How the code is organised
 
-The repository contains two Python packages, and the distinction governs everything else in
-this manual.
+`stec/` is the implementation: a layered package — configuration, data, models, training,
+inference, baselines, analysis, visualisation, positioning, pipeline — in which each layer
+depends only on those below it. Every analysed result is produced through a declared pipeline
+of **36 stages**, so if a number is reported anywhere, a stage owns it. Chapter 7 describes
+how that works, and it is the most useful chapter for anyone assessing where a result came
+from.
 
-**`stec/` is the current implementation.** It is a layered package — configuration, data,
-models, training, inference, baselines, analysis, visualisation, positioning, pipeline — and it
-produces every analysed result through a declared pipeline of **36 stages**. If a number is
-reported anywhere, a stage owns it. Chapter 7 describes how.
-
-**`src/` is the legacy implementation**, retained because it is still the only implementation
-of three things: model training, the live inference pass that populates the prediction store,
-and spatial map generation. It is being retired, not maintained in parallel. The file-by-file
-audit of what has been ported, what is still needed and what is dead code is
-[docs/revision/retirement_inventory.md](revision/retirement_inventory.md).
-
-The seam is deliberate and it is documented rather than hidden. A port of a training loop that
-was never executed against real data is how a silently different model ships, so the training
-path was left in `src/` until it can be verified end to end rather than ported on faith.
-
-Practically: analysis and provenance run through `stec/`; training and live inference run
-through `src/`, invoked by the root `cli.py`.
-
-### How the architecture is documented
+`cli.py` at the repository root is the entry point for the operational workflows — training,
+inference, comparison against the baselines, spatial maps, and multi-day evaluation.
+`positioning/` holds the precise-point-positioning evaluation, which depends on an external
+solver and is covered in chapter 8.
 
 This manual covers operation. For the internal design — the layer boundaries, the stage
-contract, and the rules the pipeline enforces — read [ARCHITECTURE.md](ARCHITECTURE.md). For
-the reasoning behind specific numerical decisions and the register of places where the rebuilt
-code deliberately differs from its predecessor, read
-[docs/revision/divergences.md](revision/divergences.md).
+contract, and the rules the pipeline enforces — read [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### What you can check without the data
 
@@ -321,7 +307,7 @@ loads it.
 
 ## 5. Training
 
-Training runs through the legacy CLI, since `src/` remains the only implementation:
+Training runs through the root CLI:
 
 ```bash
 python cli.py train --config config/config_BNN.yaml
@@ -333,10 +319,9 @@ is a single pretrained checkpoint plus one fine-tune per evaluated day.
 
 A run writes into `experiments/<generated-name>/`: the best checkpoint, a loss history, and the
 resolved configuration as actually used. Checkpoint selection tracks the best validation loss
-with early stopping; the `stec/`-side equivalent is
-[stec/training/checkpointing.py](../stec/training/checkpointing.py)'s
-`fit_with_best_checkpoint`, which reproduces the same bookkeeping that selected every shipped
-checkpoint.
+with early stopping, implemented by `fit_with_best_checkpoint` in
+[stec/training/checkpointing.py](../stec/training/checkpointing.py) — the same bookkeeping that
+selected every shipped checkpoint.
 
 > **Operational caveat.** The trainer keeps one "best so far" file, and a fresh run's best-so-far
 > starts at infinity. If a run is killed and automatically restarted, the first checkpoint the
@@ -366,8 +351,8 @@ the real database — see chapter 7.
 
 ### Running inference
 
-The live inference pass — loading a checkpoint, running it over a day of observations, and
-computing the baselines alongside — is still a `src/` capability:
+The live inference pass loads a checkpoint, runs it over a day of observations, and computes
+the baselines alongside:
 
 ```bash
 python cli.py inference --experiment "Finetune_STEC_2024_183_..."
@@ -542,7 +527,7 @@ later in the list.
 | 27 | `positioning_summary` | Table 5 |
 | 28 | `oracle_benchmark` | — |
 | 29 | `pretrained_test_diagnostics` | — |
-| 30 | `diagnostic_figures` | diagnostic-plot parity with the legacy implementation |
+| 30 | `diagnostic_figures` | spatial, azimuth-elevation, residual-feature and uncertainty diagnostic plots |
 | 31 | `elevation_metrics_finetuned` | Figure 11 per-elevation error bars |
 | 32 | `dstec_evaluation` | differential STEC versus GIM, R1.3 |
 | 33 | `figures` | — |
@@ -614,9 +599,10 @@ came from `elev`, a `daily_summary_iono.csv` from `iono`. The comparison between
 
 ### Outputs and one trap
 
-Results land under `multiday_results/`, restructured into purpose-named buckets; the design and
-the before-and-after mapping are in
-[docs/revision/results_layout.md](revision/results_layout.md).
+Results land under `multiday_results/`, organised into purpose-named buckets — analyses,
+per-day outputs, positioning runs, and a bucket for trees that have been superseded. Every path
+is constructed in [stec/config/paths.py](../stec/config/paths.py) rather than hardcoded at the
+point of use.
 
 **`oracle_benchmark` is not comparable with the main positioning table, permanently and by
 design.** It uses `elev` weighting — the reference STEC carries only a placeholder sigma, so
@@ -656,45 +642,49 @@ checked-in fixtures — the delivery's own self-test.
 
 ### The gates
 
-[verification/](../verification/) holds 15 scripts. Nine are equivalence gates, comparing the
-rebuilt implementation against its predecessor at each layer; six are independent measurements
-and repairs.
+[verification/](../verification/) holds 15 scripts. Nine are equivalence gates, checking one
+layer each — features, model, training, inference, positioning, analysis, figures — against an
+independent reference for that layer. The remaining six are measurements and repairs.
 
 | Script | What it establishes |
 |---|---|
 | `gate_a_feature_layout.py` | The computed input width matches every trained checkpoint's actual weight shape |
-| `gate_a_layout_vs_legacy.py` | Rebuilt and legacy feature-layout computation agree on the same configs |
-| `gate_a_end_to_end.py` | The full rebuilt data path produces the same tensor as the legacy path on real data |
-| `gate_b_model_equivalence.py` | Rebuilt and legacy model classes are equivalent loading the same checkpoint |
-| `gate_c_training_equivalence.py` | The rebuilt training loop reproduces the legacy loop step-for-step from one seed |
-| `gate_d_inference_equivalence.py` | Rebuilt inference reproduces legacy inference, with sampling explicitly seeded |
-| `gate_e_positioning_equivalence.py` | Rebuilt positioning metrics reproduce the legacy per-station-day numbers |
-| `gate_f_analysis_equivalence.py` | Each ported analysis reproduces its predecessor's CSVs column by column |
+| `gate_a_layout_vs_legacy.py` | Two independent derivations of the feature layout agree on the same configs |
+| `gate_a_end_to_end.py` | The full data path produces the expected tensor on a real day of observations |
+| `gate_b_model_equivalence.py` | Two implementations of the architecture agree when loading the same checkpoint |
+| `gate_c_training_equivalence.py` | The training loop is reproducible step-for-step from a fixed seed |
+| `gate_d_inference_equivalence.py` | Inference is reproducible, with Monte-Carlo sampling explicitly seeded |
+| `gate_e_positioning_equivalence.py` | Positioning metrics reproduce the recorded per-station-day numbers |
+| `gate_f_analysis_equivalence.py` | Each analysis reproduces its reference output CSVs column by column |
 | `gate_f_figures.py` | Each figure plots what its declared source data holds |
 | `measure_determinism_floor.py` | The reproducibility floor of two identical runs, so other tolerances mean something |
 | `measure_training_determinism.py` | The same, for training trajectories |
-| `measure_bugfix_effects.py` | The numeric effect of specific bugfixes carried into the rebuild |
+| `measure_bugfix_effects.py` | The numeric effect of specific bugfixes on the results they touch |
 | `verify_store_against_raw.py` | The store faithfully carries the raw database — shares no code with the pipeline |
 | `verify_paper_claims.py` | Four qualitative manuscript claims, checked against the store |
-| `repair_overwritten_summaries.py` | Not a gate: repairs summary rows a sweep overwrote, from existing solutions |
+| `repair_overwritten_summaries.py` | Not a gate: repairs summary rows that were overwritten, from existing solutions |
 
-Gate F reports three verdicts rather than pass or fail: `MATCH`, `DIVERGED` where the port
-intended a difference and named it, and `FAIL` for an unexplained difference. The register of
-intended divergences is [docs/revision/divergences.md](revision/divergences.md), and it is
-enforced by a test rather than maintained by hand.
+Gate F reports three verdicts rather than pass or fail: `MATCH`, `DIVERGED` for a difference
+that is intended and named, and `FAIL` for an unexplained one. The register of intended
+divergences lives in [stec/analysis/divergences.py](../stec/analysis/divergences.py) and is
+enforced by a test rather than maintained by hand, so a divergence cannot be quietly introduced
+without being declared.
 
 ### What a green gate does not prove
 
-**A refactor preserves the bug it ports along with the logic.** Agreement between the old
-implementation and the new one is the expected outcome whether or not either is scientifically
-correct, so the gates establish that the rebuild changed nothing unintentionally — not that the
-result is right. Independent correctness is a separate activity, and
-`verify_store_against_raw.py` and `verify_paper_claims.py` are the two scripts that attempt it,
-deliberately sharing no code with what they check.
+**An equivalence check preserves whatever both sides do.** If two implementations of the same
+computation agree, that establishes that neither drifted from the other — not that the
+computation is scientifically right. The gates are a wiring-error diagnostic, and that is a
+narrower claim than correctness.
+
+Independent correctness is a separate activity. `verify_store_against_raw.py` and
+`verify_paper_claims.py` are the two scripts that attempt it, deliberately sharing no code with
+what they check: the first re-derives the store's contents from the raw database with an
+independent reader, the second tests qualitative claims the manuscript makes.
 
 Two gates are structurally skipped rather than passed: comparing the GIM repair against itself
 would prove nothing, and full positioning equivalence would require re-solving days with the
-external binary.
+external solver.
 
 ### What you can check without the data
 
@@ -736,12 +726,11 @@ full-population figure is in
 `multiday_results/analyses/positioning_summary/rebuilt/overall.csv`. Both differ from the
 published value; the matched one is the number to quote.
 
-**The storm and quiet-day split changed after a station-recovery sweep** enlarged the solved
-population. [docs/revision/evidence_summary.md](revision/evidence_summary.md) and
-[docs/revision/response_to_reviewers.md](revision/response_to_reviewers.md) still carry the
-pre-sweep values and need their own correction pass; the current values are produced by the
-`storm_stratification` stage. Where those two documents and a pipeline output disagree, the
-pipeline output is current.
+**The storm and quiet-day improvements changed** once a station-recovery pass enlarged the
+population of solved station-days, which shifted both figures below the published ones. The
+current values are produced by the `storm_stratification` stage, in
+`multiday_results/analyses/storm_stratification/rebuilt/`. As everywhere else in this chapter,
+where any document and a pipeline output disagree, the pipeline output is current.
 
 ### Two evaluations that are not what they appear to be
 
@@ -764,12 +753,6 @@ Adding days sharpens each point but does not move the coefficient. Strengthening
 requires a region-held-out retrain.
 
 ### Structural limitations
-
-**`src/` is not retired.** Training, live inference and spatial-map generation have no `stec/`
-equivalent, so the delivery contains two implementations and the older one still runs real
-work. The audit of what remains is
-[docs/revision/retirement_inventory.md](revision/retirement_inventory.md), and the ordered plan
-for removing it is [docs/revision/src_deletion_runbook.md](revision/src_deletion_runbook.md).
 
 **Two `cli.py` subcommands are dead.** `cli.py evaluate` and `cli.py positioning` print an
 error and exit non-zero. They are retained as named failures with a pointer to the replacement,
