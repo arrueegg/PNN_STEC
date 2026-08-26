@@ -278,6 +278,47 @@ def daily_metrics_summary_has_all_methods_and_datasets(outputs: dict) -> str | N
     return None
 
 
+def daily_metrics_summary_has_consistent_day_counts(outputs: dict) -> str | None:
+    """Every method present in a dataset must cover the same `Num_days` as its
+    siblings there, catching a day that silently lost one baseline column while
+    keeping the rest - exactly what happened 2026-08-25 when a `cli.py multiday`
+    invocation ran without `--pretrained_baseline`: doy 224/229/294 kept
+    `stec_pred`/`vtec_model_stec`/`gim_stec` but dropped `pretrained_stec_pred`,
+    so "Pretrained STEC" x own_vtec_gim quietly shrank from 242 to 239 days while
+    still writing a plausible, non-empty row. The presence check above cannot see
+    this: it only asks whether a (model, dataset) cell has *a* row, not whether
+    that row's day count matches its siblings'.
+
+    A method that is legitimately absent from a dataset entirely (Pretrained STEC
+    x madrigal - see the presence check's own docstring) writes no row there at
+    all, so it never contributes a competing `Num_days` value and this check does
+    not need, and must not add, a special case for it - only a *present-but-
+    shrunk* row trips this.
+    """
+    path = DAILY_METRICS_DIR / "summary.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(path, ["Model", "dataset", "Num_days"])
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = _read_csv_rows(path)
+    by_dataset: dict[str, dict[str, str]] = {}
+    for row in rows:
+        by_dataset.setdefault(row["dataset"], {})[row["Model"]] = row["Num_days"]
+    mismatches = {
+        dataset: day_counts
+        for dataset, day_counts in by_dataset.items()
+        if len(set(day_counts.values())) > 1
+    }
+    if mismatches:
+        return (
+            f"{path} has models with differing Num_days within the same dataset - "
+            f"a day silently missing one baseline column shrinks that model's "
+            f"Num_days without failing the presence check: {mismatches}"
+        )
+    return None
+
+
 def positioning_summary_overall_has_all_four_methods(outputs: dict) -> str | None:
     """Table 5's overall.csv always has exactly 4 rows - `reindex(METHOD_ORDER)`
     guarantees the index even when a method has no station-days, filling it with NaN
@@ -742,7 +783,10 @@ STAGES: list[Stage] = [
             # magnitude below that.
             str(DAILY_METRICS_DIR / "per_day.csv"): 190,
         },
-        checks=[daily_metrics_summary_has_all_methods_and_datasets],
+        checks=[
+            daily_metrics_summary_has_all_methods_and_datasets,
+            daily_metrics_summary_has_consistent_day_counts,
+        ],
         canonical_for="Tables 3 and 4",
         caveats=[
             "The published RMSE is RMSE_mean - the mean of per-day RMSEs - which is what "

@@ -26,6 +26,7 @@ from stec.pipeline.stages import (
     STORE_PRETRAINED,
     WEIGHTING_RUN,
     daily_metrics_summary_has_all_methods_and_datasets,
+    daily_metrics_summary_has_consistent_day_counts,
     positioning_summary_overall_has_all_four_methods,
 )
 
@@ -267,6 +268,70 @@ def test_daily_metrics_check_reports_undeclared_output(tmp_path, monkeypatch):
         daily_metrics_summary_has_all_methods_and_datasets({})
         == f"{DAILY_METRICS_DIR / 'summary.csv'} is not a declared output of this stage"
     )
+
+
+def test_day_count_check_is_declared():
+    assert (
+        daily_metrics_summary_has_consistent_day_counts in stage("daily_metrics").checks
+    )
+
+
+def test_day_count_check_passes_with_matching_counts_per_dataset(tmp_path, monkeypatch):
+    path = DAILY_METRICS_DIR / "summary.csv"
+    # Mirrors the real 7-row shape: own carries all four models at 242 days each,
+    # madrigal carries the three models it has, each at 238 days - two different
+    # counts, but consistent *within* each dataset, which is what this check cares
+    # about.
+    own_rows = "".join(f"own_vtec_gim,{model},242\n" for model in MODELS.values())
+    madrigal_models = [m for m in MODELS.values() if m != "Pretrained STEC"]
+    madrigal_rows = "".join(
+        f"madrigal_vtec_gim,{model},238\n" for model in madrigal_models
+    )
+    _write_relative(
+        tmp_path,
+        monkeypatch,
+        path,
+        "dataset,Model,Num_days\n" + own_rows + madrigal_rows,
+    )
+    outputs = {str(path): {"present": True}}
+    assert daily_metrics_summary_has_consistent_day_counts(outputs) is None
+
+
+def test_day_count_check_fails_when_one_model_is_shrunk(tmp_path, monkeypatch):
+    """Reproduces the 2026-08-25 regression directly: doy 224/229/294 kept every
+    other own-dataset column but lost `pretrained_stec_pred`, so 'Pretrained STEC'
+    reported 239 days against every sibling model's 242 while still writing a
+    perfectly plausible row - exactly what
+    `daily_metrics_summary_has_all_methods_and_datasets` cannot see."""
+    path = DAILY_METRICS_DIR / "summary.csv"
+    rows = "".join(
+        f"own_vtec_gim,{model},{239 if model == 'Pretrained STEC' else 242}\n"
+        for model in MODELS.values()
+    )
+    _write_relative(tmp_path, monkeypatch, path, "dataset,Model,Num_days\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = daily_metrics_summary_has_consistent_day_counts(outputs)
+    assert violation is not None
+    assert "Pretrained STEC" in violation
+    assert "239" in violation and "242" in violation
+
+
+def test_day_count_check_reports_undeclared_output(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert (
+        daily_metrics_summary_has_consistent_day_counts({})
+        == f"{DAILY_METRICS_DIR / 'summary.csv'} is not a declared output of this stage"
+    )
+
+
+def test_day_count_check_reports_missing_num_days_column(tmp_path, monkeypatch):
+    path = DAILY_METRICS_DIR / "summary.csv"
+    rows = "".join(f"own_vtec_gim,{model}\n" for model in MODELS.values())
+    _write_relative(tmp_path, monkeypatch, path, "dataset,Model\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = daily_metrics_summary_has_consistent_day_counts(outputs)
+    assert violation is not None
+    assert "Num_days" in violation
 
 
 def test_daily_metrics_check_reports_renamed_column_instead_of_raising(
