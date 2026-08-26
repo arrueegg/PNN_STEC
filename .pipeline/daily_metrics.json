@@ -6,18 +6,18 @@
     "Madrigal rows carry the madrigal_reference_offset caveat."
   ],
   "code": {
-    "commit": "e863ff97e13785b59dfb8016e53253907cae2929",
+    "commit": "64b1d60ecc86ae490bacc1c007a6a181159e95a2",
     "dirty": true
   },
   "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
   "description": "per-day and pooled STEC metrics recomputed from the prediction store",
-  "duration_s": 122.0,
-  "fingerprint": "c63451d6fec96a86029b0fb7a724380aa77db6a70eb5e6bf2088b7f3316a5b01",
+  "duration_s": 86.1,
+  "fingerprint": "6429c8b1425ac3a4caa1dde8f03940d9f38cddc8616f2720fd1b1e97eb3e2f19",
   "inputs": {
     "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
       "files": 2,
       "kind": "tree",
-      "mtime_ns": 1787729232558650503,
+      "mtime_ns": 1787740591952076918,
       "size": 71852
     },
     "predictions/finetuned_stec/madrigal": {
@@ -58,7 +58,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T10:17:38.436558+00:00",
+  "recorded_at": "2026-08-26T11:42:03.145433+00:00",
   "stage": "daily_metrics",
   "supersedes": [
     "multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv"

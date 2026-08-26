@@ -3,18 +3,37 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "b3b5f07d723be2f44494661badf0e28f7c716b48",
+    "commit": "64b1d60ecc86ae490bacc1c007a6a181159e95a2",
     "dirty": true
   },
   "command": "-m stec.analysis.relative_error_metrics --output-dir multiday_results/analyses/relative_error_metrics/rebuilt",
   "description": "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
   "duration_s": 0.3,
-  "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
-  "inputs": {},
+  "fingerprint": "ac063d44177be0253b3ec5251901a278678f47c64b1fb38829d258c7c4fbe8ab",
+  "inputs": {
+    "experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/extrapolation/temporal_analysis": {
+      "files": 15,
+      "kind": "tree",
+      "mtime_ns": 1787552227264111565,
+      "size": 26342
+    },
+    "experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/interpolation/temporal_analysis": {
+      "files": 26,
+      "kind": "tree",
+      "mtime_ns": 1787552023043800498,
+      "size": 45474
+    },
+    "experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI/temporal_analysis": {
+      "files": 29,
+      "kind": "tree",
+      "mtime_ns": 1787551810767470577,
+      "size": 48698
+    }
+  },
   "outputs": {
     "multiday_results/analyses/relative_error_metrics/rebuilt": {
       "present": true,
-      "size": 96
+      "size": 182
     },
     "multiday_results/analyses/relative_error_metrics/rebuilt/yearly_metrics.csv": {
       "present": true,
@@ -24,7 +43,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-23T15:32:01.027724+00:00",
+  "recorded_at": "2026-08-26T11:40:20.489764+00:00",
   "stage": "relative_error_metrics",
   "supersedes": []
 }

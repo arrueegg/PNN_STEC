@@ -1,0 +1,56 @@
+{
+  "answers": "R1.6b",
+  "canonical_for": null,
+  "caveats": [
+    "CODE's RMS is a differently constructed product than the IGS combined RMS this table's other row uses - finer resolution, and not read as a validated error estimate any more than the IGS one is. The two rows are complementary independent checks, not a consistency test against each other.",
+    "Unlike the IGS arm, main() has no stored gim_stec column to check the recomputed CODE GIM mean against - the store only ever carried the IGS-derived baseline - so this arm has no equivalent of the IGS arm's 1e-3 TECU drift assertion against a second, independent computation of the same mean. What IS checked: the module's own ionex_path() picks the codg*.i file, not igsg*.i, and a day with no CODE IONEX on disk is skipped and logged, not silently zero-filled.",
+    "Mapping-function error is not represented in either IONEX RMS, so both arms are structurally expected to under-cover at low elevation - not evidence specific to CODE.",
+    "A grid-cell uncertainty at 5 degrees / 2 hours, judged here by per-observation coverage - the comparison the paper needs, not a like-for-like test of what the RMS was designed to represent."
+  ],
+  "code": {
+    "commit": "64b1d60ecc86ae490bacc1c007a6a181159e95a2",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.ionex_rms_benchmark --gim_type CODE --output_dir multiday_results/analyses/ionex_rms_benchmark/rebuilt",
+  "description": "model uncertainty against the CODE GIM RMS map, the table's second arm",
+  "duration_s": 945.4,
+  "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
+  "inputs": {
+    "predictions/finetuned_stec/own": {
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787738860783434182,
+      "size": 40389608015
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/ionex_rms_benchmark/rebuilt/by_elevation_CODE.csv": {
+      "present": true,
+      "rows": 12,
+      "sha256": "0befca1312eeaa10978355f06a4fb899034b221a2ce6597879dda59355cffe07",
+      "size": 3329
+    },
+    "multiday_results/analyses/ionex_rms_benchmark/rebuilt/by_regime_CODE.csv": {
+      "present": true,
+      "rows": 6,
+      "sha256": "e83a0e8db4b790d05a51f82590af7f03159c58fa50c54bfe1b3c0cf39616dec6",
+      "size": 1725
+    },
+    "multiday_results/analyses/ionex_rms_benchmark/rebuilt/overall_CODE.csv": {
+      "present": true,
+      "rows": 3,
+      "sha256": "f0f7b59463a83751c9114fac16370f42cd4a810624056c3ca9961185fe5aac24",
+      "size": 910
+    },
+    "multiday_results/analyses/ionex_rms_benchmark/rebuilt/per_day_CODE.csv": {
+      "present": true,
+      "rows": 3630,
+      "sha256": "84a2f3bebf71742bb2f285b02b06cd6c9c8ecdb8aa678cc81b5ba655ea363aec",
+      "size": 835222
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-26T12:00:45.318651+00:00",
+  "stage": "ionex_rms_benchmark_code",
+  "supersedes": []
+}
