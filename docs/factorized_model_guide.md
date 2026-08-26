@@ -247,7 +247,7 @@ The factorized model integrates seamlessly with existing inference scripts:
 python src/inference_testset.py
 
 # Positioning evaluation
-bash scripts/run_positioning_pipeline.sh "experiments/Pretrain_STEC_FactorizedSTEC_..." 2024-06-01
+bash positioning/scripts/run_pipeline.sh "experiments/Pretrain_STEC_FactorizedSTEC_..." 2024-06-01
 
 # Map visualization
 python src/inference_map.py
@@ -335,7 +335,7 @@ python src/main.py
 python src/inference_testset.py
 
 # 4. Positioning evaluation
-bash scripts/run_positioning_pipeline.sh "experiments/Finetune_STEC_FactorizedSTEC_..." 2024-06-01
+bash positioning/scripts/run_pipeline.sh "experiments/Finetune_STEC_FactorizedSTEC_..." 2024-06-01
 
 # 5. Analyze detailed outputs (in Python)
 from model.model import get_model

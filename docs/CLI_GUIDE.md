@@ -217,8 +217,8 @@ Some advanced analysis tasks have specialized scripts not yet integrated into th
 Regenerate high-quality positioning plots from multi-day results with advanced filtering.
 
 ```bash
-python src/plot_positioning_manual.py \
-    --input multiday_results/positioning_snx/multiday_summary.csv \
+python positioning/scripts/plot_results.py \
+    --input multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv \
     --output_dir plots/paper_ready \
     --exclude_threshold 5
 ```
@@ -227,8 +227,11 @@ python src/plot_positioning_manual.py \
 Evaluate using the dSTEC metric to remove geometry-dependent errors.
 
 ```bash
-python src/dstec_evaluation.py "experiments/Finetune_STEC_..."
+python -m stec.analysis.dstec_evaluation --doys 132 150 200
 ```
+
+Reads the prediction store rather than running live inference, so it needs no checkpoint and
+no GPU. Omit `--doys` to evaluate every day present in the store.
 
 
 ---
