@@ -101,6 +101,13 @@ figures" are wired against real data is, on disk, 13.
 **Cost:** a manuscript figure has no current generator output and nothing in the pipeline's
 success records reveals that.
 
+**Resolved 2026-08-25/26.** `elevation_metrics_finetuned` has run
+(`.pipeline/elevation_metrics_finetuned.json`, `multiday_results/analyses/
+elevation_metrics_finetuned/rebuilt/per_day_by_elevation.csv`, 28,594 rows), `manuscript_figures`
+and `figures` re-ran and picked it up, and `verification/gate_f_figures.py` reports 10 of 10
+MATCH with no skips (commit `64b1d60`) — Figure 11 is checked for the first time rather than
+exempted. Current state and what remains: `docs/revision/work_queue.md`.
+
 ### F3 · The manuscript's embedded figures are disconnected from the rebuilt generators — **[BLOCKS]** (for the reproducibility goal) · NEW
 
 `STEC_Modelling/` is gitignored; all 15 `FigureN.png` files share mtime **Aug 18 15:17** —
@@ -139,6 +146,17 @@ contrary to STATE.md item 9's "RESOLVED … resolves itself on merge" (the merge
 `pre_rebuild/` (pre-rebuild `src/` code, Aug 19).
 
 **How verified:** JSON contents and directory absences confirmed by two independent agents.
+
+**Resolved 2026-08-26.** `daily_metrics` (and `madrigal_reference_offset`,
+`activity_stratification`) have real, current `rebuilt/` output —
+`multiday_results/analyses/daily_metrics/rebuilt/summary.csv` reproduces 6.9243/13.4463/
+8.9636/8.2826 exactly, 7 rows, 242 days each model (commit `1969f70`). The specific failure
+mode this finding describes (a record asserting success against a missing-input run) is also
+narrower now: `a118d20` makes `daily_metrics` fail loudly if one model covers fewer days than
+its siblings, the same shape of defect F4 illustrates. `python -m stec.pipeline status`
+currently reports 2 of 37 stages stale (`positioning_coverage`, `oracle_benchmark`) —
+deliberately, pending the live station-recovery sweep, not silently. Current state:
+`docs/revision/work_queue.md`.
 
 ### F5 · The assertion machinery that would prevent F4 is almost entirely unused — **[WEAKENS]** · NEW
 
