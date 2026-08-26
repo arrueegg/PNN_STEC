@@ -232,3 +232,92 @@ def test_available_days_supports_resume(tmp_path):
         (2024, 132),
         (2024, 200),
     ]
+
+
+def _written_columns(tmp_path: Path, doy: int = 132) -> set[str]:
+    path = tmp_path / "finetuned_stec" / "own" / "year=2024" / f"doy={doy:03d}.parquet"
+    return set(pd.read_parquet(path).columns)
+
+
+def test_first_write_for_a_day_never_triggers_the_guard(tmp_path):
+    """No existing file yet, so there is nothing to compare against - any column set is
+    fine, including one that would look like a "narrower" write against some other day's
+    schema."""
+    ps.write_predictions(
+        frame().drop(columns=["gim_stec"]),
+        "finetuned_stec",
+        "own",
+        2024,
+        132,
+        root=tmp_path,
+    )
+    assert "gim_stec" not in _written_columns(tmp_path)
+
+
+def test_overwrite_with_a_superset_of_columns_succeeds(tmp_path):
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    wider = frame()
+    wider["pretrained_stec_pred"] = wider["stec_pred"] + 1.0
+    ps.write_predictions(wider, "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    written = _written_columns(tmp_path)
+    assert {"gim_stec", "pretrained_stec_pred"} <= written
+
+
+def test_overwrite_with_the_same_columns_succeeds(tmp_path):
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    assert "gim_stec" in _written_columns(tmp_path)
+
+
+def test_overwrite_with_fewer_columns_is_refused_and_leaves_the_original_file_intact(
+    tmp_path,
+):
+    """Reproduces the 2026-08-25 regression directly: a second write for the same day
+    that drops a column the first write already had - here `gim_stec` stands in for
+    `pretrained_stec_pred`, which three real day-files lost this way - must be refused,
+    not silently accepted, and the original file must survive untouched."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    path = tmp_path / "finetuned_stec" / "own" / "year=2024" / "doy=132.parquet"
+    before = path.read_bytes()
+
+    narrower = frame().drop(columns=["gim_stec"])
+    with pytest.raises(ValueError, match="gim_stec"):
+        ps.write_predictions(
+            narrower, "finetuned_stec", "own", 2024, 132, root=tmp_path
+        )
+
+    assert path.read_bytes() == before
+
+
+def test_allow_column_loss_opts_out_of_the_guard(tmp_path):
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    narrower = frame().drop(columns=["gim_stec"])
+    ps.write_predictions(
+        narrower,
+        "finetuned_stec",
+        "own",
+        2024,
+        132,
+        root=tmp_path,
+        allow_column_loss=True,
+    )
+    assert "gim_stec" not in _written_columns(tmp_path)
+
+
+def test_corrupt_existing_file_does_not_block_a_narrower_write(tmp_path):
+    """A torn or zero-byte file left by an earlier killed write (CLAUDE.md documents
+    real cases of this from a killed recovery sweep) has nothing worth preserving, so
+    the guard must not block writing over it."""
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    day_dir.mkdir(parents=True)
+    (day_dir / "doy=132.parquet").write_bytes(b"not a parquet file at all")
+
+    ps.write_predictions(
+        frame().drop(columns=["gim_stec"]),
+        "finetuned_stec",
+        "own",
+        2024,
+        132,
+        root=tmp_path,
+    )
+    assert "gim_stec" not in _written_columns(tmp_path)

@@ -12,7 +12,13 @@ frame once, as partitioned parquet.
 
 **Never narrow the schema at a write site.** That is the mistake this exists to prevent:
 the VTEC baseline's slant-mapped sigma was computed and then dropped by a whitelist for
-weeks.
+weeks. `write_predictions` enforces this itself as of 2026-08-26: overwriting an existing
+day-file with a column subset raises unless the caller passes `allow_column_loss=True`
+explicitly. Added after a `cli.py multiday` run against `src/evaluation/prediction_store.py`
+(a separate copy of this module, still imported by `src/compare_stec_vtec_gim.py` and
+`src/inference_testset.py`) silently dropped `pretrained_stec_pred` from three days by
+overwriting a 35-column file with a 34-column frame - `REQUIRED_COLUMNS` alone never caught
+it, because the dropped column was never required, only previously present.
 
 Layout::
 
@@ -37,6 +43,8 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from ..config import paths
 
@@ -152,6 +160,32 @@ def missing_columns(
     return [col for col in columns if col not in df.columns]
 
 
+def _columns_that_would_be_dropped(
+    path: Path, incoming_columns: Sequence[str]
+) -> list[str]:
+    """Columns the on-disk file at `path` already has that `incoming_columns` lacks.
+
+    Schema-only: reads the parquet footer via `ParquetFile(path).schema`, never the row
+    data, so this costs nothing on every write, even against a multi-GB day file - the
+    same cheap check `scripts/lib/missing_data_selection.py::_has_required_columns` uses
+    for the equivalent read-side question. The write path below is atomic (temp file +
+    `os.replace`), so the existing file is intact and readable right up to the rename;
+    this runs before that rename, while there is still something to compare against and
+    still time to refuse.
+
+    Returns `[]` for a file that does not exist yet (nothing to drop) or one whose footer
+    fails to open (`pa.ArrowInvalid` - a torn or zero-byte file left by an earlier killed
+    write): there is nothing worth preserving in either case, so the write proceeds.
+    """
+    if not path.exists():
+        return []
+    try:
+        existing_columns = set(pq.ParquetFile(path).schema.names)
+    except pa.ArrowInvalid:
+        return []
+    return sorted(existing_columns - set(incoming_columns))
+
+
 def _write_parquet_atomically(df: pd.DataFrame, path: Path) -> None:
     """Write `df` to `path` without ever exposing a partially-written file.
 
@@ -188,11 +222,20 @@ def write_predictions(
     doy: int,
     root: Path | str = DEFAULT_STORE_ROOT,
     extra_columns: Sequence[str] | None = None,
+    allow_column_loss: bool = False,
 ) -> Path:
     """Persist one day of per-observation predictions as parquet.
 
     Every schema column present in `df` is written; absent ones are reported so a gap is
     visible at write time rather than weeks later.
+
+    Refuses to overwrite an existing day-file with a strict column subset: see the module
+    docstring's "never narrow the schema at a write site" rule, added after exactly that
+    silently cost three days their `pretrained_stec_pred` column. Every real caller in
+    this repo (`run_baselines.py`, `reinference_madrigal_local_time.py`) already starts
+    from the existing on-disk frame and merges columns on top, so this should never fire
+    in normal operation; `allow_column_loss=True` is the explicit opt-out for a caller
+    that genuinely means to write a narrower frame.
     """
     df = normalize_columns(df)
 
@@ -230,6 +273,20 @@ def write_predictions(
             out[col] = out[col].astype("float32")
 
     path = store_path(model_variant, dataset, year, doy, root)
+
+    if not allow_column_loss:
+        dropped = _columns_that_would_be_dropped(path, out.columns)
+        if dropped:
+            raise ValueError(
+                f"Refusing to overwrite {path}: it already has column(s) {dropped} that "
+                f"this write would drop for {year}-{doy:03d}. This is exactly the "
+                f"2026-08-25 regression (a cli.py multiday run without "
+                f"--pretrained_baseline silently dropped pretrained_stec_pred from three "
+                f"days) - see the module docstring's 'never narrow the schema at a write "
+                f"site' rule. Pass allow_column_loss=True if a narrower write is "
+                f"genuinely intended."
+            )
+
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_parquet_atomically(out, path)
 

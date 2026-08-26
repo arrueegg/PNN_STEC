@@ -35,6 +35,8 @@ from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +154,32 @@ def missing_columns(
     return [col for col in columns if col not in df.columns]
 
 
+def _columns_that_would_be_dropped(
+    path: Path, incoming_columns: Sequence[str]
+) -> list:
+    """Columns the on-disk file at `path` already has that `incoming_columns` lacks.
+
+    Schema-only: reads the parquet footer via `ParquetFile(path).schema`, never the row
+    data, so this costs nothing on every write. Mirrors
+    `stec/inference/prediction_store.py`'s guard of the same name - see that module's
+    docstring for why this exists: a `cli.py multiday` run without `--pretrained_baseline`
+    silently overwrote three 35-column own-dataset day-files with 34-column frames missing
+    `pretrained_stec_pred`, through this exact write path (`compare_stec_vtec_gim.py` ->
+    `write_prediction_store` -> here).
+
+    Returns `[]` for a file that does not exist yet, or one whose footer fails to open
+    (`pa.ArrowInvalid` - a torn or zero-byte file from an earlier killed write): nothing
+    worth preserving in either case, so the write proceeds.
+    """
+    if not path.exists():
+        return []
+    try:
+        existing_columns = set(pq.ParquetFile(path).schema.names)
+    except pa.ArrowInvalid:
+        return []
+    return sorted(existing_columns - set(incoming_columns))
+
+
 def write_predictions(
     df: pd.DataFrame,
     model_variant: str,
@@ -160,6 +188,7 @@ def write_predictions(
     doy: int,
     root: Path | str = DEFAULT_STORE_ROOT,
     extra_columns: Optional[Iterable[str]] = None,
+    allow_column_loss: bool = False,
 ) -> Path:
     """Persist one day of per-observation predictions as parquet.
 
@@ -167,6 +196,9 @@ def write_predictions(
     a gap is visible at write time rather than weeks later. Floats are stored as
     float32 and the identity columns as dictionary-encoded categoricals, which
     keeps a ~2.4 M-row day around 80-120 MB.
+
+    Refuses to overwrite an existing day-file with a strict column subset unless
+    `allow_column_loss=True` - see `_columns_that_would_be_dropped`.
     """
     df = normalize_columns(df)
 
@@ -208,6 +240,16 @@ def write_predictions(
             out[col] = out[col].astype("float32")
 
     path = store_path(model_variant, dataset, year, doy, root)
+
+    if not allow_column_loss:
+        dropped = _columns_that_would_be_dropped(path, out.columns)
+        if dropped:
+            raise ValueError(
+                f"Refusing to overwrite {path}: it already has column(s) {dropped} "
+                f"that this write would drop for {year}-{doy:03d}. Pass "
+                f"allow_column_loss=True if a narrower write is genuinely intended."
+            )
+
     path.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(path, index=False, compression="snappy")
 

@@ -140,8 +140,17 @@ def _build_old_madrigal_store_day(
     frame["vtec_model_stec_aleatoric_unc"] = rng.uniform(0.1, 2.0, size=len(frame))
     frame["vtec_model_stec_epistemic_unc"] = rng.uniform(0.0, 0.5, size=len(frame))
     frame["gim_stec"] = rng.uniform(2.0, 60.0, size=len(frame))
+    # This overwrites the file `run_inference` just wrote above, deliberately without
+    # `sat` - allow_column_loss=True is this fixture intentionally reproducing the old
+    # file's narrower shape, not a real caller silently losing a column.
     ps.write_predictions(
-        frame, "finetuned_stec", "madrigal", YEAR, DOY, root=store_root
+        frame,
+        "finetuned_stec",
+        "madrigal",
+        YEAR,
+        DOY,
+        root=store_root,
+        allow_column_loss=True,
     )
     return store_root, madrigal_root
 
@@ -278,8 +287,16 @@ def test_reinference_merges_without_columns_the_file_predates(tmp_path):
     ]
     path = ps.store_path("finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
     frame = pd.read_parquet(path).drop(columns=missing_columns)
+    # Simulating DOY 196/217's real shape by deliberately dropping columns from a file
+    # that already has them - allow_column_loss=True says so explicitly.
     ps.write_predictions(
-        frame, "finetuned_stec", "madrigal", YEAR, DOY, root=store_root
+        frame,
+        "finetuned_stec",
+        "madrigal",
+        YEAR,
+        DOY,
+        root=store_root,
+        allow_column_loss=True,
     )
     before = pd.read_parquet(path)
     assert not any(column in before.columns for column in missing_columns)
