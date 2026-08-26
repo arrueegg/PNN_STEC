@@ -100,6 +100,33 @@ WEIGHTING_RUN = str(
 # literal avoids: fingerprinting still runs relative to CWD like every other declared
 # input, but nothing computes or resolves LEGACY_EXPERIMENTS at import time.
 ORACLE_EXPERIMENT_DIR = "experiments/Reference_STEC_Oracle"
+# relative_error_metrics.py's default --experiment (the paper's pretrained model), read
+# for its `temporal_analysis/year_*_metrics_summary.txt` files and its
+# `{interpolation,extrapolation}/temporal_analysis/total_metrics_summary.txt` regime
+# split. Narrowed to those three subtrees (a few hundred KB total) rather than the whole
+# experiment directory: that directory's `positioning/` subtree alone is 37 GB, and
+# nothing under it, `model/`, or `global_maps/` is read here. Bare literals, same
+# LEGACY_ROOT-override reasoning as ORACLE_EXPERIMENT_DIR above.
+_RELATIVE_ERROR_METRICS_EXPERIMENT = (
+    "experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_"
+    "bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
+)
+RELATIVE_ERROR_METRICS_INPUTS = [
+    f"{_RELATIVE_ERROR_METRICS_EXPERIMENT}/temporal_analysis",
+    f"{_RELATIVE_ERROR_METRICS_EXPERIMENT}/interpolation/temporal_analysis",
+    f"{_RELATIVE_ERROR_METRICS_EXPERIMENT}/extrapolation/temporal_analysis",
+]
+# weighting_ablation.py's FIXED_VARIANCE_RESULTS: the third, fixed-sigma arm, read
+# directly from its own experiment tree rather than from WEIGHTING_RUN's
+# multiday_summary.csv (see that module's load_fixed_variance). 4.5 GB / ~27,000 files,
+# but fingerprint.py's tree digest only stats - no per-file hashing above
+# HASH_LIMIT_BYTES - which measured under 0.4s here, so declaring the whole subtree
+# (rather than each of the 242 per-day daily_summary_iono.csv files individually) is
+# cheap and simpler to keep in sync with the module. Narrowed to this one experiment,
+# not all of `experiments/`, the same convention ORACLE_EXPERIMENT_DIR uses.
+WEIGHTING_ABLATION_FIXED_VARIANCE_DIR = (
+    "experiments/Fixed_Variance_STEC/positioning/results"
+)
 SWI = "data/omni_hourly_2010-2025.h5"
 
 # Every stec.analysis output directory, named once so a stage's command string,
@@ -540,6 +567,7 @@ STAGES: list[Stage] = [
         f"-m stec.analysis.relative_error_metrics --output-dir {RELATIVE_ERROR_METRICS_DIR}",
         "R2.1, R2.2",
         "absolute vs TEC-normalised error by year; interpolation vs extrapolation",
+        inputs=RELATIVE_ERROR_METRICS_INPUTS,
         outputs=[
             str(RELATIVE_ERROR_METRICS_DIR),
             str(RELATIVE_ERROR_METRICS_DIR / "yearly_metrics.csv"),
@@ -853,9 +881,73 @@ STAGES: list[Stage] = [
         "ionex_rms_benchmark",
         f"-m stec.analysis.ionex_rms_benchmark --output_dir {IONEX_RMS_BENCHMARK_DIR}",
         "R1.6b",
-        "model uncertainty against the IGS and CODE GIM RMS maps",
+        "model uncertainty against the IGS GIM RMS map",
         inputs=[STORE_OWN],
         outputs=[str(IONEX_RMS_BENCHMARK_DIR)],
+    ),
+    Stage(
+        # A second Stage, not a --gim_type parameter on the one above: the registry
+        # gives each stage exactly one command and one .pipeline/<name>.json (see
+        # uncertainty_calibration/uncertainty_calibration_pretrained's own comment
+        # above, "a single stage issuing two invocations would blur 'what produced
+        # this output'"). ionex_rms_benchmark.py's main() scores one --gim_type per
+        # invocation, so the CODE arm needs its own invocation the same way the
+        # pretrained-model uncertainty calibration needed its own. Before this
+        # existed, the letter's R1.6b table paired a current IGS row (this file's
+        # `rebuilt/` output) with a CODE row that only `pre_rebuild/` had - two
+        # different vintages read as if they were one run.
+        "ionex_rms_benchmark_code",
+        f"-m stec.analysis.ionex_rms_benchmark --gim_type CODE "
+        f"--output_dir {IONEX_RMS_BENCHMARK_DIR}",
+        "R1.6b",
+        "model uncertainty against the CODE GIM RMS map, the table's second arm",
+        inputs=[STORE_OWN],
+        # Scoped to the four gim_type=CODE files, not the shared directory the IGS
+        # stage above already owns - the two invocations write into the same
+        # directory (per_day_IGS.csv next to per_day_CODE.csv, etc.), so claiming
+        # the directory itself here would collide with the IGS stage under
+        # check_unique_outputs. Neither stage's min_rows can be asserted against a
+        # directory anyway (provenance.output_record only counts rows for a file).
+        outputs=[
+            str(IONEX_RMS_BENCHMARK_DIR / "per_day_CODE.csv"),
+            str(IONEX_RMS_BENCHMARK_DIR / "overall_CODE.csv"),
+            str(IONEX_RMS_BENCHMARK_DIR / "by_elevation_CODE.csv"),
+            str(IONEX_RMS_BENCHMARK_DIR / "by_regime_CODE.csv"),
+        ],
+        min_rows={
+            # per_day: up to 3 products (Direct STEC, VTEC + Mapping, CODE GIM +
+            # Mapping) x up to 5 elevation rows (all + 4 bins, each bin only
+            # written when it clears 1000 observations) x 242 days - 3,630 on the
+            # real store; floored well below that so a handful of thin days
+            # doesn't fail a real run, but a near-empty file does.
+            str(IONEX_RMS_BENCHMARK_DIR / "per_day_CODE.csv"): 2_000,
+            # overall/by_elevation/by_regime are groupby aggregates with a fixed
+            # shape - 3 products, 3 x 4 elevation bins, 3 x 2 regimes - not a
+            # floor with headroom, an exact count.
+            str(IONEX_RMS_BENCHMARK_DIR / "overall_CODE.csv"): 3,
+            str(IONEX_RMS_BENCHMARK_DIR / "by_elevation_CODE.csv"): 12,
+            str(IONEX_RMS_BENCHMARK_DIR / "by_regime_CODE.csv"): 6,
+        },
+        caveats=[
+            "CODE's RMS is a differently constructed product than the IGS combined "
+            "RMS this table's other row uses - finer resolution, and not read as a "
+            "validated error estimate any more than the IGS one is. The two rows "
+            "are complementary independent checks, not a consistency test against "
+            "each other.",
+            "Unlike the IGS arm, main() has no stored gim_stec column to check the "
+            "recomputed CODE GIM mean against - the store only ever carried the "
+            "IGS-derived baseline - so this arm has no equivalent of the IGS arm's "
+            "1e-3 TECU drift assertion against a second, independent computation of "
+            "the same mean. What IS checked: the module's own ionex_path() picks the "
+            "codg*.i file, not igsg*.i, and a day with no CODE IONEX on disk is "
+            "skipped and logged, not silently zero-filled.",
+            "Mapping-function error is not represented in either IONEX RMS, so both "
+            "arms are structurally expected to under-cover at low elevation - not "
+            "evidence specific to CODE.",
+            "A grid-cell uncertainty at 5 degrees / 2 hours, judged here by "
+            "per-observation coverage - the comparison the paper needs, not a "
+            "like-for-like test of what the RMS was designed to represent.",
+        ],
     ),
     Stage(
         # Ported. Scores every model under both Gaussian and Laplace, tagging which is
@@ -1048,7 +1140,7 @@ STAGES: list[Stage] = [
         f"-m stec.analysis.weighting_ablation --output-dir {WEIGHTING_ABLATION_DIR}",
         "R2.5",
         "elevation against predicted-uncertainty weighting, paired station-days",
-        inputs=[WEIGHTING_RUN],
+        inputs=[WEIGHTING_RUN, WEIGHTING_ABLATION_FIXED_VARIANCE_DIR],
         outputs=[str(WEIGHTING_ABLATION_DIR)],
     ),
     Stage(

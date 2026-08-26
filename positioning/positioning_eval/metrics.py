@@ -94,11 +94,25 @@ def load_sinex_coords(snx_file):
 
     Returns:
         Dictionary: {STATION_NAME: [x, y, z]}
+
+    Raises:
+        FileNotFoundError: `snx_file` does not exist.
+        OSError: `snx_file` exists but could not be read (permissions, I/O error).
+        ValueError: the file was read but no STAX/STAY/STAZ estimate was found in it,
+            e.g. a truncated file or one with no SOLUTION/ESTIMATE block.
+
+    A caller that has a legitimate "no SINEX for this day" case (the day-mean-reference
+    fallback in `aggregate_daily_metrics` below) checks for that *before* calling this
+    function - it never passes a path expected to be missing. Returning `{}` here for an
+    unreadable or empty file used to look identical to that legitimate case: every
+    station in `aggregate_daily_metrics` requires ground truth and gets silently
+    skipped, and a day this happens to can vanish from a summary with nothing printed
+    above INFO. Raising here is what makes "the file was there but wrong" distinguishable
+    from "there was deliberately no file".
     """
     snx_path = Path(snx_file)
     if not snx_path.exists():
-        print(f"Warning: SINEX file not found: {snx_file}")
-        return {}
+        raise FileNotFoundError(f"SINEX file not found: {snx_path}")
 
     coords = {}
     try:
@@ -140,11 +154,16 @@ def load_sinex_coords(snx_file):
                                 coords[station][1] = value
                             elif entry_type == "STAZ":
                                 coords[station][2] = value
+    except OSError as exc:
+        raise OSError(f"Could not read SINEX file {snx_path}: {exc}") from exc
 
-        return coords
-    except Exception as e:
-        print(f"Error parsing SINEX file {snx_file}: {e}")
-        return {}
+    if not coords:
+        raise ValueError(
+            f"No station coordinates found in SINEX file {snx_path} - "
+            "missing or empty SOLUTION/ESTIMATE block"
+        )
+
+    return coords
 
 
 def xyz2enu(xyz, orgxyz):

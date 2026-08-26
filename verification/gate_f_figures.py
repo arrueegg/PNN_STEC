@@ -669,27 +669,71 @@ FIGURE_STRATIFIED_ELEVATION_CHECK = FigureCheck(
 
 
 # --------------------------------------------------------------------------
-# Figure 11 - declared skip, not omitted. Its input analysis
-# (`stec.analysis.elevation_metrics_finetuned`) has never been run at full coverage;
-# CLAUDE.md's own "src/'s status" section says the Madrigal re-inference this figure
-# depends on indirectly is queued, not run. Named here so the gate's summary reports it as
-# considered-and-blocked, matching how `gate_f_analysis_equivalence` handles
-# `repair_gim_baseline`/`positioning_coverage`.
+# Figure 11 - RMSE/MAE vs. 5-degree elevation bin, own test set, daily fine-tuned models
+# (`stec.viz.manuscript_figures.fig_mae_rmse_finetuned`, from `stec.analysis.
+# elevation_metrics_finetuned`'s per-(doy, elevation_bin, Method) table).
+#
+# Used to be a declared `skip=` here: the stale reason was that the input analysis "has
+# never been run at full coverage", pinned to a Madrigal re-inference this figure does not
+# actually depend on - `_build_mae_rmse_finetuned_figure` reads only the `own` dataset
+# rows (see that function's own comment), and `finetuned_stec/own` has all 242 days.
+# `elevation_metrics_finetuned` has since run (`multiday_results/analyses/
+# elevation_metrics_finetuned/rebuilt/per_day_by_elevation.csv` on disk) and Figure 11 is
+# built (`plots/manuscript/stec_finetuned_2024/mae_rmse_finetuned.csv`), so the skip was a
+# vacuous check reporting a considered-and-blocked state that no longer held.
 # --------------------------------------------------------------------------
+
+ELEVATION_METRICS_FINETUNED_DIR = paths.analysis_result_dir(
+    "elevation_metrics_finetuned", rebuilt=True
+)
+if not (ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv").exists():
+    ELEVATION_METRICS_FINETUNED_DIR = paths.analysis_result_dir(
+        "elevation_metrics_finetuned", rebuilt=False
+    )
+
+
+def _recompute_mae_rmse_finetuned() -> pd.DataFrame:
+    """`fig_mae_rmse_finetuned`'s across-day aggregation, reimplemented from the per-day
+    table it reads: mean/std of RMSE and MAE per (elevation_bin, Method), restricted to
+    the own test set the same way `_build_mae_rmse_finetuned_figure` filters it. This is
+    the same groupby the figure itself runs (a plain across-day mean/std has no second,
+    unrelated way to compute it), applied here to an independent `pd.read_csv` of the
+    upstream artifact rather than by calling into `stec.viz` - so a wrong join column, a
+    dropped elevation bin, or a filter applied to the wrong dataset in the figure code
+    would still show up as a mismatch here, even though the aggregation formula itself is
+    shared.
+    """
+    table = pd.read_csv(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv")
+    own = table[table["dataset"] == "own"]
+    return (
+        own.groupby(["elevation_bin", "Method"])
+        .agg(
+            RMSE_mean=("RMSE", "mean"),
+            RMSE_std=("RMSE", "std"),
+            MAE_mean=("MAE", "mean"),
+            MAE_std=("MAE", "std"),
+            days=("doy", "nunique"),
+            observations=("n", "sum"),
+        )
+        .reset_index()
+    )
+
 
 FIGURE11_CHECK = FigureCheck(
     name="fig11_mae_rmse_finetuned",
     figure="Figure 11 (RMSE/MAE vs. elevation, mean +/- across-day std)",
-    plotted_csv=Path(),
-    upstream=(),
-    join_keys=(),
-    value_columns=(),
-    recompute=lambda: pd.DataFrame(),
-    skip=(
-        "its input, stec.analysis.elevation_metrics_finetuned, has never been run at full "
-        "coverage - blocked behind another session's Madrigal re-inference (see CLAUDE.md, "
-        "'src/'s status')"
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_finetuned_2024" / "mae_rmse_finetuned.csv",
+    upstream=(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv",),
+    join_keys=("elevation_bin", "Method"),
+    value_columns=(
+        "RMSE_mean",
+        "RMSE_std",
+        "MAE_mean",
+        "MAE_std",
+        "days",
+        "observations",
     ),
+    recompute=_recompute_mae_rmse_finetuned,
 )
 
 

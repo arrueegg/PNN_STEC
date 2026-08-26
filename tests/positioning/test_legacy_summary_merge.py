@@ -11,6 +11,11 @@ import it), so it now also pins that the delegation itself - the `sys.path` boot
 
 The failure being pinned destroyed 59 canonical `daily_summary*.csv` files during the
 station-day recovery sweep, dropping days from 74-91 rows to between 2 and 12.
+
+Also covers `load_sinex_coords`, this module's SINEX reader: it used to return `{}` for
+a missing or unparseable file rather than raising, indistinguishable from a legitimate
+"no SINEX for this day" - the actual failure mode behind 166 station-days that produced
+no error at all (see `load_sinex_coords`'s own docstring for the full mechanism).
 """
 
 from __future__ import annotations
@@ -98,3 +103,49 @@ def test_rewriting_a_station_updates_rather_than_duplicates(metrics_module, tmp_
 def test_both_frames_none_is_an_error_not_a_silent_truncation(metrics_module, tmp_path):
     with pytest.raises(ValueError):
         metrics_module.save_daily_summary(None, None, tmp_path / "daily_summary.csv")
+
+
+def test_load_sinex_coords_parses_a_real_block(metrics_module, tmp_path):
+    snx_file = tmp_path / "IGS0OPSSNX_test.SNX"
+    snx_file.write_text(
+        "+SOLUTION/ESTIMATE\n"
+        " 1 STAX  ZIMM  A    1  05:159:43200 m    01  4331297.0450 0.0011\n"
+        " 2 STAY  ZIMM  A    1  05:159:43200 m    01   567555.6390 0.0011\n"
+        " 3 STAZ  ZIMM  A    1  05:159:43200 m    01  4633133.9060 0.0011\n"
+        "-SOLUTION/ESTIMATE\n"
+    )
+
+    coords = metrics_module.load_sinex_coords(snx_file)
+
+    assert coords["ZIMM"] == pytest.approx([4331297.0450, 567555.6390, 4633133.9060])
+
+
+def test_load_sinex_coords_missing_file_raises_instead_of_returning_empty(
+    metrics_module, tmp_path
+):
+    """The bug this pins: a missing SINEX used to come back as `{}`, indistinguishable
+    from a file that parsed clean and simply had no matching station - both then made
+    every station in `aggregate_daily_metrics` look unsolvable, with nothing above a
+    print statement to say why."""
+    missing = tmp_path / "missing.SNX"
+    with pytest.raises(FileNotFoundError, match=r"missing\.SNX"):
+        metrics_module.load_sinex_coords(missing)
+
+
+def test_load_sinex_coords_empty_estimate_block_raises(metrics_module, tmp_path):
+    """A file that exists and parses but yields zero stations - e.g. truncated mid-
+    download - is exactly as unusable as a missing one, and must fail the same loud
+    way rather than silently returning `{}`."""
+    snx_file = tmp_path / "truncated.SNX"
+    snx_file.write_text("+SOLUTION/ESTIMATE\n-SOLUTION/ESTIMATE\n")
+
+    with pytest.raises(ValueError, match=r"truncated\.SNX"):
+        metrics_module.load_sinex_coords(snx_file)
+
+
+def test_load_sinex_coords_no_estimate_block_at_all_raises(metrics_module, tmp_path):
+    snx_file = tmp_path / "wrong_format.SNX"
+    snx_file.write_text("%=SNX 2.02 IGS ...\n+FILE/REFERENCE\n-FILE/REFERENCE\n")
+
+    with pytest.raises(ValueError, match=r"wrong_format\.SNX"):
+        metrics_module.load_sinex_coords(snx_file)
