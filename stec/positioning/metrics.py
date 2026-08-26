@@ -132,47 +132,74 @@ def xyz2enu(xyz: np.ndarray, org_xyz: np.ndarray) -> np.ndarray:
 
 
 def load_sinex_coords(snx_file: Path | str) -> dict[str, list[float]]:
-    """Parse an IGS SINEX file's SOLUTION/ESTIMATE block into {STATION: [x, y, z]} (m)."""
+    """Parse an IGS SINEX file's SOLUTION/ESTIMATE block into {STATION: [x, y, z]} (m).
+
+    Raises:
+        FileNotFoundError: `snx_file` does not exist. This also covers a dangling
+            symlink - `Path.exists()` follows the link and reports False when its
+            target is gone.
+        OSError: `snx_file` exists but could not be read (permissions, I/O error).
+        ValueError: the file was read but no STAX/STAY/STAZ estimate was found in it,
+            e.g. a truncated file or one with no SOLUTION/ESTIMATE block.
+
+    Ported from `positioning/positioning_eval/metrics.py`, which carries the incident
+    this closes: returning `{}` here for a missing file is exactly how 166 dangling
+    SINEX symlinks let `oracle_benchmark` silently compute over 76 days instead of
+    242 - every station lookup against an empty dict just read as "not in SINEX" and
+    the day was dropped with nothing above a log line. A caller with a genuine "no
+    SINEX for this day" case must branch on that itself *before* calling this function
+    (see `aggregate_daily_metrics` below and `stec.positioning.store.build_partition_frame`,
+    both of which check the file's existence first) - it must never rely on this
+    function to turn "missing" into a quiet, empty result.
+    """
     snx_path = Path(snx_file)
     if not snx_path.exists():
-        logger.warning(f"SINEX file not found: {snx_file}")
-        return {}
+        raise FileNotFoundError(f"SINEX file not found: {snx_path}")
 
     coords: dict[str, list[float]] = {}
-    with open(snx_path, "r", errors="ignore") as handle:
-        in_estimate = False
-        for line in handle:
-            if line.startswith("+SOLUTION/ESTIMATE"):
-                in_estimate = True
-                continue
-            if line.startswith("-SOLUTION/ESTIMATE"):
-                break
-            if not in_estimate:
-                continue
+    try:
+        with open(snx_path, "r", errors="ignore") as handle:
+            in_estimate = False
+            for line in handle:
+                if line.startswith("+SOLUTION/ESTIMATE"):
+                    in_estimate = True
+                    continue
+                if line.startswith("-SOLUTION/ESTIMATE"):
+                    break
+                if not in_estimate:
+                    continue
 
-            # Example line:
-            #    1 STAX  ZIMM  A    1  05:159:43200 m    01  2104332.8845 0.0011
-            parts = line.split()
-            if len(parts) < 9:
-                continue
+                # Example line:
+                #    1 STAX  ZIMM  A    1  05:159:43200 m    01  2104332.8845 0.0011
+                parts = line.split()
+                if len(parts) < 9:
+                    continue
 
-            entry_type = parts[1]
-            if entry_type not in ("STAX", "STAY", "STAZ"):
-                continue
+                entry_type = parts[1]
+                if entry_type not in ("STAX", "STAY", "STAZ"):
+                    continue
 
-            value_str = parts[8]
-            if "_" in value_str:
-                # Placeholder like '___ESTIMATED_VALUE___' - no coordinate to read.
-                continue
-            try:
-                value = float(value_str)
-            except ValueError:
-                continue
+                value_str = parts[8]
+                if "_" in value_str:
+                    # Placeholder like '___ESTIMATED_VALUE___' - no coordinate to read.
+                    continue
+                try:
+                    value = float(value_str)
+                except ValueError:
+                    continue
 
-            station = parts[2].upper()
-            coords.setdefault(station, [0.0, 0.0, 0.0])
-            axis_index = {"STAX": 0, "STAY": 1, "STAZ": 2}[entry_type]
-            coords[station][axis_index] = value
+                station = parts[2].upper()
+                coords.setdefault(station, [0.0, 0.0, 0.0])
+                axis_index = {"STAX": 0, "STAY": 1, "STAZ": 2}[entry_type]
+                coords[station][axis_index] = value
+    except OSError as exc:
+        raise OSError(f"Could not read SINEX file {snx_path}: {exc}") from exc
+
+    if not coords:
+        raise ValueError(
+            f"No station coordinates found in SINEX file {snx_path} - "
+            "missing or empty SOLUTION/ESTIMATE block"
+        )
 
     return coords
 
@@ -281,14 +308,21 @@ def aggregate_daily_metrics(
         year, doy: Recorded on every output row, not read from the files.
         method_name: Recorded on every output row (e.g. "model" or "gim").
         stations: If given, only look for these stations' subdirectories.
-        snx_file: SINEX file with ground-truth coordinates. If given, stations absent
-            from it are skipped (no true error can be computed without a reference); if
-            omitted, every station falls back to its own day-mean position, which is not
-            a true error.
+        snx_file: SINEX file with ground-truth coordinates. If given, it is expected to
+            exist and parse - stations absent from it are skipped (no true error can be
+            computed without a reference), but a missing/unreadable/empty file now
+            raises via `load_sinex_coords` rather than silently degrading to "every
+            station skipped". Pass `None`, not a possibly-missing path, for the
+            legitimate "no SINEX for this day" case; that is what falls back to the
+            day-mean position, which is not a true error.
 
     Returns:
         DataFrame with one row per station, or None if no `.pos` files were found or none
         could be reduced to metrics.
+
+    Raises:
+        FileNotFoundError, OSError, ValueError: propagated from `load_sinex_coords` when
+            `snx_file` is given but missing, unreadable, or empty of coordinates.
     """
     results_path = Path(results_dir)
 

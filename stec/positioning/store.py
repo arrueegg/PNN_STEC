@@ -641,7 +641,22 @@ def build_store(
         if dry_run:
             continue
 
-        frame = build_partition_frame(partition_refs)
+        try:
+            frame = build_partition_frame(partition_refs)
+        except (OSError, ValueError) as exc:
+            # `load_sinex_coords` now raises on a SINEX that exists but is unreadable
+            # or empty of coordinates (see its docstring for the incident this closes)
+            # rather than silently degrading to a day-mean reference. The pre-check in
+            # `build_partition_frame` already handles a genuinely missing SINEX
+            # tolerantly, so anything reaching here is a real, unexpected defect in a
+            # file that is present - worth failing this one partition loudly over, not
+            # worth crashing an unattended ~2,000-partition sweep over.
+            logger.error(
+                f"{method}/{weighting} {year}-{doy:03d}: SINEX ground truth unreadable "
+                f"({exc}) - skipping partition"
+            )
+            stats.partitions_failed += 1
+            continue
         if frame is None:
             stats.partitions_failed += 1
             continue

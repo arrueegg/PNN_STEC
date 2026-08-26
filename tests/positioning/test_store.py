@@ -416,6 +416,46 @@ def test_build_store_writes_partition_with_mean_reference_when_no_sinex(tmp_path
     assert set(out["ref_source"].astype(str)) == {"mean"}
 
 
+def test_build_partition_frame_raises_when_sinex_exists_but_is_corrupt(tmp_path):
+    """`load_sinex_coords` now raises instead of returning `{}` for a present-but-empty
+    SINEX (see its docstring for the incident - 166 dangling symlinks - this closes).
+    `build_partition_frame`'s `snx.exists()` pre-check only covers a genuinely missing
+    file, so a corrupt-but-present one must still surface here, not degrade quietly."""
+    experiment = _make_experiment(
+        tmp_path, "Finetune_STEC_2024_183_test", 2024, 183, ["AAAA"], tags=["model"]
+    )
+    snx = ps.sinex_path(experiment, 2024, 183)
+    snx.parent.mkdir(parents=True)
+    snx.write_text("+SOLUTION/ESTIMATE\n-SOLUTION/ESTIMATE\n")  # zero stations
+
+    refs = ps.discover_pos_files([experiment])
+    with pytest.raises(ValueError, match="No station coordinates"):
+        ps.build_partition_frame(refs)
+
+
+def test_build_store_skips_partition_with_corrupt_sinex_without_crashing_sweep(
+    tmp_path, caplog
+):
+    """A single corrupt SINEX must fail only its own partition (tallied in
+    `partitions_failed`, same bookkeeping as `frame is None`), not raise out of
+    `build_store` and abort the rest of an unattended multi-partition sweep."""
+    good_experiment = _make_experiment(
+        tmp_path, "Finetune_STEC_2024_183_test", 2024, 183, ["AAAA"], tags=["model"]
+    )
+    bad_experiment = _make_experiment(
+        tmp_path, "Finetune_STEC_2024_184_test", 2024, 184, ["AAAA"], tags=["model"]
+    )
+    bad_snx = ps.sinex_path(bad_experiment, 2024, 184)
+    bad_snx.parent.mkdir(parents=True)
+    bad_snx.write_text("+SOLUTION/ESTIMATE\n-SOLUTION/ESTIMATE\n")  # zero stations
+
+    stats = ps.build_store([good_experiment, bad_experiment], root=tmp_path / "store")
+
+    assert stats.partitions_written == 1
+    assert stats.partitions_failed == 1
+    assert ps.available_days("STEC", "elev", root=tmp_path / "store") == [(2024, 183)]
+
+
 def test_build_store_is_resumable_and_force_rewrites(tmp_path):
     experiment = _make_experiment(
         tmp_path, "Finetune_STEC_2024_183_test", 2024, 183, ["AAAA"], tags=["model"]

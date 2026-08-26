@@ -9,6 +9,7 @@ checkout isn't present.
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -207,8 +208,58 @@ def test_load_sinex_coords_parses_stax_stay_staz(tmp_path):
     assert "AMC4" not in coords
 
 
-def test_load_sinex_coords_missing_file_returns_empty_dict(tmp_path):
-    assert pm.load_sinex_coords(tmp_path / "missing.SNX") == {}
+def test_load_sinex_coords_missing_file_raises(tmp_path):
+    missing = tmp_path / "missing.SNX"
+    with pytest.raises(FileNotFoundError, match=str(missing)):
+        pm.load_sinex_coords(missing)
+
+
+def test_load_sinex_coords_dangling_symlink_raises_file_not_found(tmp_path):
+    # A dangling symlink is the exact mechanism from the incident this fix closes:
+    # `Path.exists()` follows the link and reports False when the target is gone, the
+    # same as a file that was never there at all.
+    target = tmp_path / "does_not_exist.SNX"
+    link = tmp_path / "dangling.SNX"
+    link.symlink_to(target)
+
+    with pytest.raises(FileNotFoundError):
+        pm.load_sinex_coords(link)
+
+
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root ignores file permission bits, so this can't produce an unreadable file",
+)
+def test_load_sinex_coords_unreadable_file_raises_oserror(tmp_path):
+    snx_file = tmp_path / "unreadable.SNX"
+    snx_file.write_text(
+        "+SOLUTION/ESTIMATE\n"
+        " 1 STAX  ZIMM  A    1  05:159:43200 m    01  4331297.0450 0.0011\n"
+        "-SOLUTION/ESTIMATE\n"
+    )
+    snx_file.chmod(0o000)
+    try:
+        with pytest.raises(OSError):
+            pm.load_sinex_coords(snx_file)
+    finally:
+        # Restore permissions so tmp_path cleanup can delete the file.
+        snx_file.chmod(0o644)
+
+
+def test_load_sinex_coords_empty_estimate_block_raises_value_error(tmp_path):
+    snx_file = tmp_path / "empty.SNX"
+    snx_file.write_text("+SOLUTION/ESTIMATE\n-SOLUTION/ESTIMATE\n")
+
+    with pytest.raises(ValueError, match="No station coordinates"):
+        pm.load_sinex_coords(snx_file)
+
+
+def test_load_sinex_coords_no_estimate_block_at_all_raises_value_error(tmp_path):
+    snx_file = tmp_path / "no_block.SNX"
+    snx_file.write_text("%=SNX 2.02 IGS ...\n%ENDSNX\n")
+
+    with pytest.raises(ValueError, match="No station coordinates"):
+        pm.load_sinex_coords(snx_file)
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +315,26 @@ def test_aggregate_daily_metrics_returns_none_when_no_pos_files(tmp_path):
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     assert pm.aggregate_daily_metrics(empty_dir, 2024, 300, "model") is None
+
+
+def test_aggregate_daily_metrics_raises_when_given_snx_file_is_missing(tmp_path):
+    """A caller that passes `snx_file=` is stating it should be there and usable - a
+    missing path there is a defect to surface, not the legitimate "no SINEX for this
+    day" case (that case is `snx_file=None`, exercised by the day-mean fallback tests
+    above and below)."""
+    results_dir = tmp_path / "results" / "2024300" / "model"
+    station_dir = results_dir / "AIRA"
+    station_dir.mkdir(parents=True)
+    (station_dir / "AIRA_model.pos").write_text(_POS_FIXTURE)
+
+    with pytest.raises(FileNotFoundError):
+        pm.aggregate_daily_metrics(
+            results_dir,
+            2024,
+            300,
+            "model",
+            snx_file=tmp_path / "does_not_exist.SNX",
+        )
 
 
 def test_day_mean_reference_survives_an_object_dtype_column(tmp_path):
