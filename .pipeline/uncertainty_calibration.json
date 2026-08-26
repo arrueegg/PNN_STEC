@@ -7,13 +7,13 @@
     "The storm/quiet split uses the daily minimum-Dst rule at -50 nT, matching storm_stratification.STORM_DST_THRESHOLD_NT - not the per-observation rule in scenario_evaluation.py."
   ],
   "code": {
-    "commit": "8c333bac600008c6376f4bee3842c4bebfc88478",
+    "commit": "0c13f6e9b47921d276e44f62ffc4e79838648d79",
     "dirty": true
   },
   "command": "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/analyses/uncertainty_calibration/rebuilt --model-variant finetuned_stec --dataset own",
   "description": "coverage, PIT and CRPS for Direct STEC and VTEC + Mapping, each under its own likelihood and regime",
-  "duration_s": 472.9,
-  "fingerprint": "fa9186e9d0fdf6919a0496743f3f0e67067c85c2f2c3f2665613b0d96c139fe7",
+  "duration_s": 258.6,
+  "fingerprint": "400b0d79188bf034ed8db7ea5bef079a012888787e4ffbad3a1840018fd5600c",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -23,8 +23,8 @@
     "predictions/finetuned_stec/own": {
       "files": 242,
       "kind": "tree",
-      "mtime_ns": 1787691428111099229,
-      "size": 40362775492
+      "mtime_ns": 1787738860783434182,
+      "size": 40389608015
     }
   },
   "outputs": {
@@ -34,7 +34,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T08:19:47.145771+00:00",
+  "recorded_at": "2026-08-26T11:08:53.582696+00:00",
   "stage": "uncertainty_calibration",
   "supersedes": []
 }

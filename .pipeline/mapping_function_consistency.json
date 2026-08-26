@@ -3,19 +3,19 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "8c333bac600008c6376f4bee3842c4bebfc88478",
+    "commit": "0c13f6e9b47921d276e44f62ffc4e79838648d79",
     "dirty": true
   },
   "command": "-m stec.analysis.mapping_function_consistency --output-dir multiday_results/analyses/mapping_function_consistency/rebuilt",
   "description": "cost of the mapping-function convention mismatch",
-  "duration_s": 48.3,
-  "fingerprint": "a594145336695f94d4bb84f96eadefc2105d379d6ab0f217020be778d2efcfee",
+  "duration_s": 54.2,
+  "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
   "inputs": {
     "predictions/finetuned_stec/own": {
       "files": 242,
       "kind": "tree",
-      "mtime_ns": 1787691428111099229,
-      "size": 40362775492
+      "mtime_ns": 1787738860783434182,
+      "size": 40389608015
     }
   },
   "outputs": {
@@ -25,7 +25,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T08:21:24.968597+00:00",
+  "recorded_at": "2026-08-26T11:09:54.398916+00:00",
   "stage": "mapping_function_consistency",
   "supersedes": []
 }
