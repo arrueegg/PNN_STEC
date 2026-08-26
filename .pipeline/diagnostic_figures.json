@@ -1,0 +1,53 @@
+{
+  "answers": "src/ diagnostic-plot parity",
+  "canonical_for": "src/ diagnostic-plot parity (spatial/az-el/residual-feature/uncertainty diagnostics)",
+  "caveats": [
+    "Same population as pretrained_test_diagnostics, and for the same reason: predictions/pretrained_stec/own's full 2014-2024, 544 days - these are standalone diagnostics of the pretrained model's own residual/uncertainty/spatial behaviour, not a cross-model comparison, so the full held-out range is the right scope rather than the 2024-only period the four-method comparisons use.",
+    "Reads its own per-observation cache (stec.analysis.diagnostic_test_observations, a second pass over predictions/pretrained_stec/own with a wider column set than pretrained_test_diagnostics's Figures-4-9 cache), not that cache directly - see this stage's own comment above for why.",
+    "plot_solar_magnetic_ipp_error_map (src/viz/spatial.py) is not ported: the real predictions/pretrained_stec/own store has no sm_lon_ipp column, checked directly against its parquet schema.",
+    "plot_binned_uncertainty_error_analysis (src/viz/uncertainty.py) is not ported: it duplicates manuscript Figure 9 (fig_uncertainty) for this same model and dataset.",
+    "fig_spatial_error_map needs >=10 observations in a 5-degree lat/lon bin to plot at all (matching the source's own filter) - met at the full 10,000,000-row store, but a partial or heavily filtered run can legitimately produce 0 of its 3 files rather than an empty plot."
+  ],
+  "code": {
+    "commit": "81697783f9fbc134729bb5512f7bcdc2ce703ebb",
+    "dirty": true
+  },
+  "command": "-m stec.viz.diagnostic_figures --cache-dir multiday_results/analyses/diagnostic_test_observations/rebuilt --output-dir plots/diagnostics",
+  "description": "spatial error maps, azimuth/elevation heatmaps, residual-vs-feature boxplots and uncertainty calibration diagnostics for the pretrained model's own held-out test set",
+  "duration_s": 68.2,
+  "fingerprint": "4192e4163e01e576fce8aa35a3575e2dd88bf101984f595a548444a8c84e1ec5",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/diagnostic_test_observations/rebuilt": {
+      "present": true,
+      "size": 64
+    },
+    "multiday_results/analyses/diagnostic_test_observations/rebuilt/manifest.csv": {
+      "present": true,
+      "rows": 11,
+      "sha256": "c538a146520851b188f12f7717590385757999d916f5e6bf2be08abbf4e6e6e3",
+      "size": 194
+    },
+    "plots/diagnostics": {
+      "present": true,
+      "size": 238
+    },
+    "plots/diagnostics/diagnostic_figures_manifest.csv": {
+      "present": true,
+      "rows": 23,
+      "sha256": "2003b8e15bf81f421142cbb2f5d7c2557aed4e03e64900470626aa46c9efc20d",
+      "size": 2466
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-25T18:20:27.394973+00:00",
+  "stage": "diagnostic_figures",
+  "supersedes": []
+}

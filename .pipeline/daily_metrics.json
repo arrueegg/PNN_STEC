@@ -6,35 +6,59 @@
     "Madrigal rows carry the madrigal_reference_offset caveat."
   ],
   "code": {
-    "commit": "e85270ec8692de6b57e5c5b21682f50134667354",
+    "commit": "81697783f9fbc134729bb5512f7bcdc2ce703ebb",
     "dirty": true
   },
   "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
   "description": "per-day and pooled STEC metrics recomputed from the prediction store",
-  "duration_s": 138.8,
-  "fingerprint": "afe011bcdb07b1ca9c28276f0a66cf207e7a82147cbf8bdf59f705fe829b8b50",
+  "duration_s": 105.6,
+  "fingerprint": "0528905ab8df65cc5eda395c310c7392cfb46e62ba6201da439ba4aa2168931c",
   "inputs": {
     "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
       "files": 2,
       "kind": "tree",
-      "mtime_ns": 1787331084328840649,
-      "size": 71373
+      "mtime_ns": 1787561670829644379,
+      "size": 71381
+    },
+    "predictions/finetuned_stec/madrigal": {
+      "files": 235,
+      "kind": "tree",
+      "mtime_ns": 1787689086161746708,
+      "size": 35509495180
     },
     "predictions/finetuned_stec/own": {
-      "kind": "missing"
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787093614574123406,
+      "size": 40389607818
     },
     "predictions/pretrained_stec/own": {
-      "kind": "missing"
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
     }
   },
   "outputs": {
     "multiday_results/analyses/daily_metrics/rebuilt": {
       "present": true,
       "size": 44
+    },
+    "multiday_results/analyses/daily_metrics/rebuilt/per_day.csv": {
+      "present": true,
+      "rows": 1673,
+      "sha256": "6d6c977c530b3a38eb330585d0b0ba80ef408a802103f4b7c56074404c2e2b65",
+      "size": 246945
+    },
+    "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
+      "present": true,
+      "rows": 7,
+      "sha256": "d35ab9aad57eb02aadf9dc65ff41eeae632158b3424006371018bf9928895555",
+      "size": 1491
     }
   },
   "params": {},
-  "recorded_at": "2026-08-21T18:02:15.645920+00:00",
+  "recorded_at": "2026-08-25T20:20:42.429234+00:00",
   "stage": "daily_metrics",
   "supersedes": [
     "multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv"

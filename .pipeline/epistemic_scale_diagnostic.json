@@ -1,0 +1,73 @@
+{
+  "answers": "R1.2",
+  "canonical_for": "R1.2 epistemic-scale diagnostic",
+  "caveats": [
+    "A diagnostic, not a retrain: it answers whether a single post-hoc scalar on the epistemic term can fix under-dispersed coverage, not whether the model should ship with one. On the real store the answer was scale, not structure - a calibrating scale exists that restores nominal 1-sigma coverage without degrading the Spearman ranking against |error| - but applying that scalar to the shipped model is a separate decision this stage does not make.",
+    "sweep_paper_model.csv scores the paper's own BayesianResNetSTEC (Bayesian output layer only, --model-variant pretrained_stec); sweep_fully_bayesian_reference.csv scores a different architecture, ResNet_BNN_NLL (--reference-model-variant pretrained_stec_resnet_bnn_nll) - see CLAUDE.md's store-partition gotcha for why these two live in separate store partitions at all. Do not read one file's numbers onto the other model.",
+    "Both partitions default to every year present (2014-2024, up to 544 days each), and main() now checks the two day sets match before scoring either one: this diagnostic's whole premise is comparing the two models' epistemic terms, so an unmatched population would silently score the paper model on one set of solar conditions and the reference model on another. A mismatch is not treated as fatal - both sweeps are restricted to the days the two partitions share, with a logged warning naming how many days were excluded from each side - because the two are independent backfills (CLAUDE.md's store-partition gotcha) that are not guaranteed to stay in lockstep as more days land on one side before the other.",
+    "High coverage at large `s` is not evidence of a good uncertainty estimate on its own - Spearman rho must be read alongside coverage, since coverage alone can always be bought by inflating sigma; the reference model's own sweep shows Spearman falling as `s` grows even while coverage saturates near 100%.",
+    "Real output already exists at this stage's output directory from a manual invocation (2026-08-24, commit 2b7172b) that predates this Stage's declaration - `pipeline status` will report 'never run' until it executes through the registry for real; that is the correct, un-faked answer, not a bug."
+  ],
+  "code": {
+    "commit": "81697783f9fbc134729bb5512f7bcdc2ce703ebb",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.epistemic_scale_diagnostic --output-dir multiday_results/analyses/epistemic_scale_diagnostic/rebuilt",
+  "description": "is the paper model's epistemic under-dispersion fixable with a post-hoc scalar, or is the frozen deterministic backbone missing information no rescaling can recover",
+  "duration_s": 425.8,
+  "fingerprint": "f2ec952ce768068d6b54ee632bab51ec90daebffa5ec6fb8a9c5e4f93d30e1f6",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    },
+    "predictions/pretrained_stec_resnet_bnn_nll/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787555607293688973,
+      "size": 703763807
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/epistemic_scale_diagnostic/rebuilt": {
+      "present": true,
+      "size": 306
+    },
+    "multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/calibrating_scale_by_elevation.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "0d3fefea17179700f891ba42ae1f5d7af0bf7d2e3c6af1e464115d2a3485ff72",
+      "size": 785
+    },
+    "multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/calibrating_scale_by_geomag_lat.csv": {
+      "present": true,
+      "rows": 6,
+      "sha256": "dabc4858e64acdf882f8bb67f12ef620d6eda04f39c6c525ddc3714c6e540158",
+      "size": 558
+    },
+    "multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/calibrating_scale_by_year.csv": {
+      "present": true,
+      "rows": 11,
+      "sha256": "45b36f053f41c281acf39f3461c31486c3cc9db6709ae19b1f67254811a4c0b5",
+      "size": 737
+    },
+    "multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/sweep_fully_bayesian_reference.csv": {
+      "present": true,
+      "rows": 40,
+      "sha256": "df6475154ab150c66fa117963b2f17ad5b6600912feab323b550ac3307ce2470",
+      "size": 3270
+    },
+    "multiday_results/analyses/epistemic_scale_diagnostic/rebuilt/sweep_paper_model.csv": {
+      "present": true,
+      "rows": 40,
+      "sha256": "7f1201784a0cc10e6a87c771eb1624537a67c4dc5b2cd170ae1f9446a60c537d",
+      "size": 3385
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-25T18:19:17.851804+00:00",
+  "stage": "epistemic_scale_diagnostic",
+  "supersedes": []
+}

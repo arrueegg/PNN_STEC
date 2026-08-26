@@ -1,0 +1,46 @@
+{
+  "answers": "Figure 11",
+  "canonical_for": "Figure 11 per-elevation error bars",
+  "caveats": [
+    "A (day, elevation_bin, method) cell is dropped below 100 observations (the source's own guard), so the across-day mean/std never averages in a day where a bin was nearly empty.",
+    "own and madrigal are both collected by default; manuscript_figures reads only the 'own' rows (Tables 3-4's scope) and leaves madrigal for a caller who wants that variant."
+  ],
+  "code": {
+    "commit": "81697783f9fbc134729bb5512f7bcdc2ce703ebb",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.elevation_metrics_finetuned --output-dir multiday_results/analyses/elevation_metrics_finetuned/rebuilt",
+  "description": "per-day, per-elevation-bin RMSE/MAE for all four methods, own and madrigal",
+  "duration_s": 107.8,
+  "fingerprint": "7a40ed83934bb0fe6a7213d9c0d8cac182f48f0db1c785ac8169fb3415ff00f9",
+  "inputs": {
+    "predictions/finetuned_stec/madrigal": {
+      "files": 235,
+      "kind": "tree",
+      "mtime_ns": 1787689086161746708,
+      "size": 35509495180
+    },
+    "predictions/finetuned_stec/own": {
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787093614574123406,
+      "size": 40389607818
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/elevation_metrics_finetuned/rebuilt": {
+      "present": true,
+      "size": 48
+    },
+    "multiday_results/analyses/elevation_metrics_finetuned/rebuilt/per_day_by_elevation.csv": {
+      "present": true,
+      "rows": 28441,
+      "sha256": "5351791359b2eeb4676bdb81f1b6d2b3737a92b951ebe665b8d4af9c20e62ba8",
+      "size": 2112643
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-25T20:27:15.057281+00:00",
+  "stage": "elevation_metrics_finetuned",
+  "supersedes": []
+}

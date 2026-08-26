@@ -2,16 +2,17 @@
   "answers": "R1.6, R2.6",
   "canonical_for": null,
   "caveats": [
+    "No --year passed, so this scores every year present in predictions/pretrained_stec/own by default: 2014-2024, 544 days - not the 2024 alone that used to be main()'s silent --year default (uncertainty_calibration.py's 'Coverage default' docstring section and its regression test name this as the fixed 44%-of-partition defect: 242 of 544 days is 44.5%). Deliberate, not an oversight: this is a standalone characterisation of the pretrained checkpoint's own calibration, not a comparison against the other three baselines, so nothing requires it to match finetuned_stec/own's narrower 2024-only test period.",
     "Only 'Direct STEC' scores here - pretrained_stec/own carries stec_pred and pred_total_unc but no vtec_model_stec column, so 'VTEC + Mapping' is absent from this variant's coverage.csv/scores.csv. Expected, not a bug: VTEC + Mapping is a separate baseline, not a per-STEC-variant one.",
     "Scores a different model from uncertainty_calibration's Direct STEC - the pretrained checkpoint before daily fine-tuning, not a second reading of the same predictions."
   ],
   "code": {
-    "commit": "77d1634d13146e28a4a7805b145cf37b306aa0b3",
+    "commit": "81697783f9fbc134729bb5512f7bcdc2ce703ebb",
     "dirty": true
   },
   "command": "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/analyses/uncertainty_calibration/rebuilt --model-variant pretrained_stec --dataset own",
   "description": "coverage, PIT and CRPS for the pretrained variant, same likelihoods and regimes",
-  "duration_s": 3.3,
+  "duration_s": 6.0,
   "fingerprint": "d2be2e2cf0936d23e5ad50979a96b1464f9833a63fc8c011ed1ac2d8b0a9ab85",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
@@ -29,11 +30,11 @@
   "outputs": {
     "multiday_results/analyses/uncertainty_calibration/rebuilt/pretrained_stec_own": {
       "present": true,
-      "size": 438
+      "size": 462
     }
   },
   "params": {},
-  "recorded_at": "2026-08-24T09:23:49.612005+00:00",
+  "recorded_at": "2026-08-25T18:20:36.998859+00:00",
   "stage": "uncertainty_calibration_pretrained",
   "supersedes": []
 }
