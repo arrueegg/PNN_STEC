@@ -33,6 +33,26 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 REPO = Path(__file__).resolve().parents[2]
+
+# stec/ is not an installed package and this file is invoked as a bare script
+# (`python positioning/geometry/recover_day.py ...`) by scripts/run_station_recovery.sh,
+# which does not put the repo root on sys.path on its own - same situation as
+# positioning/positioning_eval/metrics.py, which resolves it the same way.
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from stec.config.paths import analysis_result_dir  # noqa: E402
+
+# The canonical, currently-absent-station-days coverage file (see
+# stec.pipeline.stages.py's positioning_coverage stage). The old default,
+# multiday_results/positioning_runs/full_coverage/coverage.csv, is marked superseded
+# (.superseded.json) and still lists the original 2,311 absent station-days, including
+# ~750 a first recovery sweep already fixed - pointing a re-run at it would redo work
+# that is already done. Resolved through stec.config.paths rather than hardcoded again:
+# a literal result path here has already broken three times (see CLAUDE.md's Gotchas).
+DEFAULT_COVERAGE = (
+    analysis_result_dir("positioning_coverage", rebuilt=True) / "coverage.csv"
+)
 PRODUCTS = Path("/scratch2/miten/gim_operational_parallel/PRODUCTS")
 CDDIS_NAV = (
     "https://cddis.nasa.gov/archive/gnss/data/daily/{year}/{doy:03d}/"
@@ -212,7 +232,7 @@ def main() -> None:
     parser.add_argument(
         "--coverage",
         type=Path,
-        default=Path("multiday_results/positioning_runs/full_coverage/coverage.csv"),
+        default=DEFAULT_COVERAGE,
     )
     parser.add_argument("--weight_opt", default="iono", choices=["iono", "elev"])
     parser.add_argument("--parallel", type=int, default=4)

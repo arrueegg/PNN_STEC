@@ -17,9 +17,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source env/bin/activate
 
-# Moved by the results restructure: multiday_results/ was flattened 312 entries deep
-# into six buckets, and positioning_full_coverage became positioning_runs/full_coverage.
-COVERAGE=${COVERAGE:-multiday_results/positioning_runs/full_coverage/coverage.csv}
+# The canonical, currently-absent-station-days coverage file - matches
+# positioning/geometry/recover_day.py's own DEFAULT_COVERAGE, both resolved through
+# stec.config.paths so they cannot independently drift. The old literal default,
+# multiday_results/positioning_runs/full_coverage/coverage.csv, is now marked superseded
+# (.superseded.json) and still lists the original 2,311 absent station-days, including
+# the ~750 a first recovery sweep already fixed.
+COVERAGE=${COVERAGE:-$(python -c "
+from stec.config.paths import analysis_result_dir
+print(analysis_result_dir('positioning_coverage', rebuilt=True) / 'coverage.csv')
+")}
 WEIGHT_OPT=${WEIGHT_OPT:-iono}
 PARALLEL=${PARALLEL:-4}
 MIN_FREE_GB=${MIN_FREE_GB:-40}

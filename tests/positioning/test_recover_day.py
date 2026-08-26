@@ -19,6 +19,7 @@ uses for its sibling driver script.
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,8 +27,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from stec.config.paths import analysis_result_dir
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RECOVER_DAY_PY = REPO_ROOT / "positioning" / "geometry" / "recover_day.py"
+RUN_STATION_RECOVERY_SH = REPO_ROOT / "scripts" / "run_station_recovery.sh"
 
 
 @pytest.fixture()
@@ -135,3 +139,57 @@ def test_run_models_still_shares_the_rinex_dir(recover_day, tmp_path, monkeypatc
         assert shared_rinex_dir in command
         rinex_flag_index = command.index("--rinex_dir")
         assert command[rinex_flag_index + 1] == shared_rinex_dir
+
+
+# ---------------------------------------------------------------------------
+# --coverage default
+#
+# The confirmed defect: both `recover_day.py`'s `--coverage` default and
+# `scripts/run_station_recovery.sh`'s `COVERAGE` default pointed at
+# `multiday_results/positioning_runs/full_coverage/coverage.csv`, which carries a
+# `.superseded.json` marker and still lists the original 2,311 absent station-days,
+# including the ~750 a first recovery sweep already fixed. Re-running against it would
+# redo already-finished work. Both now resolve through
+# `stec.config.paths.analysis_result_dir`, so they cannot independently drift again.
+# ---------------------------------------------------------------------------
+
+
+def test_recover_day_default_coverage_is_the_canonical_current_file(recover_day):
+    expected = (
+        analysis_result_dir("positioning_coverage", rebuilt=True) / "coverage.csv"
+    )
+    assert recover_day.DEFAULT_COVERAGE == expected
+    # And not the superseded tree this defect pointed at before.
+    assert "full_coverage" not in str(recover_day.DEFAULT_COVERAGE)
+
+
+def test_run_station_recovery_sh_coverage_default_matches_recover_day_py(
+    recover_day, tmp_path
+):
+    """Extracts and evaluates only the `COVERAGE=...` assignment from the shell script -
+    not the whole script, which waits on other sweeps and would otherwise run the actual
+    recovery - and checks it resolves to exactly the same path as `recover_day.py`'s own
+    default, so the two cannot independently drift the way they did before this fix."""
+    script_text = RUN_STATION_RECOVERY_SH.read_text()
+    match = re.search(r"COVERAGE=\$\{COVERAGE:-.*?\)\}", script_text, re.DOTALL)
+    assert match is not None, (
+        "could not find the COVERAGE default assignment in "
+        f"{RUN_STATION_RECOVERY_SH} - did its shape change?"
+    )
+
+    probe = tmp_path / "probe_coverage_default.sh"
+    probe.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"cd {REPO_ROOT}\n"
+        "source env/bin/activate\n"
+        f"{match.group(0)}\n"
+        'echo "$COVERAGE"\n'
+    )
+
+    result = subprocess.run(
+        ["bash", str(probe)], capture_output=True, text=True, check=True
+    )
+    shell_default = Path(result.stdout.strip())
+
+    assert shell_default == recover_day.DEFAULT_COVERAGE
