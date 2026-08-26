@@ -359,3 +359,434 @@ python cli.py train --help
 The training path itself is exercised by a smoke stage in the pipeline
 (`training_smoke`) against a small checked-in fixture, so a functional check is possible without
 the real database — see chapter 7.
+
+---
+
+## 6. Inference and the prediction store
+
+### Running inference
+
+The live inference pass — loading a checkpoint, running it over a day of observations, and
+computing the baselines alongside — is still a `src/` capability:
+
+```bash
+python cli.py inference --experiment "Finetune_STEC_2024_183_..."
+python cli.py compare --stec_experiment "Finetune_STEC_..." \
+                      --vtec_experiment "Finetune_VTEC_..."
+```
+
+`inference` evaluates one experiment on the test set. `compare` additionally evaluates the
+VTEC-plus-mapping and IGS GIM baselines on the same observations, and runs the Madrigal
+independent test set when it is available. Both write into the prediction store.
+
+### The store
+
+Per-observation results are kept as partitioned Parquet, not as summary CSVs:
+
+```
+predictions/<model_variant>/<dataset>/year=<YYYY>/doy=<DDD>.parquet
+             finetuned_stec                own
+             pretrained_stec               madrigal
+             pretrained_stec_resnet_bnn_nll
+```
+
+Each row carries the truth, the prediction, the uncertainty decomposition, the baseline
+predictions, the observation geometry, the station and satellite identity, and the
+space-weather indices — 37 columns, defined in
+[stec/inference/prediction_store.py](../stec/inference/prediction_store.py).
+
+**That schema is authoritative, and it must never be narrowed at a write site.** The store
+exists because its predecessor — a flat `detailed_predictions.csv` — persisted a whitelist of
+about six columns and silently discarded the predicted uncertainties, the identities and the
+indices. Every stratified analysis consequently required a full re-inference pass, and one
+computed uncertainty column was dropped for weeks before anyone noticed.
+
+**Model variant is part of the partition identity, deliberately.** Two different architectures
+can run under the same training mode. When the partition was keyed on mode alone, evaluating a
+second architecture overwrote hundreds of days of the paper model's predictions, and every
+downstream reader began reporting the wrong model's error without failing. Any comparison
+between two variants sharing a mode needs an explicit variant check.
+
+### Reading it correctly
+
+```python
+from stec.inference import prediction_store as ps
+
+for year, doy, df in ps.iter_days(
+    "finetuned_stec", "own",
+    doys=[132, 133],
+    columns=["true_stec", "stec_pred", "pred_total_unc", "satele"],
+):
+    ...
+```
+
+`iter_days` is the API analyses should use. `read_predictions` without a `doys=` or `years=`
+restriction **raises** rather than loading the whole store — it names the reason in the
+exception, having previously exhausted memory on a machine with a hard cap. The reference
+pattern for a correct streaming analysis is
+[stec/analysis/daily_metrics.py](../stec/analysis/daily_metrics.py): enumerate available days,
+read one at a time, and accumulate every reported quantity as a running sum or count so the
+day-at-a-time result is exact rather than approximate.
+
+Two properties that catch readers out:
+
+- **Station identifiers are normalised to upper case** in the store. The own test set emits
+  upper case and Madrigal lower case, so a cross-dataset join fails without this.
+- **The VTEC baseline is a ten-member deep ensemble, not one checkpoint**, and its stored
+  uncertainty is the standard deviation of a *Laplace* distribution, already converted from the
+  scale parameter the model emits. Score it as a Laplace; scoring it as a Gaussian shifts the
+  reported coverage substantially. Loading a single ensemble member reproduces a
+  plausible-but-wrong column whose tell is an epistemic uncertainty of exactly zero.
+
+### What you can check without the data
+
+The schema is inspectable with no store present:
+
+```bash
+python -c "
+from stec.inference.prediction_store import STORE_COLUMNS
+print(len(STORE_COLUMNS), 'columns')
+print(STORE_COLUMNS)"
+```
+
+---
+
+## 7. The analysis pipeline
+
+This is the chapter that matters most for assessing the delivery. Every result the work reports
+is produced by a declared stage, and every stage leaves a provenance record.
+
+### Commands
+
+```bash
+python -m stec.pipeline status                      # what is out of date, and why
+python -m stec.pipeline run                         # run only what is out of date
+python -m stec.pipeline run --only daily_metrics --force
+python -m stec.pipeline run --keep-going            # don't stop at the first failure
+```
+
+The same actions are available as `python -m stec.cli pipeline run`, alongside four standalone
+reads: `metrics`, `tables`, `manifest` and `runs`.
+
+`status` is safe to run against a checkout with no data at all. It prints, per stage, one of:
+up to date, never run, inputs or parameters changed, command changed, outputs missing or
+modified, or forced.
+
+### The stage contract
+
+A stage declares its command, the inputs it reads, the outputs it writes, the reviewer question
+or table it is canonical for, and the minimum it must produce to be believed. Stages are
+defined in [stec/pipeline/stages.py](../stec/pipeline/stages.py).
+
+A stage is skipped only when its input fingerprint matches **and** every declared output is
+still present with the digest that was recorded. The second condition matters as much as the
+first: a fingerprint match alone would happily skip a stage whose output had since been deleted
+or truncated.
+
+Three rules are validated at every startup, each corresponding to a bug that reached results:
+
+1. **One owner per output.** Two stages claiming the same file, or the same canonical role, is
+   a startup error. The main results tables previously existed in three places that disagreed.
+2. **Assertions run before a stage is recorded as done.** A script that exits zero while
+   writing a header-only file fails rather than being cached as complete.
+3. **Inputs are declared at the granularity that changes.** The prediction store is declared as
+   a directory; the immutable raw daily files are not declared at all, because fingerprinting
+   them would mean walking hundreds of gigabytes to decide whether to run a two-second summary.
+
+Two further fields keep facts out of prose a reader of a CSV never sees. **`caveats`** records
+conditions under which an output must not be read standalone, and is written to a
+`<output>.caveats.json` sidecar next to every declared output — even when empty, so that "no
+caveats" and "nobody checked" stay distinguishable. **`supersedes`** names older artifacts a
+stage replaces; nothing is deleted, a marker file is written beside the old one instead.
+
+### Provenance records
+
+Each run writes `.pipeline/<stage>.json` holding the code version, the command, input digests,
+output digests and row counts. This is simultaneously the skip decision for next time and the
+answer to "what produced this number". The directory is small, and it is the provenance record
+intended to be published alongside the code.
+
+### The stages
+
+36 stages, in declared order. Order is enforced: a stage may not depend on an output produced
+later in the list.
+
+| # | Stage | Canonical for |
+|---|---|---|
+| 1 | `training_smoke` | — |
+| 2 | `inference_smoke` | — |
+| 3 | `baselines_smoke` | — |
+| 4 | `paper_tables` | Tables 1 and 2 |
+| 5 | `relative_error_metrics` | — |
+| 6 | `temporal_regime_split` | R2.1 interpolation/extrapolation temporal split |
+| 7 | `temporal_regime_activity_matched` | R2.1 split, activity-matched correction |
+| 8 | `hyperparameter_search` | — |
+| 9 | `station_independence` | — |
+| 10 | `computational_cost` | — |
+| 11 | `repair_gim_baseline` | — |
+| 12 | `daily_metrics` | Tables 3 and 4 |
+| 13 | `uncertainty_error_relation` | — |
+| 14 | `stratified_comparison` | — |
+| 15 | `activity_stratification` | — |
+| 16 | `ionex_rms_benchmark` | — |
+| 17 | `uncertainty_calibration` | — |
+| 18 | `uncertainty_calibration_pretrained` | — |
+| 19 | `epistemic_scale_diagnostic` | R1.2 epistemic-scale diagnostic |
+| 20 | `mapping_function_consistency` | — |
+| 21 | `madrigal_reference_offset` | Madrigal reference-offset decomposition |
+| 22 | `weighting_ablation` | — |
+| 23 | `positioning_coverage` | positioning station-day coverage |
+| 24 | `storm_stratification` | — |
+| 25 | `positioning_robustness` | — |
+| 26 | `common_set_positioning` | — |
+| 27 | `positioning_summary` | Table 5 |
+| 28 | `oracle_benchmark` | — |
+| 29 | `pretrained_test_diagnostics` | — |
+| 30 | `diagnostic_figures` | diagnostic-plot parity with the legacy implementation |
+| 31 | `elevation_metrics_finetuned` | Figure 11 per-elevation error bars |
+| 32 | `dstec_evaluation` | differential STEC versus GIM, R1.3 |
+| 33 | `figures` | — |
+| 34 | `manuscript_figures` | — |
+| 35 | `results_manifest` | provenance index |
+| 36 | `data_prep_smoke` | — |
+
+The four `*_smoke` stages exercise the training, inference, baseline and data-preparation paths
+against small checked-in fixtures, so the machinery can be tested without the external data.
+
+Adding an analysis means adding a stage, not editing a driver.
+[ARCHITECTURE.md](ARCHITECTURE.md) §4 walks through it end to end.
+
+### What you can check without the data
+
+Both the count and the registry's own consistency rules, since `validate()` runs before
+anything else:
+
+```bash
+python -m stec.pipeline status
+python -c "from stec.pipeline.stages import STAGES; print(len(STAGES), 'stages')"
+```
+
+If two stages claimed the same output or the same canonical role, `status` would fail at
+startup rather than print.
+
+---
+
+## 8. Positioning evaluation
+
+The positioning experiment asks whether uncertainty-weighted STEC corrections improve precise
+point positioning against the alternatives. It is the end-use argument for the model, and it is
+the part of the delivery with the heaviest external dependencies.
+
+### What it needs
+
+**PPPx**, an external precise-point-positioning binary, is not part of this delivery. See
+chapter 2 for the SuiteSparse runtime-library step it requires.
+
+**Products** — orbits, clocks, earth-rotation parameters, attitude, the CODE global ionosphere
+map and the SINEX reference coordinates — are properties of the day, not of a run. Downloads do
+not work from an arbitrary host: one archive is served over a commonly firewalled protocol and
+another requires credentials. The runner therefore reuses whatever is present and symlinks
+products from sibling experiment directories rather than re-fetching.
+
+**RINEX observations** come from a reachable host and download normally.
+
+### Running it
+
+```bash
+bash positioning/scripts/run_pipeline.sh "<experiment-name>" 2024-07-01
+python positioning/scripts/recompute_metrics.py --experiment "<experiment-name>"
+python positioning/scripts/plot_results.py --input <multiday_summary.csv>
+```
+
+`recompute_metrics.py` re-derives metrics from `.pos` files already on disk without re-solving,
+which is the right tool when the aggregation changed but the solutions did not.
+
+`--parallel` defaults to 1 in the underlying runner, so stations are processed one at a time
+unless told otherwise.
+
+### Weighting schemes
+
+Two exist and they are not interchangeable. **`elev`** weights each observation by satellite
+elevation. **`iono`** weights it by the model's own predicted uncertainty, which is the scheme
+the central claim depends on. Provenance is readable from the filename: a `daily_summary.csv`
+came from `elev`, a `daily_summary_iono.csv` from `iono`. The comparison between them is the
+`weighting_ablation` stage.
+
+### Outputs and one trap
+
+Results land under `multiday_results/`, restructured into purpose-named buckets; the design and
+the before-and-after mapping are in
+[docs/revision/results_layout.md](revision/results_layout.md).
+
+**`oracle_benchmark` is not comparable with the main positioning table, permanently and by
+design.** It uses `elev` weighting — the reference STEC carries only a placeholder sigma, so
+`iono` would weight by a constant — and it is restricted to station-days solved by all four
+methods. Read ratios to the floor within that table; take absolute positioning numbers from the
+`positioning_summary` stage.
+
+Positioning is also disk-dominated: a solved day costs most of a gigabyte, of which the
+diagnostic `.stat` and `.log` files are the bulk and nothing in the analysis path reads them.
+The coverage runner drops both by default.
+
+### What you can check without the data
+
+The metric computation is unit-tested independently of PPPx:
+
+```bash
+pytest tests/positioning -q
+```
+
+---
+
+## 9. Verification and tests
+
+### Tests
+
+```bash
+pytest
+```
+
+**1024 tests across 78 files**, mirroring the package layout — `tests/data/`,
+`tests/analysis/`, `tests/pipeline/`, `tests/positioning/`, `tests/inference/`, `tests/models/`,
+`tests/training/`, `tests/viz/`, `tests/runs/`. `tests/pipeline/` specifically pins the skip
+decisions, because a wrong skip reports success while serving a stale number.
+
+`tests/test_clean_clone.py` checks that the package works in a fresh clone with only the
+checked-in fixtures — the delivery's own self-test.
+
+### The gates
+
+[verification/](../verification/) holds 15 scripts. Nine are equivalence gates, comparing the
+rebuilt implementation against its predecessor at each layer; six are independent measurements
+and repairs.
+
+| Script | What it establishes |
+|---|---|
+| `gate_a_feature_layout.py` | The computed input width matches every trained checkpoint's actual weight shape |
+| `gate_a_layout_vs_legacy.py` | Rebuilt and legacy feature-layout computation agree on the same configs |
+| `gate_a_end_to_end.py` | The full rebuilt data path produces the same tensor as the legacy path on real data |
+| `gate_b_model_equivalence.py` | Rebuilt and legacy model classes are equivalent loading the same checkpoint |
+| `gate_c_training_equivalence.py` | The rebuilt training loop reproduces the legacy loop step-for-step from one seed |
+| `gate_d_inference_equivalence.py` | Rebuilt inference reproduces legacy inference, with sampling explicitly seeded |
+| `gate_e_positioning_equivalence.py` | Rebuilt positioning metrics reproduce the legacy per-station-day numbers |
+| `gate_f_analysis_equivalence.py` | Each ported analysis reproduces its predecessor's CSVs column by column |
+| `gate_f_figures.py` | Each figure plots what its declared source data holds |
+| `measure_determinism_floor.py` | The reproducibility floor of two identical runs, so other tolerances mean something |
+| `measure_training_determinism.py` | The same, for training trajectories |
+| `measure_bugfix_effects.py` | The numeric effect of specific bugfixes carried into the rebuild |
+| `verify_store_against_raw.py` | The store faithfully carries the raw database — shares no code with the pipeline |
+| `verify_paper_claims.py` | Four qualitative manuscript claims, checked against the store |
+| `repair_overwritten_summaries.py` | Not a gate: repairs summary rows a sweep overwrote, from existing solutions |
+
+Gate F reports three verdicts rather than pass or fail: `MATCH`, `DIVERGED` where the port
+intended a difference and named it, and `FAIL` for an unexplained difference. The register of
+intended divergences is [docs/revision/divergences.md](revision/divergences.md), and it is
+enforced by a test rather than maintained by hand.
+
+### What a green gate does not prove
+
+**A refactor preserves the bug it ports along with the logic.** Agreement between the old
+implementation and the new one is the expected outcome whether or not either is scientifically
+correct, so the gates establish that the rebuild changed nothing unintentionally — not that the
+result is right. Independent correctness is a separate activity, and
+`verify_store_against_raw.py` and `verify_paper_claims.py` are the two scripts that attempt it,
+deliberately sharing no code with what they check.
+
+Two gates are structurally skipped rather than passed: comparing the GIM repair against itself
+would prove nothing, and full positioning equivalence would require re-solving days with the
+external binary.
+
+### What you can check without the data
+
+The whole test suite collects, and most of it runs, against checked-in fixtures:
+
+```bash
+pytest --collect-only -q | tail -1
+pytest tests/pipeline tests/analysis -q
+```
+
+---
+
+## 10. Known limitations and corrections
+
+This chapter exists so that nothing below has to be discovered by a reader on their own.
+
+### The shipped results differ from the published paper
+
+Three corrections are live. Each names its cause and the file holding the corrected value; none
+quotes a number, because the numbers are regenerated by the pipeline and a document that
+hard-codes them goes stale.
+
+**The published IGS GIM baseline was inflated by a day-of-year truncation bug.** Day-of-year
+arrives in a results frame as a denormalised model *input*, not as an integer read from a file,
+and inverting the float32 normalisation returns a value just under the integer for a minority
+of days. Truncating instead of rounding loaded the *previous* day's IONEX map on twelve days of
+the year, inflating the GIM baseline error and reversing one activity-stratified conclusion.
+The fix is applied at every site, the repair of already-stored days is the `repair_gim_baseline`
+stage, and the corrected metrics are in
+`multiday_results/analyses/daily_metrics/pre_rebuild/summary.csv`. Positioning was never
+affected: it takes the day from its command-line date.
+
+**The published positioning improvement is computed over an unmatched population.** The four
+methods do not solve the same set of station-days, so comparing each method's mean over its own
+population compares different populations. The defensible comparison restricts to station-days
+solved by all methods and is the `common_set_positioning` stage, written to
+`multiday_results/analyses/common_set_positioning/rebuilt/table5_common_set.csv`. The
+full-population figure is in
+`multiday_results/analyses/positioning_summary/rebuilt/overall.csv`. Both differ from the
+published value; the matched one is the number to quote.
+
+**The storm and quiet-day split changed after a station-recovery sweep** enlarged the solved
+population. [docs/revision/evidence_summary.md](revision/evidence_summary.md) and
+[docs/revision/response_to_reviewers.md](revision/response_to_reviewers.md) still carry the
+pre-sweep values and need their own correction pass; the current values are produced by the
+`storm_stratification` stage. Where those two documents and a pipeline output disagree, the
+pipeline output is current.
+
+### Two evaluations that are not what they appear to be
+
+**The Madrigal comparison changes two things at once.** The model is out of distribution *and*
+the reference comes from a different processing chain. A large share of the apparent error is a
+per-station reference offset, established by the fact that the model and the IGS GIM disagree
+with Madrigal in the same way across the station set. Madrigal results must be read alongside
+the `madrigal_reference_offset` stage and do not support claims about the model's
+out-of-distribution uncertainty. The `dstec_evaluation` stage exists to separate the two: it
+differences observations within a satellite pass, so any constant per-arc offset cancels by
+construction.
+
+A related erratum: the published Madrigal evaluation used receiver-longitude local time where
+every other convention in the codebase uses pierce-point longitude. The effect was measured and
+is small relative to the quantity involved, but it is a genuine inconsistency rather than a
+deliberate choice.
+
+**`station_independence` is limited by the number of test stations, not by observations.**
+Adding days sharpens each point but does not move the coefficient. Strengthening that result
+requires a region-held-out retrain.
+
+### Structural limitations
+
+**`src/` is not retired.** Training, live inference and spatial-map generation have no `stec/`
+equivalent, so the delivery contains two implementations and the older one still runs real
+work. The audit of what remains is
+[docs/revision/retirement_inventory.md](revision/retirement_inventory.md), and the ordered plan
+for removing it is [docs/revision/src_deletion_runbook.md](revision/src_deletion_runbook.md).
+
+**Two `cli.py` subcommands are dead.** `cli.py evaluate` and `cli.py positioning` print an
+error and exit non-zero. They are retained as named failures with a pointer to the replacement,
+rather than removed, because both appeared in older documentation. The replacements are
+`cli.py inference` and `positioning/scripts/run_pipeline.sh`.
+
+**Some result trees are unclassified.** The results layout has a bucket for trees nobody has
+yet named canonical or superseded. That bucket is honest rather than empty; it is not a claim
+that its contents are usable.
+
+**A small number of evaluated days have truncated per-day source files**, caused by a
+positioning-level failure rather than an aggregation error. They are included as genuinely
+small samples rather than dropped or backfilled, which is correct for a per-station-day mean
+but would bias any day-count-weighted statistic computed from them.
+
+### Reproducibility boundary
+
+The external datasets are not part of this delivery and two of the three cannot be fetched from
+an arbitrary host. What can be verified from this repository alone is set out at the end of
+each chapter above and, in more detail, in [REPRODUCING.md](REPRODUCING.md).
