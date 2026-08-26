@@ -25,7 +25,8 @@ This directory contains various utility scripts for the PNN_STEC project.
 python scripts/wandb_sweep_manager.py --config config/wandb_sweep_config.yaml --agents 12
 ```
 
-For detailed documentation, see [`docs/wandb_sweep_guide.md`](../docs/wandb_sweep_guide.md).
+The available sweep configurations are `config/wandb_sweep_config_<MODEL>.yaml` — one per
+architecture. List them with `ls config/wandb_sweep_config_*.yaml`.
 
 ## Other Scripts
 - **`hyperparameter_search.py`**: Original grid search hyperparameter tuning

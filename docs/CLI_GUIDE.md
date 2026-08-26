@@ -204,7 +204,8 @@ Finally generates aggregate statistics, comparison plots, and summary tables.
 
 **Equivalent to:** `python src/multiday_evaluation.py --dates ...`
 
-See [MULTIDAY_EVALUATION_GUIDE.md](docs/MULTIDAY_EVALUATION_GUIDE.md) for complete documentation.
+See [MULTIDAY_FILE_STRUCTURE.md](MULTIDAY_FILE_STRUCTURE.md) for the directory layout this
+produces, and [USER_MANUAL.md](USER_MANUAL.md) for how it fits the wider pipeline.
 
 ---
 
