@@ -230,16 +230,6 @@ the receipts.
 
 ### Code work
 
-- [ ] **No check for dangling product symlinks.** 158/242 days in both the Oracle and
-  Fixed-Variance trees have every non-SINEX product symlink dangling (§1). Existing results
-  are unaffected, but nothing flags this before someone tries to re-run one of those days and
-  gets a confusing PPPx failure instead of a clear "products missing" message.
-- [ ] **`positioning_coverage`'s declared outputs don't cover the elev artifacts.** The stage
-  writes `coverage_elev.csv` and `multiday_summary_elev.csv` into its output directory, but
-  `stages.py`'s `outputs=[...]` list only names the directory and the iono
-  `multiday_summary.csv` — so `min_rows` and digest checks don't apply to the elev files. Add
-  them explicitly once the elev re-run (above) exists to check against.
-
 ### Decisions needing a human
 
 - [ ] **`common_set_positioning`'s `canonical_for=None` vs. CLAUDE.md calling it "Table A1".**
