@@ -21,6 +21,7 @@ from stec.pipeline.stages import (
     DAILY_METRICS_DIR,
     ORACLE_EXPERIMENT_DIR,
     POSITIONING,
+    POSITIONING_COVERAGE_DIR,
     POSITIONING_SUMMARY_DIR,
     STAGES,
     STORE_PRETRAINED,
@@ -626,3 +627,37 @@ def test_stratified_comparison_does_not_declare_the_pretrained_partition_as_inpu
 
     module = _module_for(stage("stratified_comparison"))
     assert _module_source_mentions(module, '"pretrained_stec_pred"')
+
+
+# --- positioning_coverage: the elev pair must carry the same assertion machinery as the
+# iono outputs it sits beside, not just exist on disk unfingerprinted. --------------------
+
+
+def test_positioning_coverage_declares_the_elev_outputs():
+    """`positioning_coverage.py`'s `main()` writes `multiday_summary_elev.csv` and
+    `coverage_elev.csv` unconditionally (weighting="both" is the default), but until
+    this was fixed neither appeared in the stage's `outputs=[...]`, so a truncated or
+    missing write there passed `check_assertions` silently - the same defect class as
+    the SINEX/positioning_full_coverage incidents this file's other tests pin."""
+    outputs = stage("positioning_coverage").outputs
+    assert str(POSITIONING_COVERAGE_DIR / "multiday_summary_elev.csv") in outputs
+    assert str(POSITIONING_COVERAGE_DIR / "coverage_elev.csv") in outputs
+
+
+def test_positioning_coverage_elev_outputs_have_real_min_rows_floors():
+    """Floors measured against the files actually on disk 2026-08-26
+    (multiday_summary_elev.csv: 37,241 rows; coverage_elev.csv: 11,641 rows, matching
+    docs/revision/work_queue.md's coverage table) - not copied blind from the iono
+    sibling's 30,000. Each floor must sit strictly below what is really there, so a
+    header-only or drastically truncated write still fails, while a same-order-of-
+    magnitude future run does not."""
+    min_rows = stage("positioning_coverage").min_rows
+    summary_elev = str(POSITIONING_COVERAGE_DIR / "multiday_summary_elev.csv")
+    coverage_elev = str(POSITIONING_COVERAGE_DIR / "coverage_elev.csv")
+
+    assert 0 < min_rows[summary_elev] < 37_241
+    assert 0 < min_rows[coverage_elev] < 11_641
+    # Comfortably below actual, not merely nonzero - a floor that only barely clears a
+    # truncated file is not much of a floor.
+    assert min_rows[summary_elev] >= 25_000
+    assert min_rows[coverage_elev] >= 8_000

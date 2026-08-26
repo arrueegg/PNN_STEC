@@ -1159,6 +1159,14 @@ STAGES: list[Stage] = [
         outputs=[
             str(POSITIONING_COVERAGE_DIR),
             POSITIONING,
+            # The elev pair: written by the same `main()` alongside the iono outputs
+            # above (weighting="both" is the default), but until now absent from this
+            # list, so neither carried a `min_rows` floor nor a digest - a truncated
+            # write here would have skipped silently. Added once real row counts existed
+            # to derive a floor from (measured 2026-08-26, see min_rows below), not
+            # blind.
+            str(POSITIONING_COVERAGE_DIR / "multiday_summary_elev.csv"),
+            str(POSITIONING_COVERAGE_DIR / "coverage_elev.csv"),
         ],
         # A header-only or drastically truncated multiday_summary.csv is exactly the
         # failure this catches - see the 2026-08-24 finding below: three individual
@@ -1166,7 +1174,20 @@ STAGES: list[Stage] = [
         # enough to sink the whole aggregate below this floor. 30,000 sits comfortably
         # under the 37,209 rows the post-recovery iono run produced and well above
         # anything a truncated run could produce.
-        min_rows={POSITIONING: 30_000},
+        #
+        # The elev pair floors use the same margin, derived from what is actually on
+        # disk today (measured 2026-08-26, pre-recovery-sweep vintage - see this
+        # stage's own caveats): multiday_summary_elev.csv carries 37,241 rows, almost
+        # exactly its iono sibling's 37,209, so it gets the same 30,000 floor rather
+        # than a separately-tuned number. coverage_elev.csv carries 11,641 rows (this
+        # is the "elev (stale, pre-sweep)" row of the coverage table in
+        # docs/revision/work_queue.md); 9,000 sits at the same ~80% margin below actual
+        # that the iono floor uses.
+        min_rows={
+            POSITIONING: 30_000,
+            str(POSITIONING_COVERAGE_DIR / "multiday_summary_elev.csv"): 30_000,
+            str(POSITIONING_COVERAGE_DIR / "coverage_elev.csv"): 9_000,
+        },
         canonical_for="positioning station-day coverage",
         caveats=[
             "Canonical variant selection is explicit: it matches the canonical "
