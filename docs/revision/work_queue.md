@@ -230,6 +230,12 @@ the receipts.
 
 ### Code work
 
+- [ ] **`paths.PREDICTIONS` is not the prediction store.** It resolves to
+      `artifacts/predictions` (1 parquet file, a stub); the real 1,569-file store is
+      `paths.LEGACY_PREDICTIONS`. `run_baselines.py` and `run_inference.py` both default
+      `--store-root` to the former, so a hand-run of either silently reads/writes the stub.
+      Verified 2026-08-26. Decide whether to rename, repoint, or make the default fail loudly.
+
 ### Decisions needing a human
 
 - [ ] **`common_set_positioning`'s `canonical_for=None` vs. CLAUDE.md calling it "Table A1".**
