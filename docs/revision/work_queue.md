@@ -196,6 +196,22 @@ the receipts.
 
 ### Runnable now — CPU only
 
+- [ ] **The 1,067 "some ML methods missing" station-days are recoverable execution
+      artifacts, not a science limitation** (investigated 2026-08-27). Split of the 1,433
+      arm-instances: 75.5% the correction exists on disk but PPPx was never invoked for that
+      station in that arm's sweep (no crash artifact anywhere — never attempted); 16.7% PPPx
+      *succeeded* and the `.pos` is on disk but the row never reached `daily_summary_iono.csv`;
+      7.8% correction never generated, almost all the STEC arm lagging behind VTEC/Pretrained
+      in being re-pointed at recovered data. Refuted: PPPx convergence failure (wherever it ran
+      it succeeded) and any station data property (|lat| correlates −0.02). BAIE is a genuine
+      station-level outlier, failing for GIM too.
+      Costs: category D needs NO recomputation, only re-aggregation from existing `.pos` files —
+      do this first. Category B needs PPPx re-runs against corrections already generated.
+      Category A mostly self-resolves. The 2026-08-26 chain does NOT touch this bucket.
+      New truncation finding: DOY 163/164/165 are truncated in the VTEC arm, extending the
+      documented 166/176/323 list. They appear here rather than vanishing because their GIM
+      rows survived.
+
 - [ ] **Fix `weighting_ablation`'s frozen-tree staleness properly**, not just document it:
   either re-run the elev arm (see "needs PPPx" below) or explicitly caveat every consumer
   that reads `WEIGHTING_RUN` as "February 2026 vintage" in its own caveats sidecar, not just
