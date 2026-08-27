@@ -193,3 +193,111 @@ def test_run_station_recovery_sh_coverage_default_matches_recover_day_py(
     shell_default = Path(result.stdout.strip())
 
     assert shell_default == recover_day.DEFAULT_COVERAGE
+
+
+# ---------------------------------------------------------------------------
+# resolve_experiment() canonical-variant selection
+#
+# The confirmed regression: resolve_experiment() picked sorted(matches)[0] over a broad
+# glob of every hyperparameter-search variant on disk, so a variant like
+# "..._lr1e-4_bs10000_..." silently outranked the paper's canonical fine-tune
+# "..._lr2e-4_bs512_..." whenever it sorted first alphabetically - the identical bug
+# commit 50ae67a already fixed in positioning_coverage.py's own collect(), never
+# carried over here. Confirmed on disk for DOY 122/130/153 during the 2026-08-27
+# station-recovery sweep, which wrote 31 (arm, doy) results into the wrong experiment
+# directory before this fix.
+# ---------------------------------------------------------------------------
+
+
+def _make_experiment(root: Path, name: str, with_checkpoint: bool = True) -> Path:
+    experiment = root / "experiments" / name
+    model_dir = experiment / "model"
+    model_dir.mkdir(parents=True)
+    if with_checkpoint:
+        (model_dir / "checkpoint.pth").touch()
+    return experiment
+
+
+def test_resolve_experiment_prefers_canonical_over_earlier_sorting_variant(
+    recover_day, tmp_path, monkeypatch
+):
+    """Several variants exist for this DOY, and the non-canonical one sorts first
+    alphabetically ("lr1e-4" < "lr2e-4") - resolve_experiment() must still return the
+    canonical directory, not the sorted-glob winner."""
+    monkeypatch.setattr(recover_day, "REPO", tmp_path)
+    doy = 122
+    canonical_name = (
+        f"Finetune_STEC_2024_{doy:03d}_"
+        f"{recover_day.CANONICAL_EXPERIMENT_SUFFIX['STEC']}"
+    )
+    _make_experiment(tmp_path, canonical_name)
+    _make_experiment(
+        tmp_path,
+        f"Finetune_STEC_2024_{doy:03d}_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_"
+        "lr1e-4_bs10000_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI",
+    )
+
+    result = recover_day.resolve_experiment("STEC", doy)
+
+    assert result is not None
+    assert result.name == canonical_name
+
+
+def test_resolve_experiment_warns_and_falls_back_when_canonical_missing(
+    recover_day, tmp_path, monkeypatch, caplog
+):
+    """No canonical directory exists for this DOY at all - resolve_experiment() must
+    still return the one usable variant it can find, but only after loudly warning
+    (not silently) that it is not the canonical one."""
+    monkeypatch.setattr(recover_day, "REPO", tmp_path)
+    doy = 999
+    fallback_name = (
+        f"Finetune_STEC_2024_{doy:03d}_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_"
+        "lr1e-4_bs10000_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w0.1_lw1e-1_SWI"
+    )
+    _make_experiment(tmp_path, fallback_name)
+
+    with caplog.at_level("WARNING"):
+        result = recover_day.resolve_experiment("STEC", doy)
+
+    assert result is not None
+    assert result.name == fallback_name
+    assert any(
+        "canonical" in record.message.lower() and str(doy) in record.message
+        for record in caplog.records
+    ), (
+        f"expected a loud canonical-missing warning, got: {[r.message for r in caplog.records]}"
+    )
+
+
+def test_resolve_experiment_still_requires_a_checkpoint(
+    recover_day, tmp_path, monkeypatch
+):
+    """A canonical directory with no checkpoint (and nothing else usable on disk) must
+    still resolve to None, matching the pre-existing guarantee - the canonical-first
+    change must not accept an unusable directory just because its name matches."""
+    monkeypatch.setattr(recover_day, "REPO", tmp_path)
+    doy = 250
+    canonical_name = (
+        f"Finetune_STEC_2024_{doy:03d}_"
+        f"{recover_day.CANONICAL_EXPERIMENT_SUFFIX['STEC']}"
+    )
+    _make_experiment(tmp_path, canonical_name, with_checkpoint=False)
+
+    result = recover_day.resolve_experiment("STEC", doy)
+
+    assert result is None
+
+
+def test_resolve_experiment_pretrained_stec_uses_pinned_canonical_dir(
+    recover_day, tmp_path, monkeypatch
+):
+    """Pretrained_STEC has no per-DOY suffix - it must resolve straight to
+    CANONICAL_PRETRAINED_DIR regardless of `doy`."""
+    monkeypatch.setattr(recover_day, "REPO", tmp_path)
+    _make_experiment(tmp_path, recover_day.CANONICAL_PRETRAINED_DIR)
+
+    result = recover_day.resolve_experiment("Pretrained_STEC", doy=122)
+
+    assert result is not None
+    assert result.name == recover_day.CANONICAL_PRETRAINED_DIR

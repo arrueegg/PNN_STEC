@@ -41,6 +41,11 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from stec.analysis.positioning_coverage import (  # noqa: E402
+    CANONICAL_PRETRAINED_DIR,
+    CANONICAL_STEC_SUFFIX,
+    CANONICAL_VTEC_SUFFIX,
+)
 from stec.config.paths import analysis_result_dir  # noqa: E402
 
 # The canonical, currently-absent-station-days coverage file (see
@@ -60,16 +65,29 @@ CDDIS_NAV = (
 )
 ABSENT_CAUSE = "all ML methods missing (station absent from STEC DB)"
 
+# Broad glob patterns, kept only for resolve_experiment()'s loud fallback when the
+# canonical directory itself is missing a checkpoint for a given DOY - see that
+# function's docstring. Everyday selection uses CANONICAL_EXPERIMENT_SUFFIX below, not
+# these.
 EXPERIMENT_PATTERNS = {
     "STEC": "Finetune_STEC_2024_{doy:03d}_BayesianResNetSTEC_*_SWI",
     "VTEC": "Finetune_VTEC_2024_{doy:03d}_MLP_LaplacianNLL_*_woYear",
     # Pinned, not globbed: several Pretrain_STEC_*_SWI variants exist and only this one
     # is the paper's model. Globbing picked a dropout variant with no checkpoint.
-    "Pretrained_STEC": (
-        "Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2"
-        "_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1"
-        "_kl5w0.1_lw1e-1_SWI"
-    ),
+    "Pretrained_STEC": CANONICAL_PRETRAINED_DIR,
+}
+
+# The paper's canonical fine-tune directory *name* for each DOY-specific arm - the exact
+# constants stec.analysis.positioning_coverage.collect() uses to select Table 5's input
+# rows (CANONICAL_STEC_SUFFIX / CANONICAL_VTEC_SUFFIX), reused here rather than
+# redefined: commit 50ae67a fixed positioning_coverage.py's own sorted(matches)[0]
+# hyperparameter-search collision by introducing these constants, but the identical bug
+# in this module's resolve_experiment() was never updated to use them - a second
+# definition of "canonical" is exactly how that regressed. Pretrained_STEC has no
+# per-DOY suffix, so it is handled separately in resolve_experiment().
+CANONICAL_EXPERIMENT_SUFFIX = {
+    "STEC": CANONICAL_STEC_SUFFIX,
+    "VTEC": CANONICAL_VTEC_SUFFIX,
 }
 
 
@@ -128,14 +146,47 @@ def ensure_bsx(year: int, doy: int) -> Path:
     return candidates[0]
 
 
+def _has_checkpoint(path: Path) -> bool:
+    return (path / "model").is_dir() and any((path / "model").glob("*.pth"))
+
+
 def resolve_experiment(kind: str, doy: int) -> Path | None:
-    """The experiment directory for this model, requiring a usable checkpoint."""
+    """The experiment directory for this model, requiring a usable checkpoint.
+
+    Selects the paper's canonical variant explicitly (CANONICAL_EXPERIMENT_SUFFIX /
+    CANONICAL_PRETRAINED_DIR, imported from stec.analysis.positioning_coverage) rather
+    than `sorted(matches)[0]` over a broad glob. The old sorted-glob selection silently
+    preferred whichever hyperparameter-search variant happened to sort first - e.g.
+    "lr1e-4" < "lr2e-4" - which is the same bug commit 50ae67a already fixed in
+    positioning_coverage.py's own collect(); it was never carried over here. Falls back
+    to that old sorted-glob behaviour, loudly, only when the canonical directory itself
+    is missing or has no checkpoint for this DOY - so a DOY that genuinely lacks the
+    canonical fine-tune still resolves to *something* rather than being silently
+    dropped, but the canonical variant is never passed over just because a
+    hyperparameter-search variant happens to sort first.
+    """
+    if kind == "Pretrained_STEC":
+        canonical = REPO / "experiments" / CANONICAL_PRETRAINED_DIR
+    else:
+        canonical = (
+            REPO
+            / "experiments"
+            / f"Finetune_{kind}_2024_{doy:03d}_{CANONICAL_EXPERIMENT_SUFFIX[kind]}"
+        )
+    if canonical.is_dir() and _has_checkpoint(canonical):
+        return canonical
+
+    logger.warning(
+        f"DOY {doy}: canonical {kind} experiment ({canonical.name}) is missing or has "
+        "no checkpoint - falling back to sorted-glob selection, which may pick a "
+        "non-canonical hyperparameter-search variant instead"
+    )
     matches = [
         path
         for path in sorted(
             (REPO / "experiments").glob(EXPERIMENT_PATTERNS[kind].format(doy=doy))
         )
-        if (path / "model").is_dir() and any((path / "model").glob("*.pth"))
+        if _has_checkpoint(path)
     ]
     if not matches:
         logger.warning(f"DOY {doy}: no {kind} experiment with a checkpoint")
