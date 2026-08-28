@@ -9,11 +9,14 @@ format, not an in-memory shortcut.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from stec.analysis import station_independence as si
+from stec.config import paths
 from stec.inference import prediction_store as ps
 
 
@@ -165,3 +168,42 @@ def test_spearman_correlation_matches_hand_computed_value():
 
     rho = distance_km.corr(rmse, method="spearman")
     assert rho == pytest.approx(expected_rho, rel=1e-9)
+
+
+# --- drift guard: the docstring's claimed station count must match the live artifact --
+#
+# The module docstring's "Limitation that does not go away with more data" section names
+# a fixed `n` of test stations - it read 55 while the real per_station.csv (both
+# pre_rebuild and rebuilt) has always had 58 unique stations, undetected until an
+# independent audit compared the two by hand. Matches the "live checkout, real data"
+# `skipif` idiom `tests/analysis/test_divergences.py` already uses for the same class of
+# drift (its #4 VTEC-coverage and #15 seed-count guards).
+
+_PER_STATION_CSV = (
+    paths.analysis_result_dir("station_independence", rebuilt=True) / "per_station.csv"
+)
+
+
+@pytest.mark.skipif(
+    not _PER_STATION_CSV.exists(),
+    reason="live station_independence per_station.csv not present on this host",
+)
+def test_docstring_station_count_matches_live_per_station_csv():
+    """Reads the claimed `n` straight out of the docstring, rather than duplicating it
+    as a second hardcoded constant here - a test that hardcodes its own copy of "58"
+    would pass even if the docstring and the artifact drifted from each other again,
+    which is exactly the failure this exists to catch."""
+    match = re.search(r"`n` = (\d+) test stations", si.__doc__)
+    assert match, (
+        "station_independence.py's docstring no longer states \"`n` = <N> test "
+        'stations" - update this regex if the wording changed deliberately'
+    )
+    claimed_n = int(match.group(1))
+
+    live = pd.read_csv(_PER_STATION_CSV)
+    real_n = live["station"].nunique()
+    assert claimed_n == real_n, (
+        f"station_independence.py's docstring claims n={claimed_n} test stations, but "
+        f"{_PER_STATION_CSV} actually has {real_n} unique stations - update the "
+        "docstring (and stec/pipeline/stages.py's matching station_independence caveat)."
+    )

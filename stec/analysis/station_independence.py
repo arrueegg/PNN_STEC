@@ -21,8 +21,9 @@ nearby-station leakage; a steep one would mean the reviewer's concern is real
 and should be stated as a limitation.
 
 **Limitation that does not go away with more data**: this result is limited by
-`n` = 55 test stations (the ones with both `IGSNetwork.csv` coordinates and
-prediction-store rows), not by observation count. Adding more days sharpens
+`n` = 58 test stations (the ones with both `IGSNetwork.csv` coordinates and
+prediction-store rows; confirmed against per_station.csv's own row count, both
+pre_rebuild and rebuilt - 55 was stale), not by observation count. Adding more days sharpens
 each station's per-station RMSE but does not sharpen the Spearman coefficient
 across stations - that needs more *stations*. Making this result stronger
 needs a region-held-out retrain, not more data.
