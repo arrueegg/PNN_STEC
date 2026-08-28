@@ -129,6 +129,11 @@ rate. Re-check with `systemctl --user status elev-positioning-chain.service` and
 its now-correctly-fingerprinted consumers (`weighting_ablation`, `common_set_positioning`,
 `oracle_benchmark`) pick up the fresh elev arm automatically.
 
+**How to report positioning at all — decided 2026-08-28, iono-only, unaffected by this
+re-run** — see `docs/revision/positioning_reporting.md`: distributions/medians replace the
+mean-with-10m-exclusion Table 5, plus the population-crossover, storm and attribution findings
+that must reach the manuscript.
+
 ---
 
 ## 2. What was finished today (2026-08-26), for the record

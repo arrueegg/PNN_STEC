@@ -1,0 +1,266 @@
+# Positioning reporting: distributions instead of a filtered mean
+
+Owner decision, 2026-08-28. Record of what was decided, the evidence behind it, and what a
+future session needs to know before writing the manuscript's positioning section. Every number
+below was re-measured against its source artifact while writing this file (2026-08-28); where
+the artifact disagreed with an earlier verbal summary, the artifact's number is what's recorded
+here and the disagreement is noted.
+
+All numbers in this document are **iono weighting** unless stated otherwise. See §6.
+
+Source modules: `stec/analysis/positioning_distributions.py`, `positioning_diagnostics.py`,
+`positioning_geography.py`, `positioning_quality_gate.py`, `positioning_model_attribution.py`.
+None of these five is a declared pipeline stage — they were built for the owner to look at
+before deciding what Table 5 should say, per this document's own subject. Their CSVs live under
+`multiday_results/analyses/{positioning_distributions,positioning_diagnostics,
+positioning_geography}/rebuilt/`. Re-run any of them with
+`python -m stec.analysis.<module_name>`.
+
+## 1. The decision, and why it is not a preference
+
+**Table 5 now reports distributions and medians over the full, unfiltered population — no
+outcome-based station-day exclusion.** This replaces the published Table 5, which reported the
+*mean* of per-station-day 3D error after dropping any station-day above 10 m
+(`stec.positioning.metrics.OUTLIER_3D_RMS_M`).
+
+The 10 m rule is an **outcome** filter: it drops a station-day because the error came out
+large, and it is not neutral between methods. Direct STEC carries 68 station-days above 10 m
+against IGS GIM's 16 — 4.2x more, despite Direct STEC having *fewer* total station-days
+(`positioning_diagnostics/rebuilt/outlier_threshold_counts.csv`). A rule that trims large
+errors trims Direct STEC's own worst outcomes disproportionately, which is a strange thing to
+do while trying to measure whether Direct STEC is good.
+
+The consequence is not subtle — the headline **mean** improvement of Direct STEC over IGS GIM
+is non-monotonic in the exclusion threshold and swings from negative to strongly positive and
+back down, all before the project's own 10 m choice is even applied
+(`positioning_diagnostics/rebuilt/outlier_headline_sensitivity.csv`,
+`positioning_distributions.py`'s own docstring):
+
+| Threshold | N (STEC / GIM) | Mean improvement | Median improvement |
+|---|---:|---:|---:|
+| none (no exclusion) | 10,603 / 10,853 | **−0.8%** | 18.6% |
+| 5 m | 10,009 / 10,606 | **+16.4%** | 20.9% |
+| 10 m (published rule) | 10,535 / 10,837 | +4.7% | 19.0% |
+| 20 m | 10,591 / 10,849 | +1.7% | 18.7% |
+| 50 m | 10,598 / 10,851 | +0.7% | 18.6% |
+
+Going from "no filter" to a 5 m cut alone swings the mean 17 points, from *negative* to
++16.4%, before the widening back down past 5 m. There is no principled reason to prefer 10 m
+over 5 m or 20 m, and the answer to "does Direct STEC beat GIM" changes by a factor of ~20x
+across that range if you only look at the mean.
+
+A **method-blind** alternative was also built and checked
+(`positioning_quality_gate.py`): keep a station-day only if it has a real SINEX ground-truth
+reference and at least 90% epoch coverage — both properties of the day/session, not of
+`error_3d_rms`, so they cannot be selecting on the outcome being compared. Under that gate the
+mean improvement is **+0.09%**
+(`positioning_geography/rebuilt/quality_gate_vs_outcome_rule.csv`, row
+`quality_gate (ref_source=gt, epoch>=90%)`) — essentially zero. That is the real answer the
+mean gives once you can no longer cherry-pick the exclusion boundary: the published +4.7%
+(and every other positive mean number in the table above) is an artifact of *which* outcome
+filter got chosen, not a robust property of the comparison.
+
+The **median**, across every one of the above, including no filter at all, stays in an
+**18.6–20.9%** band. (An earlier verbal summary this week said "18.6–19.5%" — that undersells
+the top of the range; the 5 m threshold reaches 20.9%, and the module docstring itself states
+"18.6-20.9%". Use the wider, verified number.) This is the statistic that answers "does Direct
+STEC typically beat GIM" without an arbitrary knob attached to the answer.
+
+**Decision: report the median and the full distribution (percentiles, exceedance rates),
+apply no outcome-based filter.** If a mean is quoted at all, it must be quoted with the
+population split (§4) and the threshold-sensitivity table above next to it, never alone.
+
+## 2. Replacement Table 5 content
+
+Per method, over the full unfiltered coverage-recovered population (iono weighting), 3D
+positioning RMS error per station-day, in metres. Source:
+`multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv` (43,101 rows,
+all four methods), read via `positioning_distributions.py`'s `overall_percentile_summary.csv`
++ `overall_exceedance.csv`, reproduced exactly in
+`multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_NUMBERS.md`:
+
+| Method | N | Median | IQR (Q1–Q3) | P95 | P99 | Exceed 5 m | Exceed 10 m | Exceed 20 m | Exceed 50 m |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Direct STEC | 10,603 | 0.886 m | 0.575–1.934 m | 5.245 m | 8.920 m | 5.60% (594) | 0.64% (68) | 0.11% (12) | 0.05% (5) |
+| Pretrained Direct STEC | 10,819 | 1.754 m | 1.154–2.914 m | 6.306 m | 10.128 m | 9.08% (982) | 1.04% (113) | 0.18% (19) | 0.04% (4) |
+| VTEC + Mapping | 10,826 | 1.314 m | 0.885–2.324 m | 5.954 m | 9.146 m | 7.57% (819) | 0.74% (80) | 0.16% (17) | 0.07% (8) |
+| IGS GIM + Mapping | 10,853 | 1.089 m | 0.768–2.188 m | 4.127 m | 5.804 m | 2.28% (247) | 0.15% (16) | 0.04% (4) | 0.02% (2) |
+
+Direct STEC vs IGS GIM + Mapping, median improvement: **18.6%**.
+
+## 3. Why the tail must be reported, not excluded
+
+Reporting only the median would repeat the old mistake in the opposite direction: it would
+hide that Direct STEC produces more large errors than GIM does, which is a real, operationally
+important property of the method for anyone relying on it for positioning. That's why every
+table in §2 carries the exceedance columns and why the figures clip the *view*, never the
+*data* (`positioning_distributions.py`'s and `stec/viz/positioning_distributions.py`'s own
+docstrings, verbatim: "the *view* is clipped (matplotlib axis limits), not the data"). The
+overall boxplot stats (`overall_boxplot_stats.csv`) keep real fliers out to ~5,940–5,990 m —
+genuine PPPx solve failures — visible in the underlying CSV even though a readable figure has
+to bound its axis well short of that.
+
+The shape this produces is the honest result and is worth stating plainly: **IGS GIM beats
+Direct STEC at P95 (4.127 m vs 5.245 m) and P99 (5.804 m vs 8.920 m) despite losing on the
+median.** Direct STEC is typically better; GIM is more consistent at the extreme. A reader who
+only sees the median gets half of that story.
+
+## 4. Three findings that must reach the manuscript
+
+All three numbers below re-verified 2026-08-28 against `positioning_distributions/rebuilt/`'s
+unfiltered tables (the same no-outcome-filter population as §§1–3) — **not** the older,
+10-m-filtered population-split numbers in `positioning_diagnostics/rebuilt/FINDINGS.md` §4,
+which cover the same phenomenon but under the outcome filter this document just argued against
+using. The two disagree slightly in the third decimal for exactly that reason; use the
+unfiltered numbers below.
+
+### The population crossover
+
+Direct STEC's ranking against GIM flips depending on whether a station-day has a real
+STEC-database observation or only a geometry-only recovered one
+(`population_percentile_summary.csv`, `population_boxplot_stats.csv`,
+`population_exceedance.csv`):
+
+| Population | Direct STEC median | GIM median | Direct STEC N | GIM N |
+|---|---:|---:|---:|---:|
+| Original (real STEC-DB row) | **0.778 m** (best) | 1.015 m | 8,468 | 8,576 |
+| Recovered (geometry only) | **2.811 m** (worst-degrading) | 1.991 m | 2,135 | 2,277 |
+
+Direct STEC is the best method on the population it has real local calibration data for, and
+the worst-degrading method on the population it doesn't: its median rises **261%**
+(0.778 → 2.811 m) from original to recovered, against GIM's **96%** (1.015 → 1.991 m). The
+other two ML methods degrade less steeply than Direct STEC (Pretrained +117%, VTEC + Mapping
++86%) — Direct STEC has the most to lose from missing local STEC data, which is exactly what
+you'd expect from a model whose whole advantage over GIM is that local data. This is the
+mechanism this document's evidence points to for *why* the pooled headline number (§1) is
+lower than the abstract's published one: the model is genuinely better where it has data, and
+the fraction of 2024 that needed geometry-only recovery has grown since the number was first
+published.
+
+### Storm behaviour recovers its meaning in distributional form (R1.7)
+
+The mean-based storm/quiet comparison had collapsed to noise: Direct STEC's mean improvement
+over GIM on storm days is **−0.30%**
+(`storm_stratification/rebuilt/improvement_over_gim.csv`, 10 m rule, current recovered
+population) — indistinguishable from zero, driven by a handful of large quiet-day outliers
+dominating the mean on the other side of the comparison. In the unfiltered distributional
+view, the real pattern is visible and it's simple: **every method's storm median exceeds its
+quiet median** (`positioning_distributions/rebuilt/regime_percentile_summary.csv`, daily
+Dst ≤ −50 nT rule, 39 storm days of 242):
+
+| Method | Quiet median | Storm median | Increase |
+|---|---:|---:|---:|
+| Direct STEC | 0.862 m | 1.059 m | **+22.8%** |
+| IGS GIM + Mapping | 1.065 m | 1.234 m | **+15.9%** |
+
+Storms degrade positioning for everyone, and they degrade Direct STEC somewhat more than GIM —
+a real, physically sensible effect that a mean statistic dominated by a few unrelated outliers
+had been hiding. This is the module's answer to R1.7; don't reach for the mean-based −0.3%
+figure to answer that comment, it answers a different, noise-dominated question.
+
+### Attribution: STEC accuracy predicts absolute error, not competitiveness against GIM
+
+Per-station STEC prediction accuracy (RMSE against the finetuned model's own test-set
+predictions, `station_independence.py`'s `per_station.csv`) correlates strongly with a
+station's **absolute** Direct STEC positioning error, but not with **how Direct STEC compares
+to GIM** at that station (`positioning_geography/rebuilt/stec_positioning_correlations.csv`,
+46 reliable stations, N ≥ 30 — see §5):
+
+| Comparison | Spearman ρ | p |
+|---|---:|---:|
+| STEC RMSE vs. absolute Direct STEC positioning error | **0.82** | 2.4e-12 |
+| STEC RMSE vs. (Direct STEC − GIM) positioning difference | **0.14** | 0.36 (not significant) |
+
+The reason isn't a broken join: IGS GIM is exposed to the same non-ionospheric confounds
+(satellite geometry, epoch count, multipath) that make a station's STEC hard to predict in the
+first place, so both methods degrade together at a hard station and the model-accuracy signal
+mostly cancels out of the head-to-head comparison. **A station where Direct STEC loses to GIM
+is not necessarily a station where the model is bad — it may just be a hard station for
+everyone.** Model-quality claims belong on the absolute-error / STEC-RMSE scale; head-to-head
+competitiveness against GIM is a separate, noisier question.
+
+Practical consequence, checked against the data rather than asserted: among the handful of
+reliable stations where Direct STEC loses to GIM on average (CPVG +1.39 m, SUTH +1.13 m,
+FAA1 +0.91 m, WARK +0.84 m, UNSA +0.69 m diff), only **CPVG** also has a STEC RMSE that stands
+out as bad in absolute terms — 18.39 TECU, the single worst of all 56 stations with a STEC
+accuracy row, more than 4 TECU above the next-worst. SUTH/FAA1/WARK/UNSA all have unremarkable
+STEC RMSE (3.7–10.2 TECU, mid-pack). CPVG is therefore the one station where both measures
+agree the model itself is the problem; the others are confounded stations where GIM happens to
+do especially well, not model failures.
+
+## 5. Methodological rules that must not be forgotten
+
+- **Never report a per-station number without N and an explicit reliability floor.** The
+  floor is **N ≥ 30**, derived (not assumed) by comparing each station's standard error of
+  mean 3D error against the *between-station* spread of station means
+  (`positioning_geography/rebuilt/n_threshold_diagnostic.csv`;
+  `positioning_model_attribution.py`'s docstring): below N=30, at least one station's SE
+  exceeds ~28% of the between-station spread (HKSL, OWMG); at N≥30 the worst case (FAA1)
+  stays under ~17%. Applying the floor removes the two most dramatic-looking per-station
+  numbers in the whole dataset: **HRAO** (N=14, +1.06 m diff, 3rd-worst) and **HKSL** (N=24,
+  −1.71 m diff — the single largest-magnitude station diff of any station, in either
+  direction). Both would make a striking bar in a per-station figure and both rest on too few
+  station-days to support a claim either way.
+- **Report two separate measures per station, not one.** STEC RMSE (absolute accuracy)
+  answers "is the model good here"; the Direct-STEC-minus-GIM diff answers "does it beat the
+  incumbent here". §4's attribution finding is exactly why these must stay separate — they
+  correlate with different things (ρ=0.82 vs ρ=0.14) and conflating them produces claims the
+  data doesn't support (e.g. reading a bad diff as a bad model).
+- **Station exclusion must be method-blind.** Excluding stations by GIM-availability (the 12
+  stations where GIM solves fewer than ~82% of days) was considered and **rejected**: within
+  exactly that 12-station set, Direct STEC *also* trails GIM (−12.0% mean, −3.6% median,
+  `positioning_quality_gate.py`'s `station_exclusion_sensitivity()`) — the same population that
+  looks like an availability artifact also happens to be where Direct STEC performs worst, so
+  excluding it would quietly remove some of the method's worst outcomes under the banner of a
+  "neutral" rule. (Most of these 12 also fail the N≥30 floor independently, which is the
+  defensible reason to exclude them, not GIM-availability per se.)
+- **Clip plot views, never data.** Every distribution figure in `stec/viz/
+  positioning_distributions.py` bounds its axis for readability but reports how many points
+  fall outside the clipped view rather than dropping them; the underlying CSVs always carry
+  the true fliers (real values out to ~5,940–5,990 m in the overall boxplot stats — genuine
+  PPPx failures, not a data error).
+
+## 6. What is still provisional
+
+Every number in this document is **iono weighting only**, from
+`multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv`. That input is
+current and complete for iono — confirmed via `python -m stec.pipeline status` reporting
+`storm_stratification`, `positioning_robustness` and `positioning_summary` all up to date, all
+iono-only and unaffected by what's below.
+
+`elev-positioning-chain.service` is running as of this writing (started 2026-08-28 09:44,
+~20 h estimated), re-solving PPPx under `--weight_opt elev` for Direct STEC, VTEC + Mapping and
+Pretrained STEC across the current (post-recovery-sweep) population — every elevation-weighted
+`daily_summary.csv` on disk predates the second recovery sweep (max mtime 2026-08-20), same gap
+the iono arm already had closed. Three consumers read that elev arm and **will need
+regenerating once it lands**:
+
+- `common_set_positioning` (blocked on it now — currently N=7,947, elev-vintage input)
+- `oracle_benchmark`
+- `weighting_ablation`
+
+Everything in §§1–5 of this document — the distributional Table 5, the population crossover,
+the storm finding, the attribution result, the N≥30 floor and the other methodological rules —
+is **iono-only and does not depend on the elev re-solve**. It will not need to be
+regenerated when the chain finishes; it needs to be regenerated only if the *iono* population
+changes again (e.g. a third recovery sweep). Once `positioning_coverage` picks up the fresh
+elev arm and the three consumers above are re-run, revisit only whether their numbers (Table
+A1 / weighting ablation) are still consistent with what's written here — they answer a
+different question (common-set / elev-vs-iono) and were never inputs to §§1–5.
+
+## 7. HRAO worked example
+
+HRAO is the station that makes the case for the three-way check (N, STEC accuracy, confounds)
+before trusting any per-station claim: it sits 2.0 km from its nearest training station
+(HARB) — closer than all but a handful of test stations — and its STEC RMSE (3.53 TECU) is
+near the best quartile of all reliable-tier stations
+(`positioning_model_attribution.py`'s own docstring; independently checked here: 3.53 TECU
+ranks at the 26th percentile among the 46 N≥30 stations, right at the Q1 boundary). Read the
+diff alone and HRAO looks like a station where Direct STEC fails near a training station —
++1.06 m against GIM, the 3rd-worst diff in the dataset. But it rests on only **N=14**
+station-days, below the N≥30 floor (§5), and the confound check finds nothing structurally
+wrong either (full epoch coverage, 100% ground-truth reference, unremarkable satellite count —
+`positioning_geography/rebuilt/station_confound_check.csv`). HRAO is not evidence the model
+fails near training stations; it is evidence that 14 station-days isn't enough to conclude
+anything either way. Any per-station claim needs all three checks — N, STEC accuracy, and the
+confound columns — in that order, before it goes in the manuscript.
