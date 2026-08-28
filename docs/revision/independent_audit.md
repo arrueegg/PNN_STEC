@@ -74,6 +74,22 @@ as an expected, targeted divergence in `verification/gate_f_analysis_equivalence
 mistaken for a regression. Left as originally written above — this note records the fix,
 not a rewrite of what the audit found at the time.
 
+**Updated 2026-08-28 (rows a, b) — moved again, not resolved.** The current canonical
+artifacts these rows compare against have themselves changed since a second station-day
+recovery sweep finished 2026-08-27 (see F13's resolution note below): row a's "current"
+25.4%/19.6% is now **5.7% quiet / −0.3% storm**
+(`storm_stratification/rebuilt/improvement_over_gim.csv`, re-verified directly against the
+CSV); row b's "current" 20.3%/24.4% is now **4.7% mean / 19.0% median improvement over
+N=10,535/10,837** (`positioning_summary/rebuilt/overall.csv`). Both letter numbers were
+already wrong when this finding was written; they are now wrong by a larger margin, in the
+same direction — closing the coverage gap pulled in disproportionately the station-days
+where Direct STEC underperforms GIM (`positioning_diagnostics/rebuilt/FINDINGS.md`, built
+2026-08-28: original-population station-days run +19.4%/+23.5%, geometry-only-recovered
+station-days run −31.9%/−38.5%). This is not a new instance of documentation drift — it is
+the same unfixed letter-vs-artifact gap this finding already named, measured again after the
+artifact moved further. See CLAUDE.md's canonical-results table for the current numbers and
+the full chain (published → first sweep → second sweep).
+
 Additional letter-adjacent items: the epistemic-scale diagnostic (s\*=4.6641, a real measured
 result) is cited nowhere in either reviewer-facing doc and is not a declared stage; and
 `r22_fully_bayesian_analysis.md` labels itself "R2.2" while the letter's numbering makes the
@@ -359,6 +375,27 @@ N=8,636/10,837) it does not need to — the population gap between them is not t
 floor the project's own record currently says it is, and a downloader fix plus a re-run
 (queued behind GPU, not yet run) would close a material share of it. Full writeup:
 `docs/revision/coverage_recovery_status.md`.
+
+**Resolved 2026-08-28.** The re-run this finding called for happened: the fix described above
+(raising the wrapper's timeout past the shell script's own retry schedule) held for the full
+remaining population, not just the 5-station sample — the geometry sweep ran 1,536/1,536
+downloads with zero failures. All-ML-missing coverage moved from 1,591 to **26** of 10,853
+(98.4% closed; `positioning_coverage/rebuilt/coverage.csv`, re-verified directly against the
+`cause` column). The false-negative conclusion this finding identified is now correctable
+rather than merely disputed — `docs/revision/coverage_recovery_status.md` §10's "keep the
+20.3%/24.4% numbers until the re-run completes" instruction has been overtaken; those numbers
+are superseded, see its own updated §10/§11.
+
+**What this finding did not anticipate, and could not have from the evidence available at the
+time**: closing the gap did not raise the headline, it lowered it. `positioning_diagnostics`
+(built 2026-08-28, `multiday_results/analyses/positioning_diagnostics/rebuilt/FINDINGS.md`)
+found the newly-recovered station-days are systematically the ones where Direct STEC loses to
+GIM (original population +19.4%/+23.5% vs geometry-only recovered −31.9%/−38.5%) — so this
+finding's premise (the "cannot be closed" conclusion was wrong, and closing the gap would
+strengthen the paper's positioning claim) was half right: the conclusion *was* wrong, but
+closing the gap moved the headline from 20.3–24.4% down to **4.7% mean / 19.0% median** over
+the full recovered population, not up. See CLAUDE.md's canonical-results table for the
+current numbers and the full chain.
 
 ---
 

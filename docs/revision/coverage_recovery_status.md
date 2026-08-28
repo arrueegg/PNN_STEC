@@ -1,5 +1,13 @@
 # Positioning station-day recovery: yield, the wrong conclusion, and what's actually blocking the rest
 
+**Updated 2026-08-28: this has an outcome now.** §§1–10 below are the original record, written
+while the fix was a hypothesis and a re-run was still queued behind GPU availability — left
+unedited, per this project's convention of not rewriting a record after the fact. §11 is new:
+what the fix actually did, and the finding that matters more than the fix — the recovered
+station-days are exactly where the model underperforms, so closing the gap lowered the
+headline positioning number rather than raising it, the opposite of what this document
+originally expected.
+
 Consolidated 2026-08-25. This is the single record of the station-day recovery effort —
 what it is, why it exists, its full history, its measured yield, a conclusion drawn from it
 that is now refuted, and what is actually stopping the remaining gap from closing. It
@@ -321,3 +329,86 @@ that residual, not that the residual will be zero.
   answer** — those are unaffected by this document; what changes is only the explanation for
   *why* 1,591 station-days remain uncovered, and the removal of the false "cannot be closed"
   claim.
+
+  **Superseded by §11 below (2026-08-28): the re-run completed, and those two numbers are no
+  longer current.**
+
+## 11. Outcome (2026-08-28)
+
+### The fix and the re-run
+
+The fix described in §8 was implemented and run, not just specified. `download_rinex.py`'s
+subprocess timeout was raised past the shell script's own worst-case retry time, and
+`recovery-models.service`'s successor ran the geometry + three-model-arm + PPPx chain over
+the 216 days spanning the 1,591 still-absent station-days this document identified. Result,
+read directly from the current `multiday_results/analyses/positioning_coverage/rebuilt/
+coverage.csv`: the geometry sweep ran **1,536/1,536 downloads with zero failures** — the
+downloader-timeout signature this document diagnosed (§5's exact 120.0/121.0 s deltas) did
+not recur. Coverage moved:
+
+| | §3's post-first-sweep (2026-08-24) | Current (2026-08-27) |
+|---|---|---|
+| Solved by all four methods | 8,195 | **10,598** |
+| All ML methods missing | 1,591 | **26** |
+| Some ML methods missing | 1,067 | 229 |
+| Total | 10,853 | 10,853 |
+
+**98.4% of the remaining all-ML-missing bucket closed** (1,591 → 26) in a single re-run —
+consistent with, and considerably better than, §5's stratified sample (5 of 5 "absent"
+station-days turning out to have real, fast-downloading RINEX). §9's caveat holds: 26
+station-days remain genuinely absent, so the residual was never expected to be zero, and this
+document's "what would remain unrecoverable" list (navigation/DCB-substitute gaps, geometry-
+build failures, PPPx non-convergence) accounts for at least part of the 26 without this
+session re-deriving which part.
+
+### The scientific consequence: the headline moved down, not up
+
+§8's framing expected that closing this gap would let Table 5 "report one full-population
+comparison that does not need the common-set restriction," implicitly assuming the closed
+gap would land close to the existing common-set number. It did not. Reading
+`multiday_results/analyses/positioning_summary/rebuilt/overall.csv` directly: Direct STEC
+**1.5438 m mean / 0.8809 m median over N=10,535** vs IGS GIM **1.6197 m / 1.0877 m over
+N=10,837** → **4.7% mean / 19.0% median improvement** — below both numbers this document
+called "the current best answer" (20.3% common-set, 24.4% full-set), and far below the
+published 30.9%.
+
+The reason is in `multiday_results/analyses/positioning_diagnostics/rebuilt/FINDINGS.md`
+(built 2026-08-28, the same day as this update): **the recovered station-days are exactly
+where the model underperforms.** Split by whether a station-day had real STEC-database data
+behind it —
+
+| Population | N (STEC/GIM) | Mean improvement | Median improvement |
+|---|---|---|---|
+| Original (real STEC-DB row) | 8,442 / 8,567 | **+19.4%** | **+23.5%** |
+| Recovered (geometry-only, this mechanism) | 2,093 / 2,270 | **−31.9%** | **−38.5%** |
+
+On the population this document's recovery mechanism was built to add, Direct STEC loses to
+GIM by roughly a third — the model has no local calibrated observations there (per
+§1's own `UNAVAILABLE` constant), and a global IGS GIM correction is simply the stronger prior
+in that regime. This is not a flaw in the recovery mechanism or the fix: the mechanism did
+exactly what §1 said it would (prove the ML methods can serve any station-day with RINEX +
+navigation data, and produce real, PPPx-accepted solutions for them). What it did *not* do,
+and was never going to, is make those station-days as easy as the ones the paper's production
+STEC database already covered. Closing a coverage gap and improving a headline accuracy
+number are different things, and this document conflated them in §8's framing.
+
+The mean's fragility compounds this: `FINDINGS.md` finds the mean improvement is
+non-monotonic in the 3D-error outlier-exclusion threshold (−0.8% with no exclusion, +16.4% at
+5 m, +4.7% at the project's 10 m rule, +1.7% at 20 m, +0.7% at 50 m) while the median holds
+18.6–20.9% across every threshold including none at all. `FINDINGS.md`'s recommendation — cite
+the median, or the mean alongside the population split above, rather than the mean alone — is
+the direct downstream consequence of this document's own recovery effort, and is now the
+better-supported framing for Table 5.
+
+### Status, updated
+
+- The downloader fix: **implemented and verified at full scale**, not just diagnosed.
+- The re-run: **complete** (2026-08-27), not queued.
+- CLAUDE.md's positioning-coverage row: **rewritten** to the current 4.7%/19.0% numbers and
+  this section's finding; no longer carries the 20.3%/24.4% pair as current.
+- What is still open: `common_set_positioning` and `weighting_ablation` have not yet picked up
+  a second, independent re-solve — `elev-positioning-chain.service`, started 2026-08-28,
+  re-solves PPPx under elevation weighting across this same recovered population (a different
+  axis from the recovery this document covers, not a repeat of it). Once it lands, the
+  common-set and elevation-weighted numbers will reflect the same recovered population Table 5
+  now does; they do not currently.

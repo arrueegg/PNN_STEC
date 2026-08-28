@@ -53,21 +53,20 @@ GPU-hours, CPU-days, or PPPx wall-clock.
 ### PPPx station-days by method
 
 Source: `multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv` (iono,
-mtime 2026-08-24 18:23) and `multiday_results/positioning_runs/20260216_2052/multiday_summary.csv`
-(elev, frozen Feb 2026). **The iono numbers are a live, moving target** — the station-recovery
-sweep (§3) is actively adding station-days as it runs, and `positioning_coverage` is
-deliberately not re-run yet (see §4's blocked-on-recovery-sweep group). Numbers below read
-2026-08-26 ~14:20; re-count with:
+current since the second recovery sweep, mtime 2026-08-27 19:51). Elev is stale (frozen Feb
+2026, `multiday_results/positioning_runs/20260216_2052/multiday_summary.csv`) and being
+replaced in place by `elev-positioning-chain.service` — see §1's live row. Numbers below
+re-counted 2026-08-28:
 ```python
 import pandas as pd
 pd.read_csv("multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv")["method"].value_counts()
 ```
 
-| Method | iono | elev | Note |
+| Method | iono (2026-08-27) | elev (stale, Feb 2026) | Note |
 |---|---|---|---|
-| Direct STEC | 8,669 | 8,938 | iono moved down from an earlier same-day reading of 8,681 — re-read as the sweep progressed; re-measure before quoting |
-| VTEC + Mapping | 8,871 | 8,312 | same caveat |
-| Pretrained STEC | 8,816 | **not available** | no `Pretrained_STEC_elev` arm exists in the canonical weighting-ablation tree; the only figure found for it (7,646) lives in `positioning_runs/full_coverage/`, which carries a `.superseded.json` marker — don't quote an elev Pretrained count from anywhere until this is re-run |
+| Direct STEC | 10,603 | 8,938 | iono grew from 8,669 (first-sweep vintage) to 10,603 once the second sweep closed 98.4% of the all-ML-missing bucket; elev is unchanged and will move once the elev chain lands |
+| VTEC + Mapping | 10,826 | 8,312 | same caveat |
+| Pretrained STEC | 10,819 | **not available** | no `Pretrained_STEC_elev` arm exists in the canonical weighting-ablation tree yet; the elev chain (§1) is producing one now |
 | IGS GIM + Mapping | 10,853 | 11,709 | |
 | Oracle | n/a (iono absent by design — reference STEC carries only a placeholder sigma) | 5,715 | verified exactly from `experiments/Reference_STEC_Oracle/positioning/results/*/daily_summary.csv`, `method=='model'` rows |
 | Fixed-Variance | 5,714 | n/a (elev absent by design) | verified exactly from `experiments/Fixed_Variance_STEC/positioning/results/*/daily_summary_iono.csv`, `method=='model_iono'` rows |
@@ -75,15 +74,19 @@ pd.read_csv("multiday_results/analyses/positioning_coverage/rebuilt/multiday_sum
 ### Coverage (station-day cause breakdown)
 
 Source: `multiday_results/analyses/positioning_coverage/rebuilt/{coverage.csv,coverage_elev.csv}`.
-Both verified exactly against the files on disk 2026-08-26.
+Verified exactly against the files on disk 2026-08-28.
 
 | Weighting | Solved by all | All ML missing (station absent from STEC DB) | Some ML missing (per-method failure) | Total |
 |---|---|---|---|---|
-| iono (current) | 8,195 | 1,591 | 1,067 | 10,853 |
+| iono (current, 2026-08-27 second sweep) | **10,598** | **26** | **229** | 10,853 |
+| iono (first sweep, 2026-08-24, superseded) | 8,195 | 1,591 | 1,067 | 10,853 |
 | elev (stale, pre-sweep) | 8,047 | 2,509 | 1,085 | 11,641 |
 
-The iono row will move again once `positioning_coverage` is re-run after the live sweep
-finishes (§4).
+**The all-ML-missing bucket closed from 1,591 to 26 (98.4%) between the two iono rows** — the
+downloader-timeout fix (§2/CLAUDE.md's positioning-coverage row) held for the remaining
+population, not just the sample it was validated against. The elev row is next; see §1's live
+row and CLAUDE.md's canonical-results table for the scientific consequence (Table 5's headline
+moved to 4.7% mean / 19.0% median improvement, not up).
 
 ### Products (`experiments/*/positioning/evaluation/*/products`)
 
@@ -96,27 +99,35 @@ finishes (§4).
 
 ### Weighting ablation vintage
 
-`weighting_ablation` reads **one frozen February 2026 tree**
-(`multiday_results/positioning_runs/20260216_2052/`) for *both* the elev and iono arms —
-uniformly old, not a mixed-vintage comparison (every file under that tree dated Feb 16–17
-2026, confirmed 2026-08-26). `common_set_positioning` is the stage that genuinely mixes
-vintages: its declared inputs are `POSITIONING` (the current, Aug `positioning_coverage`
-output) and `WEIGHTING_RUN` (the same frozen Feb tree) — confirmed by reading
-`stec/pipeline/stages.py`.
+**Resolved 2026-08-28 (`b8b0e6e`), replacement in progress.** `weighting_ablation`,
+`common_set_positioning` and `oracle_benchmark` used to read one frozen February 2026 tree
+(`multiday_results/positioning_runs/20260216_2052/`) through a `WEIGHTING_RUN` constant no
+stage produced — the same "reads a filename its source stopped writing" pattern CLAUDE.md's
+Gotchas describes elsewhere, the fifth instance of it found this week. Fixed:
+`positioning_coverage` now writes `multiday_summary_all_weightings.csv` once both weightings
+have run, and all three consumers point at that instead, with `weighting_ablation` moved
+after `positioning_coverage` in `stec/pipeline/stages.py` so the registry enforces the order.
+The frozen Feb tree is still what's on disk until the elev arm actually finishes re-solving
+(next section) — the fix repoints the *pipeline*, not the data itself.
 
-### Live: station-recovery sweep
+### Live: elevation-weighted positioning re-run
 
-`recovery-geom-full.service` (unit still running as of this read), driven by
-`scripts/run_station_recovery.sh` against the ~212-DOY remaining-coverage list. Snapshot at
-2026-08-26 ~14:23 (re-check with `systemctl --user status recovery-geom-full.service` and
-`tail -f logs/station_recovery_geometry.log`):
-
-- 122 of ~238 DOYs in the coverage-remaining list completed today.
-- 416 RINEX downloads attempted today, 416 succeeded, **0 timeouts** — the downloader fix
-  (`13fa7ec`) is holding; zero recurrence of the old 120 s wrapper-timeout failure mode since
-  midnight (`awk '$0 ~ /^2026-08-26/' logs/station_recovery_geometry.log | grep -c "Timeout downloading RINEX"` → 0), against 1,491/1,491 timeouts in the pre-fix log.
-- This is a live number. Don't quote it in anything permanent; quote the DOY/download count
-  from the log at the time you read it.
+The station-recovery geometry sweep (previously tracked here as `recovery-geom-full.service`)
+**finished 2026-08-27**, closing the all-ML-missing bucket from 1,591 to 26 (see the coverage
+table above) with zero download timeouts across the remaining population. That work is done;
+what's live now is different. `elev-positioning-chain.service`
+(`scripts/elev_positioning_chain.sh`), started 2026-08-28 09:44, re-solves PPPx under
+`--weight_opt elev` for Direct STEC, VTEC + Mapping and Pretrained STEC across the current
+(post-second-sweep) recovered population — every elev `daily_summary.csv` on disk predates the
+sweep (max mtime 2026-08-20), so this closes that gap the same way the iono arm was already
+closed. Targeting found **716 (doy, arm) groups, 9,725 station-instances** pending across all
+242 days (`logs/elev_positioning_groups.tsv`, confirmed by direct count); Oracle and
+Fixed-Variance are deliberately excluded (Oracle already runs elev-only; Fixed-Variance is
+iono-only by design — see the script's own header). Estimated ~20 h at this week's measured
+rate. Re-check with `systemctl --user status elev-positioning-chain.service` and
+`tail -f logs/elev_positioning_chain.log`. Once it lands: re-run `positioning_coverage`, then
+its now-correctly-fingerprinted consumers (`weighting_ablation`, `common_set_positioning`,
+`oracle_benchmark`) pick up the fresh elev arm automatically.
 
 ---
 
@@ -177,45 +188,41 @@ the receipts.
 
 ## 3. Ordered checklist
 
-### Blocked on the live recovery sweep
+### Blocked on the live elev-positioning-chain
 
-- [ ] **Re-run `positioning_coverage`** once `recovery-geom-full.service` goes inactive.
-  Acceptance: `python -m stec.pipeline run --only positioning_coverage --force`, then check
-  the new solved-by-all count against today's 8,195 baseline (§1) — it should have grown.
-- [ ] **Re-run `oracle_benchmark`** after `positioning_coverage` (`oracle_benchmark`'s own
-  inputs don't depend on the sweep, but its baselines come from `WEIGHTING_RUN`, which is a
-  separate staleness — see the "needs PPPx" item below; re-run anyway once the coverage
-  population is current so the two don't drift further apart).
-- [ ] **Re-run downstream consumers** of `positioning_coverage`
-  (`storm_stratification`, `positioning_robustness`, `common_set_positioning`,
-  `positioning_summary`) once the sweep settles — they'll pick up the new population
-  automatically via the pipeline's fingerprinting, but budget the CPU time.
+`positioning_coverage` (iono side) is done and re-run — solved-by-all grew from 8,195 to
+10,598 (§1). What's still blocked is the elev side and its dependants:
+
+- [ ] **Re-run `oracle_benchmark`** once `elev-positioning-chain.service` lands. Its
+  `positioning_coverage` dependency is satisfied; what's still stale is its `WEIGHTING_RUN`
+  input, now correctly repointed by `b8b0e6e` (see "Weighting ablation vintage" below) but not
+  yet fresh until the elev arm finishes.
+- [ ] **Re-run `common_set_positioning`** (currently N=7,947, elev-vintage input) once the
+  chain lands — `storm_stratification`, `positioning_robustness` and `positioning_summary`
+  are already done and current (iono-only inputs, unaffected by the elev chain; confirmed via
+  `python -m stec.pipeline status`, all three "up to date").
 - [ ] **Decide DOY 303/338/348.** No checkpoint exists for these three (confirmed §1, not
   merely a missing-products issue as previously framed) — closing this needs a fine-tune run,
   not just RINEX/product recovery. Small (3 days), but GPU work, not part of the sweep.
 
 ### Runnable now — CPU only
 
-- [ ] **The 1,067 "some ML methods missing" station-days are recoverable execution
-      artifacts, not a science limitation** (investigated 2026-08-27). Split of the 1,433
-      arm-instances: 75.5% the correction exists on disk but PPPx was never invoked for that
-      station in that arm's sweep (no crash artifact anywhere — never attempted); 16.7% PPPx
-      *succeeded* and the `.pos` is on disk but the row never reached `daily_summary_iono.csv`;
-      7.8% correction never generated, almost all the STEC arm lagging behind VTEC/Pretrained
-      in being re-pointed at recovered data. Refuted: PPPx convergence failure (wherever it ran
-      it succeeded) and any station data property (|lat| correlates −0.02). BAIE is a genuine
-      station-level outlier, failing for GIM too.
-      Costs: category D needs NO recomputation, only re-aggregation from existing `.pos` files —
-      do this first. Category B needs PPPx re-runs against corrections already generated.
-      Category A mostly self-resolves. The 2026-08-26 chain does NOT touch this bucket.
-      New truncation finding: DOY 163/164/165 are truncated in the VTEC arm, extending the
-      documented 166/176/323 list. They appear here rather than vanishing because their GIM
-      rows survived.
-
-- [ ] **Fix `weighting_ablation`'s frozen-tree staleness properly**, not just document it:
-  either re-run the elev arm (see "needs PPPx" below) or explicitly caveat every consumer
-  that reads `WEIGHTING_RUN` as "February 2026 vintage" in its own caveats sidecar, not just
-  in this doc.
+- [ ] **The "some ML methods missing" station-days shrank from 1,067 to 229** between the
+      2026-08-24 and 2026-08-27 sweeps (§1's coverage table) — most of what the 2026-08-27
+      investigation below characterised has apparently self-resolved or been overtaken by the
+      second sweep, but the categorisation itself was not re-run against the new N=229, so
+      treat the percentages below as describing the shape of the *prior* 1,067, not a
+      confirmed statement about the current 229. Original investigation (2026-08-27): split
+      of the 1,433 arm-instances then outstanding — 75.5% the correction exists on disk but
+      PPPx was never invoked for that station in that arm's sweep (no crash artifact anywhere
+      — never attempted); 16.7% PPPx *succeeded* and the `.pos` is on disk but the row never
+      reached `daily_summary_iono.csv`; 7.8% correction never generated, almost all the STEC
+      arm lagging behind VTEC/Pretrained in being re-pointed at recovered data. Refuted: PPPx
+      convergence failure (wherever it ran it succeeded) and any station data property (|lat|
+      correlates −0.02). BAIE is a genuine station-level outlier, failing for GIM too.
+      New truncation finding at the time: DOY 163/164/165 truncated in the VTEC arm, extending
+      the documented 166/176/323 list — unrelated to this bucket, still true, still small (6
+      of 242 days).
 
 ### Runnable now — GPU
 
@@ -234,15 +241,14 @@ the receipts.
 
 ### Needs PPPx — CPU-heavy, no GPU
 
-- [ ] **Elevation-weighted positioning re-run**, still not done. The Feb 2026
-  `weighting_ablation` tree is 6+ months stale relative to the Aug iono arm; `Pretrained_STEC_elev`
-  doesn't exist anywhere in a non-superseded tree at all (§1). The expensive part is already
-  done — ML corrections are weighting-independent and exist, including for recovered
-  stations. This is PPPx only, `--weight_opt elev`, reusing existing corrections and RINEX —
-  no re-inference needed. The iono equivalent cost 12h50m CPU; this should be less, but is
-  unmeasured. Afterwards: re-run `positioning_coverage --weighting elev`, repoint
-  `WEIGHTING_RUN` at that output instead of the frozen February file, then re-run its
-  dependants (`weighting_ablation`, `oracle_benchmark`'s baselines).
+- [ ] **Elevation-weighted positioning re-run — in progress, not done.** Launched 2026-08-28
+  09:44 as `elev-positioning-chain.service` (see §1's live row): 716 (doy, arm) groups, 9,725
+  station-instances, ~20h estimated. Reuses existing corrections — ML corrections are
+  weighting-independent — so this is PPPx only, no re-inference. Once it lands: re-run
+  `positioning_coverage`, then its dependants (`weighting_ablation`, `common_set_positioning`,
+  `oracle_benchmark`'s baselines) — `b8b0e6e` already fixed the pointer (see "Weighting
+  ablation vintage" above), so this should now happen via normal fingerprinting rather than
+  needing a manual repoint.
 
 ### Code work
 
@@ -286,10 +292,15 @@ paper model's own 711 runs either, so any implication that depth was searched is
   letter.
 - [ ] **Manuscript text.** Reviewer-facing docs (`response_to_reviewers.md`,
   `evidence_summary.md`) still carry several numbers the current canonical artifacts have
-  since corrected (storm/quiet 31.9/26.3 vs current 25.4/19.6; abstract's ~30.9% vs current
-  20.3–24.4%; see `docs/revision/independent_audit.md` F1 for the full list). Deliberately
-  not started: the owner is doing the manuscript pass manually once code and results are
-  final (see the manuscript-freeze memory note).
+  since corrected, and those artifacts have themselves moved again since the second recovery
+  sweep (2026-08-27): storm/quiet 31.9/26.3 (published) → 25.4/19.6 (first sweep) → **5.7/−0.3**
+  (current, `storm_stratification/rebuilt/improvement_over_gim.csv`); abstract's ~30.9%
+  (published) → 20.3–24.4% (first sweep) → **4.7% mean / 19.0% median** (current,
+  `positioning_summary/rebuilt/overall.csv`, N=10,535/10,837) — see
+  `docs/revision/independent_audit.md` F1 for the full list and CLAUDE.md's canonical-results
+  table for the current numbers and why they moved (the recovered station-days are where the
+  model underperforms). Deliberately not started: the owner is doing the manuscript pass
+  manually once code and results are final (see the manuscript-freeze memory note).
 
 ---
 
