@@ -99,11 +99,14 @@ PUBLISHED_SUMMARY = (
     / "comparison_3way"
     / "multiday_summary.csv"
 )
+# 2026-08-28: repointed off positioning_runs/20260216_2052/multiday_summary.csv, a
+# 2026-02-16 snapshot from before the rebuild that nothing regenerated (56,457 rows,
+# 245 dates, 55 stations), onto positioning_coverage's own
+# multiday_summary_all_weightings.csv - see that stage's main() and
+# stec/pipeline/stages.py's WEIGHTING_RUN, which this must match.
 DEFAULT_WEIGHTING_SUMMARY = (
-    paths.LEGACY_MULTIDAY
-    / "positioning_runs"
-    / "20260216_2052"
-    / "multiday_summary.csv"
+    paths.analysis_result_dir("positioning_coverage", rebuilt=True)
+    / "multiday_summary_all_weightings.csv"
 )
 DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("positioning_summary", rebuilt=True)
 

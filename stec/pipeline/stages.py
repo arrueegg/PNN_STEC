@@ -81,8 +81,15 @@ POSITIONING = str(
     _rel(paths.analysis_result_dir("positioning_coverage", rebuilt=True))
     / "multiday_summary.csv"
 )
+# 2026-08-28: repointed off multiday_results/positioning_runs/20260216_2052/ - a
+# 2026-02-16, pre-rebuild snapshot (56,457 rows, 245 dates, 55 stations) that nothing
+# regenerated - onto positioning_coverage's own multiday_summary_all_weightings.csv,
+# which the same stage's collect() now writes by concatenating its fresh iono and elev
+# outputs (see that module's main()). That directory is left on disk, unread by
+# default from here on.
 WEIGHTING_RUN = str(
-    _rel(paths.positioning_result_dir("20260216_2052")) / "multiday_summary.csv"
+    _rel(paths.analysis_result_dir("positioning_coverage", rebuilt=True))
+    / "multiday_summary_all_weightings.csv"
 )
 # oracle_benchmark reads this tree directly (stec/analysis/oracle_benchmark.py's
 # `load_oracle`: the day directories under positioning/results for the .pos solutions,
@@ -128,6 +135,12 @@ WEIGHTING_ABLATION_FIXED_VARIANCE_DIR = (
     "experiments/Fixed_Variance_STEC/positioning/results"
 )
 SWI = "data/omni_hourly_2010-2025.h5"
+# build_recovered_day.py's per-(year, doy) geometry-only HDF5 tree (RINEX + nav only, no
+# DCB/target fields - see that module's own UNAVAILABLE constant), the ground truth
+# positioning_diagnostics.load_recovered_station_days reads for its recovered-vs-original
+# population split. Not a stec.config.paths constant yet - positioning_diagnostics.py is
+# still its only reader.
+RECOVERED_STEC_DB = "data/recovered_stec_db"
 
 # Every stec.analysis output directory, named once so a stage's command string,
 # `outputs`, `inputs` and `supersedes` can never disagree about where it writes.
@@ -166,6 +179,7 @@ POSITIONING_COVERAGE_DIR = _analysis_dir("positioning_coverage", rebuilt=True)
 COMMON_SET_POSITIONING_DIR = _analysis_dir("common_set_positioning", rebuilt=True)
 POSITIONING_SUMMARY_DIR = _analysis_dir("positioning_summary", rebuilt=True)
 ORACLE_BENCHMARK_DIR = _analysis_dir("oracle_benchmark", rebuilt=True)
+POSITIONING_DIAGNOSTICS_DIR = _analysis_dir("positioning_diagnostics", rebuilt=True)
 RESULTS_MANIFEST_DIR = _analysis_dir("results_manifest", rebuilt=True)
 PRETRAINED_TEST_DIAGNOSTICS_DIR = _analysis_dir(
     "pretrained_test_diagnostics", rebuilt=True
@@ -724,8 +738,9 @@ STAGES: list[Stage] = [
         inputs=[STORE_OWN],
         outputs=[str(STATION_INDEPENDENCE_DIR)],
         caveats=[
-            "Limited by n = 55 test stations, not by observation count. Adding days "
-            "sharpens each point but does not sharpen the Spearman coefficient.",
+            "Limited by n = 58 test stations (per_station.csv's own row count - 55 was "
+            "stale), not by observation count. Adding days sharpens each point but "
+            "does not sharpen the Spearman coefficient.",
             "Strengthening this result needs a region-held-out retrain, not more data.",
         ],
     ),
@@ -1136,21 +1151,17 @@ STAGES: list[Stage] = [
         caveats=MADRIGAL_CAVEAT,
     ),
     Stage(
-        "weighting_ablation",
-        f"-m stec.analysis.weighting_ablation --output-dir {WEIGHTING_ABLATION_DIR}",
-        "R2.5",
-        "elevation against predicted-uncertainty weighting, paired station-days",
-        inputs=[WEIGHTING_RUN, WEIGHTING_ABLATION_FIXED_VARIANCE_DIR],
-        outputs=[str(WEIGHTING_ABLATION_DIR)],
-    ),
-    Stage(
-        # Must precede storm_stratification, positioning_robustness,
+        # Must precede weighting_ablation, storm_stratification, positioning_robustness,
         # common_set_positioning, positioning_summary and oracle_benchmark below - they
-        # all read POSITIONING, which this stage now owns (see the constant's own
-        # comment). Moved here, ahead of them, for exactly that reason; it used to sit
-        # after storm_stratification/positioning_robustness with no ordering
-        # consequence, back when POSITIONING pointed at a tree nothing in this file
-        # produced.
+        # all read POSITIONING or WEIGHTING_RUN, both of which this stage now owns (see
+        # the constants' own comments). Moved here, ahead of them, for exactly that
+        # reason; it used to sit after storm_stratification/positioning_robustness with
+        # no ordering consequence, back when POSITIONING pointed at a tree nothing in
+        # this file produced. weighting_ablation joined this dependency 2026-08-28, when
+        # WEIGHTING_RUN was repointed off the frozen 20260216_2052 snapshot onto this
+        # stage's own multiday_summary_all_weightings.csv - it must therefore also sit
+        # after this stage now, and was moved here (previously it ran before
+        # positioning_coverage, with no dependency on it) for exactly that reason.
         "positioning_coverage",
         f"-m stec.analysis.positioning_coverage --output-dir {POSITIONING_COVERAGE_DIR}",
         "R1.5",
@@ -1167,6 +1178,12 @@ STAGES: list[Stage] = [
             # blind.
             str(POSITIONING_COVERAGE_DIR / "multiday_summary_elev.csv"),
             str(POSITIONING_COVERAGE_DIR / "coverage_elev.csv"),
+            # The concatenation of the iono and elev multiday_summary files above,
+            # written once both have been produced this run - see main()'s own
+            # comment. This is what weighting_ablation/common_set_positioning/
+            # oracle_benchmark now read as WEIGHTING_RUN instead of the frozen
+            # 20260216_2052 snapshot (2026-08-28).
+            WEIGHTING_RUN,
         ],
         # A header-only or drastically truncated multiday_summary.csv is exactly the
         # failure this catches - see the 2026-08-24 finding below: three individual
@@ -1187,6 +1204,10 @@ STAGES: list[Stage] = [
             POSITIONING: 30_000,
             str(POSITIONING_COVERAGE_DIR / "multiday_summary_elev.csv"): 30_000,
             str(POSITIONING_COVERAGE_DIR / "coverage_elev.csv"): 9_000,
+            # The iono + elev concatenation - sum of the two floors above, same
+            # ~80% margin below the 80,342 actual (43,101 + 37,241) measured
+            # 2026-08-26 (pre-recovery-sweep vintage, like its two inputs).
+            WEIGHTING_RUN: 60_000,
         },
         canonical_for="positioning station-day coverage",
         caveats=[
@@ -1195,16 +1216,24 @@ STAGES: list[Stage] = [
             "Finetune_STEC_2024_<DOY>_* matches by sort order. Sort-order dedup let "
             "lr1e-4_bs2048/lr1e-4_bs10000 win over the paper's lr2e-4_bs512 for 31 DOYs "
             "once the station-recovery sweep created a second directory per day.",
-            "Post station-recovery-sweep (2026-08-24), iono weighting: 8,195 / 1,591 / "
-            "1,067 of 10,853 station-days solved by all methods / all ML methods "
-            "missing (station absent from STEC DB) / some ML methods missing "
-            "(per-method PPPx failure) - against the pre-sweep 8,003 / 2,311 / 510 of "
-            "10,824 this caveat used to quote. The solved-by-all population grew by "
-            "only 192 station-days (2.4%); most of the sweep's effect moved station-days "
-            "from 'all ML missing' into 'some ML missing' rather than completing them, "
-            "so the common-set population (common_set_positioning) is still "
-            "substantially smaller than the full-recovered-set population "
-            "(positioning_summary) - state which one backs a given number.",
+            "Coverage as of the last regenerated coverage.csv (2026-08-27, this "
+            "stage's own .pipeline record), iono weighting: 10,598 / 26 / 229 of "
+            "10,853 station-days solved by all methods / all ML methods missing "
+            "(station absent from STEC DB) / some ML methods missing (per-method "
+            "PPPx failure). Quoted here as a read of coverage.csv's own 'cause' "
+            "column counts, not re-derived from first principles. This has moved "
+            "twice since the number this caveat originally quoted: pre-sweep "
+            "8,003 / 2,311 / 510 of 10,824, then post-station-recovery-sweep "
+            "(2026-08-24) 8,195 / 1,591 / 1,067 of 10,853 - the 'all ML missing' "
+            "population has since fallen further, from 1,591 to 26, which this "
+            "session did not investigate the mechanism of (the recovery/geometry "
+            "work is ongoing on this branch under other sessions; see CLAUDE.md's "
+            "coverage-recovery row, which was not re-verified against this newer "
+            "number when this caveat was corrected and may itself be stale). State "
+            "which vintage backs a given number, and treat the common-set "
+            "population (common_set_positioning) as still meaningfully smaller "
+            "than the full-recovered-set population (positioning_summary) unless "
+            "re-checked against the current coverage.csv.",
             "Three individual per-day source files were found truncated on disk, all "
             "with recovery-sweep mtimes (2026-08-23/24), independent of this stage: "
             "DOY 166 and 176 dropped from ~43 stations to 2 in all three ML methods' "
@@ -1225,6 +1254,19 @@ STAGES: list[Stage] = [
                 paths.positioning_result_dir("comparison_3way") / "multiday_summary.csv"
             ),
         ],
+    ),
+    Stage(
+        # Moved here, after positioning_coverage, 2026-08-28: WEIGHTING_RUN now points
+        # at that stage's own multiday_summary_all_weightings.csv rather than the
+        # frozen 20260216_2052 snapshot, so this stage must run after it -
+        # check_inputs_are_produced_or_external enforces that ordering. Previously sat
+        # ahead of positioning_coverage, with no dependency on it.
+        "weighting_ablation",
+        f"-m stec.analysis.weighting_ablation --output-dir {WEIGHTING_ABLATION_DIR}",
+        "R2.5",
+        "elevation against predicted-uncertainty weighting, paired station-days",
+        inputs=[WEIGHTING_RUN, WEIGHTING_ABLATION_FIXED_VARIANCE_DIR],
+        outputs=[str(WEIGHTING_ABLATION_DIR)],
     ),
     Stage(
         "storm_stratification",
@@ -1311,6 +1353,143 @@ STAGES: list[Stage] = [
             "four methods.",
             "Read ratios to the floor within this table. Take absolute positioning numbers "
             "from Table 5.",
+        ],
+    ),
+    Stage(
+        # Landed 2026-08-28 (commit b844bd4) as an owner-requested look at the
+        # coverage-recovery headline before deciding whether/how it becomes part of
+        # Table 5 or a new appendix - see the module docstring and this stage's own
+        # output directory's FINDINGS.md. Declared here so its 12 CSVs get the same
+        # provenance record as every other analysis, rather than rotting silently the
+        # way results_manifest itself once did before it was declared.
+        "positioning_diagnostics",
+        f"-m stec.analysis.positioning_diagnostics --output-dir {POSITIONING_DIAGNOSTICS_DIR}",
+        "-",
+        "outlier-threshold sensitivity, per-station losses and a recovered-vs-original "
+        "population split for the post-recovery-sweep positioning result",
+        inputs=[POSITIONING, SWI, RECOVERED_STEC_DB],
+        outputs=[
+            str(POSITIONING_DIAGNOSTICS_DIR),
+            str(POSITIONING_DIAGNOSTICS_DIR / "overall_summary.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "daily_timeseries.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "per_station_summary.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_threshold_counts.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_headline_sensitivity.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_station.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_day.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_concentration_summary.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "recovered_station_days.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "population_split_by_method.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "population_split_stec_vs_gim.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_counts_by_population.csv"),
+        ],
+        min_rows={
+            # overall_summary() is pm.summarise(...).reindex(METHOD_ORDER): always
+            # exactly 4 rows, one per method, NaN-filled rather than dropped if a
+            # method has no station-days - exact, not a floor, same guarantee
+            # positioning_summary_overall_has_all_four_methods checks for Table 5.
+            str(POSITIONING_DIAGNOSTICS_DIR / "overall_summary.csv"): 4,
+            # outlier_headline_sensitivity(): "none" + one row per
+            # OUTLIER_THRESHOLDS_M entry (4) = 5, fixed by the threshold tuple, not
+            # by the data - exact.
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_headline_sensitivity.csv"): 5,
+            # outlier_concentration()'s concentration_summary: one row per
+            # METHOD_ORDER entry (4), written even when a method has zero outlier
+            # station-days - exact.
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_concentration_summary.csv"): 4,
+            # population_split()'s stec_vs_gim: one row per population
+            # ("original", "recovered") - exact.
+            str(POSITIONING_DIAGNOSTICS_DIR / "population_split_stec_vs_gim.csv"): 2,
+            # Everything below is data-dependent (which stations/days/thresholds
+            # actually appear), so each floor sits comfortably under what is really
+            # on disk today (measured 2026-08-28, multiday_results/analyses/
+            # positioning_diagnostics/rebuilt/): daily_timeseries 968,
+            # per_station_summary 57, outlier_threshold_counts 16,
+            # outlier_by_station 70, outlier_by_day 206, recovered_station_days
+            # 2,277, population_split_by_method 8, outlier_counts_by_population 32.
+            str(POSITIONING_DIAGNOSTICS_DIR / "daily_timeseries.csv"): 700,
+            str(POSITIONING_DIAGNOSTICS_DIR / "per_station_summary.csv"): 40,
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_threshold_counts.csv"): 12,
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_station.csv"): 50,
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_day.csv"): 150,
+            str(POSITIONING_DIAGNOSTICS_DIR / "recovered_station_days.csv"): 1_500,
+            str(POSITIONING_DIAGNOSTICS_DIR / "population_split_by_method.csv"): 4,
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_counts_by_population.csv"): 16,
+        },
+        canonical_for=None,
+        caveats=[
+            "Diagnostic output, not a manuscript or Table 5 source: built to look at "
+            "the coverage-recovery result before deciding whether/how it becomes "
+            "part of Table 5 or a new appendix. Does not supersede positioning_summary "
+            "(Table 5) or common_set_positioning, and nothing here should be quoted "
+            "in their place.",
+            "Deliberately reports four outlier-exclusion thresholds (5/10/20/50 m) "
+            "plus 'no exclusion at all' side by side rather than picking one - "
+            "outlier_headline_sensitivity.csv shows the project's own 10 m rule "
+            "(stec.positioning.metrics.OUTLIER_3D_RMS_M) sits on a curve where the "
+            "Direct-STEC-vs-GIM mean improvement ranges from about -1% (no exclusion) "
+            "to +16% (5 m threshold), not a validated single choice.",
+            "The recovered-vs-original population split (population_split_by_method."
+            "csv, population_split_stec_vs_gim.csv) depends on data/recovered_stec_db/ "
+            "membership: a station-day counts as 'recovered' only if that exact "
+            "(doy, station) pair has a geometry-only file under that tree "
+            "(build_recovered_day.py's output). If the tree is absent, "
+            "load_recovered_station_days logs a warning and returns an empty frame, "
+            "and every station-day then silently reads as 'original' rather than the "
+            "stage failing - a run with zero 'recovered' rows must be checked against "
+            "whether data/recovered_stec_db/ was actually present, not read as "
+            "'nothing was recovered'.",
+            "Restricted to the four iono-weighted PAPER_METHODS (positioning_summary."
+            "py's labels), the same population Table 5 uses - elev weighting is out "
+            "of scope here, same as positioning_summary itself.",
+        ],
+    ),
+    Stage(
+        # The companion figure family for positioning_diagnostics above: a standalone
+        # diagnostic tree (plots/positioning_diagnostics/), deliberately not wired
+        # into revision_figures.py or manuscript_figures.py (see the module
+        # docstring) - needs its own Stage for the same reason diagnostic_figures
+        # does for its own separate tree.
+        "positioning_diagnostics_figures",
+        "-m stec.viz.positioning_diagnostics",
+        "-",
+        "daily-timeseries, per-station-diff, outlier-sensitivity and "
+        "population-split figures for positioning_diagnostics's CSVs",
+        inputs=[str(POSITIONING_DIAGNOSTICS_DIR)],
+        outputs=[
+            "plots/positioning_diagnostics",
+            "plots/positioning_diagnostics/positioning_2024/daily_timeseries.csv",
+            "plots/positioning_diagnostics/positioning_2024/per_station_diff.csv",
+            "plots/positioning_diagnostics/positioning_2024/"
+            "outlier_threshold_sensitivity.csv",
+            "plots/positioning_diagnostics/positioning_2024/"
+            "outlier_pct_by_threshold.csv",
+            "plots/positioning_diagnostics/positioning_2024/population_split.csv",
+        ],
+        min_rows={
+            # fig_outlier_threshold_sensitivity reindexes over the fixed 5-entry
+            # _THRESHOLD_ORDER - exact, not data-dependent.
+            "plots/positioning_diagnostics/positioning_2024/"
+            "outlier_threshold_sensitivity.csv": 5,
+            # The rest are data-dependent, same population as the analysis stage;
+            # floors sit below what is on disk today (measured 2026-08-28):
+            # daily_timeseries 968, per_station_diff 57,
+            # outlier_pct_by_threshold 16, population_split 16.
+            "plots/positioning_diagnostics/positioning_2024/daily_timeseries.csv": 700,
+            "plots/positioning_diagnostics/positioning_2024/per_station_diff.csv": 40,
+            "plots/positioning_diagnostics/positioning_2024/"
+            "outlier_pct_by_threshold.csv": 8,
+            "plots/positioning_diagnostics/positioning_2024/population_split.csv": 8,
+        },
+        canonical_for=None,
+        caveats=[
+            "Same diagnostic scope as positioning_diagnostics above - not manuscript "
+            "or revision-response figures, kept in its own "
+            "plots/positioning_diagnostics/ tree rather than plots/revision/ or "
+            "plots/manuscript/ so it is never mistaken for either.",
+            "Reads positioning_diagnostics's CSVs, not the per-station-day table "
+            "directly - must run after that stage, and is only as current as its "
+            "output.",
         ],
     ),
     Stage(

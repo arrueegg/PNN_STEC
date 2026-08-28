@@ -60,14 +60,16 @@ CORRECTION_ORDER = ["Direct STEC", "VTEC + Mapping", "IGS GIM + Mapping"]
 WEIGHTING_ORDER = ["elev", "fixed", "iono"]
 REFERENCE_WEIGHTING = "elev"
 
-# Nested under `positioning_runs/<tag>/` since the results-layout restructure
-# (docs/revision/results_layout.md); the tag drops the `positioning_` prefix the flat
-# legacy directory name carried.
+# 2026-08-28: repointed off positioning_runs/20260216_2052/multiday_summary.csv, a
+# 2026-02-16 snapshot from before the rebuild that nothing regenerated (56,457 rows,
+# 245 dates, 55 stations), onto positioning_coverage's own
+# multiday_summary_all_weightings.csv - the concatenation of its fresh iono and elev
+# outputs, written by that stage's own main() once station-recovery elevation solves
+# exist to concatenate. Must match stec/pipeline/stages.py's WEIGHTING_RUN constant,
+# which is what this stage's declared `inputs` actually names.
 DEFAULT_SUMMARY = (
-    paths.LEGACY_MULTIDAY
-    / "positioning_runs"
-    / "20260216_2052"
-    / "multiday_summary.csv"
+    paths.analysis_result_dir("positioning_coverage", rebuilt=True)
+    / "multiday_summary_all_weightings.csv"
 )
 FIXED_VARIANCE_RESULTS = (
     paths.LEGACY_EXPERIMENTS / "Fixed_Variance_STEC" / "positioning" / "results"

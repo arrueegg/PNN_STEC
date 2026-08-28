@@ -8,8 +8,11 @@ number ends up in a table it does not belong in.
 
 from __future__ import annotations
 
+import csv
 import importlib
 import inspect
+import re
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -22,9 +25,12 @@ from stec.pipeline.stages import (
     ORACLE_EXPERIMENT_DIR,
     POSITIONING,
     POSITIONING_COVERAGE_DIR,
+    POSITIONING_DIAGNOSTICS_DIR,
     POSITIONING_SUMMARY_DIR,
+    RECOVERED_STEC_DB,
     STAGES,
     STORE_PRETRAINED,
+    SWI,
     WEIGHTING_RUN,
     daily_metrics_summary_has_all_methods_and_datasets,
     daily_metrics_summary_has_consistent_day_counts,
@@ -661,3 +667,250 @@ def test_positioning_coverage_elev_outputs_have_real_min_rows_floors():
     # truncated file is not much of a floor.
     assert min_rows[summary_elev] >= 25_000
     assert min_rows[coverage_elev] >= 8_000
+
+
+# --- positioning_diagnostics: promoted from ad-hoc output to a declared stage
+# (2026-08-28, commit b844bd4 landed stec/analysis/positioning_diagnostics.py +
+# stec/viz/positioning_diagnostics.py - this pins the declaration added on top of it,
+# not the analysis/viz modules themselves). Two stages, not one: the runner executes
+# one `python -m` invocation per stage (stec/pipeline/runner.py), and the analysis
+# (12 CSVs) and viz (5 figures + their plotted-value CSVs) are genuinely separate
+# entry points, the same split `pretrained_test_diagnostics`/`manuscript_figures` and
+# `diagnostic_test_observations`/`diagnostic_figures` use elsewhere in this file. -----
+
+
+_POSITIONING_DIAGNOSTICS_CSVS = [
+    "overall_summary.csv",
+    "daily_timeseries.csv",
+    "per_station_summary.csv",
+    "outlier_threshold_counts.csv",
+    "outlier_headline_sensitivity.csv",
+    "outlier_by_station.csv",
+    "outlier_by_day.csv",
+    "outlier_concentration_summary.csv",
+    "recovered_station_days.csv",
+    "population_split_by_method.csv",
+    "population_split_stec_vs_gim.csv",
+    "outlier_counts_by_population.csv",
+]
+
+_POSITIONING_DIAGNOSTICS_FIGURE_CSVS = [
+    "plots/positioning_diagnostics/positioning_2024/daily_timeseries.csv",
+    "plots/positioning_diagnostics/positioning_2024/per_station_diff.csv",
+    "plots/positioning_diagnostics/positioning_2024/outlier_threshold_sensitivity.csv",
+    "plots/positioning_diagnostics/positioning_2024/outlier_pct_by_threshold.csv",
+    "plots/positioning_diagnostics/positioning_2024/population_split.csv",
+]
+
+
+def test_positioning_diagnostics_is_declared_exactly_once_and_owns_no_deliverable():
+    """Diagnostic output built to look at the coverage-recovery result before deciding
+    whether/how it becomes part of Table 5 or a new appendix (see the module docstring
+    and multiday_results/analyses/positioning_diagnostics/rebuilt/FINDINGS.md) - it must
+    not claim a manuscript deliverable while that decision is still open, the same
+    reasoning common_set_positioning's canonical_for=None already carries above."""
+    matches = [s for s in STAGES if s.name == "positioning_diagnostics"]
+    assert len(matches) == 1
+    assert matches[0].canonical_for is None
+
+    figure_matches = [s for s in STAGES if s.name == "positioning_diagnostics_figures"]
+    assert len(figure_matches) == 1
+    assert figure_matches[0].canonical_for is None
+
+
+def test_positioning_diagnostics_figures_run_after_positioning_diagnostics():
+    assert position("positioning_diagnostics") < position(
+        "positioning_diagnostics_figures"
+    )
+    assert position("positioning_diagnostics_figures") < position("figures")
+    assert position("positioning_diagnostics_figures") < position("manuscript_figures")
+
+
+def test_positioning_diagnostics_declares_the_inputs_it_reads():
+    """load_positioning_table reads POSITIONING, attach_storm_flag reads SWI, and
+    load_recovered_station_days reads RECOVERED_STEC_DB (data/recovered_stec_db/) -
+    each declared at the granularity that actually changes (two files, one directory),
+    not the whole multiday_results tree the way figures/manuscript_figures do."""
+    inputs = stage("positioning_diagnostics").inputs
+    assert POSITIONING in inputs
+    assert SWI in inputs
+    assert RECOVERED_STEC_DB in inputs
+
+    module = _module_for(stage("positioning_diagnostics"))
+    assert _module_source_mentions(module, "RECOVERED_STEC_DB_ROOT")
+    assert _module_source_mentions(module, "canonical_positioning_summary")
+
+
+def test_positioning_diagnostics_figures_reads_only_its_own_analysis_directory():
+    """Narrowed to POSITIONING_DIAGNOSTICS_DIR, not the whole multiday_results tree -
+    declaring the broad tree is exactly why figures/manuscript_figures go stale on
+    every unrelated analysis's write, which is what motivated narrowing this one."""
+    assert stage("positioning_diagnostics_figures").inputs == [
+        str(POSITIONING_DIAGNOSTICS_DIR)
+    ]
+
+
+def test_positioning_diagnostics_states_it_is_diagnostic_not_a_table_5_source():
+    caveats = " ".join(stage("positioning_diagnostics").caveats).lower()
+    assert "diagnostic" in caveats
+    assert "table 5" in caveats
+
+
+def test_positioning_diagnostics_states_it_reports_several_outlier_thresholds():
+    """It deliberately shows the 10 m rule (stec.positioning.metrics.OUTLIER_3D_RMS_M)
+    as one point among several rather than picking a single threshold - the audit's own
+    framing for why this stage's caveats must say so explicitly."""
+    caveats = " ".join(stage("positioning_diagnostics").caveats).lower()
+    assert "5 m" in caveats and "50 m" in caveats
+    assert "10 m" in caveats
+
+
+def test_positioning_diagnostics_states_the_recovered_stec_db_dependency():
+    """The recovered-vs-original population split depends on data/recovered_stec_db/
+    membership, and silently degrades to 'everything is original' if that tree is
+    absent (load_recovered_station_days logs a warning, does not raise) - the caveat
+    must say so, not just that a population split exists."""
+    caveats = " ".join(stage("positioning_diagnostics").caveats).lower()
+    assert "data/recovered_stec_db" in caveats
+    assert "membership" in caveats
+
+
+def test_positioning_diagnostics_declares_all_twelve_csv_outputs():
+    """stec.analysis.positioning_diagnostics.main() writes exactly these 12 CSVs -
+    each needs its own declared output (and its own min_rows floor, checked below) or a
+    truncated write to any single one of them passes silently, the same defect class
+    positioning_coverage's elev pair had before it carried min_rows of its own."""
+    outputs = stage("positioning_diagnostics").outputs
+    for name in _POSITIONING_DIAGNOSTICS_CSVS:
+        assert str(POSITIONING_DIAGNOSTICS_DIR / name) in outputs, name
+
+
+def test_positioning_diagnostics_every_csv_has_a_positive_min_rows_floor():
+    floors = stage("positioning_diagnostics").min_rows
+    for name in _POSITIONING_DIAGNOSTICS_CSVS:
+        key = str(POSITIONING_DIAGNOSTICS_DIR / name)
+        assert key in floors, f"{name} has no min_rows floor"
+        assert floors[key] > 0
+
+
+def test_positioning_diagnostics_structurally_exact_floors_match_the_guarantee():
+    """Four of the twelve CSVs are exact row counts by construction, not measured
+    floors: overall_summary() reindexes over METHOD_ORDER (4),
+    outlier_headline_sensitivity() has one row per threshold plus 'none' (5),
+    outlier_concentration()'s summary has one row per METHOD_ORDER entry (4), and
+    population_split()'s stec_vs_gim has one row per population (2) - the same kind of
+    reindex guarantee positioning_summary_overall_has_all_four_methods checks for
+    Table 5's overall.csv."""
+    floors = stage("positioning_diagnostics").min_rows
+    assert floors[str(POSITIONING_DIAGNOSTICS_DIR / "overall_summary.csv")] == 4
+    assert (
+        floors[str(POSITIONING_DIAGNOSTICS_DIR / "outlier_headline_sensitivity.csv")]
+        == 5
+    )
+    assert (
+        floors[str(POSITIONING_DIAGNOSTICS_DIR / "outlier_concentration_summary.csv")]
+        == 4
+    )
+    assert (
+        floors[str(POSITIONING_DIAGNOSTICS_DIR / "population_split_stec_vs_gim.csv")]
+        == 2
+    )
+
+
+def test_positioning_diagnostics_data_dependent_floors_sit_below_real_output():
+    """Measured against the files actually on disk 2026-08-28
+    (multiday_results/analyses/positioning_diagnostics/rebuilt/): daily_timeseries 968,
+    per_station_summary 57, outlier_threshold_counts 16, outlier_by_station 70,
+    outlier_by_day 206, recovered_station_days 2,277, population_split_by_method 8,
+    outlier_counts_by_population 32. Each floor must sit strictly below what is really
+    there, so a header-only or drastically truncated write still fails, while a same-
+    order-of-magnitude future run does not."""
+    floors = stage("positioning_diagnostics").min_rows
+    real_counts = {
+        "daily_timeseries.csv": 968,
+        "per_station_summary.csv": 57,
+        "outlier_threshold_counts.csv": 16,
+        "outlier_by_station.csv": 70,
+        "outlier_by_day.csv": 206,
+        "recovered_station_days.csv": 2_277,
+        "population_split_by_method.csv": 8,
+        "outlier_counts_by_population.csv": 32,
+    }
+    for name, real_count in real_counts.items():
+        floor = floors[str(POSITIONING_DIAGNOSTICS_DIR / name)]
+        assert 0 < floor < real_count, (name, floor, real_count)
+
+
+def test_positioning_diagnostics_figures_declares_the_five_plotted_csvs():
+    """Each figure's `_save` writes its plotted numbers to a CSV alongside the PNGs -
+    PNGs carry no row count, so these five are what this stage can actually assert
+    shape on, the same reasoning min_rows is keyed on CSVs, never directories, wherever
+    that is possible in this file."""
+    outputs = stage("positioning_diagnostics_figures").outputs
+    for path in _POSITIONING_DIAGNOSTICS_FIGURE_CSVS:
+        assert path in outputs, path
+
+
+_COVERAGE_CSV = POSITIONING_COVERAGE_DIR / "coverage.csv"
+
+
+@pytest.mark.skipif(
+    not _COVERAGE_CSV.exists(),
+    reason="live positioning_coverage coverage.csv not present on this host",
+)
+def test_positioning_coverage_caveat_counts_match_live_coverage_csv():
+    """The 'Post station-recovery-sweep' caveat's four counts have already drifted
+    twice without any test catching either move (8,003/2,311/510 of 10,824 ->
+    8,195/1,591/1,067 of 10,853 -> 10,598/26/229 of 10,853, corrected 2026-08-28) -
+    the same class of drift test_docstring_station_count_matches_live_per_station_csv
+    (tests/analysis/test_station_independence.py) guards for a docstring. Parses the
+    numbers straight out of the caveat sentence rather than duplicating them as a
+    second hardcoded set here, so the next drift fails this test instead of only being
+    caught by hand again."""
+    caveats = " ".join(stage("positioning_coverage").caveats)
+    match = re.search(
+        r"iono weighting: ([\d,]+) / ([\d,]+) / ([\d,]+) of ([\d,]+) station-days "
+        r"solved by all methods",
+        caveats,
+    )
+    assert match, (
+        "positioning_coverage's caveat no longer states the 'iono weighting: "
+        "X / Y / Z of W station-days solved by all methods' sentence - update this "
+        "regex if the wording changed deliberately"
+    )
+    solved_all, all_missing, some_missing, total = (
+        int(g.replace(",", "")) for g in match.groups()
+    )
+
+    with _COVERAGE_CSV.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    causes = Counter(row["cause"] for row in rows)
+
+    assert len(rows) == total, (len(rows), total)
+    assert causes["solved by all methods"] == solved_all
+    assert causes["all ML methods missing (station absent from STEC DB)"] == all_missing
+    assert causes["some ML methods missing (per-method failure)"] == some_missing
+
+
+def test_positioning_diagnostics_figures_min_rows_floors_sit_below_real_output():
+    """outlier_threshold_sensitivity.csv is exact (fig_outlier_threshold_sensitivity
+    reindexes over the fixed 5-entry _THRESHOLD_ORDER); the rest are data-dependent,
+    measured against plots/positioning_diagnostics/positioning_2024/ 2026-08-28:
+    daily_timeseries 968, per_station_diff 57, outlier_pct_by_threshold 16,
+    population_split 16."""
+    floors = stage("positioning_diagnostics_figures").min_rows
+    exact_key = (
+        "plots/positioning_diagnostics/positioning_2024/"
+        "outlier_threshold_sensitivity.csv"
+    )
+    assert floors[exact_key] == 5
+
+    real_counts = {
+        "plots/positioning_diagnostics/positioning_2024/daily_timeseries.csv": 968,
+        "plots/positioning_diagnostics/positioning_2024/per_station_diff.csv": 57,
+        "plots/positioning_diagnostics/positioning_2024/"
+        "outlier_pct_by_threshold.csv": 16,
+        "plots/positioning_diagnostics/positioning_2024/population_split.csv": 16,
+    }
+    for key, real_count in real_counts.items():
+        assert 0 < floors[key] < real_count, (key, floors[key], real_count)

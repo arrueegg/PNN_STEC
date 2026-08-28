@@ -395,6 +395,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     weightings = ["iono", "elev"] if args.weighting == "both" else [args.weighting]
+    combined_by_weighting: dict[str, pd.DataFrame] = {}
     for weighting in weightings:
         combined, collisions, foreign_doy_rows = collect(
             weighting, args.experiments_root, all_variants=args.all_variants
@@ -402,6 +403,7 @@ def main() -> None:
         suffix = "" if weighting == "iono" else f"_{weighting}"
         path = args.output_dir / f"multiday_summary{suffix}.csv"
         combined.to_csv(path, index=False, float_format="%.4f")
+        combined_by_weighting[weighting] = combined
 
         collisions_path = args.output_dir / f"collisions{suffix}.csv"
         collisions.to_csv(collisions_path, index=False)
@@ -460,6 +462,26 @@ def main() -> None:
         logger.info(f"💾 {path}")
         logger.info(f"💾 {collisions_path}")
         logger.info(f"💾 {coverage_path}")
+
+    # Both weightings share this module's own canonical variant selection, so
+    # concatenating them here - rather than leaving downstream stages to combine the
+    # iono and elev files themselves, or to read a frozen external run - is what lets
+    # weighting_ablation, common_set_positioning and oracle_benchmark stop reading
+    # multiday_results/positioning_runs/20260216_2052/multiday_summary.csv, a 2026-02-16
+    # snapshot from before the rebuild that nothing regenerates any more (56,457 rows,
+    # 245 dates, 55 stations - a much narrower population than the current recovered
+    # set). Only written when both weightings actually ran this invocation; a
+    # --weighting elev/iono partial run has nothing correct to concatenate.
+    if set(weightings) == {"iono", "elev"}:
+        all_weightings_path = args.output_dir / "multiday_summary_all_weightings.csv"
+        all_weightings = pd.concat(
+            [combined_by_weighting["iono"], combined_by_weighting["elev"]],
+            ignore_index=True,
+        )
+        all_weightings.to_csv(all_weightings_path, index=False, float_format="%.4f")
+        logger.info(
+            f"💾 {all_weightings_path} ({len(all_weightings):,} rows, both weightings)"
+        )
 
 
 if __name__ == "__main__":

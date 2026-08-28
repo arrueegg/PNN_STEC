@@ -32,7 +32,11 @@ checkout):
   including ``Pretrained_STEC_iono``, falling back to the frozen
   ``positioning_comparison_3way/`` (the original paper's narrower run) only if that stage
   has never been run.
-* ``positioning_20260216_2052/`` - the weighting ablation, 245 dates, six arms.
+* ``positioning_coverage``'s own ``multiday_summary_all_weightings.csv`` (``DEFAULT_WEIGHTING_SUMMARY``,
+  ``--ablation``) - the iono and elev aggregates concatenated, six arms. Repointed
+  2026-08-28 off ``positioning_20260216_2052/`` (a 2026-02-16, pre-rebuild snapshot
+  nothing regenerated: 56,457 rows, 245 dates, 55 stations), which is left on disk but
+  no longer read by default.
 * the pretrained *elevation* arm, read from its per-day summaries because it post-dates
   both trees.
 
