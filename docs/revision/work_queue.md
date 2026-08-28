@@ -252,6 +252,24 @@ the receipts.
       `--store-root` to the former, so a hand-run of either silently reads/writes the stub.
       Verified 2026-08-26. Decide whether to rename, repoint, or make the default fail loudly.
 
+### Decided: fully-Bayesian model scope (2026-08-28)
+
+The fully-Bayesian `ResNet_BNN_NLL` is scoped as a **single confirmatory comparison**
+answering R1.2, not as a third fully-evaluated model. No hyperparameter sweep, no
+positioning, no Madrigal pass. Owner decision.
+
+What the evidence supports, and the limit of it: under matched initialisation and identical
+hyperparameters it reached RMSE 15.54 against the paper model's 11.67, while its
+uncertainty-error correlation was marginally better (0.5752 vs 0.5682), and the
+epistemic-scale diagnostic shows its deficit is scale rather than structure. Its wandb record
+holds 3 runs, 1 credible (111 epochs) — so the letter must say the architecture did not
+improve accuracy *under matched conditions*, and must NOT say it is inherently inferior.
+That stronger claim would need the sweep we have decided not to run, and it is the same
+objection R2.5 already makes about undersampled architectures.
+
+Related and worth stating in the methods section: `num_layers` was never varied across the
+paper model's own 711 runs either, so any implication that depth was searched is unsupported.
+
 ### Decisions needing a human
 
 - [ ] **`common_set_positioning`'s `canonical_for=None` vs. CLAUDE.md calling it "Table A1".**
