@@ -7,12 +7,12 @@
     "The storm/quiet split uses the daily minimum-Dst rule at -50 nT, matching storm_stratification.STORM_DST_THRESHOLD_NT - not the per-observation rule in scenario_evaluation.py."
   ],
   "code": {
-    "commit": "0c13f6e9b47921d276e44f62ffc4e79838648d79",
+    "commit": "62afecea087e25c57f185f84281dcbd742dd02ec",
     "dirty": true
   },
   "command": "-m stec.analysis.uncertainty_calibration --output-dir multiday_results/analyses/uncertainty_calibration/rebuilt --model-variant finetuned_stec --dataset own",
   "description": "coverage, PIT and CRPS for Direct STEC and VTEC + Mapping, each under its own likelihood and regime",
-  "duration_s": 258.6,
+  "duration_s": 468.7,
   "fingerprint": "400b0d79188bf034ed8db7ea5bef079a012888787e4ffbad3a1840018fd5600c",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
@@ -34,7 +34,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T11:08:53.582696+00:00",
+  "recorded_at": "2026-08-27T09:29:57.526198+00:00",
   "stage": "uncertainty_calibration",
   "supersedes": []
 }

@@ -6,13 +6,13 @@
     "Madrigal rows carry the madrigal_reference_offset caveat."
   ],
   "code": {
-    "commit": "24ef4ee31bb96eb13d8185b917704708864f6b2b",
-    "dirty": false
+    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
+    "dirty": true
   },
   "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
   "description": "per-day and pooled STEC metrics recomputed from the prediction store",
-  "duration_s": 123.5,
-  "fingerprint": "d45478105002cfc676c3ccb54632f187b260593e5669ed35435db8109a416f9f",
+  "duration_s": 88.6,
+  "fingerprint": "737b7bced73c54c88335db2148c6365bb2581b1fd068e3112887636e67cb6312",
   "inputs": {
     "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
       "files": 2,
@@ -23,8 +23,8 @@
     "predictions/finetuned_stec/madrigal": {
       "files": 238,
       "kind": "tree",
-      "mtime_ns": 1787747500045952027,
-      "size": 35987612575
+      "mtime_ns": 1787750493627614692,
+      "size": 36043631929
     },
     "predictions/finetuned_stec/own": {
       "files": 242,
@@ -47,18 +47,18 @@
     "multiday_results/analyses/daily_metrics/rebuilt/per_day.csv": {
       "present": true,
       "rows": 1682,
-      "sha256": "b3ac8d76cd774406da6826a3e3b068492d3c1e315fcd8313113503d4d36448d5",
-      "size": 248297
+      "sha256": "09529dd736275c9d76f2064e21ecb311e0e34bbbcd7b68f515fbe094f9321ff3",
+      "size": 248291
     },
     "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
       "present": true,
       "rows": 7,
-      "sha256": "c0741471fd04ad643ebaf6904860685ad8815f5d76e53609387c0be8e7b20aa5",
-      "size": 1484
+      "sha256": "1b2f879798d31e41769d814b742d36af0997670e4e872c90175048c157d76efd",
+      "size": 1489
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T12:35:23.095254+00:00",
+  "recorded_at": "2026-08-27T14:46:06.448873+00:00",
   "stage": "daily_metrics",
   "supersedes": [
     "multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv"

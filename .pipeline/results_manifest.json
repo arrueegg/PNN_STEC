@@ -3,22 +3,28 @@
   "canonical_for": "provenance index",
   "caveats": [],
   "code": {
-    "commit": "b3b5f07d723be2f44494661badf0e28f7c716b48",
+    "commit": "a2f61ea6777e22229d9b8868ca4b2b354d08ba7e",
     "dirty": true
   },
   "command": "-m stec.analysis.results_manifest",
   "description": "which result trees are canonical and which are superseded",
-  "duration_s": 0.6,
+  "duration_s": 1.1,
   "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
   "inputs": {},
   "outputs": {
     "multiday_results/analyses/results_manifest/rebuilt": {
       "present": true,
-      "size": 122
+      "size": 146
+    },
+    "multiday_results/analyses/results_manifest/rebuilt/manifest.csv": {
+      "present": true,
+      "rows": 39,
+      "sha256": "f84f64cb128282e698ef26fa4c93a2b655058c0c7e77c316d49617c140685a03",
+      "size": 43931
     }
   },
   "params": {},
-  "recorded_at": "2026-08-23T15:32:07.762931+00:00",
+  "recorded_at": "2026-08-28T07:40:41.607007+00:00",
   "stage": "results_manifest",
   "supersedes": []
 }

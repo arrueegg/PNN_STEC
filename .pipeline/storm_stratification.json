@@ -5,13 +5,13 @@
     "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This is a different, deliberately kept-separate threshold from the STEC-domain scenario_evaluation.py, which classifies individual hours as storm at Kp>=37 or Dst<=-33: the daily rule finds 39 storm days over the 242-day positioning test period against 102 under the per-observation rule applied at the day level. Do not port one rule's day count into the other's table."
   ],
   "code": {
-    "commit": "3a56d7fd56436927399fb5f2144ff6900c8d3a80",
+    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
     "dirty": true
   },
   "command": "-m stec.analysis.storm_stratification --output-dir multiday_results/analyses/storm_stratification/rebuilt",
   "description": "positioning accuracy on storm against quiet days",
-  "duration_s": 0.4,
-  "fingerprint": "043ff30f42a304162a2f5efd4401d69ea9db3d2331ab9a730905d6b5cd79db58",
+  "duration_s": 0.5,
+  "fingerprint": "1ae91129f1dbabfc1c57782b8a4283c7c9678ea14301fb5de73b1da3628cde61",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -20,8 +20,8 @@
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "470b49648bda1393ac1102fe79cbda514189f9c45b4f52c48c891ce5760ff5aa",
-      "size": 12026596
+      "sha256": "b3e5fb95c80d97faed682a8c4cfe56a13360e4989ac0d08538042b426cc7d654",
+      "size": 13932690
     }
   },
   "outputs": {
@@ -31,7 +31,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-24T16:23:44.933592+00:00",
+  "recorded_at": "2026-08-27T17:51:47.024739+00:00",
   "stage": "storm_stratification",
   "supersedes": []
 }

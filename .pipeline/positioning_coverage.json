@@ -7,35 +7,47 @@
     "Three individual per-day source files were found truncated on disk, all with recovery-sweep mtimes (2026-08-23/24), independent of this stage: DOY 166 and 176 dropped from ~43 stations to 2 in all three ML methods' own trees plus the GIM arm simultaneously (identical mtimes across the independent STEC/VTEC/Pretrained experiment directories, so this is a PPPx-level failure for those two days, not a positioning_coverage aggregation bug); DOY 323 dropped from ~41 to 4 stations in the STEC tree only (VTEC and Pretrained trees for that day are intact, 89 lines each). These three days are included in the aggregate as genuinely-small samples, not dropped or backfilled - no PPPx re-run was in scope to fix them. They are 3 of 242 days and do not materially move the per-station-day-mean tables, but a per-day breakdown that weights days unevenly should exclude or flag them."
   ],
   "code": {
-    "commit": "3a56d7fd56436927399fb5f2144ff6900c8d3a80",
+    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_coverage --output-dir multiday_results/analyses/positioning_coverage/rebuilt",
   "description": "which station-days each method solved, and why the rest are missing",
-  "duration_s": 8.6,
-  "fingerprint": "f525f1fff0a47e6c21ad642ad19f703a1dbc107c707934f653fd9af964c1bec4",
+  "duration_s": 9.1,
+  "fingerprint": "ba10d9265b5db86c4ceafe76e43a7f1a6d11454632dfb34024484bd430d75c22",
   "inputs": {
     "experiments": {
-      "files": 495882,
+      "files": 521424,
       "kind": "tree",
-      "mtime_ns": 1787582057828307544,
-      "size": 406667919232
+      "mtime_ns": 1787853066553235406,
+      "size": 468914128418
     }
   },
   "outputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt": {
       "present": true,
-      "size": 328
+      "size": 530
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/coverage_elev.csv": {
+      "present": true,
+      "rows": 11641,
+      "sha256": "a8c2080dbc3c59057544a3d761e018bbb19cf63aa9bd556a0ec41314221c3c87",
+      "size": 607557
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "present": true,
-      "rows": 37209,
-      "sha256": "470b49648bda1393ac1102fe79cbda514189f9c45b4f52c48c891ce5760ff5aa",
-      "size": 12026596
+      "rows": 43101,
+      "sha256": "b3e5fb95c80d97faed682a8c4cfe56a13360e4989ac0d08538042b426cc7d654",
+      "size": 13932690
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_elev.csv": {
+      "present": true,
+      "rows": 37241,
+      "sha256": "61d81d24540180d2f3455da2555cd981e46645e203e7fd61a8edfe72f38e6027",
+      "size": 12063628
     }
   },
   "params": {},
-  "recorded_at": "2026-08-24T16:23:44.456037+00:00",
+  "recorded_at": "2026-08-27T17:51:46.522573+00:00",
   "stage": "positioning_coverage",
   "supersedes": [
     "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_runs/full_coverage",
