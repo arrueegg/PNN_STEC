@@ -6,19 +6,19 @@
     "Does not support claims about the model's out-of-distribution uncertainty - dataset shift and reference-chain difference are confounded here."
   ],
   "code": {
-    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
+    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
     "dirty": true
   },
   "command": "-m stec.analysis.madrigal_reference_offset --output-dir multiday_results/analyses/madrigal_reference_offset/rebuilt",
   "description": "how much of the Madrigal error is a per-station reference offset",
-  "duration_s": 75.0,
-  "fingerprint": "74ac8be3c15be04997add8946fc4af58eb908e704b7dfc026bcf2f4909645137",
+  "duration_s": 74.7,
+  "fingerprint": "d145abeb4108c453851f86fc12da1bace7c76c9f6c3d7147514b373ed2fb012b",
   "inputs": {
     "predictions/finetuned_stec/madrigal": {
       "files": 238,
       "kind": "tree",
-      "mtime_ns": 1787750493627614692,
-      "size": 36043631929
+      "mtime_ns": 1787986645089832423,
+      "size": 38131901134
     }
   },
   "outputs": {
@@ -40,7 +40,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-27T14:47:23.657227+00:00",
+  "recorded_at": "2026-09-14T06:32:06.540033+00:00",
   "stage": "madrigal_reference_offset",
   "supersedes": []
 }

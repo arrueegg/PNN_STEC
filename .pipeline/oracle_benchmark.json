@@ -6,24 +6,24 @@
     "Read ratios to the floor within this table. Take absolute positioning numbers from Table 5."
   ],
   "code": {
-    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
+    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
     "dirty": true
   },
   "command": "-m stec.analysis.oracle_benchmark --output-dir multiday_results/analyses/oracle_benchmark/rebuilt",
   "description": "positioning floor from reference STEC, on its own restricted set",
-  "duration_s": 63.9,
-  "fingerprint": "bd91db1fb961284aabb4dc3b78f30ad7044721aad4b8b314ff4a38ac867ad6ed",
+  "duration_s": 65.3,
+  "fingerprint": "c110edca1028af0eef426b8d3e879082a50361666eddfe4bd998efe299f3d15e",
   "inputs": {
     "experiments/Reference_STEC_Oracle": {
-      "files": 40716,
+      "files": 40736,
       "kind": "tree",
       "mtime_ns": 1787675408854826983,
-      "size": 41307118422
+      "size": 41539737758
     },
-    "multiday_results/positioning_runs/20260216_2052/multiday_summary.csv": {
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
       "kind": "file",
-      "sha256": "13fb43c27c0a8a92ac62786d0e82d53e18afc68c78ca1c683467f49e177fc3b3",
-      "size": 10212070
+      "sha256": "104cac05e4ddda7888c359e85cc1b207510c18794615f28af1053c0f1ebfba90",
+      "size": 28993128
     }
   },
   "outputs": {
@@ -33,7 +33,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-27T17:52:53.081680+00:00",
+  "recorded_at": "2026-08-29T00:34:30.092555+00:00",
   "stage": "oracle_benchmark",
   "supersedes": []
 }

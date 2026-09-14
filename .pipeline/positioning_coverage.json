@@ -3,35 +3,35 @@
   "canonical_for": "positioning station-day coverage",
   "caveats": [
     "Canonical variant selection is explicit: it matches the canonical directory name directly rather than de-duplicating multiple Finetune_STEC_2024_<DOY>_* matches by sort order. Sort-order dedup let lr1e-4_bs2048/lr1e-4_bs10000 win over the paper's lr2e-4_bs512 for 31 DOYs once the station-recovery sweep created a second directory per day.",
-    "Post station-recovery-sweep (2026-08-24), iono weighting: 8,195 / 1,591 / 1,067 of 10,853 station-days solved by all methods / all ML methods missing (station absent from STEC DB) / some ML methods missing (per-method PPPx failure) - against the pre-sweep 8,003 / 2,311 / 510 of 10,824 this caveat used to quote. The solved-by-all population grew by only 192 station-days (2.4%); most of the sweep's effect moved station-days from 'all ML missing' into 'some ML missing' rather than completing them, so the common-set population (common_set_positioning) is still substantially smaller than the full-recovered-set population (positioning_summary) - state which one backs a given number.",
+    "Coverage as of the last regenerated coverage.csv (2026-08-27, this stage's own .pipeline record), iono weighting: 10,598 / 26 / 229 of 10,853 station-days solved by all methods / all ML methods missing (station absent from STEC DB) / some ML methods missing (per-method PPPx failure). Quoted here as a read of coverage.csv's own 'cause' column counts, not re-derived from first principles. This has moved twice since the number this caveat originally quoted: pre-sweep 8,003 / 2,311 / 510 of 10,824, then post-station-recovery-sweep (2026-08-24) 8,195 / 1,591 / 1,067 of 10,853 - the 'all ML missing' population has since fallen further, from 1,591 to 26, which this session did not investigate the mechanism of (the recovery/geometry work is ongoing on this branch under other sessions; see CLAUDE.md's coverage-recovery row, which was not re-verified against this newer number when this caveat was corrected and may itself be stale). State which vintage backs a given number, and treat the common-set population (common_set_positioning) as still meaningfully smaller than the full-recovered-set population (positioning_summary) unless re-checked against the current coverage.csv.",
     "Three individual per-day source files were found truncated on disk, all with recovery-sweep mtimes (2026-08-23/24), independent of this stage: DOY 166 and 176 dropped from ~43 stations to 2 in all three ML methods' own trees plus the GIM arm simultaneously (identical mtimes across the independent STEC/VTEC/Pretrained experiment directories, so this is a PPPx-level failure for those two days, not a positioning_coverage aggregation bug); DOY 323 dropped from ~41 to 4 stations in the STEC tree only (VTEC and Pretrained trees for that day are intact, 89 lines each). These three days are included in the aggregate as genuinely-small samples, not dropped or backfilled - no PPPx re-run was in scope to fix them. They are 3 of 242 days and do not materially move the per-station-day-mean tables, but a per-day breakdown that weights days unevenly should exclude or flag them."
   ],
   "code": {
-    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
+    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_coverage --output-dir multiday_results/analyses/positioning_coverage/rebuilt",
   "description": "which station-days each method solved, and why the rest are missing",
-  "duration_s": 9.1,
-  "fingerprint": "ba10d9265b5db86c4ceafe76e43a7f1a6d11454632dfb34024484bd430d75c22",
+  "duration_s": 10.6,
+  "fingerprint": "5938f3fc633be7d9521d1c2d120d52ca4bcf67126e02a3d14c980d08025a23a0",
   "inputs": {
     "experiments": {
-      "files": 521424,
+      "files": 547940,
       "kind": "tree",
-      "mtime_ns": 1787853066553235406,
-      "size": 468914128418
+      "mtime_ns": 1787963390416096728,
+      "size": 475278813171
     }
   },
   "outputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt": {
       "present": true,
-      "size": 530
+      "size": 600
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/coverage_elev.csv": {
       "present": true,
-      "rows": 11641,
-      "sha256": "a8c2080dbc3c59057544a3d761e018bbb19cf63aa9bd556a0ec41314221c3c87",
-      "size": 607557
+      "rows": 11999,
+      "sha256": "b4c2ff41304e002936dcf94e3d6d88a910a23094be92977ecc4f6f7e4bf4d76e",
+      "size": 425801
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "present": true,
@@ -39,15 +39,21 @@
       "sha256": "b3e5fb95c80d97faed682a8c4cfe56a13360e4989ac0d08538042b426cc7d654",
       "size": 13932690
     },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "present": true,
+      "rows": 89657,
+      "sha256": "104cac05e4ddda7888c359e85cc1b207510c18794615f28af1053c0f1ebfba90",
+      "size": 28993128
+    },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_elev.csv": {
       "present": true,
-      "rows": 37241,
-      "sha256": "61d81d24540180d2f3455da2555cd981e46645e203e7fd61a8edfe72f38e6027",
-      "size": 12063628
+      "rows": 46556,
+      "sha256": "39e6fab1ef1a61379bb2e0c013ca15d76cb5e4c7c8937904ed8e8df264f15818",
+      "size": 15060673
     }
   },
   "params": {},
-  "recorded_at": "2026-08-27T17:51:46.522573+00:00",
+  "recorded_at": "2026-08-29T00:33:21.584748+00:00",
   "stage": "positioning_coverage",
   "supersedes": [
     "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_runs/full_coverage",

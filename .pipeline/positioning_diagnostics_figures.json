@@ -1,0 +1,64 @@
+{
+  "answers": "-",
+  "canonical_for": null,
+  "caveats": [
+    "Same diagnostic scope as positioning_diagnostics above - not manuscript or revision-response figures, kept in its own plots/positioning_diagnostics/ tree rather than plots/revision/ or plots/manuscript/ so it is never mistaken for either.",
+    "Reads positioning_diagnostics's CSVs, not the per-station-day table directly - must run after that stage, and is only as current as its output."
+  ],
+  "code": {
+    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
+    "dirty": true
+  },
+  "command": "-m stec.viz.positioning_diagnostics",
+  "description": "daily-timeseries, per-station-diff, outlier-sensitivity and population-split figures for positioning_diagnostics's CSVs",
+  "duration_s": 4.5,
+  "fingerprint": "7335e1a4dfddc2513f771143db2e1f8d02512d07816a70a302af4a787924a6ce",
+  "inputs": {
+    "multiday_results/analyses/positioning_diagnostics/rebuilt": {
+      "files": 26,
+      "kind": "tree",
+      "mtime_ns": 1787963686328778631,
+      "size": 142810
+    }
+  },
+  "outputs": {
+    "plots/positioning_diagnostics": {
+      "present": true,
+      "size": 32
+    },
+    "plots/positioning_diagnostics/positioning_2024/daily_timeseries.csv": {
+      "present": true,
+      "rows": 968,
+      "sha256": "cd7161317ca13edf64960fb5d122ea98f85d6c6c0448ddf556110522d0e7237c",
+      "size": 53535
+    },
+    "plots/positioning_diagnostics/positioning_2024/outlier_pct_by_threshold.csv": {
+      "present": true,
+      "rows": 16,
+      "sha256": "806d2267cb301e3156a07f243800c42975ddb6ed9db80ab820d886cd2333e01e",
+      "size": 666
+    },
+    "plots/positioning_diagnostics/positioning_2024/outlier_threshold_sensitivity.csv": {
+      "present": true,
+      "rows": 5,
+      "sha256": "9ac3a4d709a4c6f4fad59e384bef1ac178a8a36945bace5e137525c9fe4f8e5f",
+      "size": 376
+    },
+    "plots/positioning_diagnostics/positioning_2024/per_station_diff.csv": {
+      "present": true,
+      "rows": 57,
+      "sha256": "81394bd39dc4710201937bae2e9674b662834930986170e32827f65edb2ea431",
+      "size": 4712
+    },
+    "plots/positioning_diagnostics/positioning_2024/population_split.csv": {
+      "present": true,
+      "rows": 16,
+      "sha256": "cf8f9c1f164f6ec9adac66795bc93810063d2c3fafa5174b5d2951eec6b33e16",
+      "size": 1035
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-29T00:34:50.918606+00:00",
+  "stage": "positioning_diagnostics_figures",
+  "supersedes": []
+}

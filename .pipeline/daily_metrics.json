@@ -6,13 +6,13 @@
     "Madrigal rows carry the madrigal_reference_offset caveat."
   ],
   "code": {
-    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
+    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
     "dirty": true
   },
   "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
   "description": "per-day and pooled STEC metrics recomputed from the prediction store",
-  "duration_s": 88.6,
-  "fingerprint": "737b7bced73c54c88335db2148c6365bb2581b1fd068e3112887636e67cb6312",
+  "duration_s": 50.9,
+  "fingerprint": "00f6dbd70d712f6097de38a207247e3c1e05d2e40e09b030201dc68594591140",
   "inputs": {
     "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
       "files": 2,
@@ -23,8 +23,8 @@
     "predictions/finetuned_stec/madrigal": {
       "files": 238,
       "kind": "tree",
-      "mtime_ns": 1787750493627614692,
-      "size": 36043631929
+      "mtime_ns": 1787986645089832423,
+      "size": 38131901134
     },
     "predictions/finetuned_stec/own": {
       "files": 242,
@@ -46,19 +46,19 @@
     },
     "multiday_results/analyses/daily_metrics/rebuilt/per_day.csv": {
       "present": true,
-      "rows": 1682,
-      "sha256": "09529dd736275c9d76f2064e21ecb311e0e34bbbcd7b68f515fbe094f9321ff3",
-      "size": 248291
+      "rows": 1920,
+      "sha256": "705bc7cd9a62643d6671e723b148645f9dd9c1662209ccf1efbf92349a6fefaf",
+      "size": 284785
     },
     "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
       "present": true,
-      "rows": 7,
-      "sha256": "1b2f879798d31e41769d814b742d36af0997670e4e872c90175048c157d76efd",
-      "size": 1489
+      "rows": 8,
+      "sha256": "6401d86dc01bd8e7056c4df4213b683d41b46649c6923b8cee29e604bb4d84ac",
+      "size": 1690
     }
   },
   "params": {},
-  "recorded_at": "2026-08-27T14:46:06.448873+00:00",
+  "recorded_at": "2026-08-29T06:58:17.378859+00:00",
   "stage": "daily_metrics",
   "supersedes": [
     "multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv"
