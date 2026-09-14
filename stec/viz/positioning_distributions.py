@@ -10,9 +10,10 @@ anything from the raw per-station-day table itself.
 **The decision this implements**: positioning results are reported as distributions and
 medians, with no outcome-based outlier filtering, replacing the mean-with-10 m-exclusion
 Table 5 used. See `stec.analysis.positioning_distributions`'s module docstring for the
-full reasoning. **No figure here drops a row.** Where an axis needs a bound to stay
-readable, only the *view* (axis limits) is clipped - never the data - and every such
-figure reports, in its own caption/annotation, how many points fall outside that view.
+full reasoning. **No figure here drops a row.** Where a figure needs a bound to stay
+readable it constrains only what is *drawn* - an axis limit, or omitting the individual
+outlier markers - never which rows enter the statistics, and every such figure reports
+how many points it leaves undrawn.
 
 Style: `stec.viz.style.APPROACH_COLORS` (blue Direct STEC, orange VTEC + Mapping, green
 IGS GIM + Mapping, purple Pretrained Direct STEC) means only that approach - never
@@ -62,15 +63,12 @@ FIGSIZE_TABLE = (18, 6)
 STEC_LABEL = "Direct STEC"
 GIM_LABEL = "IGS GIM + Mapping"
 
-# Figure 13's y-axis view cap (owner review, 2026-09-14): a log-scale axis compressed the
-# box geometry - the comparison this figure exists to show - into an unreadable sliver
-# beside a handful of multi-thousand-metre PPPx solve failures. Linear, capped here,
-# reads far better; box/whisker statistics are still computed on the full unfiltered
-# population (`stec.analysis.positioning_distributions.boxplot_stats`), only the drawn
-# range is clipped. Matches one of `stec.analysis.positioning_distributions.
-# EXCEEDANCE_THRESHOLDS_M`'s four thresholds, so `overall_exceedance.csv` always has a
-# `threshold_m == 10.0` row to annotate how many station-days per method fall outside it.
-BOXPLOT_VIEW_LIMIT_M = 10.0
+# The threshold Figure 13 reports its undrawn tail against. Matches one of
+# `stec.analysis.positioning_distributions.EXCEEDANCE_THRESHOLDS_M`'s four thresholds, so
+# `overall_exceedance.csv` always carries a `threshold_m == 10.0` row, and the count is
+# the same one `TABLE5_NUMBERS.md` reports - the figure and the table quote one number,
+# not two. Box/whisker statistics remain over the full unfiltered population.
+BOXPLOT_EXCEEDANCE_THRESHOLD_M = 10.0
 
 # The regime/population contrasts drawn inside a per-method subplot (Figures 3 and 5)
 # both compare exactly two groups, so the same two `CONDITION_COLORS` cover both without
@@ -161,18 +159,23 @@ def _draw_boxplot(
     order: list[str],
     colors: dict[str, str],
     widths: float = 0.6,
+    showfliers: bool = True,
 ) -> None:
-    """Draw one Tukey box per group in `order`, coloured by `colors[label]`, with
-    individual outlier points visible (never hidden inside an extended whisker) -
-    shared by the overall, storm/quiet and original/recovered box-plot figures, which
-    differ only in what `order` and `colors` mean."""
+    """Draw one Tukey box per group in `order`, coloured by `colors[label]` - shared by
+    the overall, storm/quiet and original/recovered box-plot figures, which differ only
+    in what `order` and `colors` mean.
+
+    `showfliers=False` omits the individual outlier points so the axis scales to the box
+    and whisker geometry. It changes only what is drawn: the boxes, whiskers and medians
+    still come from `stats`, computed over the full unfiltered population, and every
+    flier value is still written to the figure's CSV sidecar by `_tidy_box_data`."""
     positions = np.arange(1, len(order) + 1)
     result = ax.bxp(
         _bxp_stats_list(stats, fliers, group_col, order),
         positions=positions,
         widths=widths,
         patch_artist=True,
-        showfliers=True,
+        showfliers=showfliers,
     )
     for i, label in enumerate(order):
         color = colors[label]
@@ -185,11 +188,12 @@ def _draw_boxplot(
             whisker.set_color(color)
         for cap in result["caps"][2 * i : 2 * i + 2]:
             cap.set_color(color)
-        result["fliers"][i].set_markeredgecolor(color)
-        result["fliers"][i].set_markerfacecolor("none")
-        result["fliers"][i].set_marker("o")
-        result["fliers"][i].set_markersize(4)
-        result["fliers"][i].set_alpha(0.45)
+        if showfliers:
+            result["fliers"][i].set_markeredgecolor(color)
+            result["fliers"][i].set_markerfacecolor("none")
+            result["fliers"][i].set_marker("o")
+            result["fliers"][i].set_markersize(4)
+            result["fliers"][i].set_alpha(0.45)
     ax.set_xticks(positions)
     ax.set_xticklabels(order)
 
@@ -199,16 +203,16 @@ def _tidy_box_data(
     fliers: pd.DataFrame,
     id_cols: list[str],
     exceedance: pd.DataFrame | None = None,
-    view_limit_m: float | None = None,
+    exceedance_threshold_m: float | None = None,
 ) -> pd.DataFrame:
     """The literal plotted values for a box-plot figure's `_save(data=...)`: box
     geometry (one row per statistic) and every flier point, both long-format so they
     concatenate into one CSV.
 
-    `exceedance`/`view_limit_m`, when given, append one more row per group:
-    `stat="n_exceeding_view"`, the count of station-days whose `error_3d_rms` exceeds
-    `view_limit_m`. This is how a figure whose y-axis clips its *view* (Figure 13, capped
-    at `BOXPLOT_VIEW_LIMIT_M`) still reports what that cap hides - CLAUDE.md's "no
+    `exceedance`/`exceedance_threshold_m`, when given, append one more row per group:
+    `stat="n_exceeding_threshold"`, the count of station-days whose `error_3d_rms` exceeds
+    `exceedance_threshold_m`. This is how a figure that does not draw its outlier points
+    (Figure 13) still reports the size of the tail it leaves undrawn - CLAUDE.md's "no
     in-plot explanatory text" rule keeps the count out of the PNG body, so the caption
     text reads it from here (and from the figure's own title, which carries the same
     counts but is stripped from the `_notitle` manuscript copy).
@@ -224,11 +228,11 @@ def _tidy_box_data(
     flier_long = flier_long[[*id_cols, "stat", "value"]]
     combined = pd.concat([box_long, flier_long], ignore_index=True)
 
-    if exceedance is not None and view_limit_m is not None:
+    if exceedance is not None and exceedance_threshold_m is not None:
         at_limit = exceedance[
-            np.isclose(exceedance["threshold_m"], view_limit_m)
+            np.isclose(exceedance["threshold_m"], exceedance_threshold_m)
         ].copy()
-        at_limit["stat"] = "n_exceeding_view"
+        at_limit["stat"] = "n_exceeding_threshold"
         at_limit = at_limit.rename(columns={"n_exceeding": "value"})[
             [*id_cols, "stat", "value"]
         ]
@@ -249,46 +253,57 @@ def fig_boxplot_3d_error(
     provenance: str,
     exceedance: pd.DataFrame,
 ) -> None:
-    """Box plot of 3D positioning error per method, unfiltered, linear y-axis capped at
-    `BOXPLOT_VIEW_LIMIT_M`.
+    """Box plot of 3D positioning error per method, unfiltered, linear y-axis scaled to
+    the box and whisker geometry.
 
     Whisker convention: Tukey's rule (matplotlib's own default), 1.5xIQR - whiskers
-    reach the most extreme data point within that fence, everything beyond is drawn as
-    an individual outlier point rather than folded into an extended whisker or dropped.
-    The data spans ~0.18 m to ~5,990 m (a ~33,000x range), all computed from the full
-    unfiltered population regardless of what the axis shows.
+    reach the most extreme data point within that fence. The data spans ~0.18 m to
+    ~5,990 m (a ~33,000x range), all computed from the full unfiltered population
+    regardless of what the axis shows.
 
-    2026-09-14 (owner review): switched from a log y-axis to linear, view capped at
-    `BOXPLOT_VIEW_LIMIT_M` - the log axis compressed the box geometry (the comparison
-    this figure exists to show) into a hard-to-read sliver next to a handful of
-    multi-thousand-metre PPPx solve failures. **View, not data**: `_draw_boxplot` still
-    draws from `stats`/`fliers` exactly as computed over the full population - median,
-    Q1/Q3, Tukey whiskers and every individual flier - only `ax.set_ylim` changed.
-    Station-days above the cap fall outside the drawn range; per CLAUDE.md's "no in-plot
-    explanatory text" rule they are not annotated inside the plot area, but the count for
-    each method is in the title (stripped from the `_notitle` manuscript copy) and in the
-    `n_exceeding_view` row `_tidy_box_data` adds to the written CSV, from `exceedance`
-    (`stec.analysis.positioning_distributions.exceedance_table`'s per-threshold counts -
-    the same numbers `TABLE5_NUMBERS.md` reports at 10 m).
+    2026-09-14 (owner review, two rounds): first from a log y-axis to linear capped at
+    `BOXPLOT_EXCEEDANCE_THRESHOLD_M` - the log axis compressed the box geometry, which is the
+    comparison this figure exists to show, into a sliver beside a handful of
+    multi-thousand-metre PPPx solve failures. Then to omitting the outlier points
+    entirely (`showfliers=False`) and dropping the cap, so the axis scales naturally to
+    the quantile bars instead of to a dense column of overlapping flier markers.
+
+    **Display, not data.** The boxes, medians and whiskers are still computed over the
+    full unfiltered population - no station-day is excluded, which would contradict the
+    Table 5 methodology (`docs/revision/positioning_reporting.md`). Every omitted flier
+    value is still written to this figure's CSV sidecar by `_tidy_box_data`, and the
+    per-method counts beyond the whiskers (`n_fliers`) and beyond
+    `BOXPLOT_EXCEEDANCE_THRESHOLD_M` (`n_exceeding_threshold`, from `exceedance`) are reported in the
+    title - stripped from the `_notitle` manuscript copy, where the caption carries them
+    instead, per CLAUDE.md's "no in-plot explanatory text" rule.
     """
     order = [m for m in METHOD_ORDER if m in stats["Method"].unique()]
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    _draw_boxplot(ax, stats, fliers, "Method", order, APPROACH_COLORS, widths=0.55)
-    ax.set_ylim(0, BOXPLOT_VIEW_LIMIT_M)
+    _draw_boxplot(
+        ax,
+        stats,
+        fliers,
+        "Method",
+        order,
+        APPROACH_COLORS,
+        widths=0.55,
+        showfliers=False,
+    )
+    ax.set_ylim(bottom=0)
     ax.set_ylabel("3D positioning error [m]")
     ax.grid(True, axis="y", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     n_fliers = {m: int(stats.set_index("Method").loc[m, "n_fliers"]) for m in order}
     exceeding_by_method = exceedance.loc[
-        np.isclose(exceedance["threshold_m"], BOXPLOT_VIEW_LIMIT_M)
+        np.isclose(exceedance["threshold_m"], BOXPLOT_EXCEEDANCE_THRESHOLD_M)
     ].set_index("Method")["n_exceeding"]
     n_exceeding = {m: int(exceeding_by_method.get(m, 0)) for m in order}
     ax.set_title(
-        f"Positioning 3D error by method, unfiltered (iono weighting), "
-        f"view capped at {BOXPLOT_VIEW_LIMIT_M:g} m\n"
-        "Tukey whiskers (1.5×IQR); outliers shown as points, not excluded - "
-        + ", ".join(f"{m}: {n_fliers[m]} outliers" for m in order)
-        + f"\nn station-days > {BOXPLOT_VIEW_LIMIT_M:g} m (outside view): "
+        "Positioning 3D error by method, unfiltered (iono weighting)\n"
+        "Tukey whiskers (1.5×IQR); outlier points not drawn, none excluded from the "
+        "statistics - "
+        + ", ".join(f"{m}: {n_fliers[m]} beyond whiskers" for m in order)
+        + f"\nn station-days > {BOXPLOT_EXCEEDANCE_THRESHOLD_M:g} m: "
         + ", ".join(f"{m}: {n_exceeding[m]}" for m in order)
     )
     _save(
@@ -302,7 +317,7 @@ def fig_boxplot_3d_error(
             fliers,
             ["Method"],
             exceedance=exceedance,
-            view_limit_m=BOXPLOT_VIEW_LIMIT_M,
+            exceedance_threshold_m=BOXPLOT_EXCEEDANCE_THRESHOLD_M,
         ),
     )
 
