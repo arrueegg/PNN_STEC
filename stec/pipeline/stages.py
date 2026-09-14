@@ -172,6 +172,9 @@ MAPPING_FUNCTION_CONSISTENCY_DIR = _analysis_dir(
     "mapping_function_consistency", rebuilt=True
 )
 MADRIGAL_REFERENCE_OFFSET_DIR = _analysis_dir("madrigal_reference_offset", rebuilt=True)
+MADRIGAL_METHOD_OFFSET_COMPARISON_DIR = _analysis_dir(
+    "madrigal_method_offset_comparison", rebuilt=True
+)
 WEIGHTING_ABLATION_DIR = _analysis_dir("weighting_ablation", rebuilt=True)
 STORM_STRATIFICATION_DIR = _analysis_dir("storm_stratification", rebuilt=True)
 POSITIONING_ROBUSTNESS_DIR = _analysis_dir("positioning_robustness", rebuilt=True)
@@ -422,6 +425,36 @@ def positioning_distributions_overall_has_all_four_methods(outputs: dict) -> str
     empty = [method for method in METHOD_ORDER if not rows[method].get("n")]
     if empty:
         return f"{path} has no station-day count recorded for {sorted(empty)}"
+    return None
+
+
+def madrigal_method_offset_comparison_has_all_four_methods(outputs: dict) -> str | None:
+    """`pooled_before_after.csv` is built one row per `METHOD_COLUMNS` entry (see
+    `build_pooled_before_after`) - always exactly 4, but `min_rows=4` alone cannot tell
+    that apart from 4 rows that are the right shape with an empty `RMSE_before` (e.g. a
+    method whose Madrigal column was entirely NaN, which would still satisfy the row
+    count). Checks the four expected method labels are actually present with a numeric
+    RMSE_before, the same shape of check `positioning_summary_overall_has_all_four_methods`
+    uses for Table 5."""
+    path = MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "pooled_before_after.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(
+        path, ["Method", "RMSE_before", "RMSE_after"]
+    )
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = {row["Method"]: row for row in _read_csv_rows(path)}
+    missing = set(MODELS.values()) - set(rows)
+    if missing:
+        return f"{path} is missing method(s) {sorted(missing)}"
+    empty = [
+        method
+        for method in MODELS.values()
+        if not rows[method].get("RMSE_before") or not rows[method].get("RMSE_after")
+    ]
+    if empty:
+        return f"{path} has no RMSE recorded for {sorted(empty)}"
     return None
 
 
@@ -1291,6 +1324,77 @@ STAGES: list[Stage] = [
         },
         canonical_for="Madrigal reference-offset decomposition",
         caveats=MADRIGAL_CAVEAT,
+    ),
+    Stage(
+        # Answers the question madrigal_reference_offset above never asked: that stage
+        # decomposes Direct STEC's (and, for the agreement check, the IGS GIM's) Madrigal
+        # error into a per-station offset plus residual, but VTEC + Mapping currently
+        # *beats* Direct STEC on every Madrigal metric in daily_metrics's summary.csv -
+        # the reverse of the own-test-set result, where Direct STEC wins by 23%. Nobody
+        # had checked whether that reversal is a real generalisation difference or the
+        # same per-station reference offset carried by a different method. Must follow
+        # both madrigal_reference_offset (shares MIN_OBSERVATIONS_PER_STATION, imported
+        # from it) and daily_metrics (its summary.csv is the correctness-check input) in
+        # run order - both already sit earlier in this file.
+        "madrigal_method_offset_comparison",
+        "-m stec.analysis.madrigal_method_offset_comparison --output-dir "
+        f"{MADRIGAL_METHOD_OFFSET_COMPARISON_DIR}",
+        "R1.3",
+        "whether VTEC + Mapping's Madrigal win over Direct STEC survives the same "
+        "per-station reference-offset correction, for all four methods on identical rows",
+        inputs=[STORE_MADRIGAL, str(DAILY_METRICS_DIR / "summary.csv")],
+        outputs=[
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR),
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "per_station_offsets.csv"),
+            str(
+                MADRIGAL_METHOD_OFFSET_COMPARISON_DIR
+                / "row_intersection_diagnostics.csv"
+            ),
+            str(
+                MADRIGAL_METHOD_OFFSET_COMPARISON_DIR
+                / "correctness_check_vs_daily_metrics.csv"
+            ),
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "pooled_before_after.csv"),
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "offset_correlation.csv"),
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "FINDINGS.md"),
+        ],
+        min_rows={
+            # Same ~67-station population madrigal_reference_offset finds, floored the
+            # same way - comfortably below the real count, well above an empty or
+            # near-empty table.
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "per_station_offsets.csv"): 30,
+            # 4 methods + 1 "ALL FOUR METHODS (intersected)" row - exact, fixed by
+            # METHOD_COLUMNS' length (build_row_diagnostics), not by the data.
+            str(
+                MADRIGAL_METHOD_OFFSET_COMPARISON_DIR
+                / "row_intersection_diagnostics.csv"
+            ): 5,
+            # One row per method daily_metrics also reports for dataset=madrigal_vtec_gim
+            # - measured 2026-09-14, summary.csv currently carries all 4 Madrigal rows
+            # (Direct STEC, Pretrained STEC, VTEC + Mapping, IGS GIM).
+            str(
+                MADRIGAL_METHOD_OFFSET_COMPARISON_DIR
+                / "correctness_check_vs_daily_metrics.csv"
+            ): 4,
+            # One row per METHOD_COLUMNS entry (build_pooled_before_after) - exact.
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "pooled_before_after.csv"): 4,
+            # 4 choose 2 method pairs (offset_correlation_matrix) - exact.
+            str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "offset_correlation.csv"): 6,
+        },
+        checks=[madrigal_method_offset_comparison_has_all_four_methods],
+        canonical_for="Madrigal method-offset comparison (R1.3)",
+        caveats=[
+            *MADRIGAL_CAVEAT,
+            "Removing a per-station offset fitted on the same data can only reduce "
+            "RMSE/MAE, never increase it - with ~67 station parameters against ~449M "
+            "observations the resulting optimism is negligible, but it is not exactly "
+            "zero. Stated in FINDINGS.md, not left for a reader to wonder about.",
+            "The before/after comparison is restricted to the row set all four methods "
+            "have a finite prediction for, and to stations clearing "
+            "madrigal_reference_offset.MIN_OBSERVATIONS_PER_STATION - see "
+            "row_intersection_diagnostics.csv for whether that population differs "
+            "meaningfully from the full store daily_metrics reports against.",
+        ],
     ),
     Stage(
         # Must precede weighting_ablation, storm_stratification, positioning_robustness,
