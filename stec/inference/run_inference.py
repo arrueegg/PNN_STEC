@@ -222,7 +222,9 @@ def run_inference(
         raise ValueError(f"unknown dataset {dataset!r}, expected 'own' or 'madrigal'")
 
     _layout, assembler = build_layout_and_assembler(config)
-    store_root = store_root or paths.PREDICTIONS
+    store_root = prediction_store.require_explicit_store_root(
+        store_root, caller="run_inference"
+    )
 
     manifest: list[dict] = []
     checked_zero_perturbation = False
@@ -328,7 +330,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--store-root",
         type=Path,
         default=None,
-        help="defaults to stec.config.paths.PREDICTIONS",
+        help="required - no default. paths.PREDICTIONS (the pipeline smoke-test stub) "
+        "used to be the silent default; pass stec.config.paths.LEGACY_PREDICTIONS for "
+        "the real store, or paths.PREDICTIONS explicitly if the stub is what you want.",
     )
     parser.add_argument("--database-root", type=Path, default=None)
     parser.add_argument("--space-weather", type=Path, default=None)

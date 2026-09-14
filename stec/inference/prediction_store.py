@@ -52,6 +52,32 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_STORE_ROOT = paths.PREDICTIONS
 
+
+def require_explicit_store_root(store_root: Path | None, *, caller: str) -> Path:
+    """Fail loudly instead of silently writing/reading `DEFAULT_STORE_ROOT`.
+
+    `DEFAULT_STORE_ROOT` (`paths.PREDICTIONS`, `artifacts/predictions`) exists to keep
+    the pipeline's smoke stages isolated from the real store - `inference_smoke`/
+    `baselines_smoke` pass it *explicitly* for exactly that reason (see
+    `stec/pipeline/stages.py`). A driver that writes or reads real predictions
+    (`run_inference.py`, `run_baselines.py`, `run_pretrained_baseline.py`,
+    `stec.runs.daily_sweep`) used to fall back to this same stub silently whenever
+    `--store-root`/`store_root` was omitted - a hand run would then address a 1-file
+    stub instead of the real 1,500+-file store at `paths.LEGACY_PREDICTIONS`, with no
+    error to say so. Call this at the one place each driver resolves its store root
+    instead of `store_root or DEFAULT_STORE_ROOT`.
+    """
+    if store_root is not None:
+        return Path(store_root)
+    raise ValueError(
+        f"{caller}: no store root was given. Omitting --store-root/store_root used to "
+        f"resolve silently to DEFAULT_STORE_ROOT ({DEFAULT_STORE_ROOT}), the pipeline "
+        "smoke-test stub - not the real prediction store. Pass it explicitly: "
+        "stec.config.paths.LEGACY_PREDICTIONS for the real store, or "
+        f"{DEFAULT_STORE_ROOT} itself if the stub is genuinely what you want."
+    )
+
+
 IDENTITY_COLUMNS = ["station", "sat", "year", "doy", "sod"]
 ARC_COLUMNS = ["slipc", "gfphase"]
 GEOMETRY_COLUMNS = [

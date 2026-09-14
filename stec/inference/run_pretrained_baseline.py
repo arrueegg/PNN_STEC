@@ -237,8 +237,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="root holding finetuned_stec/<dataset> (written to) and, unless "
         "--pretrained-store-root overrides it, pretrained_stec/<dataset> (read from). "
-        "Defaults to stec.config.paths.PREDICTIONS, the artifacts/ stub - pass this "
-        "explicitly for the real store, same trap as run_inference.py/run_baselines.py.",
+        "Required - no default. paths.PREDICTIONS (the artifacts/ stub) used to be the "
+        "silent default, same trap run_inference.py/run_baselines.py used to have; pass "
+        "stec.config.paths.LEGACY_PREDICTIONS for the real store.",
     )
     parser.add_argument(
         "--pretrained-store-root",
@@ -259,7 +260,9 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    store_root = args.store_root or ps.DEFAULT_STORE_ROOT
+    store_root = ps.require_explicit_store_root(
+        args.store_root, caller="run_pretrained_baseline.main"
+    )
     manifest: list[dict] = []
     for year, doy in args.doys:
         row = merge_pretrained_baseline_for_day(

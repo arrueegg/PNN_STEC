@@ -62,7 +62,8 @@ gap exists, not an oversight this module's own logic hides.
 
 Usage::
 
-    python -m stec.runs.daily_sweep --year 2024 --start-doy 122 --end-doy 366
+    python -m stec.runs.daily_sweep --year 2024 --start-doy 122 --end-doy 366 \\
+        --store-root path/to/predictions
 
     # Explicit VTEC checkpoint/config and a non-default database root, e.g. for a smoke
     # or scratch run against fixture data rather than the real 640 GB tree:
@@ -70,7 +71,12 @@ Usage::
         --stec-config path/to/config.yaml --pretrain-checkpoint path/to/pretrain.pth \\
         --vtec-config path/to/vtec_config.yaml --vtec-checkpoint path/to/vtec_model.pth \\
         --database-root path/to/STEC_DB_CASDCB --space-weather path/to/omni.h5 \\
-        --ionex-root path/to/GIM_IONEX --batch-days 1 --device cpu
+        --ionex-root path/to/GIM_IONEX --store-root path/to/predictions \\
+        --batch-days 1 --device cpu
+
+--store-root is required - no default. Omitting it used to resolve silently to
+paths.PREDICTIONS, the pipeline smoke-test stub - see
+stec.inference.prediction_store.require_explicit_store_root.
 """
 
 from __future__ import annotations
@@ -583,7 +589,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--experiments-root", type=Path, default=paths.LEGACY_EXPERIMENTS
     )
-    parser.add_argument("--store-root", type=Path, default=None)
+    parser.add_argument(
+        "--store-root",
+        type=Path,
+        default=None,
+        help="required - no default. paths.PREDICTIONS (the pipeline smoke-test stub) "
+        "used to be the silent default; pass stec.config.paths.LEGACY_PREDICTIONS for "
+        "the real store, or paths.PREDICTIONS explicitly if the stub is what you want.",
+    )
     parser.add_argument("--database-root", type=Path, default=None)
     parser.add_argument("--space-weather", type=Path, default=None)
     parser.add_argument("--madrigal-root", type=Path, default=None)
@@ -634,7 +647,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     finetune_template = load_finetune_template(args.stec_config)
-    store_root = args.store_root or ps.DEFAULT_STORE_ROOT
+    store_root = ps.require_explicit_store_root(
+        args.store_root, caller="daily_sweep.main"
+    )
 
     results = run_sweep(
         args.year,

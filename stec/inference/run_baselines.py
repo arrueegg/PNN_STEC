@@ -481,7 +481,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--vtec-checkpoint/--vtec-config are not given directly",
     )
 
-    parser.add_argument("--store-root", type=Path, default=None)
+    parser.add_argument(
+        "--store-root",
+        type=Path,
+        default=None,
+        help="required - no default. paths.PREDICTIONS (the pipeline smoke-test stub) "
+        "used to be the silent default; pass stec.config.paths.LEGACY_PREDICTIONS for "
+        "the real store, or paths.PREDICTIONS explicitly if the stub is what you want.",
+    )
     parser.add_argument("--database-root", type=Path, default=None)
     parser.add_argument("--space-weather", type=Path, default=None)
     parser.add_argument("--madrigal-root", type=Path, default=None)
@@ -517,7 +524,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     device = torch.device(args.device)
-    store_root = args.store_root or ps.DEFAULT_STORE_ROOT
+    store_root = ps.require_explicit_store_root(
+        args.store_root, caller="run_baselines.main"
+    )
 
     manifest: list[dict] = []
     loaded_vtec: dict[int, tuple[dict, torch.nn.Module]] = {}
