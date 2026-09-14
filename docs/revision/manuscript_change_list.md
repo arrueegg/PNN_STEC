@@ -305,3 +305,63 @@ too (see `docs/revision/positioning_reporting.md`'s own top note for the same ca
 `positioning_quality_gate.py` has the identical gap (its quality-gate mean of +0.09%, cited
 nowhere in this file directly but present in `positioning_reporting.md` §1, is also
 2026-08-28-vintage).
+
+## 10. The figures were audited separately from the numbers, and two had moved
+
+**2026-09-14.** Sections 1-9 audit the manuscript's *claims*. This section audits the
+*embedded images*, which are a separate failure surface: a figure can silently contradict a
+table that was corrected without it, and nothing in the pipeline checks that
+`STEC_Modelling/FigureN.png` matches what the generator currently produces. Mapping each
+manuscript figure to its `plots/manuscript/**/*_notitle.png` counterpart and comparing.
+
+| Fig | Regenerated counterpart | Verdict |
+|---|---|---|
+| 1, 2 | `dataset_construction/{temp,spatial}_split` | SAME — static split lists, untouched by the rebuild |
+| 3 | none (hand-drawn, `docs/ResNet.drawio`) | n/a |
+| 4 | `stec_pretrained_testset/pred_density_limited` | SAME |
+| 5-8 | `stec_pretrained_testset/residuals_{elev,lat,localtime,year_month}` | SAME, on weaker evidence — see below |
+| 9 | `stec_pretrained_testset/uncertainty` | SAME — all four curves and all 17 bins match |
+| 10 | `stec_finetuned_2024/improvements_rmse` | **MOVED — replaced** |
+| 11 | `stec_finetuned_2024/mae_rmse_finetuned` | **MOVED — replaced, gained a fourth series** |
+| 12-15 | `positioning_2024/{pos_trend,boxplot_3d_error,pos_improvement_timeseries,cdf_unfiltered}` | replaced under the unfiltered median methodology |
+
+**Figure 4's counterpart is `pred_density_limited`, not `pred_density`.** The unlimited variant's
+data reaches 509.5 TECU; the manuscript's axes run 0-300. The limited render is the embedded
+one. A mapping by filename alone would have picked the wrong file and declared a spurious
+divergence.
+
+**Figure 10 was carrying the DOY-truncation bug's visual signature.** The published image shows
+IGS GIM improvement spiking to roughly 73% and 57% around 2024-07-02..07 and 2024-08-12..17 —
+exactly DOY 184-189 and 225-230, the twelve days on which `compare_stec_vtec_gim.py` loaded the
+previous day's IONEX map (see CLAUDE.md's Gotchas). After the repair those days read 6.1-24.5%
+against an overall median of 18.3% and a maximum of 38.0%; the spike is gone. This matters
+beyond the one figure: **Tables 3 and 4 had already been corrected for this bug in the revised
+manuscript while Figure 10, built on the same comparison, had not been regenerated since
+2026-08-18.** The manuscript was internally inconsistent — corrected numbers beside an
+uncorrected figure — and the inconsistency was invisible to every check that looks at numbers
+rather than images. The caption names only the two baselines and the zero line, so the
+replacement is a drop-in with no caption edit.
+
+**Figure 11 gained a fourth series, and that forced two prose edits.** The regenerated figure
+plots Pretrained Direct STEC alongside the three methods the caption named. Owner's decision
+(2026-09-14): include it — the adjacent Table 3 paragraph already discusses the pretrained
+model at length, and the series carries a real finding. RMSE_mean at 5 deg / 85 deg elevation:
+Direct STEC 10.83 / 3.64, IGS GIM 13.43 / 3.97, VTEC 15.34 / 3.70, **Pretrained 20.22 / 7.13**.
+The three original methods converge at high elevation; the pretrained-only model does not, and
+stays roughly double at the top of the range. That reinforces the manuscript's own "day-specific
+adaptation is essential" argument, but it falsifies the body sentence "all methods converge",
+which is now `\change{}`d to name the three that do and state that the pretrained one does not.
+The Conclusion's convergence sentence (l.517) was checked and **stands** — it names the Direct
+STEC model specifically, which does converge (3.64 vs 3.70 vs 3.97 at 85 deg).
+
+**Weaker evidence on Figures 5-8.** Their SAME verdict rests on the Gate F equivalence argument
+plus the absence of any known bug touching their data path, not on an independent re-binning of
+the raw parquet. Figures 1, 2, 4, 9 were checked directly. Stated rather than glossed because
+the distinction is exactly what Section 9 of this document exists to preserve.
+
+**`STEC_Modelling/` is gitignored in full** (`.gitignore:79`), so the manuscript and every
+figure in it have no version control, and the pre-replacement `Figure12-15.png` were lost when
+overwritten. `STEC_Modelling/_published_figures_backup/` now holds a snapshot of all 15 — but
+note that 12-15 in that backup are the *new* renderings, the originals being already gone. The
+authoritative published copies remain in the owner's Overleaf project. Owner's decision
+(2026-09-14): leave `.gitignore` as it is, the backup directory is sufficient.
