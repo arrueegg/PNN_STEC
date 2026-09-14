@@ -93,12 +93,55 @@ stratified_comparison_pretrained` bucket, unclaimed since the results-layout res
 - [ ] **Decide**: build it (would need a new declared stage, modelled on `stratified_comparison`
   but reading the pretrained-only partition) or remove the promise from the response letter.
 
-### R2.8a, R2.8c, R2.8d, R2.8e: absent from this repository
+### R2.7, R2.8a, R2.8c, R2.8d, R2.8e, R2.M1–R2.M6: not absent — unanswered, and answerable now
 
-Nothing under these labels exists anywhere in `docs/revision/` or the codebase.
+**This section used to say these labels were "absent from this repository... can't be resolved
+from inside the checkout." That was wrong on two counts.** Both reviewer letters have been in
+the repo the whole time, as image-based PDFs under `STEC_Modelling/` — gitignored in full
+(`.gitignore` line 79: `STEC_Modelling/`), which is why every earlier grep for reviewer text
+missed them. And the gap is bigger than four items: checking `response_to_reviewers.md`'s
+actual `###` headers against both letters (not against a prior summary of either) finds **11**
+unanswered comments, not 4. `docs/revision/reviewer_comments_verbatim.md` is now the
+version-controlled transcription of both letters, with the full coverage table and per-comment
+classification this section summarises.
 
-- [ ] **Check the actual reviewer letter** (outside this repo) for whether these were ever
-  asked, or were asked and silently dropped. Can't be resolved from inside the checkout.
+The 11: **R2.7** (moderate the conclusion), **R2.8a** (how differing-temporal-resolution inputs
+were prepared), **R2.8c** (source and generation of ground-truth STEC), **R2.8d** (why both
+geographic and solar-magnetic coordinates), **R2.8e** (why both Kp and Ap indices given their
+correlation), and **R2.M1–R2.M6** (all six of Reviewer 2's minor comments — line 28 typo,
+citation style, abbreviation consistency, literature review, "unresolved variability", final-vs-
+rapid IGS GIM). None needs new computation, a new model run, or new analysis — every one is
+either a manuscript-prose fix or answerable directly from a file already in the repo:
+
+- [ ] **R2.7** — prose only, Conclusion section: moderate claims already flagged elsewhere in
+  this revision as stronger than the evidence (the abstract's ~30% positioning figure and its
+  restatements, per `docs/revision/manuscript_change_list.md`).
+- [ ] **R2.8a** — answerable from `stec/data/day_reader.py`: `year`/`doy` are per-file constants,
+  space weather is hourly and joined by `sod // 3600`, `local_time_hours` is derived
+  per-observation from `sod` and IPP longitude. Write it into the methods section.
+- [ ] **R2.8c** — mostly answerable from `docs/REPRODUCING.md`'s data table and
+  `response_to_reviewers.md`'s `### R1.3` point 4 (CAS DCB, CamaliotGNSS, per-station/
+  per-satellite DCB counts, cycle-slip-derived arcs). One piece is a genuine, non-computational
+  gap: the levelling algorithm itself is external to this repo (R1.3's own text: "still needs
+  to be documented by the group producing the database"; `src/data_processing/` holds no
+  RINEX-to-STEC code, confirming it) — needs a documentation request to the co-authors who
+  built the database, not analysis from this checkout.
+- [ ] **R2.8d** — `stec/data/feature_registry.py`'s `DEFAULT_FEATURE_CONTROL` plus
+  `config/config_BNN.yaml` (no override) confirm the paper model is fed geographic
+  (`lat_sta`/`lon_sta`/`lat_ipp`/`lon_ipp`) and solar-magnetic (`sm_lat_sta`/`sm_lon_sta`/
+  `sm_lat_ipp`/`sm_lon_ipp`) coordinates simultaneously — the reviewer is factually right. Needs
+  a domain-justification paragraph (geographic = local time/geometry, solar-magnetic =
+  geomagnetic-field-aligned structure), not new computation.
+- [ ] **R2.8e** — same two files confirm `Kp_index` and `ap_index,_nT` are both enabled by
+  default and neither is disabled in `config_BNN.yaml`; reviewer is again factually right. Needs
+  a paragraph on why both are kept (Ap is a quasi-linearised transform of Kp, not a duplicate
+  channel), not a new correlation study.
+- [ ] **R2.M1–R2.M6** — six proofreading/one-line fixes. R2.M6 (final vs rapid IGS GIM) is
+  answerable from code alone: `stec/baselines/gim.py` / `stec/frozen/evaluation/gim_mapper.py`
+  hardcode the `igsg` IONEX filename prefix, which is the IGS **final** product. R2.M4
+  (literature review) needs no new citation: `natras_uncertainty_2023` is already in
+  `sn-bibliography.bib` and already cited in the manuscript, just not called out explicitly as
+  prior probabilistic-ML ionosphere work.
 
 ### Manuscript text
 
@@ -159,12 +202,19 @@ forward unchanged from the previous version — nothing below has been checked t
 
 ## Tally
 
-Open checklist items: **13 → 3** (R1.4b decision: 1; R2.8 reviewer-letter check: 1; manuscript
-text: 1; the three "settled, recorded" bullets above are not counted as open — they're closed
-decisions kept for the record, not action items). Everything else in the previous version was
-either finished (elevation re-solve, common_set_positioning re-run, oracle_benchmark re-run,
-DOY 196/217, Madrigal orphan day, the `paths.PREDICTIONS` trap, and — same day, later — the
-Table 5 methodology gap and the two-module prose-refresh gap) or reclassified from "work to
+Open checklist items: **3 → 8** (corrected 2026-09-14, same day as the "3"). The "3" undercounted
+R2.8: "check the actual reviewer letter" was recorded as one item that couldn't be resolved from
+inside the checkout, when the letters were in `STEC_Modelling/` the entire time (gitignored, see
+above) and decompose into **six** concrete, already-answerable items, not one unresolvable one —
+`docs/revision/reviewer_comments_verbatim.md` has the full transcription and per-comment
+classification. Current count: R1.4b decision (1); R2.7/R2.8a/R2.8c/R2.8d/R2.8e prose-or-pointer
+writes (5); R2.M1–R2.M6 minor-comment pass (1, grouped — six small fixes done in one pass);
+manuscript text (1). The three "settled, recorded" bullets above are still not counted as open —
+they're closed decisions kept for the record, not action items. Everything else in the previous
+version was either finished (elevation re-solve, common_set_positioning re-run, oracle_benchmark
+re-run, DOY 196/217, Madrigal orphan day, the `paths.PREDICTIONS` trap, and — same day, later —
+the Table 5 methodology gap and the two-module prose-refresh gap) or reclassified from "work to
 schedule" to "permanent limitation to state" (DOY 303/338/348, the six-DOY/24-station-day gap,
-the 26-station-day SINEX gap). All 3 remaining items are decisions or writing — none require
-GPU time or PPPx wall-clock.
+the 26-station-day SINEX gap). All 8 remaining items are decisions or writing — none require GPU
+time or PPPx wall-clock, and none of the newly-decomposed R2.8/R2.M items need new computation
+either (see the classification in `reviewer_comments_verbatim.md`).
