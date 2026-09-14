@@ -7,19 +7,19 @@
     "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / pretrained_test_diagnostics / positioning_coverage's outputs (Figures 4-15) - a partial multiday_results tree produces a partial figure set with a logged warning per missing input, not a crash."
   ],
   "code": {
-    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
+    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
     "dirty": true
   },
   "command": "-m stec.viz.manuscript_figures",
   "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
-  "duration_s": 26.7,
-  "fingerprint": "583a3b1943df93d64d63fa90dc5565494f0dd3020b12cc3f423afe04c50512ca",
+  "duration_s": 26.0,
+  "fingerprint": "4357779b950d27f4ad1b4ac0e1e1655230d2b2cc319cab12fde5cb0a7af0008a",
   "inputs": {
     "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results": {
-      "files": 13462,
+      "files": 13464,
       "kind": "tree",
-      "mtime_ns": 1789367526526651410,
-      "size": 246449931366
+      "mtime_ns": 1789371086519928283,
+      "size": 246707911499
     }
   },
   "outputs": {
@@ -35,7 +35,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T06:33:01.335099+00:00",
+  "recorded_at": "2026-09-14T07:32:19.105275+00:00",
   "stage": "manuscript_figures",
   "supersedes": []
 }

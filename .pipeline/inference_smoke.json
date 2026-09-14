@@ -9,10 +9,10 @@
     "Writes SMOKE_STORE_DAY (the store parquet), which baselines_smoke (below) then reads and mutates in place - see that stage's own caveats."
   ],
   "code": {
-    "commit": "4fe59932b00822a8cc0169574a7ebf05912b38cc",
+    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
     "dirty": true
   },
-  "command": "-m stec.inference.run_inference --config tests/fixtures/pipeline_smoke/config.yaml --checkpoint artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth --model-variant finetuned_stec --dataset own --doys 2024:132 --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --output-dir artifacts/predictions/pipeline_smoke_inference --device cpu",
+  "command": "-m stec.inference.run_inference --config tests/fixtures/pipeline_smoke/config.yaml --checkpoint artifacts/models/pipeline_smoke_finetune/model/finetune_BayesianResNetSTEC_seed42.pth --model-variant finetuned_stec --dataset own --doys 2024:132 --database-root tests/fixtures/pipeline_smoke/external_data/STEC_DB_CASDCB --space-weather tests/fixtures/pipeline_smoke/repo_data/omni_hourly_2010-2025.h5 --store-root artifacts/predictions --output-dir artifacts/predictions/pipeline_smoke_inference --device cpu",
   "description": "proves stec.inference.run_inference wires monte_carlo into the prediction store end to end, on the same tiny checked-in fixture day",
   "duration_s": 1.3,
   "fingerprint": "a438adc0cafda33e77467be1cec6bdcfa1d64ded714cad16c84a5423986018e5",
@@ -38,7 +38,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-24T16:34:36.186236+00:00",
+  "recorded_at": "2026-09-14T06:54:49.568691+00:00",
   "stage": "inference_smoke",
   "supersedes": []
 }

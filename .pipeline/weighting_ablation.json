@@ -3,13 +3,13 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
+    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
     "dirty": true
   },
   "command": "-m stec.analysis.weighting_ablation --output-dir multiday_results/analyses/weighting_ablation/rebuilt",
   "description": "elevation against predicted-uncertainty weighting, paired station-days",
-  "duration_s": 1.1,
-  "fingerprint": "e3160823021010c4fde05dfa4cb50c8d30e3476e078c3cf29970ff6a410e6648",
+  "duration_s": 1.0,
+  "fingerprint": "c728abdcf80b9c1246db601a30f3d685f62b2e480453cdbf945c6cf76f44db3d",
   "inputs": {
     "experiments/Fixed_Variance_STEC/positioning/results": {
       "files": 26950,
@@ -19,8 +19,8 @@
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
       "kind": "file",
-      "sha256": "104cac05e4ddda7888c359e85cc1b207510c18794615f28af1053c0f1ebfba90",
-      "size": 28993128
+      "sha256": "430e110bc2c7bbc57290b1c493b982494c6478663e6fdee12009550d6d4e85b7",
+      "size": 29032811
     }
   },
   "outputs": {
@@ -30,7 +30,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-29T00:33:23.341339+00:00",
+  "recorded_at": "2026-09-14T07:22:24.129717+00:00",
   "stage": "weighting_ablation",
   "supersedes": []
 }

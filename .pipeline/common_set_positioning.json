@@ -5,23 +5,23 @@
     "A different station-day population from Table 5, by design: requiring both weightings costs the IGS GIM ~3,000 station-days. State the N of each table."
   ],
   "code": {
-    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
+    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
     "dirty": true
   },
   "command": "-m stec.analysis.common_set_positioning --output-dir multiday_results/analyses/common_set_positioning/rebuilt",
   "description": "positioning recomputed on the station-days every method solved",
   "duration_s": 0.5,
-  "fingerprint": "5ee81de08d08b8ded05ab402830453269a64650b1314438ce597f43947a5a272",
+  "fingerprint": "bdf8bfe96a656742af625731fc3e7778ca442a57bcc7e3a0ab5fe8274f843e51",
   "inputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "b3e5fb95c80d97faed682a8c4cfe56a13360e4989ac0d08538042b426cc7d654",
-      "size": 13932690
+      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
+      "size": 13972373
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
       "kind": "file",
-      "sha256": "104cac05e4ddda7888c359e85cc1b207510c18794615f28af1053c0f1ebfba90",
-      "size": 28993128
+      "sha256": "430e110bc2c7bbc57290b1c493b982494c6478663e6fdee12009550d6d4e85b7",
+      "size": 29032811
     }
   },
   "outputs": {
@@ -31,7 +31,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-29T00:33:23.958010+00:00",
+  "recorded_at": "2026-09-14T07:22:25.438611+00:00",
   "stage": "common_set_positioning",
   "supersedes": []
 }

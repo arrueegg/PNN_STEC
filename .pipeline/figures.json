@@ -6,19 +6,19 @@
     "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
   ],
   "code": {
-    "commit": "0d59f00b3e29b6eddc660c8fc26ee37b68f66068",
+    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
     "dirty": true
   },
   "command": "-m stec.viz.revision_figures",
   "description": "one PNG per revision figure, plus the _notitle manuscript variants",
-  "duration_s": 20.6,
-  "fingerprint": "583a3b1943df93d64d63fa90dc5565494f0dd3020b12cc3f423afe04c50512ca",
+  "duration_s": 19.6,
+  "fingerprint": "4357779b950d27f4ad1b4ac0e1e1655230d2b2cc319cab12fde5cb0a7af0008a",
   "inputs": {
     "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results": {
-      "files": 13462,
+      "files": 13464,
       "kind": "tree",
-      "mtime_ns": 1789367526526651410,
-      "size": 246449931366
+      "mtime_ns": 1789371086519928283,
+      "size": 246707911499
     }
   },
   "outputs": {
@@ -28,7 +28,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T06:32:34.414766+00:00",
+  "recorded_at": "2026-09-14T07:31:52.880755+00:00",
   "stage": "figures",
   "supersedes": []
 }

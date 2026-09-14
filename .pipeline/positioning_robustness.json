@@ -3,18 +3,18 @@
   "canonical_for": null,
   "caveats": [],
   "code": {
-    "commit": "dbf9f65bede48a2da83b45ddc4b0b2d09416ae73",
+    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_robustness --output-dir multiday_results/analyses/positioning_robustness/rebuilt",
   "description": "tail behaviour and convergence of the positioning solutions",
   "duration_s": 0.3,
-  "fingerprint": "e80436e1a54b44e4e67fec4aaa93a648966cd0578b2d3efda2d3dc83703c2c2d",
+  "fingerprint": "02094363143b654b540bd1656d31e5913598b8a0325b2aacf09a2b04c14ef88c",
   "inputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "b3e5fb95c80d97faed682a8c4cfe56a13360e4989ac0d08538042b426cc7d654",
-      "size": 13932690
+      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
+      "size": 13972373
     }
   },
   "outputs": {
@@ -24,7 +24,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-27T17:51:47.352291+00:00",
+  "recorded_at": "2026-09-14T07:22:24.899368+00:00",
   "stage": "positioning_robustness",
   "supersedes": []
 }
