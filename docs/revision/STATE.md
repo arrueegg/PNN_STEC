@@ -752,7 +752,9 @@ whenever `activity_stratification` legitimately re-runs. Flagged rather than for
 
 The `madrigal-reinference-fixed4` crash loop (`Start request repeated too quickly`,
 `pyarrow.lib.ArrowInvalid: No match for FieldRef.Name(vtec_model_stec_total_unc)`) flagged in
-`weekend_report.md` on 2026-08-24 was not a transient blip. **Diagnosed before touching
+`weekend_report.md` on 2026-08-24 (that file retired via `git rm` in the 2026-09-14
+documentation consolidation; recoverable from git history) was not a transient blip.
+**Diagnosed before touching
 anything**: read every one of the 235 files' parquet *schema* (metadata only,
 `pq.ParquetFile(path).schema.names`, no data read) rather than assuming the gap was where the
 crash first appeared.

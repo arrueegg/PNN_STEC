@@ -238,7 +238,9 @@ comparison directories in `/tmp/gate_f*` (Aug 21) and `docs/revision/gate_f_inve
 from commit `e14c660` (14:19 that day), never updated after the measurement pass finished at
 17:04 — and CLAUDE.md explicitly tells readers ARCHITECTURE.md is *more current*, which here
 inverts the truth. The `daily_metrics` MATCH survives scrutiny: the post-comparison rewrite
-(`c554c00`) was checked to be additive-only in `gate_f_results.md`'s preamble.
+(`c554c00`) was checked to be additive-only in `gate_f_results.md`'s preamble (retired to
+`docs/revision/archive/gate_f_results.md` in the 2026-09-14 documentation consolidation -
+same content, new path).
 
 Blind spots in the gate itself:
 
@@ -310,7 +312,9 @@ reproducibility artifact.
   of being written (superseded same day by commits `507bcf2`/`e2c3e6d`) and carries no
   supersession note. NEW.
 - `weekend_report.md`'s final chronological entry repeats the disproven "schema era at DOY
-  195" diagnosis; the correction lives in a header disclaimer and an addendum that exist only
+  195" diagnosis (that file retired via `git rm` in the 2026-09-14 documentation
+  consolidation; recoverable from git history); the correction lives in a header disclaimer
+  and an addendum that exist only
   in the **uncommitted working tree**. The same applies to the STATE.md sections recording
   the `materialize_batches` divergence and current job state — 313 lines of important
   corrections are currently uncommitted across 8 files. KNOWN content, NEW risk framing.

@@ -8,12 +8,12 @@
     "Restricted to the four iono-weighted PAPER_METHODS (positioning_summary.py's labels), the same population Table 5 uses - elev weighting is out of scope here, same as positioning_summary itself."
   ],
   "code": {
-    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
+    "commit": "77d5a85e738ba576cf55e66d403f3842de2c689d",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_diagnostics --output-dir multiday_results/analyses/positioning_diagnostics/rebuilt",
   "description": "outlier-threshold sensitivity, per-station losses and a recovered-vs-original population split for the post-recovery-sweep positioning result",
-  "duration_s": 15.7,
+  "duration_s": 14.9,
   "fingerprint": "11998949efc3ae3195fd1729554ec2b3a22cde7047089eddcb2e8f65ae44917c",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
@@ -36,7 +36,12 @@
   "outputs": {
     "multiday_results/analyses/positioning_diagnostics/rebuilt": {
       "present": true,
-      "size": 1618
+      "size": 1666
+    },
+    "multiday_results/analyses/positioning_diagnostics/rebuilt/FINDINGS.md": {
+      "present": true,
+      "sha256": "f9f51f0e1375bf451a115174e10af417a3136bd5bec73ced02b273bc9d69635e",
+      "size": 11053
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/daily_timeseries.csv": {
       "present": true,
@@ -112,7 +117,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T07:23:46.536673+00:00",
+  "recorded_at": "2026-09-14T09:38:13.732437+00:00",
   "stage": "positioning_diagnostics",
   "supersedes": []
 }

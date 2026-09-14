@@ -19,11 +19,21 @@ trivial rounding drift), VALUE MOVED (same claim shape, different number), CLAIM
 SUPPORTED (the artifact contradicts or cannot support what the sentence asserts), NEW CLAIM
 AVAILABLE (evidence exists with no manuscript sentence yet).
 
+**Every "Artifact said (2026-09-14 snapshot)" cell below is exactly that — a snapshot, dated
+in the column header, not a live value.** This document's whole purpose is comparing the
+manuscript's frozen number against a current one, so both numbers have to be written down
+side by side; that is different from CLAUDE.md's canonical-results table, which holds no
+numbers at all any more, only paths. Before pasting anything from the "Artifact said" column
+into the manuscript, re-read the CSV or stage named in the row (usually the "Population /
+statistic" column) — if the pipeline has run again since 2026-09-14, the CSV may already say
+something else. Numbers here are pinned to a commit (`c83643b`) precisely so this table is
+reproducible, not so it is a substitute for re-checking.
+
 ---
 
 ## 1. Abstract and Plain Language Summary
 
-| # | Location | Manuscript says | Artifact says (current) | Population / statistic | Status | Action |
+| # | Location | Manuscript says | Artifact said (2026-09-14 snapshot) | Population / statistic | Status | Action |
 |---|---|---|---|---|---|---|
 | 1 | Abstract, l.72 | "mean RMSE of 6.92 TECU and a MAE of 3.88 TECU" | RMSE 6.9243, MAE 3.8803 | `daily_metrics/rebuilt/summary.csv`, `own_vtec_gim`/Direct STEC, mean of 242 daily RMSE/MAE | UNCHANGED | none |
 | 2 | Abstract, l.72 | "outperforming both a daily ML VTEC baseline... and IGS GIM" | Direct STEC 6.92 < VTEC 8.96 < IGS GIM 8.28 | same table | UNCHANGED (ranking holds; GIM's own value moved, see Table 3 row 25 below) | none |
@@ -40,7 +50,7 @@ No numeric claim in the Data section (§`secData`, l.149–171: 2014–2024 span
 station split) depends on an artifact that has moved — the splits are static files
 (`stec/data/splits/*.list`) untouched by the rebuild. No action.
 
-| # | Location | Manuscript says | Artifact says (current) | Status | Action |
+| # | Location | Manuscript says | Artifact said (2026-09-14 snapshot) | Status | Action |
 |---|---|---|---|---|---|
 | 9 | Table 1, l.187–227 | Input feature list | Unchanged — `stec.config.feature_registry` matches | UNCHANGED | none |
 | 10 | Table 2, l.260–289 | Hyperparameters; β=0.1, no warmup schedule shown | β anneals **linearly 0→0.1 over 5 warmup epochs** (`stec/training/loss.py`'s `KLWarmupSchedule`, ported from `src/training/training_utils.py:45`) — table shows only the terminal value | Table is not wrong, but incomplete | **NEW CLAIM AVAILABLE** (methods clarification) | Add a row or footnote: "β annealed linearly from 0 over the first 5 epochs." Cheap, prevents a reviewer catching the omission independently. |
@@ -58,7 +68,7 @@ import pandas as pd, numpy as np
 df = pd.read_parquet(".../observations.parquet", columns=["true_stec","stec_pred","year"])
 ```
 
-| # | Location | Manuscript says | Artifact says (current) | Status | Action |
+| # | Location | Manuscript says | Artifact said (2026-09-14 snapshot) | Status | Action |
 |---|---|---|---|---|---|
 | 12 | l.326 | "Pearson correlation of approximately 0.95 and R² close to 0.9" | Pearson 0.9475, R² 0.8974 (10M-row cache, all years) | UNCHANGED | none |
 | 13 | l.334 | Errors decrease monotonically with elevation; pretrained model stable at low elevation | Consistent with Gate F `mapping_function_consistency`/`stratified_comparison` MATCH against the pre-rebuild predecessor; not independently re-binned by elevation for the pretrained-only model in this pass | UNCHANGED (verified via Gate F, not re-derived here) | none |
@@ -70,14 +80,14 @@ df = pd.read_parquet(".../observations.parquet", columns=["true_stec","stec_pred
 
 ## 4. Results §4.2 — Uncertainty calibration
 
-| # | Location | Manuscript says | Artifact says | Status | Action |
+| # | Location | Manuscript says | Artifact said (2026-09-14 snapshot) | Status | Action |
 |---|---|---|---|---|---|
 | 19 | l.369 | Monotonic relationship, uncertainty tracks error magnitude | Confirmed, #4 above | UNCHANGED | none |
 | 20 | l.391 | Aleatoric dominates, epistemic comparatively small | Epistemic share 5.1–6.6% of total across uncertainty bins (`uncertainty_error_relation/rebuilt/by_elevation.csv`'s `epistemic_share_%` column) | UNCHANGED | none |
 
 ## 5. Results §4.3 — Fine-tuning, baselines, Tables 3 & 4
 
-| # | Location | Manuscript says | Artifact says (current) | Population | Status | Action |
+| # | Location | Manuscript says | Artifact said (2026-09-14 snapshot) | Population | Status | Action |
 |---|---|---|---|---|---|---|
 | 21 | l.395, Fig 10 | "gains frequently exceeding 15–30%" over both baselines | vs VTEC: median 23.0%, 83.9% of days >15%, 14.5% of days >30%. vs GIM: median 18.3%, 63.6% of days >15%, 2.1% of days >30% | `daily_metrics/rebuilt/per_day.csv`, own dataset, per-day RMSE, recomputed this pass, 242 days | UNCHANGED | none |
 | 22 | l.403, Fig 11 | Direct STEC beats both baselines at low elevation, converges at high elevation | 5°: 10.74 (STEC) vs 13.34 (GIM) vs 15.19 (VTEC). 85°: 3.63 vs 3.96 vs 3.69 | `elevation_metrics_finetuned/rebuilt/per_day_by_elevation.csv`, own, recomputed this pass | UNCHANGED | none |
@@ -101,7 +111,7 @@ the `positioning_distributions`/`positioning_diagnostics` prose docs (dated 2026
 — see §9 (corrected later 2026-09-14: both modules are now declared pipeline stages and their
 docs have been refreshed, so this is no longer an open gap, only a record of what moved).
 
-| # | Location | Manuscript says | Artifact says (current) | Population | Status | Action |
+| # | Location | Manuscript says | Artifact said (2026-09-14 snapshot) | Population | Status | Action |
 |---|---|---|---|---|---|---|
 | 32 | l.451 (\add) | Weighting ablation: Direct STEC 3D RMS 1.156→1.121 m switching elev→iono, "an improvement of 3.0%", restricted to 27,205 station-days solved under both schemes | Direct STEC elev 1.5966→iono 1.5367 m, **+3.75%**, N=10,366 paired station-days (self-comparison); cross-check via `common_set_positioning` (all 4 methods × both weightings, N=10,186): elev 1.5442→iono 1.4848, +3.85% | `weighting_ablation/rebuilt/paired.csv`; `common_set_positioning/rebuilt/table5_common_set.csv` | **VALUE MOVED** — direction and rough magnitude (~3–4%) hold, but N dropped from 27,205 to ~10,200–10,400 and both absolute values roughly tripled (harder, larger recovered population) | Requote N and the two absolute values. The "27,205" figure's exact construction (sum across methods? a different N convention?) could not be reproduced from any single current artifact — flag for the owner rather than guess which one it matches. |
 | 33 | l.451 (\add) | VTEC + Mapping degrades 1.580→1.624 m under iono weighting | VTEC elev 1.9095→iono 1.9105 m, **−0.05%** (still degrades, far smaller) | N=10,640 paired | VALUE MOVED (direction holds, magnitude much smaller) | Requote |

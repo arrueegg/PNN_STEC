@@ -729,10 +729,12 @@ _POSITIONING_DIAGNOSTICS_FIGURE_CSVS = [
 
 def test_positioning_diagnostics_is_declared_exactly_once_and_owns_no_deliverable():
     """Diagnostic output built to look at the coverage-recovery result before deciding
-    whether/how it becomes part of Table 5 or a new appendix (see the module docstring
-    and multiday_results/analyses/positioning_diagnostics/rebuilt/FINDINGS.md) - it must
-    not claim a manuscript deliverable while that decision is still open, the same
-    reasoning common_set_positioning's canonical_for=None already carries above."""
+    whether/how it becomes part of Table 5 or a new appendix (see the module docstring)
+    - it must not claim a manuscript deliverable while that decision is still open, the
+    same reasoning common_set_positioning's canonical_for=None already carries above.
+    FINDINGS.md (checked below) is one of this stage's own declared outputs, generated
+    by main() from the same dataframes as its CSVs - not a separate hand-maintained
+    document that could disagree with canonical_for on its own."""
     matches = [s for s in STAGES if s.name == "positioning_diagnostics"]
     assert len(matches) == 1
     assert matches[0].canonical_for is None
@@ -815,6 +817,17 @@ def test_positioning_diagnostics_every_csv_has_a_positive_min_rows_floor():
         key = str(POSITIONING_DIAGNOSTICS_DIR / name)
         assert key in floors, f"{name} has no min_rows floor"
         assert floors[key] > 0
+
+
+def test_positioning_diagnostics_declares_findings_markdown_as_a_generated_output():
+    """FINDINGS.md is main()'s 13th write (_format_findings_markdown), not a 13th CSV -
+    declared as an output so a truncated/missing write is caught the same way a missing
+    CSV would be, but carries no min_rows floor (markdown, not row-shaped data), the
+    same treatment positioning_distributions gives TABLE5_NUMBERS.md."""
+    outputs = stage("positioning_diagnostics").outputs
+    key = str(POSITIONING_DIAGNOSTICS_DIR / "FINDINGS.md")
+    assert key in outputs
+    assert key not in stage("positioning_diagnostics").min_rows
 
 
 def test_positioning_diagnostics_structurally_exact_floors_match_the_guarantee():

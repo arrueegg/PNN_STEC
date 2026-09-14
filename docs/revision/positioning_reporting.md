@@ -3,6 +3,15 @@
 Owner decision, 2026-08-28. Record of what was decided, the evidence behind it, and what a
 future session needs to know before writing the manuscript's positioning section.
 
+**Every number below is a dated snapshot, not a live value.** This document makes a
+scientific argument (median over mean, no outcome filter) that needs real numbers to make
+its case, so the numbers stay inline rather than becoming bare pointers - but each one is
+labelled with the date it was read and the CSV it came from, and the 2026-09-14 update below
+exists specifically because this document silently went stale for over two weeks the first
+time (§1's numbers kept quoting the 2026-08-28 population after `positioning_coverage`
+gained 114 station-days). If a number here disagrees with the artifact it cites, the artifact
+is right. Before quoting anything from this file in the manuscript, re-read the cited CSV.
+
 **Updated 2026-09-14.** `positioning_distributions` and `positioning_geography` (with their
 `stec/viz/` figure counterparts) are now declared pipeline stages in
 `stec/pipeline/stages.py`, and `positioning_distributions` carries `canonical_for="Table 5"`
@@ -289,25 +298,18 @@ current and complete for iono — confirmed via `python -m stec.pipeline status`
 `storm_stratification`, `positioning_robustness` and `positioning_summary` all up to date, all
 iono-only and unaffected by what's below.
 
-`elev-positioning-chain.service` is running as of this writing (started 2026-08-28 09:44,
-~20 h estimated), re-solving PPPx under `--weight_opt elev` for Direct STEC, VTEC + Mapping and
-Pretrained STEC across the current (post-recovery-sweep) population — every elevation-weighted
-`daily_summary.csv` on disk predates the second recovery sweep (max mtime 2026-08-20), same gap
-the iono arm already had closed. **2026-09-14 update: this paragraph is itself stale** — 17 days
-after the chain started, `python -m stec.pipeline status` now reports `positioning_coverage`,
-`weighting_ablation`, `common_set_positioning` and `oracle_benchmark` all "up to date" rather
-than "inputs or parameters changed", which is consistent with the elev re-solve having landed
-and those three consumers having been regenerated against it since. This document was not
-re-verified against that elev output as part of the 2026-09-14 pass (out of scope — see the top
-note, which is about the iono-only `positioning_distributions`/`positioning_geography` stages),
-so treat "will need regenerating once it lands" below as probably already done rather than
-still pending, and check `docs/revision/work_queue.md` or the stages' own `.pipeline/*.json`
-records for the current state before relying on this paragraph. Three consumers read that elev
-arm and, as of 2026-08-28, needed regenerating once it landed:
-
-- `common_set_positioning` (blocked on it now — currently N=7,947, elev-vintage input)
-- `oracle_benchmark`
-- `weighting_ablation`
+**Settled — read `docs/revision/work_queue.md` §1 for the current numbers, not this
+paragraph.** `elev-positioning-chain.service` (started 2026-08-28, re-solving PPPx under
+`--weight_opt elev` for Direct STEC, VTEC + Mapping and Pretrained STEC across the
+post-recovery-sweep population) finished over 28–29 August, and `common_set_positioning`,
+`oracle_benchmark` and `weighting_ablation` — the three consumers that read the elev arm —
+have all been regenerated against it since (`python -m stec.pipeline status` reports them
+up to date, not "inputs or parameters changed"). This paragraph used to say
+`common_set_positioning` was blocked on the re-solve at a specific N; read the current N
+from `multiday_results/analyses/common_set_positioning/rebuilt/` directly, or from
+`work_queue.md` §1 "Current state", which is the place that tracks it now - not this file,
+which is scoped to the iono-only decision in §§1-5 and was never meant to track the elev
+arm's progress.
 
 Everything in §§1–5 of this document — the distributional Table 5, the population crossover,
 the storm finding, the attribution result, the N≥30 floor and the other methodological rules —

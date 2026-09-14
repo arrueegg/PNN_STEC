@@ -1534,10 +1534,12 @@ STAGES: list[Stage] = [
     Stage(
         # Landed 2026-08-28 (commit b844bd4) as an owner-requested look at the
         # coverage-recovery headline before deciding whether/how it becomes part of
-        # Table 5 or a new appendix - see the module docstring and this stage's own
-        # output directory's FINDINGS.md. Declared here so its 12 CSVs get the same
-        # provenance record as every other analysis, rather than rotting silently the
-        # way results_manifest itself once did before it was declared.
+        # Table 5 or a new appendix - see the module docstring. Declared here so its 12
+        # CSVs (and FINDINGS.md, the narrative write-up `main()` generates from those
+        # same CSVs - see _format_findings_markdown - rather than a hand-maintained
+        # document that can drift from them) get the same provenance record as every
+        # other analysis, rather than rotting silently the way results_manifest itself
+        # once did before it was declared.
         "positioning_diagnostics",
         f"-m stec.analysis.positioning_diagnostics --output-dir {POSITIONING_DIAGNOSTICS_DIR}",
         "-",
@@ -1558,6 +1560,7 @@ STAGES: list[Stage] = [
             str(POSITIONING_DIAGNOSTICS_DIR / "population_split_by_method.csv"),
             str(POSITIONING_DIAGNOSTICS_DIR / "population_split_stec_vs_gim.csv"),
             str(POSITIONING_DIAGNOSTICS_DIR / "outlier_counts_by_population.csv"),
+            str(POSITIONING_DIAGNOSTICS_DIR / "FINDINGS.md"),
         ],
         min_rows={
             # overall_summary() is pm.summarise(...).reindex(METHOD_ORDER): always

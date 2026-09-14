@@ -47,7 +47,8 @@ stec.pipeline status` (a metadata walk: file size/mtime, no store rows read).
 
 **A note on currency.** Three of the source documents this board relies on were mid-edit,
 uncommitted, while this board was written (`git status`: `gate_f_inventory.md`,
-`gate_f_results.md`, `rebuild_status.md` all modified; `retirement_inventory.md` untracked,
+`gate_f_results.md` (since retired to `docs/revision/archive/gate_f_results.md`),
+`rebuild_status.md` all modified; `retirement_inventory.md` untracked,
 freshly written by a concurrent agent session). `docs/revision/stage_coverage.md` (last
 commit `b75c9f0`, 13:17) is **stale** relative to `gate_f_inventory.md` (last edit, including
 uncommitted changes, after 15:35) on one specific point — see §6 and the disagreement note
@@ -396,9 +397,10 @@ directly) both state "only 2 of 23 stages carry a confirmed, measured Gate F res
 (`daily_metrics`, `uncertainty_calibration`). `gate_f_inventory.md` and `rebuild_status.md`
 (both edited after `b75c9f0`, including uncommitted changes at the time this board was
 written) state 17 of 19. These are not describing different scopes — `stage_coverage.md`
-was written before the confirmation pass that `gate_f_results.md`/`gate_f_inventory.md`
-document, and simply predates it. **`gate_f_inventory.md` is the current, authoritative
-per-comparison table**; `stage_coverage.md`'s Gate F column and `retirement_inventory.md`'s
+was written before the confirmation pass that `gate_f_results.md` (archived, see above)
+and `gate_f_inventory.md` document, and simply predates it.
+**`gate_f_inventory.md` is the current, authoritative per-comparison table**;
+`stage_coverage.md`'s Gate F column and `retirement_inventory.md`'s
 Blocker 4 should both be read as describing an earlier state of the tree, not a live
 disagreement about the same measurement.
 

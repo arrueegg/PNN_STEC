@@ -1,5 +1,14 @@
 # `save_daily_summary` overwrite bug — fix prepared, not applied
 
+**Update, 2026-09-14: the title is now stale — the fix described below has since been
+applied.** `stec/positioning/summary_writer.py` is the merge-safe implementation this
+document specifies, and `positioning/positioning_eval/metrics.py` now imports
+`save_daily_summary`/`SummaryShrinkError` from it rather than carrying its own copy (see
+that module's own docstring and `docs/revision/retirement_inventory.md` §4 for how the two
+copies were unified). Left otherwise unedited below as the incident record — root cause,
+design of the merge algorithm, and the second overwrite site it does not cover - not as a
+statement of current status.
+
 Prepared in the `pipeline-rebuild` worktree (`/scratch2/arrueegg/WP4/PNN_STEC_rebuild`),
 against a **read-only** copy of the live checkout (`/scratch2/arrueegg/WP4/PNN_STEC`). No
 file in the live checkout was modified to produce this fix, and no job was restarted. The

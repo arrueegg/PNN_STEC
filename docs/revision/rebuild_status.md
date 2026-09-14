@@ -3,8 +3,9 @@
 **HISTORICAL — predates the merge, kept as the record of the rebuild's phases and gate
 results, not as current status.** Everything below describes the state of the separate
 `pipeline-rebuild` worktree on 2026-08-21, two days before that branch merged into
-`paper-revision-jgr-mlc` at commit `5a1d873` (2026-08-23 13:31:36, see
-`docs/revision/weekend_report.md`'s "Merge completed" section). The "worktree" vs. "live
+`paper-revision-jgr-mlc` at commit `5a1d873` (2026-08-23 13:31:36, see the "Merge completed"
+section of `weekend_report.md`, retired via `git rm` in the 2026-09-14 documentation
+consolidation - recoverable from git history at or before that commit). The "worktree" vs. "live
 checkout"/"data root" distinction this document draws throughout no longer exists — both are
 the same tree today. Numbers that have visibly moved since and should not be quoted from here:
 **435 tests** (now 855); **"Twenty-one of the 23 declared stages"** (now 34 stages declared,

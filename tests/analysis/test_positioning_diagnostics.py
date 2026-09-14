@@ -9,6 +9,8 @@ so the expected numbers in this file are arithmetic, not a second implementation
 
 from __future__ import annotations
 
+import sys
+
 import h5py
 import numpy as np
 import pandas as pd
@@ -350,3 +352,245 @@ def test_overall_summary_reindexes_to_method_order_and_applies_10m_rule():
     assert list(result.index) == pd_diag.METHOD_ORDER
     assert result.loc[STEC, "station_days"] == 1
     assert result.loc[STEC, "3D_mean_m"] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# _format_findings_markdown - FINDINGS.md, generated rather than hand-maintained
+# (this module used to sit beside a hand-written FINDINGS.md that drifted from the
+# CSVs it described; these tests pin that it cannot any more).
+# ---------------------------------------------------------------------------
+
+
+def _four_method_frame(rows: list[tuple]) -> pd.DataFrame:
+    """rows of (station, Method, doy, error_3d_rms). error_2d_rms/u_rms are derived,
+    not hand-supplied - overall_summary() (via stec.positioning.metrics.summarise)
+    reads them too, and their exact values don't matter for what these tests check."""
+    frame = pd.DataFrame(rows, columns=["station", "Method", "doy", "error_3d_rms"])
+    frame["error_2d_rms"] = frame["error_3d_rms"] * 0.6
+    frame["u_rms"] = frame["error_3d_rms"] * 0.4
+    return frame
+
+
+VTEC = "VTEC + Mapping"
+PRETRAINED = "Pretrained Direct STEC"
+
+
+def _build_findings_inputs(frame: pd.DataFrame, recovered: pd.DataFrame) -> dict:
+    """Runs the same aggregation functions `main()` calls, in the same order, so a
+    formatter test exercises the real pipeline of dataframes rather than a hand-rolled
+    substitute."""
+    overall = pd_diag.overall_summary(frame)
+    # No SWI fixture in these unit tests - every day is flagged non-storm, which is
+    # all the formatter needs for the assertions that use `daily` here.
+    daily = pd_diag.daily_timeseries(frame).assign(storm=False)
+    per_station = pd_diag.per_station_summary(frame)
+    threshold_counts = pd_diag.outlier_threshold_counts(frame)
+    headline_sensitivity = pd_diag.outlier_headline_sensitivity(frame)
+    _, by_day, concentration_summary = pd_diag.outlier_concentration(frame)
+    with_population = pd_diag.attach_population(frame, recovered)
+    population_by_method, population_stec_vs_gim = pd_diag.population_split(
+        with_population
+    )
+    population_outlier_counts = pd_diag.outlier_threshold_counts(
+        with_population, group_cols=("population", "Method")
+    )
+    return dict(
+        frame=frame,
+        overall=overall,
+        daily=daily,
+        per_station=per_station,
+        threshold_counts=threshold_counts,
+        headline_sensitivity=headline_sensitivity,
+        by_day=by_day,
+        concentration_summary=concentration_summary,
+        recovered=recovered,
+        population_by_method=population_by_method,
+        population_stec_vs_gim=population_stec_vs_gim,
+        population_outlier_counts=population_outlier_counts,
+        summary_path="summary.csv",
+    )
+
+
+def test_format_findings_markdown_headline_matches_overall_summary():
+    frame = _four_method_frame(
+        [(s, STEC, 100, v) for s, v in zip("ABCD", [1.0, 2.0, 3.0, 4.0])]
+        + [(s, GIM, 100, v) for s, v in zip("ABCD", [2.0, 4.0, 6.0, 8.0])]
+        + [(s, VTEC, 100, v) for s, v in zip("ABCD", [3.0, 3.0, 3.0, 3.0])]
+        + [(s, PRETRAINED, 100, v) for s, v in zip("ABCD", [5.0, 5.0, 5.0, 5.0])]
+    )
+    recovered = pd.DataFrame(columns=["year", "doy", "station"])
+    inputs = _build_findings_inputs(frame, recovered)
+
+    markdown = pd_diag._format_findings_markdown(**inputs)
+
+    # Direct STEC mean = 2.5, IGS GIM mean = 5.0 -> 50% improvement, stated in the
+    # Headline section using the same overall_summary() the CSV is written from.
+    assert f"{inputs['overall'].loc[STEC, '3D_mean_m']:.4f}" in markdown
+    assert f"{inputs['overall'].loc[GIM, '3D_mean_m']:.4f}" in markdown
+    assert "**mean improvement 50.0%" in markdown
+    assert "nan" not in markdown.lower()
+
+
+def test_format_findings_markdown_handles_an_empty_recovered_population():
+    """`load_recovered_station_days` degrades to an empty frame (not an error) when
+    `data/recovered_stec_db/` is absent - the formatter must produce readable prose in
+    that case, not a literal 'nan' from dividing by a zero-row population."""
+    frame = _four_method_frame(
+        [(s, STEC, 100, 1.0) for s in "ABCD"]
+        + [(s, GIM, 100, 2.0) for s in "ABCD"]
+        + [(s, VTEC, 100, 3.0) for s in "ABCD"]
+        + [(s, PRETRAINED, 100, 4.0) for s in "ABCD"]
+    )
+    recovered = pd.DataFrame(columns=["year", "doy", "station"])
+    inputs = _build_findings_inputs(frame, recovered)
+
+    markdown = pd_diag._format_findings_markdown(**inputs)
+
+    assert "nan" not in markdown.lower()
+    assert "No station has a recovered day in this run" in markdown
+
+
+def test_format_findings_markdown_reports_population_split_direction():
+    """AAAA (recovered) is where Direct STEC loses to GIM; BBBB (original) is where it
+    wins - the recommendation section must reflect the direction actually computed, not
+    a stale hand-typed sign."""
+    frame = _four_method_frame(
+        [
+            ("AAAA", STEC, 100, 4.0),
+            ("AAAA", GIM, 100, 2.0),  # recovered: STEC loses
+            ("BBBB", STEC, 101, 1.0),
+            ("BBBB", GIM, 101, 2.0),  # original: STEC wins
+            ("AAAA", VTEC, 100, 3.0),
+            ("BBBB", VTEC, 101, 3.0),
+            ("AAAA", PRETRAINED, 100, 5.0),
+            ("BBBB", PRETRAINED, 101, 5.0),
+        ]
+    )
+    recovered = pd.DataFrame([{"year": 2024, "doy": 100, "station": "AAAA"}])
+    inputs = _build_findings_inputs(frame, recovered)
+    split = inputs["population_stec_vs_gim"].set_index("population")
+
+    markdown = pd_diag._format_findings_markdown(**inputs)
+
+    assert f"{split.loc['recovered', 'mean_improvement_pct']:+.1f}%" in markdown
+    assert f"{split.loc['original', 'mean_improvement_pct']:+.1f}%" in markdown
+
+
+# ---------------------------------------------------------------------------
+# main() - end to end: FINDINGS.md is generated, and its numbers match the CSVs it
+# sits beside, not retyped independently.
+# ---------------------------------------------------------------------------
+
+
+def _write_swi_fixture(path, doys: list[int], dst_nt: float = 0.0) -> None:
+    """A quiet-conditions OMNI fixture (Dst well above the storm threshold on every
+    doy), in the layout `load_daily_geomagnetic_indices` reads."""
+    columns = ["Kp_index", "Dst-index,_nT", "f107_index"]
+    with h5py.File(path, "w") as handle:
+        group = handle.create_group("2024")
+        for doy in doys:
+            data = np.array([[1.0, dst_nt, 100.0]] * 2, dtype=np.float64)
+            dataset = group.create_dataset(f"{doy:03d}", data=data)
+            dataset.attrs["columns"] = columns
+
+
+def _write_positioning_summary(path) -> None:
+    rows = []
+    per_day = {
+        100: {
+            "AAAA": {
+                "STEC_iono": 1.0,
+                "gim_iono": 2.0,
+                "VTEC_iono": 3.0,
+                "Pretrained_STEC_iono": 4.0,
+            },
+            "BBBB": {
+                "STEC_iono": 1.5,
+                "gim_iono": 1.0,
+                "VTEC_iono": 2.0,
+                "Pretrained_STEC_iono": 2.5,
+            },
+        },
+        101: {
+            "AAAA": {
+                "STEC_iono": 0.5,
+                "gim_iono": 1.0,
+                "VTEC_iono": 1.5,
+                "Pretrained_STEC_iono": 2.0,
+            },
+            "BBBB": {
+                "STEC_iono": 2.0,
+                "gim_iono": 1.5,
+                "VTEC_iono": 2.5,
+                "Pretrained_STEC_iono": 3.0,
+            },
+        },
+    }
+    for doy, stations in per_day.items():
+        for station, methods in stations.items():
+            for method, err in methods.items():
+                rows.append(
+                    {
+                        "station": station,
+                        "method": method,
+                        "year": 2024,
+                        "doy": doy,
+                        "error_3d_rms": err,
+                        "error_2d_rms": err * 0.6,
+                        "u_rms": err * 0.4,
+                    }
+                )
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def test_main_writes_findings_markdown_matching_the_csvs_beside_it(
+    tmp_path, monkeypatch
+):
+    summary_path = tmp_path / "multiday_summary.csv"
+    _write_positioning_summary(summary_path)
+
+    recovered_root = tmp_path / "recovered_stec_db"
+    _write_recovered_fixture(recovered_root, 2024, 100, ["AAAA"])
+
+    swi_path = tmp_path / "omni.h5"
+    _write_swi_fixture(swi_path, doys=[100, 101])
+
+    output_dir = tmp_path / "out"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "positioning_diagnostics.py",
+            "--summary-path",
+            str(summary_path),
+            "--recovered-root",
+            str(recovered_root),
+            "--swi-path",
+            str(swi_path),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    pd_diag.main()
+
+    findings_path = output_dir / "FINDINGS.md"
+    assert findings_path.exists()
+    findings = findings_path.read_text()
+    assert "nan" not in findings.lower()
+
+    # The Headline table must match overall_summary.csv exactly - same numbers, not
+    # independently retyped.
+    overall = pd.read_csv(output_dir / "overall_summary.csv", index_col="Method")
+    for method in pd_diag.METHOD_ORDER:
+        assert f"{overall.loc[method, '3D_mean_m']:.4f}" in findings
+        assert f"{overall.loc[method, '3D_median_m']:.4f}" in findings
+
+    # The population split section must match population_split_stec_vs_gim.csv - AAAA
+    # (recovered on doy 100) is the only recovered station-day in this fixture.
+    split = pd.read_csv(
+        output_dir / "population_split_stec_vs_gim.csv", index_col="population"
+    )
+    assert f"{split.loc['recovered', 'mean_improvement_pct']:+.1f}%" in findings
+    assert f"{split.loc['original', 'mean_improvement_pct']:+.1f}%" in findings

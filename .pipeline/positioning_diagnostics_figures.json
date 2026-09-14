@@ -6,19 +6,19 @@
     "Reads positioning_diagnostics's CSVs, not the per-station-day table directly - must run after that stage, and is only as current as its output."
   ],
   "code": {
-    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
+    "commit": "77d5a85e738ba576cf55e66d403f3842de2c689d",
     "dirty": true
   },
   "command": "-m stec.viz.positioning_diagnostics",
   "description": "daily-timeseries, per-station-diff, outlier-sensitivity and population-split figures for positioning_diagnostics's CSVs",
   "duration_s": 4.6,
-  "fingerprint": "42af49a2fb5f82b93efe596c216897b8cf221dca713712b4d1f5a0dd9f7b450e",
+  "fingerprint": "8e089f7e8b74d433acb81e8530477ab902e42135f379a61828de2d6508439850",
   "inputs": {
     "multiday_results/analyses/positioning_diagnostics/rebuilt": {
-      "files": 26,
+      "files": 27,
       "kind": "tree",
-      "mtime_ns": 1789370626501443613,
-      "size": 142711
+      "mtime_ns": 1789378693690048898,
+      "size": 140753
     }
   },
   "outputs": {
@@ -58,7 +58,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T07:23:51.185426+00:00",
+  "recorded_at": "2026-09-14T09:38:29.874935+00:00",
   "stage": "positioning_diagnostics_figures",
   "supersedes": []
 }

@@ -8,13 +8,13 @@
     "The mean is preserved for comparison (percentile_summary's mean_m column, and positioning_summary's own superseded overall.csv) but is not the reported statistic: it is non-monotonic in the outlier-exclusion threshold and swings from negative to strongly positive depending on a threshold with no principled value - see docs/revision/positioning_reporting.md Sec 1."
   ],
   "code": {
-    "commit": "c83643b9d6a742d5072b5faddbafe51e585e9841",
+    "commit": "77d5a85e738ba576cf55e66d403f3842de2c689d",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_distributions --output-dir multiday_results/analyses/positioning_distributions/rebuilt",
   "description": "positioning error as distributions - median/IQR/p95/p99/exceedance, no outcome-based outlier filter, per method and by storm/quiet and original/recovered population",
   "duration_s": 0.5,
-  "fingerprint": "502878a420333268dd4702389694dafdfb36c210bfcc88e24412534de9a4cc03",
+  "fingerprint": "9155b8f855efa1ff5860d57b2dc6bf8586865616dbb43e5d76041fddf8e38bd6",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -27,16 +27,16 @@
       "size": 13972373
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt": {
-      "files": 26,
+      "files": 27,
       "kind": "tree",
-      "mtime_ns": 1789370626501443613,
-      "size": 142711
+      "mtime_ns": 1789378693690048898,
+      "size": 140753
     }
   },
   "outputs": {
     "multiday_results/analyses/positioning_distributions/rebuilt": {
       "present": true,
-      "size": 712
+      "size": 1812
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_NUMBERS.md": {
       "present": true,
@@ -123,7 +123,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T08:41:30.437531+00:00",
+  "recorded_at": "2026-09-14T09:38:30.389116+00:00",
   "stage": "positioning_distributions",
   "supersedes": []
 }

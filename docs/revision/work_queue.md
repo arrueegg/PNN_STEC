@@ -25,6 +25,12 @@ characterisation** of one model, the matched 2024 days for a **comparison** betw
 
 ## 1. Current state (verified 2026-09-14)
 
+Every number below is what its cited command or CSV said on the date in this section's
+header — a verification snapshot, not a value this file keeps in sync going forward. Re-run
+the command or re-read the CSV rather than trusting a bullet here once it's more than a
+session or two old; that is what caught this file's own previous version quoting a
+Madrigal-partition count and an elev-arm status that had both gone stale.
+
 - `python -m stec.pipeline status`: **0 of 43 stages stale** (39 → 43 later 2026-09-14:
   `positioning_distributions`, `positioning_distributions_figures`, `positioning_geography`,
   `positioning_geography_figures` newly declared — see "Settled" below).
@@ -38,9 +44,10 @@ characterisation** of one model, the matched 2024 days for a **comparison** betw
   value — it moved 8,003→8,195→10,598→10,712 across four rounds of recovery work; the
   remaining 115+26=141 station-days are now individually diagnosed, not a residual unknown
   (see "Permanent limitations" below).
-- `common_set_positioning` (all four methods, both weightings, intersected): **N=10,186**,
-  up from the frozen-February-tree's 7,947 — the elevation re-solve this file used to track
-  as "live" landed and this stage picked it up automatically.
+- `common_set_positioning` (all four methods, both weightings, intersected,
+  `multiday_results/analyses/common_set_positioning/rebuilt/`): **N=10,186**, up from the
+  frozen-February-tree's 7,947 — the elevation re-solve this file used to track as "live"
+  landed and this stage picked it up automatically.
 - Table 4's Madrigal half is complete for the first time: all four methods at 238 days
   (`daily_metrics/rebuilt/summary.csv`), reached via a 241-day standalone-partition inference
   pass plus a merge that moved 444.8M rows across 236 days (commit `0d59f00`).
