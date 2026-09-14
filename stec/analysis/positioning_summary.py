@@ -1,11 +1,23 @@
-"""Paper-ready positioning summary tables (Table 5).
+"""Positioning summary tables under the pre-2026-08-28 mean/10 m-exclusion methodology.
 
-Ported from ``src/analysis/positioning_summary.py`` in the live PNN_STEC checkout.
-Reproduces and extends Table 5 of the manuscript as CSV, so the tables can be rebuilt or
-restratified without re-running PPP. Three tables are written:
+**No longer Table 5's canonical source.** Ported from
+``src/analysis/positioning_summary.py`` in the live PNN_STEC checkout, this module used to
+own ``canonical_for="Table 5"``. The owner decided 2026-08-28
+(``docs/revision/positioning_reporting.md``) that Table 5 reports **distributions and
+medians over the full, unfiltered population, with no outcome-based outlier exclusion** -
+the 10 m station-day exclusion this module applies is an outcome filter that trims Direct
+STEC's own worst results 4.2x more often than IGS GIM's, which makes the resulting mean
+swing from -1% to +16% depending on where the threshold is drawn
+(``positioning_reporting.md`` Sec 1). ``stec.analysis.positioning_distributions`` now
+carries ``canonical_for="Table 5"`` instead - see ``SUPERSEDED_FOR_TABLE5_NOTE`` below.
 
-* ``overall.csv`` - the Table 5 columns per method: 3D mean, 3D median, 2D mean and Up
-  mean, plus the station-day count behind each row.
+This module is kept, not deleted: the mean-vs-median sensitivity it produces is itself a
+reported finding (``positioning_reporting.md`` Sec 1's threshold-sensitivity table), and
+``by_regime.csv``/``by_weighting.csv`` still back R1.7/R1.5 discussion. Three tables are
+written:
+
+* ``overall.csv`` - the superseded Table 5 columns per method: 3D mean, 3D median, 2D mean
+  and Up mean, plus the station-day count behind each row.
 * ``by_regime.csv`` - the same columns split into quiet and storm days (R1.7).
 * ``by_weighting.csv`` - the same columns for the elevation- and uncertainty-weighted
   arms (R1.5).
@@ -13,8 +25,8 @@ restratified without re-running PPP. Three tables are written:
 All three apply the 10 m station-day exclusion used in Figure 12 via
 ``stec.positioning.metrics.exclude_outlier_station_days``, and aggregate with
 ``stec.positioning.metrics.summarise`` - the mean of per-station-day values, not an
-epoch-pooled statistic - so the numbers line up with the published table rather than
-nearly doing so. Both are reused from that module rather than redefined here.
+epoch-pooled statistic - so the numbers line up with the published (superseded) table
+rather than nearly doing so. Both are reused from that module rather than redefined here.
 
 This module also resolves the canonical positioning input for both itself and
 ``common_set_positioning.py``. It prefers ``stec.analysis.positioning_coverage``'s own
@@ -37,8 +49,8 @@ other analysis input is (`positioning_coverage` must now run first; see
 superseded by that stage rather than deleted.
 
 Weighting provenance: ``daily_summary.csv`` means ``weight_opt=elev``;
-``daily_summary_iono.csv`` means ``weight_opt=iono``. Table 5 itself is the four ``iono``
-arms in ``overall.csv``.
+``daily_summary_iono.csv`` means ``weight_opt=iono``. The (superseded) mean-based table
+this module writes is the four ``iono`` arms in ``overall.csv``.
 
 Usage::
 
@@ -58,6 +70,19 @@ from ..config import paths
 from ..positioning import metrics as pm
 
 logger = logging.getLogger(__name__)
+
+# Reused by stec/pipeline/stages.py's own caveat for this stage, rather than the same
+# sentence living twice - the same convention MADRIGAL_CAVEAT uses (defined on the stages
+# side, since it is shared across several stages there; this one is shared between this
+# module's runtime log and its own stage's caveat, so it lives here instead).
+SUPERSEDED_FOR_TABLE5_NOTE = (
+    "Table 5 is now produced by stec.analysis.positioning_distributions (median, IQR, "
+    "p95/p99, exceedance rates at 5/10/20/50 m, no outcome-based filter) - see "
+    "docs/revision/positioning_reporting.md. This module's mean-of-per-station-day-RMSE, "
+    "10 m-exclusion overall.csv is retained only as the superseded methodology and the "
+    "documented mean/median sensitivity comparison (positioning_reporting.md Sec 1), "
+    "never as an alternate Table 5 source."
+)
 
 STORM_DST_THRESHOLD = -50.0
 
@@ -156,7 +181,10 @@ def load_storm_doys(swi_path: Path, year: int) -> set[int] | None:
 
 
 def summarise_overall(paper: pd.DataFrame) -> pd.DataFrame:
-    """Table 5: the four iono-weighted methods, mean of per-station-day RMSE."""
+    """The superseded Table 5 table: the four iono-weighted methods, mean of
+    per-station-day RMSE after the 10 m outcome-based exclusion. Kept for the
+    mean/median sensitivity comparison, not as Table 5's source - see
+    SUPERSEDED_FOR_TABLE5_NOTE."""
     kept = pm.exclude_outlier_station_days(paper)
     kept = kept.assign(Method=kept["method"].map(PAPER_METHODS)).dropna(
         subset=["Method"]
@@ -191,7 +219,8 @@ def main() -> None:
         "--paper-summary",
         type=Path,
         default=canonical_positioning_summary(),
-        help="The iono-weighted run behind Table 5 and Figures 12/13",
+        help="The iono-weighted run behind the superseded mean-based table and "
+        "Figures 12/13",
     )
     parser.add_argument(
         "--weighting-summary", type=Path, default=DEFAULT_WEIGHTING_SUMMARY
@@ -206,10 +235,12 @@ def main() -> None:
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    logger.warning(SUPERSEDED_FOR_TABLE5_NOTE)
+
     paper = pd.read_csv(args.paper_summary)
     overall = summarise_overall(paper)
     overall.to_csv(args.output_dir / "overall.csv")
-    print("=== Overall (Table 5 columns) ===")
+    print("=== Overall (superseded mean-based table, see module docstring) ===")
     print(overall.to_string())
 
     storm_doys = load_storm_doys(args.swi_path, args.year)

@@ -36,7 +36,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ..analysis.daily_metrics import DATASET_LABELS, MODELS
-from ..analysis.positioning_summary import METHOD_ORDER
+from ..analysis.positioning_summary import METHOD_ORDER, SUPERSEDED_FOR_TABLE5_NOTE
 from ..config import paths
 from .stage import Stage
 
@@ -180,6 +180,27 @@ COMMON_SET_POSITIONING_DIR = _analysis_dir("common_set_positioning", rebuilt=Tru
 POSITIONING_SUMMARY_DIR = _analysis_dir("positioning_summary", rebuilt=True)
 ORACLE_BENCHMARK_DIR = _analysis_dir("oracle_benchmark", rebuilt=True)
 POSITIONING_DIAGNOSTICS_DIR = _analysis_dir("positioning_diagnostics", rebuilt=True)
+# Owner decision 2026-08-28 (docs/revision/positioning_reporting.md): Table 5 reports
+# distributions/medians with no outcome-based filter. positioning_distributions.py wrote
+# that table from the start but was left undeclared while the owner looked at it before
+# deciding - now declared, and it is what carries canonical_for="Table 5" below (moved off
+# positioning_summary, which implements the superseded mean/10 m-exclusion methodology).
+POSITIONING_DISTRIBUTIONS_DIR = _analysis_dir("positioning_distributions", rebuilt=True)
+# Shared with two further, still-undeclared modules (positioning_quality_gate.py,
+# positioning_model_attribution.py both reuse positioning_geography.DEFAULT_OUTPUT_DIR
+# rather than defining their own) - only positioning_geography.py's own files are
+# declared as this stage's outputs below, never the directory as a whole, so this stage
+# never claims ownership of a file one of those two undeclared scripts writes.
+POSITIONING_GEOGRAPHY_DIR = _analysis_dir("positioning_geography", rebuilt=True)
+# Plain repo-relative literals, matching how every other stec.viz stage in this file
+# spells its own "plots/<name>" output (e.g. DIAGNOSTIC_FIGURES_DIR above).
+# plots/positioning_distributions/ is exclusive to stec.viz.positioning_distributions.
+# plots/positioning_geography/ is shared with positioning_quality_gate.py's and
+# positioning_model_attribution.py's own (undeclared) viz counterparts - see the
+# positioning_geography_figures Stage's own comment for why only its positioning_2024/
+# subdirectory is declared as this stage's output.
+POSITIONING_DISTRIBUTIONS_FIGURES_DIR = "plots/positioning_distributions"
+POSITIONING_GEOGRAPHY_FIGURES_DIR = "plots/positioning_geography"
 RESULTS_MANIFEST_DIR = _analysis_dir("results_manifest", rebuilt=True)
 PRETRAINED_TEST_DIAGNOSTICS_DIR = _analysis_dir(
     "pretrained_test_diagnostics", rebuilt=True
@@ -379,6 +400,127 @@ def positioning_summary_overall_has_all_four_methods(outputs: dict) -> str | Non
     if empty:
         return f"{path} has no station_days recorded for {sorted(empty)}"
     return None
+
+
+def positioning_distributions_overall_has_all_four_methods(outputs: dict) -> str | None:
+    """Table 5's real source now: `percentile_summary(frame, ["Method"])` groups by
+    every `Method` value actually present in the input, so a method silently absent from
+    the coverage-repaired positioning table (rather than reindex-guaranteed NaN, unlike
+    `positioning_summary_overall_has_all_four_methods`'s target) would still pass
+    `min_rows` while missing a manuscript row outright - this checks the row is really
+    there for each of the four."""
+    path = POSITIONING_DISTRIBUTIONS_DIR / "overall_percentile_summary.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(path, ["Method", "n"])
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = {row["Method"]: row for row in _read_csv_rows(path)}
+    missing = set(METHOD_ORDER) - set(rows)
+    if missing:
+        return f"{path} is missing method(s) {sorted(missing)}"
+    empty = [method for method in METHOD_ORDER if not rows[method].get("n")]
+    if empty:
+        return f"{path} has no station-day count recorded for {sorted(empty)}"
+    return None
+
+
+# --- min_rows floors for the four positioning_distributions/positioning_geography
+# stages, measured directly against real output (2026-09-14, current
+# 43,215-row coverage-repaired population - see POSITIONING's own history in this
+# file's comments). Two shapes, per the convention every other stage in this file
+# uses: a handful of tables have a row count fixed by code constants (4 PAPER_METHODS,
+# 4 EXCEEDANCE_THRESHOLDS_M, 2 regime/population values, 9 LATITUDE_BINS bins) rather
+# than by how much data exists, so their floor is the exact count those constants
+# imply; the rest scale with the population (individual station-days, boxplot fliers),
+# so their floor sits comfortably below what was actually measured, not pinned to it.
+_POSITIONING_DISTRIBUTIONS_MIN_ROWS = {
+    # 4 PAPER_METHODS - not reindex-guaranteed the way positioning_summary's overall.csv
+    # is (percentile_summary groups by whatever Method values are present), so this is a
+    # measured-currently-exact floor, not a structural one; positioning_distributions_
+    # overall_has_all_four_methods is what actually enforces the four method identities.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "overall_percentile_summary.csv"): 4,
+    # 4 methods x 4 EXCEEDANCE_THRESHOLDS_M, one row per combination that occurs.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "overall_exceedance.csv"): 16,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "overall_boxplot_stats.csv"): 4,
+    # Individual outlier points - scales with the population's own tail, measured 3,243.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "overall_boxplot_fliers.csv"): 2_500,
+    # One row per station-day per method - equals the source table's own row count,
+    # measured 43,215.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "overall_cdf_points.csv"): 35_000,
+    # 4 methods x 2 regimes (storm/quiet) - both present for every method given 39 of
+    # 242 test-period DOYs are storm days.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "regime_percentile_summary.csv"): 8,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "regime_exceedance.csv"): 32,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "regime_boxplot_stats.csv"): 8,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "regime_boxplot_fliers.csv"): 2_500,
+    # 4 methods x 2 populations (original/recovered).
+    str(POSITIONING_DISTRIBUTIONS_DIR / "population_percentile_summary.csv"): 8,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "population_exceedance.csv"): 32,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_stats.csv"): 8,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_fliers.csv"): 2_000,
+}
+
+_POSITIONING_DISTRIBUTIONS_FIGURES_MIN_ROWS = {
+    # Every station-day plotted as a box-plot flier plus one summary row per group -
+    # scales with the population's tail, measured 3,279.
+    f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/boxplot_3d_error.csv": 2_500,
+    # One row per station-day per method, same as overall_cdf_points.csv above.
+    f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/cdf_unfiltered.csv": 35_000,
+    # percentiles (4 rows) concatenated with exceedance (16 rows) - exact given 4
+    # methods and 4 thresholds, see fig_percentile_exceedance_table.
+    f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+    "percentile_exceedance_table.csv": 20,
+    # 4 methods x 2 populations / 2 regimes.
+    f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+    "population_split_boxplot.csv": 8,
+    f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+    "storm_quiet_boxplot.csv": 8,
+}
+
+_POSITIONING_GEOGRAPHY_MIN_ROWS = {
+    # One row per station with a surviving Direct STEC / paired STEC-GIM station-day -
+    # scales with station coverage, measured 55 and 57 respectively.
+    str(POSITIONING_GEOGRAPHY_DIR / "station_map_direct_stec.csv"): 40,
+    str(POSITIONING_GEOGRAPHY_DIR / "station_map_diff.csv"): 40,
+    # 9 LATITUDE_BINS bins x 4 methods, measured 36 for both geographic and geomagnetic
+    # - not reindex-guaranteed (groupby(observed=True) only emits bins that actually
+    # have data), so this is a measured-currently-exact floor set below the real count.
+    str(POSITIONING_GEOGRAPHY_DIR / "latitude_stratification_geographic.csv"): 30,
+    str(POSITIONING_GEOGRAPHY_DIR / "latitude_stratification_geomagnetic.csv"): 30,
+    # 9 bins, one paired STEC-vs-GIM row each.
+    str(POSITIONING_GEOGRAPHY_DIR / "latitude_stratification_diff_geographic.csv"): 7,
+    str(POSITIONING_GEOGRAPHY_DIR / "latitude_stratification_diff_geomagnetic.csv"): 7,
+    str(
+        POSITIONING_GEOGRAPHY_DIR
+        / "population_concentration_by_latitude_geographic.csv"
+    ): 7,
+    str(
+        POSITIONING_GEOGRAPHY_DIR
+        / "population_concentration_by_latitude_geomagnetic.csv"
+    ): 7,
+    # 9 bins x 2 populations.
+    str(POSITIONING_GEOGRAPHY_DIR / "population_latitude_diff_geographic.csv"): 14,
+    str(POSITIONING_GEOGRAPHY_DIR / "population_latitude_diff_geomagnetic.csv"): 14,
+}
+
+_POSITIONING_GEOGRAPHY_FIGURES_MIN_ROWS = {
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+    "station_map_direct_stec.csv": 40,
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/station_map_diff.csv": 40,
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+    "latitude_stratification_geographic.csv": 30,
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+    "latitude_stratification_geomagnetic.csv": 30,
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+    "population_by_latitude_geographic.csv": 7,
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+    "population_by_latitude_geomagnetic.csv": 7,
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+    "population_latitude_cross_geographic.csv": 30,
+    f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+    "population_latitude_cross_geomagnetic.csv": 30,
+}
 
 
 STAGES: list[Stage] = [
@@ -1338,10 +1480,17 @@ STAGES: list[Stage] = [
         ],
     ),
     Stage(
+        # No longer Table 5's canonical source - see SUPERSEDED_FOR_TABLE5_NOTE and the
+        # positioning_distributions Stage below, which now carries canonical_for="Table
+        # 5" instead. Kept declared (not deleted): overall.csv is the mean/10 m-exclusion
+        # side of the mean-vs-median sensitivity docs/revision/positioning_reporting.md
+        # Sec 1 reports, and by_regime.csv/by_weighting.csv still back R1.7/R1.5.
         "positioning_summary",
         f"-m stec.analysis.positioning_summary --output-dir {POSITIONING_SUMMARY_DIR}",
-        "Table 5",
-        "headline positioning table, four methods on iono weighting",
+        "R1.7/R1.5 sensitivity (superseded mean-based table)",
+        "superseded headline positioning table (mean, 10 m exclusion), four methods "
+        "on iono weighting - kept for the mean/median sensitivity comparison, not as "
+        "Table 5's source any more",
         inputs=[POSITIONING],
         outputs=[
             str(POSITIONING_SUMMARY_DIR),
@@ -1353,7 +1502,8 @@ STAGES: list[Stage] = [
         # NaN-filled case min_rows cannot see.
         min_rows={str(POSITIONING_SUMMARY_DIR / "overall.csv"): 4},
         checks=[positioning_summary_overall_has_all_four_methods],
-        canonical_for="Table 5",
+        canonical_for=None,
+        caveats=[SUPERSEDED_FOR_TABLE5_NOTE],
     ),
     Stage(
         "oracle_benchmark",
@@ -1516,6 +1666,207 @@ STAGES: list[Stage] = [
             "Reads positioning_diagnostics's CSVs, not the per-station-day table "
             "directly - must run after that stage, and is only as current as its "
             "output.",
+        ],
+    ),
+    Stage(
+        # The Table 5 replacement itself (owner decision 2026-08-28,
+        # docs/revision/positioning_reporting.md): median, IQR, p95/p99 and exceedance
+        # rates at 5/10/20/50 m, over the full unfiltered population - no outcome-based
+        # outlier exclusion. Was built the same day as positioning_diagnostics but left
+        # undeclared while the owner decided what Table 5 should say (see that module's
+        # own docstring, quoted verbatim in positioning_reporting.md's line 11-17); now
+        # that the decision is made, this is what canonical_for="Table 5" must point at.
+        # Must follow positioning_diagnostics (reads its recovered-station-days cache)
+        # and positioning_coverage (reads POSITIONING and SWI).
+        "positioning_distributions",
+        "-m stec.analysis.positioning_distributions "
+        f"--output-dir {POSITIONING_DISTRIBUTIONS_DIR}",
+        "Table 5",
+        "positioning error as distributions - median/IQR/p95/p99/exceedance, no "
+        "outcome-based outlier filter, per method and by storm/quiet and "
+        "original/recovered population",
+        inputs=[POSITIONING, SWI, str(POSITIONING_DIAGNOSTICS_DIR)],
+        outputs=[
+            str(POSITIONING_DISTRIBUTIONS_DIR),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "overall_percentile_summary.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "overall_exceedance.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "overall_boxplot_stats.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "overall_boxplot_fliers.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "overall_cdf_points.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "regime_percentile_summary.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "regime_exceedance.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "regime_boxplot_stats.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "regime_boxplot_fliers.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "population_percentile_summary.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "population_exceedance.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_stats.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_fliers.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "TABLE5_NUMBERS.md"),
+        ],
+        min_rows=_POSITIONING_DISTRIBUTIONS_MIN_ROWS,
+        checks=[positioning_distributions_overall_has_all_four_methods],
+        canonical_for="Table 5",
+        caveats=[
+            "iono weighting only - the elev arm was mid-re-solve when this module was "
+            "built (see CLAUDE.md) and every output states 'iono' explicitly rather "
+            "than leaving the weighting implicit.",
+            "No outcome-based filter anywhere in this stage: every station-day in the "
+            "coverage-repaired population counts. Where a figure needs a bounded axis "
+            "to stay readable (stec.viz.positioning_distributions), only the *view* is "
+            "clipped, never the data - the CSVs here always carry the true fliers.",
+            "Reporting only the median would hide that Direct STEC produces more large "
+            "errors than GIM does - a real, operationally important property of the "
+            "method. Every percentile table here is paired with an exceedance table for "
+            "exactly that reason; do not quote the median alone.",
+            "The mean is preserved for comparison (percentile_summary's mean_m column, "
+            "and positioning_summary's own superseded overall.csv) but is not the "
+            "reported statistic: it is non-monotonic in the outlier-exclusion "
+            "threshold and swings from negative to strongly positive depending on a "
+            "threshold with no principled value - see "
+            "docs/revision/positioning_reporting.md Sec 1.",
+        ],
+    ),
+    Stage(
+        "positioning_distributions_figures",
+        "-m stec.viz.positioning_distributions "
+        f"--output_dir {POSITIONING_DISTRIBUTIONS_FIGURES_DIR}",
+        "Table 5",
+        "box/CDF/percentile-exceedance figures for positioning_distributions's CSVs",
+        inputs=[str(POSITIONING_DISTRIBUTIONS_DIR)],
+        outputs=[
+            POSITIONING_DISTRIBUTIONS_FIGURES_DIR,
+            f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+            "boxplot_3d_error.csv",
+            f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+            "cdf_unfiltered.csv",
+            f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+            "percentile_exceedance_table.csv",
+            f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+            "population_split_boxplot.csv",
+            f"{POSITIONING_DISTRIBUTIONS_FIGURES_DIR}/positioning_2024/"
+            "storm_quiet_boxplot.csv",
+        ],
+        min_rows=_POSITIONING_DISTRIBUTIONS_FIGURES_MIN_ROWS,
+        canonical_for=None,
+        caveats=[
+            "Reads positioning_distributions's CSVs, not the per-station-day table "
+            "directly - must run after that stage, and is only as current as its "
+            "output.",
+            "Not a manuscript or revision-response figure set yet - lives in its own "
+            "plots/positioning_distributions/ tree, exclusively (no other module "
+            "writes there), the same convention positioning_diagnostics_figures uses.",
+        ],
+    ),
+    Stage(
+        # Owner-requested look at whether Direct STEC's advantage over GIM varies with
+        # (geographic and geomagnetic) latitude, and whether the recovered/original
+        # population split (positioning_diagnostics) is itself latitude-concentrated.
+        # Not a manuscript deliverable of its own - claims no canonical_for - but its
+        # attribution result (STEC accuracy predicts absolute error, not competitiveness
+        # against GIM) is one of the three findings docs/revision/positioning_reporting.md
+        # Sec 4 says must reach the manuscript discussion. Must follow
+        # positioning_diagnostics (recovered-station-days cache) and positioning_coverage
+        # (POSITIONING, coverage.csv).
+        "positioning_geography",
+        "-m stec.analysis.positioning_geography "
+        f"--output-dir {POSITIONING_GEOGRAPHY_DIR}",
+        "-",
+        "positioning error against geographic and geomagnetic station latitude, and "
+        "recovered-population concentration by latitude",
+        inputs=[
+            POSITIONING,
+            str(POSITIONING_COVERAGE_DIR),
+            str(POSITIONING_DIAGNOSTICS_DIR),
+        ],
+        # Only this module's own files, never POSITIONING_GEOGRAPHY_DIR as a whole -
+        # positioning_quality_gate.py and positioning_model_attribution.py both
+        # deliberately reuse this directory as their own DEFAULT_OUTPUT_DIR (see that
+        # constant's own comment), and neither is a declared stage, so claiming the
+        # directory here would make this stage's digest depend on files it never writes.
+        outputs=[
+            str(POSITIONING_GEOGRAPHY_DIR / "station_map_direct_stec.csv"),
+            str(POSITIONING_GEOGRAPHY_DIR / "station_map_diff.csv"),
+            str(POSITIONING_GEOGRAPHY_DIR / "latitude_stratification_geographic.csv"),
+            str(POSITIONING_GEOGRAPHY_DIR / "latitude_stratification_geomagnetic.csv"),
+            str(
+                POSITIONING_GEOGRAPHY_DIR
+                / "latitude_stratification_diff_geographic.csv"
+            ),
+            str(
+                POSITIONING_GEOGRAPHY_DIR
+                / "latitude_stratification_diff_geomagnetic.csv"
+            ),
+            str(
+                POSITIONING_GEOGRAPHY_DIR
+                / "population_concentration_by_latitude_geographic.csv"
+            ),
+            str(
+                POSITIONING_GEOGRAPHY_DIR
+                / "population_concentration_by_latitude_geomagnetic.csv"
+            ),
+            str(POSITIONING_GEOGRAPHY_DIR / "population_latitude_diff_geographic.csv"),
+            str(POSITIONING_GEOGRAPHY_DIR / "population_latitude_diff_geomagnetic.csv"),
+        ],
+        min_rows=_POSITIONING_GEOGRAPHY_MIN_ROWS,
+        canonical_for=None,
+        caveats=[
+            "iono weighting only, same population as positioning_distributions/"
+            "positioning_diagnostics - the elev arm is out of scope here.",
+            "Station coordinates come from IGSNetwork.csv (metres-level accuracy), not "
+            "the SINEX ground truth the positioning error itself is measured against - "
+            "deliberate, since reading per-day SINEX products would mean walking a "
+            "tree an actively-running positioning chain can be writing to concurrently, "
+            "for a precision gain that does not matter at this module's tens-of-degrees "
+            "bin widths.",
+            "Geomagnetic latitude is computed once per station at a fixed 2024-07-01 "
+            "reference epoch, not per observation - a station's SM latitude is "
+            "time-invariant to <=0.01 deg (module docstring, "
+            "tests/analysis/test_positioning_geography.py), so this is a station "
+            "property, not an approximation that needs revisiting.",
+            "Shares its output directory with two further, undeclared modules "
+            "(positioning_quality_gate.py, positioning_model_attribution.py) - only "
+            "the files this stage's own command writes are declared as outputs above.",
+        ],
+    ),
+    Stage(
+        "positioning_geography_figures",
+        f"-m stec.viz.positioning_geography --output_dir {POSITIONING_GEOGRAPHY_FIGURES_DIR}",
+        "-",
+        "station maps and latitude-stratification figures for positioning_geography's "
+        "CSVs",
+        inputs=[str(POSITIONING_GEOGRAPHY_DIR / "station_map_direct_stec.csv")],
+        # Narrowed to positioning_2024/, not plots/positioning_geography/ as a whole -
+        # that top-level tree also holds plots/positioning_geography/quality_gate/ and
+        # plots/positioning_geography/model_accuracy_vs_positioning/, written by the
+        # viz counterparts of the two undeclared modules above; positioning_2024/ is
+        # this module's own, exclusively.
+        outputs=[
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+            "station_map_direct_stec.csv",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/station_map_diff.csv",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+            "latitude_stratification_geographic.csv",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+            "latitude_stratification_geomagnetic.csv",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+            "population_by_latitude_geographic.csv",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+            "population_by_latitude_geomagnetic.csv",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+            "population_latitude_cross_geographic.csv",
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024/"
+            "population_latitude_cross_geomagnetic.csv",
+        ],
+        min_rows=_POSITIONING_GEOGRAPHY_FIGURES_MIN_ROWS,
+        canonical_for=None,
+        caveats=[
+            "Reads positioning_geography's CSVs, not the per-station-day table "
+            "directly - must run after that stage, and is only as current as its "
+            "output.",
+            "Writes only plots/positioning_geography/positioning_2024/ - the "
+            "quality_gate/ and model_accuracy_vs_positioning/ subtrees under the same "
+            "parent belong to two further, undeclared viz modules.",
         ],
     ),
     Stage(

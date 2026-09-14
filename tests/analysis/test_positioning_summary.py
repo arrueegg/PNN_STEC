@@ -196,3 +196,53 @@ def test_load_storm_doys_flags_days_at_or_below_threshold(tmp_path):
 
 def test_load_storm_doys_returns_none_when_file_missing(tmp_path):
     assert psum.load_storm_doys(tmp_path / "missing.h5", 2024) is None
+
+
+# ---------------------------------------------------------------------------
+# SUPERSEDED_FOR_TABLE5_NOTE: this module no longer backs Table 5
+# (docs/revision/positioning_reporting.md, owner decision 2026-08-28). The note is
+# reused verbatim by stec/pipeline/stages.py's own caveat for this stage
+# (tests/pipeline/test_stages.py::test_positioning_summary_no_longer_owns_table_5) -
+# these tests pin the constant's own content, the module-side half of that contract.
+# ---------------------------------------------------------------------------
+
+
+def test_superseded_note_points_at_the_replacement_module():
+    assert "positioning_distributions" in psum.SUPERSEDED_FOR_TABLE5_NOTE
+
+
+def test_superseded_note_explains_why_this_module_is_still_kept():
+    """Deleting this module would also delete the mean/10 m-exclusion sensitivity
+    comparison docs/revision/positioning_reporting.md Sec 1 reports - the note must say
+    this module is retained for that reason, not merely that it is superseded."""
+    note = psum.SUPERSEDED_FOR_TABLE5_NOTE.lower()
+    assert "retained" in note
+    assert "sensitivity" in note
+
+
+def test_main_logs_the_superseded_note(tmp_path, monkeypatch, caplog):
+    """main() must actually surface the note at runtime, not only in a docstring or a
+    stages.py caveat nobody running the module directly would ever see."""
+    paper_summary = tmp_path / "paper.csv"
+    frame = pd.DataFrame([station_day("AMC4", 132, "STEC_iono", 2.0)])
+    frame.to_csv(paper_summary, index=False)
+    output_dir = tmp_path / "out"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "positioning_summary",
+            "--paper-summary",
+            str(paper_summary),
+            "--weighting-summary",
+            str(tmp_path / "does_not_exist.csv"),
+            "--swi-path",
+            str(tmp_path / "does_not_exist.h5"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+    with caplog.at_level("WARNING"):
+        psum.main()
+
+    assert psum.SUPERSEDED_FOR_TABLE5_NOTE in caplog.text

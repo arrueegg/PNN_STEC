@@ -26,6 +26,10 @@ from stec.pipeline.stages import (
     POSITIONING,
     POSITIONING_COVERAGE_DIR,
     POSITIONING_DIAGNOSTICS_DIR,
+    POSITIONING_DISTRIBUTIONS_DIR,
+    POSITIONING_DISTRIBUTIONS_FIGURES_DIR,
+    POSITIONING_GEOGRAPHY_DIR,
+    POSITIONING_GEOGRAPHY_FIGURES_DIR,
     POSITIONING_SUMMARY_DIR,
     RECOVERED_STEC_DB,
     STAGES,
@@ -34,6 +38,7 @@ from stec.pipeline.stages import (
     WEIGHTING_RUN,
     daily_metrics_summary_has_all_methods_and_datasets,
     daily_metrics_summary_has_consistent_day_counts,
+    positioning_distributions_overall_has_all_four_methods,
     positioning_summary_overall_has_all_four_methods,
 )
 
@@ -67,7 +72,11 @@ def test_every_stage_declares_an_output():
 def test_paper_deliverables_have_exactly_one_owner():
     owners = {s.canonical_for: s.name for s in STAGES if s.canonical_for}
     assert owners["Tables 3 and 4"] == "daily_metrics"
-    assert owners["Table 5"] == "positioning_summary"
+    # Moved off positioning_summary 2026-08-28's owner decision
+    # (docs/revision/positioning_reporting.md): Table 5 reports distributions/medians
+    # with no outcome-based filter, which positioning_distributions.py implements and
+    # positioning_summary.py (the mean/10 m-exclusion methodology) does not.
+    assert owners["Table 5"] == "positioning_distributions"
     # "Table A1" does not exist in either manuscript copy (5 tables, no lettered
     # appendix - Figures 14/15 are the only appendix content, numbered continuously).
     # Locking in its absence so a future edit cannot silently reintroduce the label.
@@ -77,10 +86,25 @@ def test_paper_deliverables_have_exactly_one_owner():
 def test_common_set_positioning_backs_no_manuscript_table():
     """It recomputes Table 5's methods on a different, smaller station-day population -
     the one solved under both weightings - to answer R1.5's reviewer-response comparison,
-    not a printed manuscript table. Unlike every stage above, it correctly claims no
-    `canonical_for`, so it can never collide with `positioning_summary`'s "Table 5"."""
+    not a printed manuscript table. Unlike positioning_distributions, it correctly claims
+    no `canonical_for`, so it can never collide with that stage's "Table 5"."""
     assert stage("common_set_positioning").canonical_for is None
-    assert stage("positioning_summary").canonical_for == "Table 5"
+    assert stage("positioning_distributions").canonical_for == "Table 5"
+
+
+def test_positioning_summary_no_longer_owns_table_5():
+    """positioning_summary.py implements the pre-2026-08-28 mean/10 m-exclusion
+    methodology the owner superseded (docs/revision/positioning_reporting.md) - it must
+    not claim canonical_for="Table 5" any more, and its caveats must say what replaced
+    it and why it is still declared (the mean/median sensitivity comparison), not just
+    that it changed."""
+    from stec.analysis.positioning_summary import SUPERSEDED_FOR_TABLE5_NOTE
+
+    positioning_summary_stage = stage("positioning_summary")
+    assert positioning_summary_stage.canonical_for is None
+    assert SUPERSEDED_FOR_TABLE5_NOTE in positioning_summary_stage.caveats
+    assert "positioning_distributions" in SUPERSEDED_FOR_TABLE5_NOTE
+    assert "median" in SUPERSEDED_FOR_TABLE5_NOTE.lower()
 
 
 def test_gim_repair_precedes_the_metrics_that_read_it():
@@ -914,3 +938,255 @@ def test_positioning_diagnostics_figures_min_rows_floors_sit_below_real_output()
     }
     for key, real_count in real_counts.items():
         assert 0 < floors[key] < real_count, (key, floors[key], real_count)
+
+
+# --- positioning_distributions / positioning_geography: promoted from ad-hoc,
+# deliberately-undeclared output to declared stages (2026-09-14). Both were built
+# 2026-08-28 alongside positioning_diagnostics and left undeclared "while the owner
+# looked at it before deciding what Table 5 should say" (positioning_distributions.py's
+# own docstring, quoted in positioning_reporting.md) - once that decision landed
+# (Table 5 = distributions/medians, no outcome filter), leaving the module that
+# implements it undeclared meant `python -m stec.pipeline status` could report the
+# pipeline current while the decided methodology sat unrun against a population that had
+# since moved. Four stages, not two: analysis and viz are separate `python -m`
+# invocations for each module, the same split positioning_diagnostics uses. -----------
+
+
+_POSITIONING_DISTRIBUTIONS_CSVS = [
+    "overall_percentile_summary.csv",
+    "overall_exceedance.csv",
+    "overall_boxplot_stats.csv",
+    "overall_boxplot_fliers.csv",
+    "overall_cdf_points.csv",
+    "regime_percentile_summary.csv",
+    "regime_exceedance.csv",
+    "regime_boxplot_stats.csv",
+    "regime_boxplot_fliers.csv",
+    "population_percentile_summary.csv",
+    "population_exceedance.csv",
+    "population_boxplot_stats.csv",
+    "population_boxplot_fliers.csv",
+    "TABLE5_NUMBERS.md",
+]
+
+_POSITIONING_GEOGRAPHY_CSVS = [
+    "station_map_direct_stec.csv",
+    "station_map_diff.csv",
+    "latitude_stratification_geographic.csv",
+    "latitude_stratification_geomagnetic.csv",
+    "latitude_stratification_diff_geographic.csv",
+    "latitude_stratification_diff_geomagnetic.csv",
+    "population_concentration_by_latitude_geographic.csv",
+    "population_concentration_by_latitude_geomagnetic.csv",
+    "population_latitude_diff_geographic.csv",
+    "population_latitude_diff_geomagnetic.csv",
+]
+
+
+def test_positioning_distributions_owns_table_5_exactly_once():
+    matches = [s for s in STAGES if s.name == "positioning_distributions"]
+    assert len(matches) == 1
+    assert matches[0].canonical_for == "Table 5"
+
+    figure_matches = [
+        s for s in STAGES if s.name == "positioning_distributions_figures"
+    ]
+    assert len(figure_matches) == 1
+    assert figure_matches[0].canonical_for is None
+
+
+def test_positioning_distributions_runs_after_its_dependencies_and_before_figures():
+    """Reads POSITIONING/SWI (positioning_coverage) and the recovered-station-days
+    cache (positioning_diagnostics), so both must precede it; its own figures stage
+    must follow it and precede the two trailing figure-aggregation stages."""
+    assert position("positioning_coverage") < position("positioning_distributions")
+    assert position("positioning_diagnostics") < position("positioning_distributions")
+    assert position("positioning_distributions") < position(
+        "positioning_distributions_figures"
+    )
+    assert position("positioning_distributions_figures") < position("figures")
+    assert position("positioning_distributions_figures") < position(
+        "manuscript_figures"
+    )
+
+
+def test_positioning_distributions_declares_the_inputs_it_reads():
+    inputs = stage("positioning_distributions").inputs
+    assert POSITIONING in inputs
+    assert SWI in inputs
+    assert str(POSITIONING_DIAGNOSTICS_DIR) in inputs
+
+
+def test_positioning_distributions_declares_all_fourteen_outputs():
+    outputs = stage("positioning_distributions").outputs
+    for name in _POSITIONING_DISTRIBUTIONS_CSVS:
+        assert str(POSITIONING_DISTRIBUTIONS_DIR / name) in outputs, name
+
+
+def test_positioning_distributions_every_declared_csv_has_a_positive_min_rows_floor():
+    floors = stage("positioning_distributions").min_rows
+    for name in _POSITIONING_DISTRIBUTIONS_CSVS:
+        if name == "TABLE5_NUMBERS.md":
+            continue  # markdown, not a CSV - carries no row count to floor
+        key = str(POSITIONING_DISTRIBUTIONS_DIR / name)
+        assert key in floors, f"{name} has no min_rows floor"
+        assert floors[key] > 0
+
+
+def test_positioning_distributions_data_dependent_floors_sit_below_real_output():
+    """Measured against the files actually on disk 2026-09-14
+    (multiday_results/analyses/positioning_distributions/rebuilt/, 43,215-row
+    coverage-repaired population): overall_boxplot_fliers 3,243, overall_cdf_points
+    43,215, regime_boxplot_fliers 3,204, population_boxplot_fliers 2,537. Each floor
+    must sit strictly below what is really there."""
+    floors = stage("positioning_distributions").min_rows
+    real_counts = {
+        "overall_boxplot_fliers.csv": 3_243,
+        "overall_cdf_points.csv": 43_215,
+        "regime_boxplot_fliers.csv": 3_204,
+        "population_boxplot_fliers.csv": 2_537,
+    }
+    for name, real_count in real_counts.items():
+        floor = floors[str(POSITIONING_DISTRIBUTIONS_DIR / name)]
+        assert 0 < floor < real_count, (name, floor, real_count)
+
+
+def test_positioning_distributions_check_is_declared():
+    assert (
+        positioning_distributions_overall_has_all_four_methods
+        in stage("positioning_distributions").checks
+    )
+
+
+def test_positioning_distributions_check_passes_with_all_four_methods_populated(
+    tmp_path, monkeypatch
+):
+    path = POSITIONING_DISTRIBUTIONS_DIR / "overall_percentile_summary.csv"
+    rows = "".join(f"{method},100,1.0\n" for method in METHOD_ORDER)
+    _write_relative(tmp_path, monkeypatch, path, "Method,n,median_m\n" + rows)
+    outputs = {str(path): {"present": True}}
+    assert positioning_distributions_overall_has_all_four_methods(outputs) is None
+
+
+def test_positioning_distributions_check_fails_when_a_method_row_is_absent(
+    tmp_path, monkeypatch
+):
+    path = POSITIONING_DISTRIBUTIONS_DIR / "overall_percentile_summary.csv"
+    rows = "".join(f"{method},100,1.0\n" for method in METHOD_ORDER[:-1])
+    _write_relative(tmp_path, monkeypatch, path, "Method,n,median_m\n" + rows)
+    outputs = {str(path): {"present": True}}
+    violation = positioning_distributions_overall_has_all_four_methods(outputs)
+    assert violation is not None
+    assert METHOD_ORDER[-1] in violation
+
+
+def test_positioning_distributions_check_fails_when_n_is_empty(tmp_path, monkeypatch):
+    """percentile_summary is not reindex-guaranteed the way positioning_summary's
+    overall.csv is - a method could in principle appear with an empty `n` if its group
+    were somehow written with no rows. This pins the check catches that shape too, not
+    only an outright missing row."""
+    path = POSITIONING_DISTRIBUTIONS_DIR / "overall_percentile_summary.csv"
+    lines = [f"{method},100,1.0\n" for method in METHOD_ORDER[:-1]]
+    lines.append(f"{METHOD_ORDER[-1]},,\n")
+    _write_relative(tmp_path, monkeypatch, path, "Method,n,median_m\n" + "".join(lines))
+    outputs = {str(path): {"present": True}}
+    violation = positioning_distributions_overall_has_all_four_methods(outputs)
+    assert violation is not None
+    assert METHOD_ORDER[-1] in violation
+
+
+def test_positioning_distributions_states_no_outcome_filter_and_preserves_the_mean():
+    caveats = " ".join(stage("positioning_distributions").caveats).lower()
+    assert "no outcome-based filter" in caveats
+    assert "mean" in caveats and "not the reported statistic" in caveats
+
+
+def test_positioning_geography_is_declared_and_owns_no_deliverable():
+    matches = [s for s in STAGES if s.name == "positioning_geography"]
+    assert len(matches) == 1
+    assert matches[0].canonical_for is None
+
+    figure_matches = [s for s in STAGES if s.name == "positioning_geography_figures"]
+    assert len(figure_matches) == 1
+    assert figure_matches[0].canonical_for is None
+
+
+def test_positioning_geography_runs_after_its_dependencies_and_before_figures():
+    assert position("positioning_coverage") < position("positioning_geography")
+    assert position("positioning_diagnostics") < position("positioning_geography")
+    assert position("positioning_geography") < position("positioning_geography_figures")
+    assert position("positioning_geography_figures") < position("figures")
+    assert position("positioning_geography_figures") < position("manuscript_figures")
+
+
+def test_positioning_geography_declares_only_its_own_files_not_the_shared_directory():
+    """positioning_quality_gate.py and positioning_model_attribution.py both reuse
+    positioning_geography.DEFAULT_OUTPUT_DIR as their own output directory (neither is a
+    declared stage) - declaring the bare directory here would make this stage's digest
+    depend on files it never writes, and would let a future declaration of either of
+    those two modules collide on check_unique_outputs. Every declared output must be a
+    named file this module's own main() writes, and the directory itself must not
+    appear."""
+    outputs = stage("positioning_geography").outputs
+    assert str(POSITIONING_GEOGRAPHY_DIR) not in outputs
+    for name in _POSITIONING_GEOGRAPHY_CSVS:
+        assert str(POSITIONING_GEOGRAPHY_DIR / name) in outputs, name
+    # None of the sibling modules' files may appear even by accident.
+    for stray in ("quality_gate_correlations.csv", "stec_positioning_correlations.csv"):
+        assert str(POSITIONING_GEOGRAPHY_DIR / stray) not in outputs
+
+
+def test_positioning_geography_every_declared_csv_has_a_positive_min_rows_floor():
+    floors = stage("positioning_geography").min_rows
+    for name in _POSITIONING_GEOGRAPHY_CSVS:
+        key = str(POSITIONING_GEOGRAPHY_DIR / name)
+        assert key in floors, f"{name} has no min_rows floor"
+        assert floors[key] > 0
+
+
+def test_positioning_geography_floors_sit_below_real_output():
+    """Measured against the files actually on disk 2026-09-14
+    (multiday_results/analyses/positioning_geography/rebuilt/): station_map_direct_stec
+    55, station_map_diff 57, latitude_stratification_{geographic,geomagnetic} 36 each,
+    latitude_stratification_diff/population_concentration/population_latitude_diff 9/9/18
+    each (9 LATITUDE_BINS bins, up to x2 for population). Each floor must sit strictly
+    below what is really there."""
+    floors = stage("positioning_geography").min_rows
+    real_counts = {
+        "station_map_direct_stec.csv": 55,
+        "station_map_diff.csv": 57,
+        "latitude_stratification_geographic.csv": 36,
+        "latitude_stratification_geomagnetic.csv": 36,
+        "latitude_stratification_diff_geographic.csv": 9,
+        "latitude_stratification_diff_geomagnetic.csv": 9,
+        "population_concentration_by_latitude_geographic.csv": 9,
+        "population_concentration_by_latitude_geomagnetic.csv": 9,
+        "population_latitude_diff_geographic.csv": 18,
+        "population_latitude_diff_geomagnetic.csv": 18,
+    }
+    for name, real_count in real_counts.items():
+        floor = floors[str(POSITIONING_GEOGRAPHY_DIR / name)]
+        assert 0 < floor < real_count, (name, floor, real_count)
+
+
+def test_positioning_geography_figures_declares_only_its_own_positioning_2024_subtree():
+    """plots/positioning_geography/ is shared with positioning_quality_gate.py's and
+    positioning_model_attribution.py's own (undeclared) viz counterparts, which write
+    plots/positioning_geography/quality_gate/ and
+    plots/positioning_geography/model_accuracy_vs_positioning/ - this stage must declare
+    only its own positioning_2024/ subtree, never the shared parent."""
+    outputs = stage("positioning_geography_figures").outputs
+    assert f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}" not in outputs
+    for output in outputs:
+        assert output.startswith(
+            f"{POSITIONING_GEOGRAPHY_FIGURES_DIR}/positioning_2024"
+        )
+
+
+def test_positioning_distributions_figures_declares_only_its_own_tree():
+    """plots/positioning_distributions/ is exclusive to this module (unlike
+    plots/positioning_geography/), so declaring the parent directory itself is safe -
+    this pins that every declared output still sits under it."""
+    outputs = stage("positioning_distributions_figures").outputs
+    for output in outputs:
+        assert output.startswith(POSITIONING_DISTRIBUTIONS_FIGURES_DIR)
