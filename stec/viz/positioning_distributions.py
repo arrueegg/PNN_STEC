@@ -62,6 +62,16 @@ FIGSIZE_TABLE = (18, 6)
 STEC_LABEL = "Direct STEC"
 GIM_LABEL = "IGS GIM + Mapping"
 
+# Figure 13's y-axis view cap (owner review, 2026-09-14): a log-scale axis compressed the
+# box geometry - the comparison this figure exists to show - into an unreadable sliver
+# beside a handful of multi-thousand-metre PPPx solve failures. Linear, capped here,
+# reads far better; box/whisker statistics are still computed on the full unfiltered
+# population (`stec.analysis.positioning_distributions.boxplot_stats`), only the drawn
+# range is clipped. Matches one of `stec.analysis.positioning_distributions.
+# EXCEEDANCE_THRESHOLDS_M`'s four thresholds, so `overall_exceedance.csv` always has a
+# `threshold_m == 10.0` row to annotate how many station-days per method fall outside it.
+BOXPLOT_VIEW_LIMIT_M = 10.0
+
 # The regime/population contrasts drawn inside a per-method subplot (Figures 3 and 5)
 # both compare exactly two groups, so the same two `CONDITION_COLORS` cover both without
 # needing a third palette - "baseline" is always the less-disturbed/more-complete case
@@ -185,11 +195,24 @@ def _draw_boxplot(
 
 
 def _tidy_box_data(
-    stats: pd.DataFrame, fliers: pd.DataFrame, id_cols: list[str]
+    stats: pd.DataFrame,
+    fliers: pd.DataFrame,
+    id_cols: list[str],
+    exceedance: pd.DataFrame | None = None,
+    view_limit_m: float | None = None,
 ) -> pd.DataFrame:
     """The literal plotted values for a box-plot figure's `_save(data=...)`: box
     geometry (one row per statistic) and every flier point, both long-format so they
-    concatenate into one CSV."""
+    concatenate into one CSV.
+
+    `exceedance`/`view_limit_m`, when given, append one more row per group:
+    `stat="n_exceeding_view"`, the count of station-days whose `error_3d_rms` exceeds
+    `view_limit_m`. This is how a figure whose y-axis clips its *view* (Figure 13, capped
+    at `BOXPLOT_VIEW_LIMIT_M`) still reports what that cap hides - CLAUDE.md's "no
+    in-plot explanatory text" rule keeps the count out of the PNG body, so the caption
+    text reads it from here (and from the figure's own title, which carries the same
+    counts but is stripped from the `_notitle` manuscript copy).
+    """
     box_long = stats.melt(
         id_vars=id_cols,
         value_vars=["median_m", "q1_m", "q3_m", "whislo_m", "whishi_m", "min_m", "max_m", "n", "n_fliers"],
@@ -199,7 +222,19 @@ def _tidy_box_data(
     flier_long = fliers.rename(columns={"error_3d_rms": "value"}).copy()
     flier_long["stat"] = "flier"
     flier_long = flier_long[[*id_cols, "stat", "value"]]
-    return pd.concat([box_long, flier_long], ignore_index=True)
+    combined = pd.concat([box_long, flier_long], ignore_index=True)
+
+    if exceedance is not None and view_limit_m is not None:
+        at_limit = exceedance[
+            np.isclose(exceedance["threshold_m"], view_limit_m)
+        ].copy()
+        at_limit["stat"] = "n_exceeding_view"
+        at_limit = at_limit.rename(columns={"n_exceeding": "value"})[
+            [*id_cols, "stat", "value"]
+        ]
+        combined = pd.concat([combined, at_limit], ignore_index=True)
+
+    return combined
 
 
 # --------------------------------------------------------------------------
@@ -208,31 +243,53 @@ def _tidy_box_data(
 
 
 def fig_boxplot_3d_error(
-    stats: pd.DataFrame, fliers: pd.DataFrame, output_dir: Path, provenance: str
+    stats: pd.DataFrame,
+    fliers: pd.DataFrame,
+    output_dir: Path,
+    provenance: str,
+    exceedance: pd.DataFrame,
 ) -> None:
-    """Box plot of 3D positioning error per method, unfiltered, log y-axis.
+    """Box plot of 3D positioning error per method, unfiltered, linear y-axis capped at
+    `BOXPLOT_VIEW_LIMIT_M`.
 
     Whisker convention: Tukey's rule (matplotlib's own default), 1.5xIQR - whiskers
     reach the most extreme data point within that fence, everything beyond is drawn as
     an individual outlier point rather than folded into an extended whisker or dropped.
-    Log scale is necessary, not stylistic: the data spans ~0.18 m to ~5,990 m (a
-    ~33,000x range) with the bulk of every method under 3 m, so a linear axis would
-    render every box as an indistinguishable sliver at the bottom and the outliers as a
-    meaningless scatter at the top; log space is where the box (the typical case) and
-    the tail (the operationally important case) are both legible in one figure.
+    The data spans ~0.18 m to ~5,990 m (a ~33,000x range), all computed from the full
+    unfiltered population regardless of what the axis shows.
+
+    2026-09-14 (owner review): switched from a log y-axis to linear, view capped at
+    `BOXPLOT_VIEW_LIMIT_M` - the log axis compressed the box geometry (the comparison
+    this figure exists to show) into a hard-to-read sliver next to a handful of
+    multi-thousand-metre PPPx solve failures. **View, not data**: `_draw_boxplot` still
+    draws from `stats`/`fliers` exactly as computed over the full population - median,
+    Q1/Q3, Tukey whiskers and every individual flier - only `ax.set_ylim` changed.
+    Station-days above the cap fall outside the drawn range; per CLAUDE.md's "no in-plot
+    explanatory text" rule they are not annotated inside the plot area, but the count for
+    each method is in the title (stripped from the `_notitle` manuscript copy) and in the
+    `n_exceeding_view` row `_tidy_box_data` adds to the written CSV, from `exceedance`
+    (`stec.analysis.positioning_distributions.exceedance_table`'s per-threshold counts -
+    the same numbers `TABLE5_NUMBERS.md` reports at 10 m).
     """
     order = [m for m in METHOD_ORDER if m in stats["Method"].unique()]
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     _draw_boxplot(ax, stats, fliers, "Method", order, APPROACH_COLORS, widths=0.55)
-    ax.set_yscale("log")
-    ax.set_ylabel("3D positioning error [m] (log scale)")
-    ax.grid(True, axis="y", which="both", linestyle="--", alpha=0.3)
+    ax.set_ylim(0, BOXPLOT_VIEW_LIMIT_M)
+    ax.set_ylabel("3D positioning error [m]")
+    ax.grid(True, axis="y", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     n_fliers = {m: int(stats.set_index("Method").loc[m, "n_fliers"]) for m in order}
+    exceeding_by_method = exceedance.loc[
+        np.isclose(exceedance["threshold_m"], BOXPLOT_VIEW_LIMIT_M)
+    ].set_index("Method")["n_exceeding"]
+    n_exceeding = {m: int(exceeding_by_method.get(m, 0)) for m in order}
     ax.set_title(
-        "Positioning 3D error by method, unfiltered (iono weighting)\n"
+        f"Positioning 3D error by method, unfiltered (iono weighting), "
+        f"view capped at {BOXPLOT_VIEW_LIMIT_M:g} m\n"
         "Tukey whiskers (1.5×IQR); outliers shown as points, not excluded - "
         + ", ".join(f"{m}: {n_fliers[m]} outliers" for m in order)
+        + f"\nn station-days > {BOXPLOT_VIEW_LIMIT_M:g} m (outside view): "
+        + ", ".join(f"{m}: {n_exceeding[m]}" for m in order)
     )
     _save(
         fig,
@@ -240,7 +297,13 @@ def fig_boxplot_3d_error(
         "positioning",
         output_dir,
         provenance,
-        _tidy_box_data(stats, fliers, ["Method"]),
+        _tidy_box_data(
+            stats,
+            fliers,
+            ["Method"],
+            exceedance=exceedance,
+            view_limit_m=BOXPLOT_VIEW_LIMIT_M,
+        ),
     )
 
 
@@ -534,12 +597,18 @@ def _build_figures(args: argparse.Namespace, output_dir: Path) -> None:
 
     overall_stats_path = source / "overall_boxplot_stats.csv"
     overall_fliers_path = source / "overall_boxplot_fliers.csv"
-    if overall_stats_path.exists() and overall_fliers_path.exists():
+    overall_exceedance_path = source / "overall_exceedance.csv"
+    if (
+        overall_stats_path.exists()
+        and overall_fliers_path.exists()
+        and overall_exceedance_path.exists()
+    ):
         fig_boxplot_3d_error(
             pd.read_csv(overall_stats_path),
             pd.read_csv(overall_fliers_path),
             output_dir,
             prov,
+            pd.read_csv(overall_exceedance_path),
         )
 
     cdf_path = source / "overall_cdf_points.csv"

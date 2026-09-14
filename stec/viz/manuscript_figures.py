@@ -20,8 +20,8 @@ Coverage
   Figure  9  fig_uncertainty                       abs. error vs. predicted-sigma bin, 4 curves
   Figure 10  fig_improvement_by_date              daily % RMSE/MAE improvement vs. date
   Figure 11  fig_mae_rmse_finetuned                RMSE/MAE vs. elevation, mean +/- across-day std
-  Figure 12  fig_positioning_trend                daily 3D RMS, 4 methods, median/IQR band
-  Figure 13  fig_boxplot_3d_error                  overall 3D RMS distribution, unfiltered
+  Figure 12  fig_positioning_trend                daily 3D RMS, 4 methods, median line only
+  Figure 13  fig_boxplot_3d_error                  overall 3D RMS distribution, unfiltered, view capped at 10 m
   Figure 14  fig_positioning_improvement_timeseries daily % improvement over GIM (median)
   Figure 15  fig_cdf_unfiltered                    3D RMS CDF, 4 methods, unfiltered
 
@@ -29,15 +29,23 @@ Figure 3 (`network`) is hand-drawn (`docs/ResNet.drawio`) and needs no code.
 
 **Figures 12-15 report the full, unfiltered population (owner decision, 2026-08-28,
 `docs/revision/positioning_reporting.md`)**: no >10 m station-day exclusion, and the
-across-station-day statistic is the median (IQR band), not the mean (SEM band) - the mean is
-not a robust summary of this comparison, see that document's Sec 1. Figures 13 and 15 are not
-separately implemented here any more; they call `stec.viz.positioning_distributions.
+across-station-day statistic is the median, not the mean - the mean is not a robust summary
+of this comparison, see that document's Sec 1. Figures 13 and 15 are not separately
+implemented here any more; they call `stec.viz.positioning_distributions.
 fig_boxplot_3d_error`/`fig_cdf_unfiltered` directly against that module's own CSVs, so the
 distribution figure the manuscript embeds and the one `positioning_distributions_figures`
 produces standalone are the same rendering, not two implementations that could drift apart.
 Figures 12 and 14 keep their own generators (no per-day equivalent exists in
-`positioning_distributions.py`) but no longer apply the outlier filter and plot the
-median/IQR rather than the mean/SEM.
+`positioning_distributions.py`) but no longer apply the outlier filter and plot the median
+rather than the mean. **2026-09-14 styling pass (owner review)**: Figure 12 dropped its
+shaded Q1-Q3 band (four overlapping translucent fills were unreadable) and draws a thinner,
+less marker-dense line - the underlying daily median is unchanged, still the exact value in
+`pos_trend.csv`, and no temporal smoothing was applied (see `fig_positioning_trend`'s
+docstring for why). Figure 13 switched from a log y-axis to a linear one capped at 10 m -
+box/whisker statistics still come from the full unfiltered population, only the view is
+clipped, and the count of station-days beyond 10 m per method is written to the plotted CSV
+and the figure's own title (stripped from the `_notitle` manuscript copy, like every other
+figure here).
 
 **Figures 4-9 are wired via one shared streaming cache**
 (`stec/analysis/pretrained_test_diagnostics.py`,
@@ -1301,18 +1309,46 @@ def _load_positioning_frame(path: Path) -> pd.DataFrame:
     return frame
 
 
+# Figure 12 styling pass, 2026-09-14 (owner review): the shaded Q1-Q3 band and the
+# rcParams-default linewidth/markersize made four overlapping methods an unreadable
+# smear. Both trimmed here; the x-axis formatter/rotation two lines below are unchanged
+# from the figure's very first version - checked against `git show
+# b0a610e^:stec/viz/manuscript_figures.py` (the last pre-median-switch commit) and
+# against the original pre-rebuild `positioning/scripts/plot_results.py` (lines 220-221):
+# both use the identical `mdates.DateFormatter("%m-%d")` + `rotation=45`, nothing to
+# restore.
+_POSITIONING_TREND_LINEWIDTH = 1.1
+_POSITIONING_TREND_MARKERSIZE = 4
+# Only every Nth day gets a marker symbol; the line itself still connects every raw
+# daily value, so no data point's shape is hidden, only the marker clutter is reduced.
+_POSITIONING_TREND_MARKEVERY = 6
+
+
 def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -> None:
-    """Daily 3D RMS positioning error, 4 methods, median with IQR band across stations.
+    """Daily 3D RMS positioning error, 4 methods, median line (no band).
 
     Ported from `plot_trends`, part 1, then updated for the owner's 2026-08-28 decision
     (`docs/revision/positioning_reporting.md`): the mean is not a robust summary of this
-    comparison (Sec 1 of that document), so the daily statistic is the median with a
-    Q1-Q3 band, not the mean with a SEM band, and `df` carries no outcome-based filter -
-    `_load_positioning_frame` no longer applies the old >10 m exclusion. The y-limit
-    (0, 3.5 m) is hardcoded, as in the source, and now does real clipping work: a handful
-    of station-days run into the thousands of metres (genuine PPPx solve failures), and
-    this view bound keeps the typical-case trend readable without dropping any of them
-    from the underlying median/IQR computation or the written CSV.
+    comparison (Sec 1 of that document), so the daily statistic is the median, and `df`
+    carries no outcome-based filter - `_load_positioning_frame` no longer applies the old
+    >10 m exclusion. The y-limit (0, 3.5 m) is hardcoded, as in the source, and does real
+    clipping work: a handful of station-days run into the thousands of metres (genuine
+    PPPx solve failures), and this view bound keeps the typical-case trend readable
+    without dropping any of them from the underlying median computation or the written
+    CSV.
+
+    2026-09-14 (owner review): the shaded Q1-Q3 band is gone - `q1`/`q3` are still
+    computed and still written to `pos_trend.csv` (useful context, and what
+    `verification/gate_f_figures.py`'s Figure 12 check still cross-checks), just no
+    longer drawn - and the line is thinner with sparser markers (see the module-level
+    `_POSITIONING_TREND_*` constants). **No temporal smoothing was applied**, after
+    deliberately considering it: a rolling window over the *daily median* would damp
+    exactly the single-day spikes this figure's hardcoded 3.5 m ceiling exists to keep
+    visible (see this docstring's previous paragraph, and PPPx solve-failure days
+    specifically) - smoothing them away would misrepresent the trend it is showing, not
+    just declutter it. `markevery` below thins which points get a marker glyph, not
+    which points the line passes through, so every raw daily value still shapes the
+    drawn curve.
     """
     daily = (
         df.groupby(["date", "method"])["error_3d_rms"]
@@ -1334,17 +1370,12 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
             subset["date"],
             subset["median"],
             marker=_POSITIONING_MARKERS[method],
-            markersize=6,
+            markersize=_POSITIONING_TREND_MARKERSIZE,
+            markevery=_POSITIONING_TREND_MARKEVERY,
+            linewidth=_POSITIONING_TREND_LINEWIDTH,
             color=color,
             label=method,
             zorder=len(order) - i,
-        )
-        ax.fill_between(
-            subset["date"],
-            subset["q1"],
-            subset["q3"],
-            color=color,
-            alpha=0.2,
         )
     ax.set_ylabel("3D RMS error [m]")
     ax.set_xlabel("Date")
@@ -1353,7 +1384,7 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
     ax.set_ylim(0, 3.5)
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(loc="best")
-    ax.set_title("Daily positioning accuracy (median, IQR band), unfiltered")
+    ax.set_title("Daily positioning accuracy (median), unfiltered")
     _save(
         fig,
         "pos_trend",
@@ -1468,17 +1499,23 @@ def _build_positioning_figures(args: argparse.Namespace, output_dir: Path) -> No
     distributions_dir = analysis_dir(args.results_dir, "positioning_distributions")
     box_stats_path = distributions_dir / "overall_boxplot_stats.csv"
     box_fliers_path = distributions_dir / "overall_boxplot_fliers.csv"
-    if box_stats_path.exists() and box_fliers_path.exists():
+    box_exceedance_path = distributions_dir / "overall_exceedance.csv"
+    if (
+        box_stats_path.exists()
+        and box_fliers_path.exists()
+        and box_exceedance_path.exists()
+    ):
         fig_boxplot_3d_error(
             pd.read_csv(box_stats_path),
             pd.read_csv(box_fliers_path),
             output_dir,
             f"{box_stats_path} (stec.analysis.positioning_distributions) - {prov}",
+            pd.read_csv(box_exceedance_path),
         )
     else:
         logger.warning(
-            f"{box_stats_path} not found - "
-            "run stec/analysis/positioning_distributions.py"
+            f"positioning box stats/fliers/exceedance not found under "
+            f"{distributions_dir} - run stec/analysis/positioning_distributions.py"
         )
 
     cdf_path = distributions_dir / "overall_cdf_points.csv"

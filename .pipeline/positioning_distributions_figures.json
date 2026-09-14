@@ -6,12 +6,12 @@
     "Not a manuscript or revision-response figure set yet - lives in its own plots/positioning_distributions/ tree, exclusively (no other module writes there), the same convention positioning_diagnostics_figures uses."
   ],
   "code": {
-    "commit": "77d5a85e738ba576cf55e66d403f3842de2c689d",
+    "commit": "d9d72fe31124b5589139048c5a462cf8be3cfad7",
     "dirty": true
   },
   "command": "-m stec.viz.positioning_distributions --output_dir plots/positioning_distributions",
   "description": "box/CDF/percentile-exceedance figures for positioning_distributions's CSVs",
-  "duration_s": 5.5,
+  "duration_s": 5.4,
   "fingerprint": "db6a481e7315fea6f2799067ad9ed067437df3abb067f5f08de9b545e9a0d0d6",
   "inputs": {
     "multiday_results/analyses/positioning_distributions/rebuilt": {
@@ -28,9 +28,9 @@
     },
     "plots/positioning_distributions/positioning_2024/boxplot_3d_error.csv": {
       "present": true,
-      "rows": 3279,
-      "sha256": "2cb0aeaebdc67921d0c0f0b70a70346581e3b452795754bdd82d79779c002db7",
-      "size": 96322
+      "rows": 3283,
+      "sha256": "9d66187ac5f229c87942ce4987bf028ca708a6737f46d14aa87507325b9dc764",
+      "size": 96479
     },
     "plots/positioning_distributions/positioning_2024/cdf_unfiltered.csv": {
       "present": true,
@@ -58,7 +58,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T09:38:35.943095+00:00",
+  "recorded_at": "2026-09-14T13:52:32.116584+00:00",
   "stage": "positioning_distributions_figures",
   "supersedes": []
 }

@@ -628,6 +628,11 @@ def _write_synthetic_positioning_distributions(output_dir) -> None:
     pdist.percentile_summary(frame, ["Method"]).to_csv(
         output_dir / "overall_percentile_summary.csv", index=False
     )
+    # Figure 13's view-capped y-axis (owner review, 2026-09-14) needs an exceedance
+    # table to annotate how many station-days per method fall outside the cap.
+    pdist.exceedance_table(frame, ["Method"]).to_csv(
+        output_dir / "overall_exceedance.csv", index=False
+    )
 
 
 def test_load_positioning_frame_maps_methods_and_applies_no_filter(tmp_path):
@@ -706,7 +711,8 @@ def test_positioning_figures_are_drawn_at_the_pinned_geometry_not_figsize_wide(
 
     method_frame = frame.rename(columns={"method": "Method"})
     stats, fliers = pdist.boxplot_stats(method_frame, ["Method"])
-    mf.fig_boxplot_3d_error(stats, fliers, tmp_path, "synthetic")
+    exceedance = pdist.exceedance_table(method_frame, ["Method"])
+    mf.fig_boxplot_3d_error(stats, fliers, tmp_path, "synthetic", exceedance)
     cdf = pdist.cdf_points(method_frame, ["Method"])
     percentiles = pdist.percentile_summary(method_frame, ["Method"])
     mf.fig_cdf_unfiltered(cdf, percentiles, tmp_path, "synthetic")
