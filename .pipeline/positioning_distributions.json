@@ -1,0 +1,129 @@
+{
+  "answers": "Table 5",
+  "canonical_for": "Table 5",
+  "caveats": [
+    "iono weighting only - the elev arm was mid-re-solve when this module was built (see CLAUDE.md) and every output states 'iono' explicitly rather than leaving the weighting implicit.",
+    "No outcome-based filter anywhere in this stage: every station-day in the coverage-repaired population counts. Where a figure needs a bounded axis to stay readable (stec.viz.positioning_distributions), only the *view* is clipped, never the data - the CSVs here always carry the true fliers.",
+    "Reporting only the median would hide that Direct STEC produces more large errors than GIM does - a real, operationally important property of the method. Every percentile table here is paired with an exceedance table for exactly that reason; do not quote the median alone.",
+    "The mean is preserved for comparison (percentile_summary's mean_m column, and positioning_summary's own superseded overall.csv) but is not the reported statistic: it is non-monotonic in the outlier-exclusion threshold and swings from negative to strongly positive depending on a threshold with no principled value - see docs/revision/positioning_reporting.md Sec 1."
+  ],
+  "code": {
+    "commit": "c83643b9d6a742d5072b5faddbafe51e585e9841",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.positioning_distributions --output-dir multiday_results/analyses/positioning_distributions/rebuilt",
+  "description": "positioning error as distributions - median/IQR/p95/p99/exceedance, no outcome-based outlier filter, per method and by storm/quiet and original/recovered population",
+  "duration_s": 0.5,
+  "fingerprint": "502878a420333268dd4702389694dafdfb36c210bfcc88e24412534de9a4cc03",
+  "inputs": {
+    "data/omni_hourly_2010-2025.h5": {
+      "kind": "file",
+      "sha256": "e9625d79287f7c7c840468417a437c6ef482636b629c3cc652ef0b380678a27a",
+      "size": 33024928
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "kind": "file",
+      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
+      "size": 13972373
+    },
+    "multiday_results/analyses/positioning_diagnostics/rebuilt": {
+      "files": 26,
+      "kind": "tree",
+      "mtime_ns": 1789370626501443613,
+      "size": 142711
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/positioning_distributions/rebuilt": {
+      "present": true,
+      "size": 712
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_NUMBERS.md": {
+      "present": true,
+      "sha256": "4ba737a4397d6f8a23215565f8a5f707b33f2964e55715c0c0db28b4ebb3897f",
+      "size": 1512
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/overall_boxplot_fliers.csv": {
+      "present": true,
+      "rows": 3243,
+      "sha256": "e95691e14950b9fa3bc677809c056c062475d6fa1611eb8cd96c6e623e451dba",
+      "size": 75750
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/overall_boxplot_stats.csv": {
+      "present": true,
+      "rows": 4,
+      "sha256": "103001b043d6a6514914f584883a62b3e4e455f4aff04338fd855c4366f1db95",
+      "size": 422
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/overall_cdf_points.csv": {
+      "present": true,
+      "rows": 43215,
+      "sha256": "30590b3e56f0617633e43e2a67ed5f5f688059dac2a8ed645acb9373292e8bb1",
+      "size": 1818973
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/overall_exceedance.csv": {
+      "present": true,
+      "rows": 16,
+      "sha256": "5c8934f3081a0597b9e4af2f744e642d12064083c86d801ca5f7d066317bd9da",
+      "size": 1198
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/overall_percentile_summary.csv": {
+      "present": true,
+      "rows": 4,
+      "sha256": "ea686cb72dfd6f5ffe03ced67b1b46c8d9554753a1605a6b531de03c2ffb2fe4",
+      "size": 339
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/population_boxplot_fliers.csv": {
+      "present": true,
+      "rows": 2537,
+      "sha256": "7881b3fd503356768290b1fecb8e7b1e5502eaf878c55c65b547781d0b49b3f1",
+      "size": 81490
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/population_boxplot_stats.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "e5de20f0790751df6b1343e5470c2a4fb035680e5f7089f7ba34a20ad2593f6c",
+      "size": 827
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/population_exceedance.csv": {
+      "present": true,
+      "rows": 32,
+      "sha256": "28f836795c461958c68415ba570984b6c93f64db0c87e44f17778f4c9cfd1bbb",
+      "size": 2449
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/population_percentile_summary.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "93465700721c485383dbf4020d3777f86f5ab04b556bc7105c084c461dd13410",
+      "size": 701
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/regime_boxplot_fliers.csv": {
+      "present": true,
+      "rows": 3204,
+      "sha256": "c25679963d0d64ba8fef2e05a19433a65d88a0dd2bc4535b3287b67eb64df336",
+      "size": 93806
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/regime_boxplot_stats.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "e066df0840139e3c87aee1f2d97ce1976e5aaffb73f954330df2829142a2b6e3",
+      "size": 794
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/regime_exceedance.csv": {
+      "present": true,
+      "rows": 32,
+      "sha256": "39e5db5ef4dba75b0a57dada22b74ab7a3928fb360d3fe01ffae1ec391c7c9a2",
+      "size": 2392
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/regime_percentile_summary.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "3e722f3880be44820a76c913a1ef8a53895f95e645c0a392e741c2c0fa31797f",
+      "size": 666
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-14T08:41:30.437531+00:00",
+  "stage": "positioning_distributions",
+  "supersedes": []
+}
