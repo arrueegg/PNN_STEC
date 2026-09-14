@@ -1270,13 +1270,6 @@ def _build_mae_rmse_finetuned_figure(
 # Figures 12-15 - SF-PPP positioning, 4 methods, 2024 test period
 # --------------------------------------------------------------------------
 
-# Marker shapes ported unchanged from positioning/scripts/plot_results.py::get_style.
-_POSITIONING_MARKERS = {
-    "Direct STEC": "o",
-    "VTEC + Mapping": "s",
-    "IGS GIM + Mapping": "^",
-    "Pretrained Direct STEC": "d",
-}
 # Plotting/z-order ported unchanged from plot_trends/plot_extended_analysis's
 # `ordered_methods` sort key (pretrained, then stec, then vtec, then gim).
 _POSITIONING_ORDER = [
@@ -1318,10 +1311,8 @@ def _load_positioning_frame(path: Path) -> pd.DataFrame:
 # both use the identical `mdates.DateFormatter("%m-%d")` + `rotation=45`, nothing to
 # restore.
 _POSITIONING_TREND_LINEWIDTH = 1.1
-_POSITIONING_TREND_MARKERSIZE = 4
 # Only every Nth day gets a marker symbol; the line itself still connects every raw
 # daily value, so no data point's shape is hidden, only the marker clutter is reduced.
-_POSITIONING_TREND_MARKEVERY = 6
 
 
 def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -> None:
@@ -1346,9 +1337,14 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
     exactly the single-day spikes this figure's hardcoded 3.5 m ceiling exists to keep
     visible (see this docstring's previous paragraph, and PPPx solve-failure days
     specifically) - smoothing them away would misrepresent the trend it is showing, not
-    just declutter it. `markevery` below thins which points get a marker glyph, not
-    which points the line passes through, so every raw daily value still shapes the
-    drawn curve.
+    just declutter it.
+
+    2026-09-14 (owner review, second round): markers are gone entirely. They had been
+    drawn on every sixth point, which reads as an inconsistency rather than as a series
+    cue - a marker on some days and not others invites the question of what is special
+    about those days, and nothing is. A glyph on all 242 daily points x 4 series is
+    unreadable, so the series are distinguished by colour alone, which is what
+    `APPROACH_COLORS` is for.
     """
     daily = (
         df.groupby(["date", "method"])["error_3d_rms"]
@@ -1369,9 +1365,6 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
         ax.plot(
             subset["date"],
             subset["median"],
-            marker=_POSITIONING_MARKERS[method],
-            markersize=_POSITIONING_TREND_MARKERSIZE,
-            markevery=_POSITIONING_TREND_MARKEVERY,
             linewidth=_POSITIONING_TREND_LINEWIDTH,
             color=color,
             label=method,
@@ -1444,9 +1437,8 @@ def fig_positioning_improvement_timeseries(
         ax.plot(
             subset["date"],
             subset["improvement_pct"],
-            marker=_POSITIONING_MARKERS[method],
-            markersize=4,
             color=APPROACH_COLORS[method],
+            linewidth=_POSITIONING_TREND_LINEWIDTH,
             label=f"Imp. by {method}",
         )
     ax.axhline(0, color="black", linestyle="--", alpha=0.5)
