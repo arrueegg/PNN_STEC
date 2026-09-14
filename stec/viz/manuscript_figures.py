@@ -20,12 +20,24 @@ Coverage
   Figure  9  fig_uncertainty                       abs. error vs. predicted-sigma bin, 4 curves
   Figure 10  fig_improvement_by_date              daily % RMSE/MAE improvement vs. date
   Figure 11  fig_mae_rmse_finetuned                RMSE/MAE vs. elevation, mean +/- across-day std
-  Figure 12  fig_positioning_trend                daily 3D RMS, 4 methods, SEM band
-  Figure 13  fig_positioning_distribution_boxplot  overall 3D RMS distribution
-  Figure 14  fig_positioning_improvement_timeseries daily % improvement over GIM
-  Figure 15  fig_positioning_cdf_3d_rms            3D RMS CDF, 4 methods
+  Figure 12  fig_positioning_trend                daily 3D RMS, 4 methods, median/IQR band
+  Figure 13  fig_boxplot_3d_error                  overall 3D RMS distribution, unfiltered
+  Figure 14  fig_positioning_improvement_timeseries daily % improvement over GIM (median)
+  Figure 15  fig_cdf_unfiltered                    3D RMS CDF, 4 methods, unfiltered
 
 Figure 3 (`network`) is hand-drawn (`docs/ResNet.drawio`) and needs no code.
+
+**Figures 12-15 report the full, unfiltered population (owner decision, 2026-08-28,
+`docs/revision/positioning_reporting.md`)**: no >10 m station-day exclusion, and the
+across-station-day statistic is the median (IQR band), not the mean (SEM band) - the mean is
+not a robust summary of this comparison, see that document's Sec 1. Figures 13 and 15 are not
+separately implemented here any more; they call `stec.viz.positioning_distributions.
+fig_boxplot_3d_error`/`fig_cdf_unfiltered` directly against that module's own CSVs, so the
+distribution figure the manuscript embeds and the one `positioning_distributions_figures`
+produces standalone are the same rendering, not two implementations that could drift apart.
+Figures 12 and 14 keep their own generators (no per-day equivalent exists in
+`positioning_distributions.py`) but no longer apply the outlier filter and plot the
+median/IQR rather than the mean/SEM.
 
 **Figures 4-9 are wired via one shared streaming cache**
 (`stec/analysis/pretrained_test_diagnostics.py`,
@@ -120,13 +132,12 @@ import numpy as np
 import pandas as pd
 
 from ..config import paths
-from ..positioning.metrics import OUTLIER_3D_RMS_M, exclude_outlier_station_days
+from .positioning_distributions import fig_boxplot_3d_error, fig_cdf_unfiltered
 from .revision_figures import analysis_dir
 from .style import (
     APPROACH_COLORS,
     FIGSIZE_DAILY_IMPROVEMENT,
     FIGSIZE_HISTOGRAM,
-    FIGSIZE_POSITIONING_DISTRIBUTION,
     FIGSIZE_POSITIONING_TREND,
     FIGSIZE_SQUARE,
     FIGSIZE_WIDE,
@@ -1275,31 +1286,44 @@ _POSITIONING_METHOD_MAP = {
 
 
 def _load_positioning_frame(path: Path) -> pd.DataFrame:
-    """Read one station-day per row, normalise method names, apply the paper's 10 m rule.
+    """Read one station-day per row, normalise method names. No outcome-based filter.
 
-    `exclude_outlier_station_days`/`OUTLIER_3D_RMS_M` are `stec.positioning.metrics`'s -
-    reused rather than reimplemented so the >10 m exclusion behind Figures 12-15 and
-    Table 5 stays one rule in one place, not two copies that could drift apart.
+    Used to apply `stec.positioning.metrics.exclude_outlier_station_days` (>10 m). Dropped
+    per the owner's 2026-08-28 decision (`docs/revision/positioning_reporting.md`): the
+    10 m rule filters on the *outcome* being compared and is not neutral between methods
+    (Direct STEC carried 4.4x as many station-days above 10 m as IGS GIM), so every
+    positioning figure now reads the full, unfiltered population, matching Table 5.
     """
     frame = pd.read_csv(path, usecols=["date", "method", "error_3d_rms"])
     frame["method"] = frame["method"].map(_POSITIONING_METHOD_MAP)
     frame = frame.dropna(subset=["method"])
     frame["date"] = pd.to_datetime(frame["date"])
-    return exclude_outlier_station_days(frame)
+    return frame
 
 
 def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -> None:
-    """Daily 3D RMS positioning error, 4 methods, mean +/- SEM across stations.
+    """Daily 3D RMS positioning error, 4 methods, median with IQR band across stations.
 
-    Ported from `plot_trends`, part 1. The y-limit (0, 3.5 m) is hardcoded in the source
-    regardless of the data range and is kept as-is.
+    Ported from `plot_trends`, part 1, then updated for the owner's 2026-08-28 decision
+    (`docs/revision/positioning_reporting.md`): the mean is not a robust summary of this
+    comparison (Sec 1 of that document), so the daily statistic is the median with a
+    Q1-Q3 band, not the mean with a SEM band, and `df` carries no outcome-based filter -
+    `_load_positioning_frame` no longer applies the old >10 m exclusion. The y-limit
+    (0, 3.5 m) is hardcoded, as in the source, and now does real clipping work: a handful
+    of station-days run into the thousands of metres (genuine PPPx solve failures), and
+    this view bound keeps the typical-case trend readable without dropping any of them
+    from the underlying median/IQR computation or the written CSV.
     """
     daily = (
         df.groupby(["date", "method"])["error_3d_rms"]
-        .agg(["mean", "std", "count"])
+        .agg(
+            median="median",
+            q1=lambda s: s.quantile(0.25),
+            q3=lambda s: s.quantile(0.75),
+            count="count",
+        )
         .reset_index()
     )
-    daily["sem"] = daily["std"] / np.sqrt(daily["count"])
 
     fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_TREND)
     order = [m for m in _POSITIONING_ORDER if m in daily["method"].unique()]
@@ -1308,7 +1332,7 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
         color = APPROACH_COLORS[method]
         ax.plot(
             subset["date"],
-            subset["mean"],
+            subset["median"],
             marker=_POSITIONING_MARKERS[method],
             markersize=6,
             color=color,
@@ -1317,8 +1341,8 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
         )
         ax.fill_between(
             subset["date"],
-            subset["mean"] - subset["sem"],
-            subset["mean"] + subset["sem"],
+            subset["q1"],
+            subset["q3"],
             color=color,
             alpha=0.2,
         )
@@ -1329,47 +1353,47 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
     ax.set_ylim(0, 3.5)
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(loc="best")
-    ax.set_title("Daily positioning accuracy")
+    ax.set_title("Daily positioning accuracy (median, IQR band), unfiltered")
     _save(
         fig,
         "pos_trend",
         "positioning",
         output_dir,
         provenance,
-        daily[["date", "method", "mean", "std", "count", "sem"]],
+        daily[["date", "method", "median", "q1", "q3", "count"]],
     )
 
 
 def fig_positioning_improvement_timeseries(
     df: pd.DataFrame, output_dir: Path, provenance: str
 ) -> None:
-    """Daily % improvement over IGS GIM + Mapping, for every other method.
+    """Daily % improvement over IGS GIM + Mapping, for every other method, using each
+    day's median 3D error rather than its mean.
 
-    Ported from `plot_trends`, part 2. Draw order is alphabetical-then-reversed, exactly
-    reproducing `daily_pivot.columns` (pandas sorts pivoted string columns
+    Ported from `plot_trends`, part 2, then updated for the owner's 2026-08-28 decision
+    (`docs/revision/positioning_reporting.md`): `df` carries no outcome-based filter -
+    `_load_positioning_frame` no longer applies the old >10 m exclusion - and the daily
+    statistic behind each point is the median, not the mean, for the same robustness
+    reason `fig_positioning_trend` switched. Draw order is alphabetical-then-reversed,
+    exactly reproducing `daily_pivot.columns` (pandas sorts pivoted string columns
     alphabetically) fed through `model_cols[::-1]` in the source - computed here rather
-    than hardcoded so it stays correct if a method's display name changes.
+    than hardcoded so it stays correct if a method's display name changes. The y-axis is
+    clipped to +/-1.2x the pooled 99th percentile of |improvement| - the same
+    view-only-clip convention `stec.viz.positioning_distributions.fig_cdf_unfiltered`
+    uses - so a single day's extreme swing cannot compress the rest of the year onto a
+    flat line; every value still counts toward the plotted median and the written CSV.
     """
-    daily_mean = df.groupby(["date", "method"])["error_3d_rms"].mean()
-    pivot = daily_mean.unstack("method").sort_index()
+    daily_median = df.groupby(["date", "method"])["error_3d_rms"].median()
+    pivot = daily_median.unstack("method").sort_index()
     if "IGS GIM + Mapping" not in pivot.columns:
         logger.info("no IGS GIM + Mapping series; improvement timeseries skipped")
         return
     gim = pivot["IGS GIM + Mapping"]
     model_cols = sorted(c for c in pivot.columns if c != "IGS GIM + Mapping")
 
-    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_TREND)
     rows = []
     for method in model_cols[::-1]:
         improvement = (gim - pivot[method]) / gim * 100
-        ax.plot(
-            improvement.index,
-            improvement.values,
-            marker=_POSITIONING_MARKERS[method],
-            markersize=4,
-            color=APPROACH_COLORS[method],
-            label=f"Imp. by {method}",
-        )
         rows.append(
             pd.DataFrame(
                 {
@@ -1379,137 +1403,97 @@ def fig_positioning_improvement_timeseries(
                 }
             )
         )
+    plotted = pd.concat(rows, ignore_index=True)
+    view_limit = float(1.2 * plotted["improvement_pct"].abs().quantile(0.99))
+    beyond_view = int((plotted["improvement_pct"].abs() > view_limit).sum())
+
+    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_TREND)
+    for method in model_cols[::-1]:
+        subset = plotted[plotted.method == method].sort_values("date")
+        ax.plot(
+            subset["date"],
+            subset["improvement_pct"],
+            marker=_POSITIONING_MARKERS[method],
+            markersize=4,
+            color=APPROACH_COLORS[method],
+            label=f"Imp. by {method}",
+        )
     ax.axhline(0, color="black", linestyle="--", alpha=0.5)
+    ax.set_ylim(-view_limit, view_limit)
     ax.set_ylabel("Improvement over IGS GIM + Mapping [%]")
     ax.set_xlabel("Date")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
     plt.setp(ax.get_xticklabels(), rotation=45)
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend()
-    ax.set_title("Daily relative improvement over IGS GIM + Mapping")
+    ax.set_title(
+        "Daily relative improvement over IGS GIM + Mapping (median), unfiltered\n"
+        f"{beyond_view} day(s) beyond the clipped view"
+    )
     _save(
         fig,
         "pos_improvement_timeseries",
         "positioning",
         output_dir,
         provenance,
-        pd.concat(rows, ignore_index=True),
-    )
-
-
-def fig_positioning_distribution_boxplot(
-    df: pd.DataFrame, output_dir: Path, provenance: str
-) -> None:
-    """Overall 3D RMS error distribution, 4 methods, one box per method.
-
-    Ported from `plot_extended_analysis`, part 1. The source draws this with
-    `seaborn.boxplot`; this uses `Axes.boxplot` directly instead of adding seaborn as a
-    dependency for what is, for a single non-hued boxplot, a styling wrapper around it -
-    same box/whisker statistics (median, IQR, 1.5x IQR whiskers, fliers hidden), same
-    per-method colours and order.
-    """
-    order = [m for m in _POSITIONING_ORDER if m in df["method"].unique()]
-    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_DISTRIBUTION)
-    data = [df.loc[df.method == m, "error_3d_rms"].to_numpy() for m in order]
-    boxes = ax.boxplot(
-        data,
-        tick_labels=order,
-        widths=0.5,
-        showfliers=False,
-        patch_artist=True,
-        medianprops={"color": "black"},
-    )
-    for patch, method in zip(boxes["boxes"], order):
-        patch.set_facecolor(APPROACH_COLORS[method])
-    ax.set_ylabel("3D RMS error [m]")
-    ax.set_xlabel("Correction method")
-    ax.tick_params(axis="x", rotation=15)
-    ax.grid(True, axis="y", linestyle="--", alpha=0.3)
-    ax.set_title("Overall positioning accuracy distribution")
-    _save(
-        fig,
-        "pos_distribution_boxplot",
-        "positioning",
-        output_dir,
-        provenance,
-        df[df.method.isin(order)][["method", "error_3d_rms"]],
-    )
-
-
-def fig_positioning_cdf_3d_rms(
-    df: pd.DataFrame, output_dir: Path, provenance: str
-) -> None:
-    """CDF of 3D RMS positioning error, 4 methods.
-
-    Ported from `plot_extended_analysis`, part 2, with `threshold_cm=None` - the
-    x-axis-limit branch that only fires when `plot_results.py --exclude_threshold` is
-    passed. CLAUDE.md's own reproduction command
-    (`plot_results.py --input multiday_results/positioning_comparison_3way/
-    multiday_summary.csv`) does not pass it, so the published figure used the robust-limit
-    branch (98th percentile x1.2) this reproduces, not a hardcoded x-axis cap.
-    """
-    order = [m for m in _POSITIONING_ORDER if m in df["method"].unique()]
-    fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_DISTRIBUTION)
-    robust_max = 0.0
-    rows = []
-    for method in order:
-        values = df.loc[df.method == method, "error_3d_rms"].dropna().sort_values()
-        if values.empty:
-            continue
-        percentile = np.arange(1, len(values) + 1) / len(values) * 100
-        ax.plot(
-            values,
-            percentile,
-            label=method,
-            linewidth=2.5,
-            color=APPROACH_COLORS[method],
-        )
-        robust_max = max(robust_max, float(np.percentile(values, 98)))
-        rows.append(
-            pd.DataFrame(
-                {
-                    "method": method,
-                    "error_3d_rms": values.values,
-                    "cumulative_pct": percentile,
-                }
-            )
-        )
-    ax.set_xlabel("3D RMS error [m]")
-    ax.set_ylabel("Cumulative probability [%]")
-    ax.set_xlim(0, robust_max * 1.2)
-    ax.set_ylim(0, 102)
-    ax.grid(True, linestyle="--", alpha=0.3)
-    ax.legend(loc="lower right")
-    ax.set_title("Positioning error cumulative distribution")
-    _save(
-        fig,
-        "pos_cdf_3d_rms",
-        "positioning",
-        output_dir,
-        provenance,
-        pd.concat(rows, ignore_index=True),
+        plotted,
     )
 
 
 def _build_positioning_figures(args: argparse.Namespace, output_dir: Path) -> None:
+    """Figures 12-15. 12 and 14 are this module's own (no per-day equivalent exists in
+    `positioning_distributions.py`); 13 and 15 call
+    `stec.viz.positioning_distributions.fig_boxplot_3d_error`/`fig_cdf_unfiltered`
+    directly against that module's own CSVs (owner decision, 2026-08-28,
+    `docs/revision/positioning_reporting.md`) - the manuscript's distribution/CDF figures
+    and the ones `positioning_distributions_figures` produces standalone are therefore the
+    same rendering, not two implementations of the same boxplot/CDF that could drift
+    apart. All four report the full, unfiltered population.
+    """
     path = (
         analysis_dir(args.results_dir, "positioning_coverage") / "multiday_summary.csv"
     )
     if not path.exists():
         logger.warning(f"{path} not found - run stec/analysis/positioning_coverage.py")
         return
-    raw = pd.read_csv(path, usecols=["method"])
-    kept_methods = raw["method"].isin(_POSITIONING_METHOD_MAP).sum()
     df = _load_positioning_frame(path)
     prov = (
         f"{path} - SF-PPP, iono weighting, SINEX ground truth, 2024 test period, "
-        f"{len(df):,} of {kept_methods:,} station-days after the {OUTLIER_3D_RMS_M:g} m "
-        "outlier rule"
+        f"{len(df):,} station-days, no outcome-based outlier filter "
+        "(docs/revision/positioning_reporting.md)"
     )
     fig_positioning_trend(df, output_dir, prov)
     fig_positioning_improvement_timeseries(df, output_dir, prov)
-    fig_positioning_distribution_boxplot(df, output_dir, prov)
-    fig_positioning_cdf_3d_rms(df, output_dir, prov)
+
+    distributions_dir = analysis_dir(args.results_dir, "positioning_distributions")
+    box_stats_path = distributions_dir / "overall_boxplot_stats.csv"
+    box_fliers_path = distributions_dir / "overall_boxplot_fliers.csv"
+    if box_stats_path.exists() and box_fliers_path.exists():
+        fig_boxplot_3d_error(
+            pd.read_csv(box_stats_path),
+            pd.read_csv(box_fliers_path),
+            output_dir,
+            f"{box_stats_path} (stec.analysis.positioning_distributions) - {prov}",
+        )
+    else:
+        logger.warning(
+            f"{box_stats_path} not found - "
+            "run stec/analysis/positioning_distributions.py"
+        )
+
+    cdf_path = distributions_dir / "overall_cdf_points.csv"
+    percentile_path = distributions_dir / "overall_percentile_summary.csv"
+    if cdf_path.exists() and percentile_path.exists():
+        fig_cdf_unfiltered(
+            pd.read_csv(cdf_path),
+            pd.read_csv(percentile_path),
+            output_dir,
+            f"{cdf_path} (stec.analysis.positioning_distributions) - {prov}",
+        )
+    else:
+        logger.warning(
+            f"{cdf_path} not found - run stec/analysis/positioning_distributions.py"
+        )
 
 
 # --------------------------------------------------------------------------

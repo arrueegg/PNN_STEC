@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from stec.analysis import positioning_distributions as pdist
 from stec.config import paths
 from stec.viz import manuscript_figures as mf
 from stec.viz import style
@@ -601,12 +602,35 @@ def _synthetic_positioning_frame() -> pd.DataFrame:
                         "error_3d_rms": float(rng.uniform(0.3, 2.5)),
                     }
                 )
-    # One station-day worse than the paper's 10 m rule, which fig_positioning_* must drop.
+    # A station-day worse than the paper's old 10 m rule - kept, not dropped, since
+    # 2026-08-28 (docs/revision/positioning_reporting.md): no positioning figure applies
+    # an outcome-based filter any more.
     rows.append({"date": "2024-05-01", "method": "STEC_iono", "error_3d_rms": 15.0})
     return pd.DataFrame(rows)
 
 
-def test_load_positioning_frame_maps_methods_and_drops_10m_outliers(tmp_path):
+def _write_synthetic_positioning_distributions(output_dir) -> None:
+    """Builds `positioning_distributions`'s own CSVs from the same synthetic
+    station-day population `_synthetic_positioning_frame` produces, using that module's
+    real `boxplot_stats`/`cdf_points`/`percentile_summary` - not hand-built numbers - so
+    Figures 13/15's reused generators have something real to read."""
+    frame = _synthetic_positioning_frame()
+    frame["Method"] = frame["method"].map(mf._POSITIONING_METHOD_MAP)
+    frame = frame.dropna(subset=["Method"])
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stats, fliers = pdist.boxplot_stats(frame, ["Method"])
+    stats.to_csv(output_dir / "overall_boxplot_stats.csv", index=False)
+    fliers.to_csv(output_dir / "overall_boxplot_fliers.csv", index=False)
+    pdist.cdf_points(frame, ["Method"]).to_csv(
+        output_dir / "overall_cdf_points.csv", index=False
+    )
+    pdist.percentile_summary(frame, ["Method"]).to_csv(
+        output_dir / "overall_percentile_summary.csv", index=False
+    )
+
+
+def test_load_positioning_frame_maps_methods_and_applies_no_filter(tmp_path):
     path = tmp_path / "multiday_summary.csv"
     _synthetic_positioning_frame().to_csv(path, index=False)
 
@@ -618,7 +642,9 @@ def test_load_positioning_frame_maps_methods_and_drops_10m_outliers(tmp_path):
         "IGS GIM + Mapping",
         "Pretrained Direct STEC",
     }
-    assert (loaded["error_3d_rms"] <= mf.OUTLIER_3D_RMS_M).all()
+    # The old >10 m station-day exclusion is gone (docs/revision/positioning_reporting.md,
+    # owner decision 2026-08-28) - the synthetic 15.0 m row above must survive.
+    assert (loaded["error_3d_rms"] == 15.0).any()
 
 
 def test_build_positioning_figures_end_to_end_from_synthetic_multiday_summary(tmp_path):
@@ -628,6 +654,9 @@ def test_build_positioning_figures_end_to_end_from_synthetic_multiday_summary(tm
     _synthetic_positioning_frame().to_csv(
         positioning_coverage_dir / "multiday_summary.csv",
         index=False,
+    )
+    _write_synthetic_positioning_distributions(
+        mf.analysis_dir(results_dir, "positioning_distributions")
     )
 
     output_dir = tmp_path / "plots"
@@ -639,8 +668,8 @@ def test_build_positioning_figures_end_to_end_from_synthetic_multiday_summary(tm
     for name in (
         "pos_trend",
         "pos_improvement_timeseries",
-        "pos_distribution_boxplot",
-        "pos_cdf_3d_rms",
+        "boxplot_3d_error",
+        "cdf_unfiltered",
     ):
         titled = target / f"{name}.png"
         notitle = target / f"{name}_notitle.png"
@@ -651,11 +680,12 @@ def test_build_positioning_figures_end_to_end_from_synthetic_multiday_summary(tm
 def test_positioning_figures_are_drawn_at_the_pinned_geometry_not_figsize_wide(
     tmp_path, monkeypatch
 ):
-    """Pins that the four `fig_positioning_*` drawing calls actually pass
-    `style.FIGSIZE_POSITIONING_TREND`/`FIGSIZE_POSITIONING_DISTRIBUTION` to
-    `plt.subplots` - a constant with the right value but never referenced would pass
-    `test_style.py`'s check while the figure still rendered at FIGSIZE_WIDE, which is
-    exactly how this port drifted the first time."""
+    """Pins that Figures 12/14's own drawing calls pass `style.FIGSIZE_POSITIONING_TREND`
+    to `plt.subplots`, and that the reused Figures 13/15
+    (`stec.viz.positioning_distributions.fig_boxplot_3d_error`/`fig_cdf_unfiltered`) are
+    drawn at that module's own `FIGSIZE_WIDE` - a constant with the right value but never
+    referenced would pass `test_style.py`'s check while a figure still rendered at the
+    wrong geometry, which is exactly how this port drifted the first time."""
     seen_figsizes = []
     original_subplots = mf.plt.subplots
 
@@ -670,18 +700,22 @@ def test_positioning_figures_are_drawn_at_the_pinned_geometry_not_figsize_wide(
     frame["method"] = frame["method"].map(mf._POSITIONING_METHOD_MAP)
     frame = frame.dropna(subset=["method"])
     frame["date"] = pd.to_datetime(frame["date"])
-    frame = frame[frame["error_3d_rms"] <= mf.OUTLIER_3D_RMS_M]
 
     mf.fig_positioning_trend(frame, tmp_path, "synthetic")
     mf.fig_positioning_improvement_timeseries(frame, tmp_path, "synthetic")
-    mf.fig_positioning_distribution_boxplot(frame, tmp_path, "synthetic")
-    mf.fig_positioning_cdf_3d_rms(frame, tmp_path, "synthetic")
+
+    method_frame = frame.rename(columns={"method": "Method"})
+    stats, fliers = pdist.boxplot_stats(method_frame, ["Method"])
+    mf.fig_boxplot_3d_error(stats, fliers, tmp_path, "synthetic")
+    cdf = pdist.cdf_points(method_frame, ["Method"])
+    percentiles = pdist.percentile_summary(method_frame, ["Method"])
+    mf.fig_cdf_unfiltered(cdf, percentiles, tmp_path, "synthetic")
 
     assert seen_figsizes == [
         style.FIGSIZE_POSITIONING_TREND,
         style.FIGSIZE_POSITIONING_TREND,
-        style.FIGSIZE_POSITIONING_DISTRIBUTION,
-        style.FIGSIZE_POSITIONING_DISTRIBUTION,
+        style.FIGSIZE_WIDE,
+        style.FIGSIZE_WIDE,
     ]
 
 

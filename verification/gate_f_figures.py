@@ -101,12 +101,11 @@ PRETRAINED_DIAGNOSTICS_CACHE = (
     / "observations.parquet"
 )
 
-# The station-day outlier rule Table 5 and Figures 12-15 all share
-# (`stec.positioning.metrics.OUTLIER_3D_RMS_M`). Recomputation applies the same threshold
-# directly (`<=` keeps) rather than importing `exclude_outlier_station_days` - the constant
-# is a declared modelling choice, not the logic under test, but the filter itself is
-# reimplemented here so this check does not share code with the figure it is checking.
-POSITIONING_OUTLIER_THRESHOLD_M = 10.0
+# Table 5 and Figures 12-15 used to share a >10 m station-day outlier rule
+# (`stec.positioning.metrics.OUTLIER_3D_RMS_M`). Dropped everywhere per the owner's
+# 2026-08-28 decision (`docs/revision/positioning_reporting.md`): every positioning figure
+# now reads the full, unfiltered population, so this gate's recomputation no longer
+# applies any threshold either - matching the figure it checks, not the retired rule.
 
 POSITIONING_METHOD_LABELS = {
     "STEC_iono": "Direct STEC",
@@ -319,7 +318,10 @@ def _figure10_check(metric: str) -> FigureCheck:
 # --------------------------------------------------------------------------
 
 
-def _load_filtered_positioning() -> pd.DataFrame:
+def _load_positioning() -> pd.DataFrame:
+    """No outcome-based filter - matches `stec.viz.manuscript_figures._load_positioning_
+    frame` since the owner's 2026-08-28 decision (`docs/revision/positioning_reporting.md`)
+    dropped the old >10 m station-day exclusion from every positioning figure."""
     frame = pd.read_csv(
         POSITIONING_COVERAGE_DIR / "multiday_summary.csv",
         usecols=["date", "method", "error_3d_rms"],
@@ -327,46 +329,33 @@ def _load_filtered_positioning() -> pd.DataFrame:
     frame["method"] = frame["method"].map(POSITIONING_METHOD_LABELS)
     frame = frame.dropna(subset=["method"])
     frame["date"] = pd.to_datetime(frame["date"])
-    return frame[frame["error_3d_rms"] <= POSITIONING_OUTLIER_THRESHOLD_M].copy()
+    return frame
 
 
 def _recompute_positioning_trend() -> pd.DataFrame:
-    frame = _load_filtered_positioning()
+    """`fig_positioning_trend`'s per-day statistic since 2026-08-28: median with a
+    Q1-Q3 band, not mean with a SEM band - the mean is not a robust summary of this
+    comparison (docs/revision/positioning_reporting.md Sec 1)."""
+    frame = _load_positioning()
     daily = (
         frame.groupby(["date", "method"])["error_3d_rms"]
-        .agg(["mean", "std", "count"])
+        .agg(
+            median="median",
+            q1=lambda s: s.quantile(0.25),
+            q3=lambda s: s.quantile(0.75),
+            count="count",
+        )
         .reset_index()
     )
-    daily["sem"] = daily["std"] / np.sqrt(daily["count"])
     return daily
 
 
-def _recompute_positioning_distribution_stats() -> pd.DataFrame:
-    frame = _load_filtered_positioning()
-    return (
-        frame.groupby("method")["error_3d_rms"]
-        .agg(mean="mean", count="count", median="median")
-        .reset_index()
-    )
-
-
-def _reduce_plotted_distribution_stats(path: Path) -> pd.DataFrame:
-    """fig13's plotted CSV is the raw filtered rows; reduce to the same per-method
-    aggregate `_recompute_positioning_distribution_stats` produces, so the comparison is
-    "does the population behind the boxplot have the right mean/count/median", not a
-    row-for-row identity that would just be re-deriving the same filter twice."""
-    raw = pd.read_csv(path)
-    return (
-        raw.groupby("method")["error_3d_rms"]
-        .agg(mean="mean", count="count", median="median")
-        .reset_index()
-    )
-
-
 def _recompute_positioning_improvement_timeseries() -> pd.DataFrame:
-    frame = _load_filtered_positioning()
-    daily_mean = frame.groupby(["date", "method"])["error_3d_rms"].mean()
-    pivot = daily_mean.unstack("method").sort_index()
+    """`fig_positioning_improvement_timeseries`'s per-day statistic since 2026-08-28:
+    each day's median 3D error, not its mean - see `_recompute_positioning_trend`."""
+    frame = _load_positioning()
+    daily_median = frame.groupby(["date", "method"])["error_3d_rms"].median()
+    pivot = daily_median.unstack("method").sort_index()
     gim = pivot["IGS GIM + Mapping"]
     rows = []
     for method in [c for c in pivot.columns if c != "IGS GIM + Mapping"]:
@@ -386,9 +375,28 @@ def _recompute_positioning_improvement_timeseries() -> pd.DataFrame:
 _CDF_QUANTILE_LEVELS = (0.50, 0.95, 0.99)
 
 
+# For an odd-sized group, the two ranks straddling the 50th percentile are exactly
+# equidistant from it (rank (n-1)/2 and (n+1)/2, zero-indexed, both |n-fold| away from the
+# centre by construction) - a genuine floating-point tie, not a near-tie. A CSV round-trip
+# perturbs a value like this by ~1e-14 (text -> float64 is not perfectly lossless at the
+# last bit), which is enough to flip `argmin` to the other side of an exact tie: found via
+# Figure 15's Pretrained Direct STEC series (n=10,819), where the untouched in-memory
+# computation and the same arithmetic re-read from `cdf_unfiltered.csv` picked adjacent
+# ranks (1.7620 m vs 1.7628 m - a 0.045% difference, immaterial on its own, but enough to
+# exceed RELATIVE_TOLERANCE and misreport a real figure as wrong). Rounding to 9 decimal
+# places - eight orders of magnitude coarser than the tie itself and utterly immaterial to
+# which *real* rank is nearest - removes the round-trip noise without weakening the check
+# for any genuine disagreement, which would need to move a value by far more than 1e-9 to
+# change which rank is closest.
+_CUMULATIVE_PCT_TIE_BREAK_DECIMALS = 9
+
+
 def _empirical_quantile(values: np.ndarray, level: float) -> float:
-    """The nearest-rank definition `fig_positioning_cdf_3d_rms` itself uses for its ECDF
-    (`percentile = np.arange(1, n + 1) / n * 100`, one step per sorted value), picking
+    """The nearest-rank definition `stec.analysis.positioning_distributions.cdf_points`
+    itself uses for its ECDF (`percentile = np.arange(1, n + 1) / n * 100`, one step per
+    sorted value, drawn by `stec.viz.positioning_distributions.fig_cdf_unfiltered`),
+    picking whichever rank's own cumulative percentage is closest to `level * 100` - the
+    same rule
     whichever rank's own cumulative percentage is closest to `level * 100` - the same rule
     `_reduce_plotted_cdf_quantiles` applies when reading a level off the plotted CSV. Using
     `np.quantile`'s interpolation here instead was tried first and produced small
@@ -400,13 +408,15 @@ def _empirical_quantile(values: np.ndarray, level: float) -> float:
     """
     sorted_values = np.sort(values)
     n = len(sorted_values)
-    cumulative_pct = np.arange(1, n + 1) / n * 100
+    cumulative_pct = np.round(
+        np.arange(1, n + 1) / n * 100, _CUMULATIVE_PCT_TIE_BREAK_DECIMALS
+    )
     index = int(np.argmin(np.abs(cumulative_pct - level * 100)))
     return float(sorted_values[index])
 
 
 def _recompute_positioning_cdf_quantiles() -> pd.DataFrame:
-    frame = _load_filtered_positioning()
+    frame = _load_positioning()
     rows = []
     for method, group in frame.groupby("method"):
         values = group["error_3d_rms"].to_numpy(dtype=float)
@@ -422,19 +432,23 @@ def _recompute_positioning_cdf_quantiles() -> pd.DataFrame:
 
 
 def _reduce_plotted_cdf_quantiles(path: Path) -> pd.DataFrame:
-    """fig15's plotted CSV is (method, error_3d_rms, cumulative_pct) - the full sorted
-    per-station-day population and its empirical CDF value, one row per station-day. The
-    quantile at a fixed percentile is read off that same population directly (nearest
-    cumulative_pct per method) rather than by re-deriving the CDF, giving an independent
-    cross-check of the values embedded in the plotted curve without needing the two sides
-    to agree on exact `cumulative_pct` floats to join on."""
+    """Figure 15's plotted CSV (`stec.viz.positioning_distributions.fig_cdf_unfiltered`)
+    is (Method, error_3d_rms, cumulative_pct) - the full sorted per-station-day
+    population and its empirical CDF value, one row per station-day, capitalised
+    `Method` since it comes from `stec.analysis.positioning_distributions` rather than
+    this gate's own `POSITIONING_METHOD_LABELS` mapping. The quantile at a fixed
+    percentile is read off that same population directly (nearest cumulative_pct per
+    method) rather than by re-deriving the CDF, giving an independent cross-check of the
+    values embedded in the plotted curve without needing the two sides to agree on exact
+    `cumulative_pct` floats to join on."""
     raw = pd.read_csv(path)
     rows = []
-    for method, group in raw.groupby("method"):
+    for method, group in raw.groupby("Method"):
         group = group.sort_values("cumulative_pct")
+        rounded_pct = group["cumulative_pct"].round(_CUMULATIVE_PCT_TIE_BREAK_DECIMALS)
         for level in _CDF_QUANTILE_LEVELS:
             target_pct = level * 100
-            idx = (group["cumulative_pct"] - target_pct).abs().idxmin()
+            idx = (rounded_pct - target_pct).abs().idxmin()
             rows.append(
                 {
                     "method": method,
@@ -445,33 +459,104 @@ def _reduce_plotted_cdf_quantiles(path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# --------------------------------------------------------------------------
+# Figure 13 - overall 3D RMS distribution boxplot, since 2026-08-28 reused directly from
+# `stec.viz.positioning_distributions.fig_boxplot_3d_error`
+# (`stec.analysis.positioning_distributions.boxplot_stats`'s Tukey convention: whiskers
+# reach the most extreme data point within 1.5xIQR of the box edges, everything further
+# out is an individual "flier", never dropped).
+# --------------------------------------------------------------------------
+
+_BOXPLOT_STAT_NAMES = ("median", "q1", "q3", "whislo", "whishi", "n", "n_fliers")
+
+
+def _tukey_box_stats(values: np.ndarray) -> dict[str, float]:
+    """Matches `positioning_distributions.boxplot_stats`'s own rounding (`round(x, 4)`)
+    on the five geometry statistics - that CSV is written pre-rounded by design, and
+    `RELATIVE_TOLERANCE` (1e-6) is tight enough that comparing an unrounded recomputation
+    against it would FAIL on rounding alone, not on a real defect."""
+    q1, median, q3 = np.quantile(values, [0.25, 0.5, 0.75])
+    iqr = q3 - q1
+    lo_fence, hi_fence = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    within_fences = values[(values >= lo_fence) & (values <= hi_fence)]
+    whislo = float(within_fences.min()) if within_fences.size else float(q1)
+    whishi = float(within_fences.max()) if within_fences.size else float(q3)
+    n_fliers = int(((values < whislo) | (values > whishi)).sum())
+    return {
+        "median": round(float(median), 4),
+        "q1": round(float(q1), 4),
+        "q3": round(float(q3), 4),
+        "whislo": round(whislo, 4),
+        "whishi": round(whishi, 4),
+        "n": float(len(values)),
+        "n_fliers": float(n_fliers),
+    }
+
+
+def _recompute_positioning_boxplot_stats() -> pd.DataFrame:
+    frame = _load_positioning()
+    rows = []
+    for method, group in frame.groupby("method"):
+        stats = _tukey_box_stats(group["error_3d_rms"].to_numpy(dtype=float))
+        for stat_name in _BOXPLOT_STAT_NAMES:
+            rows.append(
+                {"method": method, "stat": stat_name, "value": stats[stat_name]}
+            )
+    return pd.DataFrame(rows)
+
+
+# `positioning_distributions.boxplot_stats`'s CSV column names for the five geometry
+# statistics this gate also computes - `n`/`n_fliers` need no suffix stripped.
+_PLOTTED_BOXPLOT_STAT_NAMES = {
+    "median_m": "median",
+    "q1_m": "q1",
+    "q3_m": "q3",
+    "whislo_m": "whislo",
+    "whishi_m": "whishi",
+    "n": "n",
+    "n_fliers": "n_fliers",
+}
+
+
+def _reduce_plotted_boxplot_stats(path: Path) -> pd.DataFrame:
+    """Figure 13's plotted CSV (`positioning_distributions._tidy_box_data`) is long
+    format: one row per (Method, stat, value), `stat` covering every box-geometry field
+    plus one row per individual flier point. Narrowed here to the box-geometry stats this
+    gate independently recomputes - the flier rows themselves are exactly `n_fliers`
+    individual values, already covered in aggregate by the `n_fliers` count."""
+    raw = pd.read_csv(path)
+    raw = raw[raw["stat"].isin(_PLOTTED_BOXPLOT_STAT_NAMES)].copy()
+    raw["stat"] = raw["stat"].map(_PLOTTED_BOXPLOT_STAT_NAMES)
+    return raw.rename(columns={"Method": "method"})[["method", "stat", "value"]]
+
+
 _POSITIONING_UPSTREAM = (POSITIONING_COVERAGE_DIR / "multiday_summary.csv",)
 
 FIGURE12_CHECK = FigureCheck(
     name="fig12_positioning_trend",
-    figure="Figure 12 (daily 3D RMS, mean +/- SEM)",
+    figure="Figure 12 (daily 3D RMS, median with Q1-Q3 band, unfiltered)",
     plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "pos_trend.csv",
     upstream=_POSITIONING_UPSTREAM,
     join_keys=("date", "method"),
-    value_columns=("mean", "std", "count", "sem"),
+    value_columns=("median", "q1", "q3", "count"),
     load_plotted=lambda p: pd.read_csv(p, parse_dates=["date"]),
     recompute=_recompute_positioning_trend,
 )
 
 FIGURE13_CHECK = FigureCheck(
     name="fig13_positioning_distribution",
-    figure="Figure 13 (overall 3D RMS distribution, per-method aggregates)",
-    plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "pos_distribution_boxplot.csv",
+    figure="Figure 13 (overall 3D RMS distribution, unfiltered Tukey box statistics)",
+    plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "boxplot_3d_error.csv",
     upstream=_POSITIONING_UPSTREAM,
-    join_keys=("method",),
-    value_columns=("mean", "count", "median"),
-    load_plotted=_reduce_plotted_distribution_stats,
-    recompute=_recompute_positioning_distribution_stats,
+    join_keys=("method", "stat"),
+    value_columns=("value",),
+    load_plotted=_reduce_plotted_boxplot_stats,
+    recompute=_recompute_positioning_boxplot_stats,
 )
 
 FIGURE14_CHECK = FigureCheck(
     name="fig14_positioning_improvement_timeseries",
-    figure="Figure 14 (daily % improvement over IGS GIM + Mapping)",
+    figure="Figure 14 (daily % improvement over IGS GIM + Mapping, median, unfiltered)",
     plotted_csv=MANUSCRIPT_PLOTS
     / "positioning_2024"
     / "pos_improvement_timeseries.csv",
@@ -484,8 +569,8 @@ FIGURE14_CHECK = FigureCheck(
 
 FIGURE15_CHECK = FigureCheck(
     name="fig15_positioning_cdf",
-    figure="Figure 15 (3D RMS CDF, median/p95/p99 per method)",
-    plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "pos_cdf_3d_rms.csv",
+    figure="Figure 15 (3D RMS CDF, median/p95/p99 per method, unfiltered)",
+    plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "cdf_unfiltered.csv",
     upstream=_POSITIONING_UPSTREAM,
     join_keys=("method", "percentile"),
     value_columns=("error_3d_rms",),
