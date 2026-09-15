@@ -178,6 +178,21 @@ either a manuscript-prose fix or answerable directly from a file already in the 
 - **Fully-Bayesian model scope** (2026-08-28): scoped as a single confirmatory comparison
   answering R1.2, not a third fully-evaluated model. No further work implied; see
   `docs/revision/r22_fully_bayesian_analysis.md`.
+- **Tables 5-7 moved to one shared population** (2026-09-15, one day after the "Table 5
+  methodology" bullet above, and a separate decision from it — that bullet settled median-vs-
+  mean and the outlier filter; this one settles which station-days). Tables 5, 6 and 7, and
+  Figures 12-15, now all restrict to the 4-method × 2-weighting common set
+  (`common_set_positioning.coverage_common_station_days()`, N=10,387), so Table 5 and the
+  elevation-vs-uncertainty weighting table (Table 7, `weighting_ablation`'s new
+  `canonical_for="Table 7"` `common_set.csv`) share one N instead of two. Verified inert on the
+  headline: Direct STEC's median improvement over IGS GIM reads 18.1% on the full per-method
+  population, 18.5% on the iono-only four-way intersection, 18.7% on this common set —
+  `docs/revision/positioning_reporting.md` §2 has the full record, including what deliberately
+  stayed on the full population (the original-vs-recovered split, `positioning_diagnostics`,
+  `positioning_geography`) and why `oracle_benchmark` was never affected. `storm_stratification`
+  and `positioning_robustness` were moved onto the same common set the same day, with median
+  replacing mean as the headline (Direct STEC now +19.5% quiet / +14.5% storm over GIM, not the
+  response letter's superseded +25.4%/+19.6%).
 
 ---
 

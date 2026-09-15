@@ -513,12 +513,14 @@ consistency` (R1.3), `positioning_geography` (R2.3/discussion).
 - Whether Figures 5-8's per-bin numbers for the pretrained model have ever been independently
   re-derived from the raw parquet rather than checked only via the Gate F equivalence argument
   (Item I above) — `manuscript_change_list.md` states this gap; this session did not close it.
-- The precise current row-count reconciliation between `positioning_coverage`'s "10,712 solved by
-  all methods" (its own most recent caveat, iono weighting) and `TABLE5_NUMBERS.md`'s per-method
-  Direct STEC N=10,717 — the two are different denominators (four-way intersection vs one
-  method's own total) and are not necessarily expected to match, but this session did not verify
-  the arithmetic that would confirm the 5-row gap is fully explained by that distinction rather
-  than partly by something else.
+- ~~The precise current row-count reconciliation between `positioning_coverage`'s "10,712 solved
+  by all methods" and `TABLE5_NUMBERS.md`'s per-method Direct STEC N=10,717.~~ **Resolved
+  2026-09-15.** Verified directly from `positioning_coverage/rebuilt/multiday_summary.csv`: Direct
+  STEC's own iono-weighted total is 10,717 and the four-way intersection is 10,712. All five
+  station-days in the gap are ones Direct STEC solved while at least one other method did not
+  (2 missing Pretrained, 3 missing VTEC, 2 missing IGS GIM; the counts overlap because a
+  station-day can be missing from more than one). The gap is entirely the intersection, with
+  nothing else in it.
 
 ---
 

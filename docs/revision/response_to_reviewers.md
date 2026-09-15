@@ -221,39 +221,47 @@ spread among contributing analysis centres, not a validated error estimate; mapp
 error is not represented in it at all; and it is a 5°/2 h grid-cell quantity being judged
 per observation. It is nonetheless the uncertainty a user of the product actually receives.
 
-### R1.5 — stochastic-model ablation ✅ (one arm ⏳)
-Restricting to station-days solved under both weightings:
+### R1.5 — stochastic-model ablation ✅
+Restricted to the same 4-method × 2-weighting common set Tables 5-7 use
+(`common_set_positioning.coverage_common_station_days()`, N = 10,387), **median** 3D RMS per
+station-day under each weighting (median, not mean, per the Table 5 decision in
+`docs/revision/positioning_reporting.md` — see the caveat below the table):
 
-| Correction | elevation [m] | predicted uncertainty [m] | gain |
+| Correction | elevation [m] | predicted uncertainty [m] | gain (median) |
 |---|---|---|---|
-| Direct STEC | 1.156 | 1.121 | **+3.0%** |
-| VTEC + Mapping | 1.580 | 1.624 | −2.7% |
-| IGS GIM + Mapping | 1.630 | 1.631 | −0.1% |
+| Direct STEC | 0.920 | 0.891 | **+3.2%** |
+| Pretrained Direct STEC | 1.857 | 1.775 | **+4.4%** |
+| VTEC + Mapping | 1.243 | 1.326 | −6.7% |
+| IGS GIM + Mapping | 1.089 | 1.097 | −0.7% |
 
 Elevation weighting is the operational default, so it is the comparison the figure carries.
+One genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under Direct STEC/elevation) moves that
+row's *mean* by 25% on its own while leaving the median above unmoved — the same non-robustness
+the Table 5 decision was made to avoid; see `stec/analysis/weighting_ablation.py`'s module
+docstring.
 
 **A third stochastic model was also run, and is reported as a number rather than a figure.**
 Replacing the predicted per-observation sigma with a constant — identical STEC values and the
-same `weight_opt iono`, so PPPx still weights by the uncertainty column — gives 1.367 m against
-1.195 m for the model's own sigma on the same 5,422 paired station-days: **12.6% worse**, and
-11.5% worse than elevation weighting. This is the arm that separates "the predicted sigma
-carries information" from "any weighting helps", which is what R1.5 asks about; nobody weights
-by a constant in practice, which is why it is not a bar.
+same `weight_opt iono`, so PPPx still weights by the uncertainty column — gives a mean 3D RMS of
+1.608 m against 1.626 m for the model's own sigma on the same 6,896 paired station-days:
+predicted uncertainty is **1.1% worse** than the constant-sigma arm by the mean, and the
+constant-sigma arm is itself **4.6% better** than elevation weighting. This arm has no median
+counterpart in the current pipeline, so read it as a coarser, mean-only check rather than on
+the same footing as the table above. It is the arm that separates "the predicted sigma carries
+information" from "any weighting helps", which is what R1.5 asks about; nobody weights by a
+constant in practice, which is why it is not a bar — and on this reading it is not even
+unambiguously the better arm.
 
-**We will moderate the manuscript's claim accordingly.** Uncertainty weighting yields a small
-but consistent gain, and only where the uncertainty is genuinely observation-level and
-model-derived; the majority of the improvement over IGS GIM comes from the STEC correction
-itself — ~20.3% on the matched, apples-to-apples population (N = 7,741, both weightings
-solved) and ~24.4% on the full recovered population (N = 8,636 vs 10,837), both below the
-abstract's previously reported 30.9%.
-
-*Staleness marker (2026-08-25).* These positioning population figures are current for today
-but not final: a RINEX-downloader timeout bug was fixed today, and the station-recovery
-re-run it unblocks (over the ~216 days still missing station-days) has not started yet. When
-it runs, the solved-by-all population will grow again and the percentages above will move —
-`docs/revision/coverage_recovery_status.md` has the full account, including why the previous
-"cannot be closed" reading of this gap was wrong. The numbers above are correct for today's
-population; they are not the final ones.
+**We already moderate the manuscript's claim accordingly.** Uncertainty weighting yields a
+small, direction-dependent effect (positive for Direct STEC and the pretrained variant,
+negative for VTEC + Mapping and IGS GIM); the majority of the improvement over IGS GIM comes
+from the STEC correction itself, not the weighting scheme — Direct STEC's median improvement
+over IGS GIM + Mapping is **18.7%** on the same common set both tables above and Table 5 now
+share (see `docs/revision/positioning_reporting.md` for how that figure is derived and how
+little it moves across related populations), well below the abstract's previously reported
+30.9%. This supersedes an earlier draft of this section's ~20.3%/~24.4% figures, computed on
+two smaller, since-superseded populations before the common-set decision was made — not a
+disagreeing number, a later reading of the same comparison.
 
 ### R1.6 — calibration diagnostics ✅
 Conceded: monotonic association is not calibration. Treating each prediction as the Gaussian

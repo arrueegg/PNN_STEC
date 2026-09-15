@@ -34,7 +34,7 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R1.3 Madrigal reference offset | **READY** | 67 stations, 235/238 possible days. Quote Spearman +0.698 and 95.5% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. Computed from the pre-correction Madrigal store (old local-time convention); a re-inference is under way. |
 | R1.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
 | R1.8 oracle bound | **NOT QUOTABLE** | Two current artifacts disagree in population (76 vs 242 days, N=1,810 vs 5,364), not just completeness — see below. Qualitative "order of magnitude below the models" framing is safe; no absolute number is yet. Uses **elev** weighting and paired station-days, so it is not comparable with Table 5. |
-| R1.5 fixed-variance arm | **READY** | 242 days. Constant sigma is 11.5% *worse* than elevation weighting; the model's sigma is 2.6% better. |
+| R1.5 fixed-variance arm | **READY** | 242 days, N = 6,896 paired (updated 2026-09-15). Constant sigma is 4.6% *better* than elevation weighting; the model's predicted sigma is 1.1% worse than the constant-sigma arm (mean-only figures — see R1.5 below for the current, common-set median table). |
 | R2.6 uncertainty vs error, fine-tuned | **READY, now in the response letter** | Full 242-day store; RMSE/σ 1.30–1.45× (σ bins, 95%+ of obs) to 2.03× at the extremes, 1.54–1.68× (elevation), epistemic share 5.1–6.6%. |
 | R1.2 fully-Bayesian comparison | **READY** | Done — matched-init retrain evaluated. Paper model RMSE 11.67 vs fully-Bayesian 15.54 (1.33×); uncertainty–error correlation marginally favours the fully-Bayesian arm (0.575 vs 0.568); epistemic-scale diagnostic shows the paper model's under-dispersion is scale, not structure. |
 | R1.4b Figure 4 stratified | **PENDING** | Pretrained pass is queued; the stratification itself is not built. |
@@ -292,18 +292,25 @@ days and reproduces the unaffected ones to 1.5e-5 TECU.
 `multiday_results/gim_baseline_repair/gim_repair_report.csv`
 
 ### R1.5 — stochastic-model ablation
-Paired station-days, uncertainty vs elevation weighting: Direct STEC **+3.0%** (better on
-55.9% of station-days), VTEC + Mapping −2.7%, IGS GIM −0.1%.
-**Moderate the manuscript claim accordingly**: uncertainty weighting gives a small real gain
-only where the uncertainty is observation-level and model-derived; the bulk of the improvement
-over GIM comes from the STEC correction itself, not the weighting — ~20.3% on the matched
-population (N = 7,741) and ~24.4% on the full recovered, unmatched population (N = 8,636 vs
-10,837), both below the abstract's previously reported 30.9%.
-The fixed-variance arm is **running** (full 242 days).
-⚠️ **Staleness marker (2026-08-25):** a RINEX-downloader timeout bug was fixed today
-(`docs/revision/coverage_recovery_status.md`); the recovery re-run it unblocks has not started.
-The population and percentages above are current but will move again once it completes.
-`multiday_results/weighting_ablation/paired.csv` ·
+**Updated 2026-09-15** (the numbers below superseded the paired-population figures this
+section quoted before; see `docs/revision/positioning_reporting.md` and the response letter's
+R1.5 section for the fuller account). Restricted to the same 4-method × 2-weighting common set
+Tables 5-7 use (`common_set_positioning.coverage_common_station_days()`, N = 10,387), **median**
+3D RMS gain, uncertainty vs elevation weighting: Direct STEC **+3.2%**, Pretrained Direct STEC
+**+4.4%**, VTEC + Mapping −6.7%, IGS GIM −0.7%. One genuine PPPx solve failure (URUM, DOY 365)
+moves the Direct STEC/elevation *mean* by 25% while leaving the median unmoved — the median is
+the reported figure for the same reason it is for Table 5.
+**Moderate the manuscript claim accordingly**: uncertainty weighting gives a small,
+direction-dependent effect; the bulk of the improvement over GIM comes from the STEC
+correction itself, not the weighting — Direct STEC's median improvement over IGS GIM + Mapping
+is **18.7%** on this same common set (was quoted here as ~20.3%/~24.4% on two smaller,
+since-superseded populations), well below the abstract's previously reported 30.9%.
+The fixed-variance arm is **done** (242 days, N = 6,896 paired): constant sigma reads a mean
+3D RMS of 1.608 m against 1.626 m for the model's own sigma — predicted uncertainty is 1.1%
+*worse* than the constant-sigma arm by this mean-only measure, and the constant-sigma arm is
+4.6% better than elevation weighting (supersedes this section's earlier "11.5% worse... 2.6%
+better" reading, computed on an earlier population). This arm has no median counterpart.
+`multiday_results/analyses/weighting_ablation/rebuilt/{common_set,fixed_variance}.csv` ·
 `plots/revision/positioning_2024/weighting_ablation_notitle.png`
 
 ### R1.6 — calibration diagnostics — **PROVISIONAL** ✅
