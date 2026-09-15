@@ -9,18 +9,18 @@
     "Owner decision, 2026-09-14: the offset-removed re-scoring in this stage's output (FINDINGS.md's 'SENSITIVITY DIAGNOSTIC' section, pooled_before_after.csv's *_after columns) is fitted on the evaluation data and reverses the method ranking in the paper's favour. It must NOT be quoted in the manuscript or the response letter as a corrected result, and must NOT be used to re-rank the methods. The plain, uncorrected comparison - matching daily_metrics/Table 4, VTEC + Mapping lowest RMSE and MAE and highest R2 on Madrigal - is the result; see docs/revision/manuscript_change_list.md for the decision record."
   ],
   "code": {
-    "commit": "f46805e1b9e7a29ac917e2ba9c4ae09e3952a575",
+    "commit": "b79e1c79f98b5a1e432d03673037ea6578992081",
     "dirty": true
   },
   "command": "-m stec.analysis.madrigal_method_offset_comparison --output-dir multiday_results/analyses/madrigal_method_offset_comparison/rebuilt",
   "description": "whether VTEC + Mapping's Madrigal win over Direct STEC survives the same per-station reference-offset correction, for all four methods on identical rows",
-  "duration_s": 94.1,
-  "fingerprint": "4e17cc2e27275625092503b072eca420389c7edd678030771feec87f31398786",
+  "duration_s": 91.1,
+  "fingerprint": "4217b6be94f04d5ffdd7674ef04bc83129fa0b6915674b812b569aa32aaaa6d9",
   "inputs": {
     "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
       "kind": "file",
-      "sha256": "6401d86dc01bd8e7056c4df4213b683d41b46649c6923b8cee29e604bb4d84ac",
-      "size": 1690
+      "sha256": "58527adb6102fc5a873cfadf1322b16fc11be913fa95865851445a692a5374f5",
+      "size": 3106
     },
     "predictions/finetuned_stec/madrigal": {
       "files": 238,
@@ -36,8 +36,8 @@
     },
     "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/FINDINGS.md": {
       "present": true,
-      "sha256": "12af28dfc88d79e78e1e51223ed451951f5029439d55c15a61acb43a08af8ed0",
-      "size": 5728
+      "sha256": "bf9272b69c186ee757dca95641b8bcdf3795728ff55b618bf6e4c0a432cb23c8",
+      "size": 5922
     },
     "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/correctness_check_vs_daily_metrics.csv": {
       "present": true,
@@ -71,7 +71,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T14:54:04.894725+00:00",
+  "recorded_at": "2026-09-15T16:10:54.492111+00:00",
   "stage": "madrigal_method_offset_comparison",
   "supersedes": []
 }

@@ -6,25 +6,25 @@
     "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
   ],
   "code": {
-    "commit": "e5b5b8cc3a13649de62abb59c3ad37c16b35b8f9",
+    "commit": "b79e1c79f98b5a1e432d03673037ea6578992081",
     "dirty": true
   },
   "command": "-m stec.viz.revision_figures",
   "description": "one PNG per revision figure, plus the _notitle manuscript variants",
-  "duration_s": 20.4,
-  "fingerprint": "11e9b18c1e26b715310684047529ba30bb83c1e595ac9d077e626e0aca0a49cd",
+  "duration_s": 22.5,
+  "fingerprint": "f8198d718db203e00a525f64625c0b0b7ac92e2f73da6f80965b82c126eda460",
   "inputs": {
     "multiday_results/analyses/activity_stratification/rebuilt": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1789367451786315399,
+      "mtime_ns": 1789488563303683709,
       "size": 4332
     },
     "multiday_results/analyses/dstec_evaluation/rebuilt": {
-      "files": 9,
+      "files": 10,
       "kind": "tree",
-      "mtime_ns": 1789473279406300028,
-      "size": 571198766
+      "mtime_ns": 1789479814407581213,
+      "size": 571198999
     },
     "multiday_results/analyses/hyperparameter_search/pre_rebuild": {
       "files": 9,
@@ -81,10 +81,10 @@
       "size": 43623
     },
     "multiday_results/analyses/uncertainty_error_relation/rebuilt": {
-      "files": 3,
+      "files": 6,
       "kind": "tree",
-      "mtime_ns": 1787740904956674900,
-      "size": 3338
+      "mtime_ns": 1789484449138548667,
+      "size": 5715
     },
     "multiday_results/analyses/weighting_ablation/rebuilt": {
       "files": 5,
@@ -114,7 +114,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T12:01:58.957579+00:00",
+  "recorded_at": "2026-09-15T16:11:40.905684+00:00",
   "stage": "figures",
   "supersedes": []
 }
