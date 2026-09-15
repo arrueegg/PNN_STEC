@@ -6,15 +6,24 @@ registry and the config - with nothing checking that they do. That is the same c
 silent drift the rest of this rebuild exists to remove, sitting in the two tables a reader
 uses to understand what the model *is*.
 
-Table 2 is already known to be incomplete. Three hyperparameters that affect training are
-absent from it:
+Table 2 used to omit three hyperparameters that affect training - the **KL warmup** (the KL
+weight is annealed linearly from 0 to 0.1 over 5 epochs, so the reported weight of 0.1 is
+only reached after the fifth epoch), the **variance floor** (without which the Gaussian NLL
+is unbounded below and the model is rewarded for driving variance to zero on easy
+observations), and the **output bias initialisation** at the approximate mean STEC (why the
+model starts in the right part of the range rather than at zero). All three are now printed
+in the manuscript table, marked `\revised{}`.
 
-* the **KL warmup** - the KL weight is annealed linearly from 0 to 0.1 over 5 epochs, so
-  the reported weight of 0.1 is only reached after the fifth epoch;
-* the **variance floor**, without which the Gaussian NLL is unbounded below and the model
-  is rewarded for driving variance to zero on easy observations;
-* the **output bias initialisation** at the approximate mean STEC, which is why the model
-  starts in the right part of the range rather than at zero.
+Drift ran in the other direction too: the manuscript's "Early stopping patience & 20 (15)"
+row had no CSV row backing it at all - correct against the shipped configs, but
+unverifiable from this stage's own output. `hyperparameter_table` now reads it from
+`config[stage]["patience"]`, the same key `stec.training.run_training` reads to actually
+stop training - not to be confused with the *scheduler's* patience
+(`config["pretrain"]["scheduler_patience"]`, a different mechanism, reported as its own row
+below the per-stage loop). `stec.pipeline.stages`' `paper_tables_manuscript_rows_are_backed`
+check parses the real manuscript table and asserts every row it prints resolves to a
+parameter this module actually emits, so this cannot silently drift again in either
+direction without the pipeline failing.
 
 Generating both tables from the same objects the model is built from means a hyperparameter
 cannot be changed without the table changing with it. The output is CSV for diffing and
@@ -116,6 +125,7 @@ def hyperparameter_table(config: dict) -> list[dict[str, Any]]:
         ("Architecture", model.get("model_type", ""), ""),
         ("Hidden dimension", model.get("hidden_dim", ""), ""),
         ("Residual blocks", model.get("num_layers", ""), ""),
+        ("Activation", model.get("activation", ""), ""),
         ("Prior sigma", model.get("prior_sigma", ""), "Bayesian output layer"),
         ("Dropout", model.get("dropout_rate", ""), ""),
         ("Loss", training.get("loss_function", ""), ""),
@@ -135,9 +145,33 @@ def hyperparameter_table(config: dict) -> list[dict[str, Any]]:
             ("Batch size", block.get("batchsize", ""), stage),
             ("Epochs", block.get("epochs", ""), stage),
             ("Scheduler", block.get("scheduler", ""), stage),
+            # config[mode]["patience"] is what actually stops training early - this is
+            # the manuscript's "Early stopping patience & 20 (15)" row, which is why it
+            # is named "Early stopping patience" rather than plain "Patience": the
+            # ReduceLROnPlateau scheduler below has its *own*, different patience, read
+            # from a different key (`scheduler_patience`) and, for both stages, from the
+            # pretrain block only - the two must not be merged into one row. Read at
+            # stec/training/run_training.py:488 / base_trainer.py:391 for early stopping,
+            # stec/training/schedulers.py for the scheduler's.
+            ("Early stopping patience", block.get("patience", ""), stage),
         ]
 
     rows += [
+        # ReduceLROnPlateau's own patience - not the early-stopping patience above, and
+        # not per-stage. `stec/training/schedulers.py`'s `SchedulerCompat.LEGACY` (the
+        # only path that has ever actually trained a shipped checkpoint) builds the
+        # scheduler's parameters from `config["pretrain"]` regardless of which stage is
+        # running - a preserved bug, not a choice made here (see that module's
+        # docstring). `scheduler_patience` is absent from this config, so both stages ran
+        # with the code default of 5 (`schedulers.py`'s own
+        # `params.get("scheduler_patience", 5)`); mirrored here rather than imported,
+        # since it is a call-site default in that module, not a named constant.
+        (
+            "LR scheduler patience (ReduceLROnPlateau)",
+            config.get("pretrain", {}).get("scheduler_patience", 5),
+            "epochs with no plateau improvement before the LR is halved; read from the "
+            "pretrain block for both stages under the legacy scheduler-parameter source",
+        ),
         ("Weight decay", training.get("weight_decay", ""), ""),
         ("Random seed", config.get("random_seed", ""), ""),
         ("SH degree", config.get("data", {}).get("SH_degree", ""), ""),

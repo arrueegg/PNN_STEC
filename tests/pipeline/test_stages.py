@@ -19,10 +19,13 @@ import pytest
 
 from stec.analysis.daily_metrics import DATASET_LABELS, MODELS
 from stec.analysis.positioning_summary import METHOD_ORDER
+from stec.config import paths
 from stec.pipeline import registry
 from stec.pipeline.stages import (
     DAILY_METRICS_DIR,
+    MANUSCRIPT_TABLE2_ROW_BACKING,
     ORACLE_EXPERIMENT_DIR,
+    PAPER_TABLES_DIR,
     POSITIONING,
     POSITIONING_COVERAGE_DIR,
     POSITIONING_DIAGNOSTICS_DIR,
@@ -36,8 +39,11 @@ from stec.pipeline.stages import (
     STORE_PRETRAINED,
     SWI,
     WEIGHTING_RUN,
+    _extract_tex_table_rows,
+    _unwrap_braced_macro,
     daily_metrics_summary_has_all_methods_and_datasets,
     daily_metrics_summary_has_consistent_day_counts,
+    paper_tables_manuscript_rows_are_backed,
     positioning_distributions_overall_has_all_four_methods,
     positioning_summary_overall_has_all_four_methods,
 )
@@ -1220,3 +1226,165 @@ def test_positioning_distributions_figures_declares_only_its_own_tree():
     outputs = stage("positioning_distributions_figures").outputs
     for output in outputs:
         assert output.startswith(POSITIONING_DISTRIBUTIONS_FIGURES_DIR)
+
+
+# --- paper_tables: Table 2 must not drift from table2_hyperparameters.csv again -------
+
+
+def test_paper_tables_manuscript_check_is_declared():
+    assert paper_tables_manuscript_rows_are_backed in stage("paper_tables").checks
+
+
+def test_unwrap_braced_macro_strips_a_whole_cell_wrapper():
+    assert (
+        _unwrap_braced_macro(r"\revised{Weight decay}", r"\revised") == "Weight decay"
+    )
+
+
+def test_unwrap_braced_macro_is_brace_matched_not_a_first_brace_snip():
+    """A naive `split("}")[0]` would truncate this at the *inner* brace instead of the
+    macro's own closing one - exactly the nested case the real table starts using once a
+    revised cell contains math mode, e.g. `\\revised{$1\\times10^{-3}$}`."""
+    text = r"\revised{$1\times10^{-3}$}"
+    assert _unwrap_braced_macro(text, r"\revised") == r"$1\times10^{-3}$"
+
+
+def test_unwrap_braced_macro_leaves_unrelated_text_unchanged():
+    assert _unwrap_braced_macro("Scheduler", r"\revised") == "Scheduler"
+    # Not a *whole-cell* wrapper - trailing text after the closing brace - so left as is
+    # rather than mis-unwrapped.
+    assert (
+        _unwrap_braced_macro(r"\revised{Foo} bar", r"\revised") == r"\revised{Foo} bar"
+    )
+
+
+_FIXTURE_TABLE2 = r"""
+\begin{table}[t]
+\caption{fixture}
+\label{tab:hyperparameters}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Training}}\\
+Optimizer & Adam \\
+\revised{Weight decay} & \revised{0.0} \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Architecture}}\\
+Residual blocks & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+"""
+
+
+def test_extract_tex_table_rows_reads_a_fixture_table(tmp_path):
+    tex_path = tmp_path / "fixture.tex"
+    tex_path.write_text(_FIXTURE_TABLE2)
+    rows = _extract_tex_table_rows(tex_path, "tab:hyperparameters")
+    # Neither the header row nor a `\multicolumn` section title is a hyperparameter.
+    assert "Parameter" not in rows
+    assert "Value" not in rows
+    assert not any(
+        r.startswith("Training") or r.startswith("Architecture") for r in rows
+    )
+    # `\revised{Weight decay}` is unwrapped to plain text, matching an unrevised row.
+    assert rows == ["Optimizer", "Weight decay", "Residual blocks"]
+
+
+def _paper_config() -> dict:
+    import yaml
+
+    return yaml.safe_load(paths.PAPER_PRETRAINED_CONFIG.read_text())
+
+
+def test_manuscript_table2_row_backing_resolves_against_the_real_csv_columns():
+    """Every non-`None` value in the backing map must be a parameter name
+    `hyperparameter_table` actually emits for the real paper config - otherwise the
+    mapping itself would be the thing silently drifting, defeating the check that reads
+    it."""
+    from stec.analysis.paper_tables import hyperparameter_table
+
+    real_parameters = {
+        row["parameter"] for row in hyperparameter_table(_paper_config())
+    }
+    for printed_row, backing in MANUSCRIPT_TABLE2_ROW_BACKING.items():
+        if backing is not None:
+            assert backing in real_parameters, (printed_row, backing)
+
+
+def test_paper_tables_manuscript_rows_are_backed_passes_for_real(tmp_path, monkeypatch):
+    """End-to-end: the real manuscript (`STEC_Modelling/PNN_main_revised.tex`) against a
+    CSV freshly generated from the real frozen paper config, exactly what the pipeline
+    runs. This is the regression test for the bug this check exists to catch - a Table 2
+    row with no CSV backing - run against the actual files rather than a synthetic
+    stand-in for either side."""
+    from stec.analysis.paper_tables import hyperparameter_table, write_table
+
+    monkeypatch.chdir(tmp_path)
+    csv_path = PAPER_TABLES_DIR / "table2_hyperparameters.csv"
+    write_table(
+        hyperparameter_table(_paper_config()),
+        ["parameter", "value", "note"],
+        tmp_path / csv_path.with_suffix(""),
+    )
+    outputs = {str(csv_path): {"present": True}}
+    assert paper_tables_manuscript_rows_are_backed(outputs) is None
+
+
+def test_paper_tables_manuscript_rows_are_backed_reports_undeclared_output():
+    assert paper_tables_manuscript_rows_are_backed({}) == (
+        f"{PAPER_TABLES_DIR / 'table2_hyperparameters.csv'} is not a declared output "
+        "of this stage"
+    )
+
+
+def test_paper_tables_manuscript_rows_are_backed_catches_the_reported_bug(
+    tmp_path, monkeypatch
+):
+    """Reproduces the exact incident this check was written for: a manuscript row
+    ("Early stopping patience") that is factually correct but has no backing row in
+    `table2_hyperparameters.csv` at all."""
+    monkeypatch.chdir(tmp_path)
+    csv_path = PAPER_TABLES_DIR / "table2_hyperparameters.csv"
+    full = tmp_path / csv_path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    with full.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["parameter", "value", "note"])
+        writer.writeheader()
+        for name in MANUSCRIPT_TABLE2_ROW_BACKING.values():
+            if name is not None and name != "Early stopping patience":
+                writer.writerow({"parameter": name, "value": "x", "note": ""})
+    outputs = {str(csv_path): {"present": True}}
+    violation = paper_tables_manuscript_rows_are_backed(outputs)
+    assert violation is not None
+    assert "Early stopping patience" in violation
+
+
+def test_paper_tables_manuscript_rows_are_backed_flags_an_unmapped_printed_row(
+    tmp_path, monkeypatch
+):
+    """A manuscript row nobody has triaged into `MANUSCRIPT_TABLE2_ROW_BACKING` must
+    fail loudly rather than being silently ignored - otherwise a newly added printed row
+    could ship with no backing at all and this check would never see it."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+    tex_dir = tmp_path / "STEC_Modelling"
+    tex_dir.mkdir(parents=True, exist_ok=True)
+    (tex_dir / "PNN_main_revised.tex").write_text(
+        _FIXTURE_TABLE2.replace("Residual blocks", "A Brand New Row")
+    )
+
+    csv_path = PAPER_TABLES_DIR / "table2_hyperparameters.csv"
+    full = tmp_path / csv_path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    with full.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["parameter", "value", "note"])
+        writer.writeheader()
+        for name in ("Optimiser", "Weight decay", "Residual blocks"):
+            writer.writerow({"parameter": name, "value": "x", "note": ""})
+
+    outputs = {str(csv_path): {"present": True}}
+    violation = paper_tables_manuscript_rows_are_backed(outputs)
+    assert violation is not None
+    assert "A Brand New Row" in violation

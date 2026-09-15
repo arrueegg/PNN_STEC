@@ -302,6 +302,62 @@ def _missing_csv_columns(path: Path, required: Sequence[str]) -> list[str]:
     return [column for column in required if column not in fieldnames]
 
 
+def _extract_tex_table_rows(tex_path: Path, label: str) -> list[str]:
+    """First-column cell text of every data row in the `tabular` tagged `\\label{label}`.
+
+    Scoped to the text between that label and the next `\\end{tabular}`, skipping the
+    header row above the first `\\midrule` (`\\textbf{Parameter} & \\textbf{Value}`, not
+    a hyperparameter) and every `\\multicolumn{...}` section-title row. A label cell
+    wrapped whole in `\\revised{...}` - the convention this repository uses for
+    changed/new table content, since `trackchanges`/`soul` cannot nest inside a real
+    `tabular` under `agujournal2019.cls` - is unwrapped to its inner text via brace
+    matching, so a revised row's label still compares equal to an unrevised one's.
+    Nothing else about the cell is normalised: math mode, `\\textbf{}` etc. inside a
+    label are left as written, so a caller's expected-label set must spell them the same
+    way the manuscript does.
+    """
+    text = tex_path.read_text()
+    marker = f"\\label{{{label}}}"
+    start = text.index(marker)
+    end = text.index(r"\end{tabular}", start)
+    body = text[start:end]
+    body = body.split(r"\midrule", 1)[-1] if r"\midrule" in body else body
+
+    rows = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or not line.endswith(r"\\"):
+            continue
+        if line in (r"\midrule", r"\bottomrule") or line.startswith(r"\multicolumn"):
+            continue
+        cell = line[: -len(r"\\")].split("&", 1)[0].strip()
+        cell = _unwrap_braced_macro(cell, r"\revised")
+        rows.append(cell.strip())
+    return rows
+
+
+def _unwrap_braced_macro(text: str, macro: str) -> str:
+    """`text` with a leading `macro{...}` spanning the whole string replaced by `...`.
+
+    Brace-matched rather than a regex snip at the first `}`, so a nested `{...}` inside
+    the argument (there is none in this table today, but a future cell might reasonably
+    add one, e.g. `\\revised{$1\\times10^{-3}$}`) does not truncate the result early.
+    Returns `text` unchanged if it is not exactly one `macro{...}` call.
+    """
+    prefix = macro + "{"
+    if not text.startswith(prefix) or not text.endswith("}"):
+        return text
+    depth = 0
+    for index in range(len(prefix) - 1, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[len(prefix) : index] if index == len(text) - 1 else text
+    return text
+
+
 def daily_metrics_summary_has_all_methods_and_datasets(outputs: dict) -> str | None:
     """Tables 3/4's summary.csv must report all four methods on both datasets, not
     merely clear a row-count floor - a store that silently lost its Madrigal partition
@@ -608,6 +664,97 @@ _POSITIONING_GEOGRAPHY_FIGURES_MIN_ROWS = {
 }
 
 
+# Every row the manuscript's Table 2 (`\label{tab:hyperparameters}`) prints, mapped to the
+# `table2_hyperparameters.csv` "parameter" name that backs it - or to `None` when it
+# deliberately has none. Two rows are legitimately `None`: `MC samples (inference)` is set
+# at inference time (`src/inference_testset.py`, ported to `stec/inference/monte_carlo.py`)
+# rather than read from the training config `hyperparameter_table` builds from, so this
+# stage cannot see it without reading a second, unrelated source. Two printed rows -
+# `$\beta$` and the KL weight schedule - both describe the same annealed KL coefficient at
+# different points in training (its steady-state value vs. its full schedule) and are
+# backed by the same "KL weight" CSV row on purpose, not because one of them is spurious.
+# This dict is the single place that decision lives; `paper_tables_manuscript_rows_are_backed`
+# below is what enforces it.
+MANUSCRIPT_TABLE2_ROW_BACKING: dict[str, str | None] = {
+    "Optimizer": "Optimiser",
+    "Loss": "Loss",
+    r"$\beta$": "KL weight",
+    "KL weight schedule": "KL weight",
+    "Scheduler": "Scheduler",
+    "Batch size": "Batch size",
+    "Learning rate": "Learning rate",
+    "Max epochs": "Epochs",
+    "Early stopping patience": "Early stopping patience",
+    "Samples per epoch": "Training subset size",
+    "Weight decay": "Weight decay",
+    "Residual MLP hidden dim.": "Hidden dimension",
+    "Residual blocks": "Residual blocks",
+    "Activation": "Activation",
+    "Dropout rate": "Dropout",
+    "Prior std.": "Prior sigma",
+    "Variance floor": "Variance floor",
+    "Output bias init.": "Output bias init",
+    "MC samples (inference)": None,
+}
+
+
+def paper_tables_manuscript_rows_are_backed(outputs: dict) -> str | None:
+    """Every row printed in the manuscript's Table 2 must resolve to a real parameter in
+    `table2_hyperparameters.csv` - the exact bug this check exists to catch: the
+    manuscript's "Early stopping patience & 20 (15)" row was factually correct against
+    the shipped configs but had no CSV row backing it at all, so nothing but manual
+    inspection could have told the two apart from a row that was simply wrong. Reads the
+    CSV this stage just wrote and the real `STEC_Modelling/PNN_main_revised.tex`, not
+    copies, so a hand-edit to either side is caught the next time this stage runs rather
+    than at the next unrelated audit.
+
+    A label the parser finds in the manuscript that is not a key in
+    `MANUSCRIPT_TABLE2_ROW_BACKING` also fails this check - a newly added or renamed
+    printed row must be triaged into that mapping (backed by a real parameter, or
+    explicitly `None` with a reason) before it can be trusted, not merely printed.
+
+    What this does **not** check, so as not to claim more than it delivers: cell
+    *values* agreeing between the manuscript and the CSV (a row present, correctly
+    named, on both sides but carrying two different numbers would still pass), and the
+    reverse direction - the CSV intentionally carries rows the manuscript does not print
+    (`Architecture`, `Random seed`, `SH degree`, the scheduler's own patience; see
+    `stec.analysis.paper_tables` for which of the CSV's rows were deliberately left out
+    of the printed table and why), so an unprinted CSV parameter is not a violation.
+    """
+    csv_path = PAPER_TABLES_DIR / "table2_hyperparameters.csv"
+    if str(csv_path) not in outputs:
+        return f"{csv_path} is not a declared output of this stage"
+    csv_parameters = {row["parameter"] for row in _read_csv_rows(csv_path)}
+
+    tex_path = paths.REPO_ROOT / "STEC_Modelling" / "PNN_main_revised.tex"
+    if not tex_path.exists():
+        return f"manuscript not found at {tex_path}"
+    printed_rows = _extract_tex_table_rows(tex_path, "tab:hyperparameters")
+
+    unrecognised = [
+        row for row in printed_rows if row not in MANUSCRIPT_TABLE2_ROW_BACKING
+    ]
+    if unrecognised:
+        return (
+            f"manuscript Table 2 prints row(s) {unrecognised} that "
+            "MANUSCRIPT_TABLE2_ROW_BACKING does not know about - triage them there "
+            "before trusting this check again"
+        )
+
+    unbacked = [
+        row
+        for row in printed_rows
+        if (backing := MANUSCRIPT_TABLE2_ROW_BACKING[row]) is not None
+        and backing not in csv_parameters
+    ]
+    if unbacked:
+        return (
+            f"manuscript Table 2 prints row(s) {unbacked} with no matching parameter "
+            f"in {csv_path}"
+        )
+    return None
+
+
 STAGES: list[Stage] = [
     Stage(
         "training_smoke",
@@ -779,7 +926,7 @@ STAGES: list[Stage] = [
         ],
         # Both tables are close to a fixed size (one row per input block / per
         # hyperparameter, driven by the frozen paper config, not by data volume) -
-        # floored comfortably below the real counts (24 and 22 rows respectively) so
+        # floored comfortably below the real counts (24 and 26 rows respectively) so
         # this catches a header-only write without pinning an exact count a harmless
         # config edit could shift.
         min_rows={
@@ -798,10 +945,15 @@ STAGES: list[Stage] = [
             "Both training stages are reported. The paper pretrains and then fine-tunes "
             "daily at a different learning rate, batch size and epoch count; a table "
             "carrying one of them describes half the training.",
-            "Table 2 includes three hyperparameters the submitted manuscript omits: the "
-            "KL warmup (0 to 0.1 over 5 epochs), the variance floor, and the output bias "
-            "initialisation.",
+            "The CSV intentionally carries more rows than the manuscript prints - "
+            "Architecture, Random seed, SH degree and the ReduceLROnPlateau scheduler's "
+            "own patience (as opposed to early stopping's, a different mechanism) were "
+            "judged not to need a printed row; see stec.analysis.paper_tables for the "
+            "reasoning on each. paper_tables_manuscript_rows_are_backed only checks the "
+            "other direction - every printed row resolves to a real CSV parameter - not "
+            "that the two carry identical row sets.",
         ],
+        checks=[paper_tables_manuscript_rows_are_backed],
     ),
     Stage(
         "relative_error_metrics",

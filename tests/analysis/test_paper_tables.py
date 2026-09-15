@@ -17,14 +17,23 @@ PAPER_CONFIG = {
         "model_type": "BayesianResNetSTEC",
         "hidden_dim": 1024,
         "num_layers": 4,
+        "activation": "relu",
         "prior_sigma": 0.1,
         "dropout_rate": 0.0,
+    },
+    "pretrain": {
+        "learning_rate": 1e-3,
+        "batchsize": 1024,
+        "epochs": 150,
+        "scheduler": "ReduceLROnPlateau",
+        "patience": 20,
     },
     "finetune": {
         "learning_rate": 2e-4,
         "batchsize": 512,
         "epochs": 50,
         "scheduler": "ReduceLROnPlateau",
+        "patience": 15,
     },
     "training": {
         "loss_function": "GaussianNLLLoss",
@@ -114,6 +123,51 @@ def test_hyperparameters_come_from_the_run_mode_that_applies():
     rows = {r["parameter"]: r for r in hyperparameter_table(PAPER_CONFIG)}
     assert rows["Learning rate"]["value"] == 2e-4
     assert rows["Epochs"]["value"] == 50
+
+
+def test_early_stopping_patience_is_read_per_stage_from_config():
+    """The CSV used to have no row for this at all, even though the manuscript's
+    "Early stopping patience & 20 (15)" row is factually correct - `config[stage]
+    ["patience"]` is what `stec.training.run_training` actually reads to stop training,
+    which this must track rather than hardcode."""
+    rows = [
+        r
+        for r in hyperparameter_table(PAPER_CONFIG)
+        if r["parameter"] == "Early stopping patience"
+    ]
+    by_stage = {r["note"]: r["value"] for r in rows}
+    assert by_stage == {"pretrain": 20, "finetune": 15}
+
+
+def test_early_stopping_patience_is_distinct_from_the_scheduler_patience():
+    """The two are different mechanisms under different config keys - this pins that
+    the table never merges them into one ambiguous row."""
+    names = [r["parameter"] for r in hyperparameter_table(PAPER_CONFIG)]
+    assert "Early stopping patience" in names
+    assert "LR scheduler patience (ReduceLROnPlateau)" in names
+    assert names.count("Early stopping patience") == 2  # pretrain and finetune
+
+
+def test_scheduler_patience_defaults_to_five_and_reads_the_pretrain_block():
+    """`scheduler_patience` is absent from the real paper config, so both stages ran
+    with `stec/training/schedulers.py`'s code default of 5, always read from the
+    pretrain block under `SchedulerCompat.LEGACY` - the path that actually trained every
+    shipped checkpoint. This locks that default in here rather than each caller
+    guessing it independently."""
+    rows = {r["parameter"]: r for r in hyperparameter_table(PAPER_CONFIG)}
+    assert rows["LR scheduler patience (ReduceLROnPlateau)"]["value"] == 5
+
+    overridden = {
+        **PAPER_CONFIG,
+        "pretrain": {**PAPER_CONFIG["pretrain"], "scheduler_patience": 7},
+    }
+    rows = {r["parameter"]: r for r in hyperparameter_table(overridden)}
+    assert rows["LR scheduler patience (ReduceLROnPlateau)"]["value"] == 7
+
+
+def test_activation_is_read_from_the_model_config():
+    rows = {r["parameter"]: r for r in hyperparameter_table(PAPER_CONFIG)}
+    assert rows["Activation"]["value"] == "relu"
 
 
 def test_latex_escapes_names_that_would_break_the_document():
