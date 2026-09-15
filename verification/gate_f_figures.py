@@ -103,9 +103,20 @@ PRETRAINED_DIAGNOSTICS_CACHE = (
 
 # Table 5 and Figures 12-15 used to share a >10 m station-day outlier rule
 # (`stec.positioning.metrics.OUTLIER_3D_RMS_M`). Dropped everywhere per the owner's
-# 2026-08-28 decision (`docs/revision/positioning_reporting.md`): every positioning figure
-# now reads the full, unfiltered population, so this gate's recomputation no longer
-# applies any threshold either - matching the figure it checks, not the retired rule.
+# 2026-08-28 decision (`docs/revision/positioning_reporting.md`): no positioning figure
+# applies an outcome-based (>10 m) filter, so this gate's recomputation does not apply
+# one either - matching the figure it checks, not the retired rule.
+#
+# 2026-09-15 (owner instruction, `docs/revision/results_register.md` consistency item A):
+# Figures 12-15 moved from the full per-method population onto the same coverage-only
+# common set Tables 5-7 already use (station-days solved by all four methods under both
+# weighting schemes, N=10,387) - `_load_positioning` below now applies that restriction
+# too, via its own independent recomputation of the intersection
+# (`_common_set_station_days`) rather than importing
+# `stec.analysis.common_set_positioning.coverage_common_station_days`, for the same
+# reason the rest of this gate never calls the code it is checking (module docstring
+# above): a MATCH must prove the figure honours the common-set methodology, not merely
+# that it re-reads this gate's own import of it.
 
 POSITIONING_METHOD_LABELS = {
     "STEC_iono": "Direct STEC",
@@ -113,6 +124,19 @@ POSITIONING_METHOD_LABELS = {
     "VTEC_iono": "VTEC + Mapping",
     "gim_iono": "IGS GIM + Mapping",
 }
+
+# Mirrors `common_set_positioning.COVERAGE_COMMON_SET_METHODS` - duplicated, not
+# imported, for the independence reason above.
+_COMMON_SET_METHODS = (
+    "STEC_iono",
+    "STEC_elev",
+    "Pretrained_STEC_iono",
+    "Pretrained_STEC_elev",
+    "VTEC_iono",
+    "VTEC_elev",
+    "gim_iono",
+    "gim_elev",
+)
 
 DAILY_METRICS_MODEL_LABELS = {
     "Direct STEC Model": "Direct STEC",
@@ -318,14 +342,42 @@ def _figure10_check(metric: str) -> FigureCheck:
 # --------------------------------------------------------------------------
 
 
+def _common_set_station_days() -> pd.MultiIndex:
+    """Independently recomputes `common_set_positioning.coverage_common_station_days`'s
+    intersection - (station, doy) pairs where all four methods solved under both
+    weighting schemes - directly from `multiday_summary_all_weightings.csv` with plain
+    pandas, never by importing that function (see the module-level comment above)."""
+    frame = pd.read_csv(
+        POSITIONING_COVERAGE_DIR / "multiday_summary_all_weightings.csv",
+        usecols=["station", "doy", "method", "error_3d_rms"],
+    )
+    wide = frame.pivot_table(
+        index=["station", "doy"],
+        columns="method",
+        values="error_3d_rms",
+        aggfunc="first",
+    )
+    for method in _COMMON_SET_METHODS:
+        if method not in wide.columns:
+            wide[method] = pd.NA
+    is_common = wide[list(_COMMON_SET_METHODS)].notna().all(axis=1)
+    return wide.index[is_common]
+
+
 def _load_positioning() -> pd.DataFrame:
-    """No outcome-based filter - matches `stec.viz.manuscript_figures._load_positioning_
-    frame` since the owner's 2026-08-28 decision (`docs/revision/positioning_reporting.md`)
-    dropped the old >10 m station-day exclusion from every positioning figure."""
+    """No outcome-based filter, restricted to the common set - matches
+    `stec.viz.manuscript_figures._load_positioning_frame` (via `stec.analysis.
+    positioning_distributions`'s `common_set_daily_rows.csv`) since the 2026-08-28
+    decision (`docs/revision/positioning_reporting.md`) dropped the old >10 m
+    station-day exclusion, and the 2026-09-15 one (results_register.md item A) moved
+    Figures 12-15 onto the same common set Tables 5-7 use."""
     frame = pd.read_csv(
         POSITIONING_COVERAGE_DIR / "multiday_summary.csv",
-        usecols=["date", "method", "error_3d_rms"],
+        usecols=["station", "doy", "date", "method", "error_3d_rms"],
     )
+    common_station_days = _common_set_station_days()
+    frame = frame.set_index(["station", "doy"])
+    frame = frame[frame.index.isin(common_station_days)].reset_index()
     frame["method"] = frame["method"].map(POSITIONING_METHOD_LABELS)
     frame = frame.dropna(subset=["method"])
     frame["date"] = pd.to_datetime(frame["date"])
@@ -530,11 +582,14 @@ def _reduce_plotted_boxplot_stats(path: Path) -> pd.DataFrame:
     return raw.rename(columns={"Method": "method"})[["method", "stat", "value"]]
 
 
-_POSITIONING_UPSTREAM = (POSITIONING_COVERAGE_DIR / "multiday_summary.csv",)
+_POSITIONING_UPSTREAM = (
+    POSITIONING_COVERAGE_DIR / "multiday_summary.csv",
+    POSITIONING_COVERAGE_DIR / "multiday_summary_all_weightings.csv",
+)
 
 FIGURE12_CHECK = FigureCheck(
     name="fig12_positioning_trend",
-    figure="Figure 12 (daily 3D RMS, median with Q1-Q3 band, unfiltered)",
+    figure="Figure 12 (daily 3D RMS, median with Q1-Q3 band, common set, unfiltered)",
     plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "pos_trend.csv",
     upstream=_POSITIONING_UPSTREAM,
     join_keys=("date", "method"),
@@ -545,7 +600,7 @@ FIGURE12_CHECK = FigureCheck(
 
 FIGURE13_CHECK = FigureCheck(
     name="fig13_positioning_distribution",
-    figure="Figure 13 (overall 3D RMS distribution, unfiltered Tukey box statistics)",
+    figure="Figure 13 (overall 3D RMS distribution, common set, unfiltered Tukey box statistics)",
     plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "boxplot_3d_error.csv",
     upstream=_POSITIONING_UPSTREAM,
     join_keys=("method", "stat"),
@@ -556,7 +611,7 @@ FIGURE13_CHECK = FigureCheck(
 
 FIGURE14_CHECK = FigureCheck(
     name="fig14_positioning_improvement_timeseries",
-    figure="Figure 14 (daily % improvement over IGS GIM + Mapping, median, unfiltered)",
+    figure="Figure 14 (daily % improvement over IGS GIM + Mapping, median, common set, unfiltered)",
     plotted_csv=MANUSCRIPT_PLOTS
     / "positioning_2024"
     / "pos_improvement_timeseries.csv",
@@ -569,7 +624,7 @@ FIGURE14_CHECK = FigureCheck(
 
 FIGURE15_CHECK = FigureCheck(
     name="fig15_positioning_cdf",
-    figure="Figure 15 (3D RMS CDF, median/p95/p99 per method, unfiltered)",
+    figure="Figure 15 (3D RMS CDF, median/p95/p99 per method, common set, unfiltered)",
     plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "cdf_unfiltered.csv",
     upstream=_POSITIONING_UPSTREAM,
     join_keys=("method", "percentile"),

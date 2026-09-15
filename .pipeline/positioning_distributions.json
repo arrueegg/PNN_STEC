@@ -1,20 +1,21 @@
 {
-  "answers": "Table 5",
-  "canonical_for": "Table 5",
+  "answers": "Tables 5 and 6",
+  "canonical_for": "Tables 5 and 6",
   "caveats": [
     "The overall/regime/population sections (Figures 12-15) are iono weighting only, read from POSITIONING alone. The common_set_* sections and TABLE5_COMMON_SET_NUMBERS.md additionally read WEIGHTING_RUN (both weightings) to define the population restriction, but still report iono weighting values within it - every output states 'iono' explicitly rather than leaving the weighting implicit.",
     "No outcome-based filter anywhere in this stage: every station-day in the coverage-repaired population counts. Where a figure needs a bounded axis to stay readable (stec.viz.positioning_distributions), only the *view* is clipped, never the data - the CSVs here always carry the true fliers.",
     "Reporting only the median would hide that Direct STEC produces more large errors than GIM does - a real, operationally important property of the method. Every percentile table here is paired with an exceedance table for exactly that reason; do not quote the median alone.",
     "common_set_* and TABLE5_COMMON_SET_NUMBERS.md (2026-09-14, owner instruction) restrict Table 5 and the new per-component table to the station-days solved by all four methods under both weighting schemes (coverage_common_station_days, N=10,387) - a coverage-only intersection, no 10 m outlier exclusion. weighting_ablation.py's common_set.csv shares this exact population so the two manuscript tables report one N. Larger than common_set_positioning's own N=10,186 (same eight arms) because that stage still applies the 10 m outlier rule; the 201-row gap is exactly the station-days where at least one arm exceeds it - see coverage_common_station_days's own docstring for the verification.",
+    "common_set_boxplot_stats.csv/common_set_boxplot_fliers.csv/common_set_cdf_points.csv/common_set_regime_boxplot_stats.csv/common_set_daily_rows.csv (2026-09-15, results_register.md consistency item A) extend the same common-set restriction to Figures 12-15 and the standalone storm/quiet figure, which used to read the full per-method population (10,717-10,853) while Tables 5-7 already used the N=10,387 common set - the same positioning chapter reporting two N's. fig_population_split_boxplot is deliberately not moved: see this stage's module docstring section 6.",
     "The mean is preserved for comparison (percentile_summary's mean_m column, and positioning_summary's own superseded overall.csv) but is not the reported statistic: it is non-monotonic in the outlier-exclusion threshold and swings from negative to strongly positive depending on a threshold with no principled value - see docs/revision/positioning_reporting.md Sec 1."
   ],
   "code": {
-    "commit": "f46805e1b9e7a29ac917e2ba9c4ae09e3952a575",
+    "commit": "2f57a6c2a2f1089d29d46d9dfd63e16a6b269687",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_distributions --output-dir multiday_results/analyses/positioning_distributions/rebuilt",
   "description": "positioning error as distributions - median/IQR/p95/p99/exceedance, no outcome-based outlier filter, per method and by storm/quiet and original/recovered population",
-  "duration_s": 0.6,
+  "duration_s": 0.7,
   "fingerprint": "a0a92aaf62e0327f2ee6f0be75d23943da6861a25a4ef1e9741cce7bfa5e5a1f",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
@@ -42,7 +43,7 @@
   "outputs": {
     "multiday_results/analyses/positioning_distributions/rebuilt": {
       "present": true,
-      "size": 2048
+      "size": 2672
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_COMMON_SET_NUMBERS.md": {
       "present": true,
@@ -54,11 +55,35 @@
       "sha256": "4ba737a4397d6f8a23215565f8a5f707b33f2964e55715c0c0db28b4ebb3897f",
       "size": 1512
     },
+    "multiday_results/analyses/positioning_distributions/rebuilt/common_set_boxplot_fliers.csv": {
+      "present": true,
+      "rows": 3076,
+      "sha256": "33da098b582c07659302b1fe549505fc235f65d9aba50e80582014f13e7c0e8f",
+      "size": 71726
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/common_set_boxplot_stats.csv": {
+      "present": true,
+      "rows": 4,
+      "sha256": "695fd394a3016a2c6c099bd3408aaacbc5f714968577c301dcdb6b147d894bb1",
+      "size": 420
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/common_set_cdf_points.csv": {
+      "present": true,
+      "rows": 41548,
+      "sha256": "a156e765b7f5a7db6e3b25a718eff3a95466ef04e09f6f5d79908323daf471b1",
+      "size": 1748193
+    },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_component_medians.csv": {
       "present": true,
       "rows": 4,
       "sha256": "7c4dc114b3f775f90542a5e29021bf896bc409e3b0004152fff7808fd26472c8",
       "size": 219
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/common_set_daily_rows.csv": {
+      "present": true,
+      "rows": 41548,
+      "sha256": "a1aed0f57a30ee83f4d4757f2abe495be22647e4af43a2c6a4e726fba7986303",
+      "size": 1636801
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_exceedance.csv": {
       "present": true,
@@ -71,6 +96,12 @@
       "rows": 4,
       "sha256": "4b80875e0168f16fc5190f1c155ecada4eaa6f9a04387aecc45f0c3498981296",
       "size": 338
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt/common_set_regime_boxplot_stats.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "be8daa1819c872880fa065af3cd638b0c38e55348601375bd6cf89e6b0067736",
+      "size": 797
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/overall_boxplot_fliers.csv": {
       "present": true,
@@ -152,7 +183,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T15:14:22.538583+00:00",
+  "recorded_at": "2026-09-15T08:19:18.669301+00:00",
   "stage": "positioning_distributions",
   "supersedes": []
 }

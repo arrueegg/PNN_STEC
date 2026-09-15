@@ -27,6 +27,19 @@ Every figure is written twice via `_save` (titled working copy + `_notitle` copy
 that CSV is the box statistics (median/Q1/Q3/whiskers) plus every individual outlier
 point, i.e. exactly what `ax.bxp()` draws, not a re-aggregation of it.
 
+**2026-09-15 (owner instruction, `docs/revision/results_register.md` consistency item
+A): most of this family now reads the common set.** `fig_boxplot_3d_error` (also
+Figure 13) and `fig_cdf_unfiltered` (also Figure 15) and the two standalone figures
+`fig_storm_quiet_boxplot` and `fig_percentile_exceedance_table` now read
+`stec.analysis.positioning_distributions`'s `common_set_*` CSVs (N=10,387 station-days,
+all four methods solved under both weighting schemes) instead of the full per-method
+`overall_*`/`regime_*` ones, matching Tables 5-7. `fig_population_split_boxplot` is
+deliberately **not** moved: original/recovered is exactly the coverage distinction the
+common set intersects away, so restricting it would erase most of the
+population-crossover signal it exists to show (CLAUDE.md's `positioning_diagnostics`
+entry) rather than merely change its N - it keeps reading the full-population
+`population_boxplot_stats.csv`.
+
 Usage::
 
     python -m stec.viz.positioning_distributions --output_dir plots/positioning_distributions
@@ -269,13 +282,15 @@ def fig_boxplot_3d_error(
     the quantile bars instead of to a dense column of overlapping flier markers.
 
     **Display, not data.** The boxes, medians and whiskers are still computed over the
-    full unfiltered population - no station-day is excluded, which would contradict the
-    Table 5 methodology (`docs/revision/positioning_reporting.md`). Every omitted flier
-    value is still written to this figure's CSV sidecar by `_tidy_box_data`, and the
-    per-method counts beyond the whiskers (`n_fliers`) and beyond
-    `BOXPLOT_EXCEEDANCE_THRESHOLD_M` (`n_exceeding_threshold`, from `exceedance`) are reported in the
-    title - stripped from the `_notitle` manuscript copy, where the caption carries them
-    instead, per CLAUDE.md's "no in-plot explanatory text" rule.
+    full unfiltered population `stats`/`fliers` describe (whatever that population is -
+    since 2026-09-15 the common set both callers below pass in, see the module
+    docstring's section 6 note) - no station-day is excluded on top of it, which would
+    contradict the Table 5 methodology (`docs/revision/positioning_reporting.md`). Every
+    omitted flier value is still written to this figure's CSV sidecar by
+    `_tidy_box_data`, and the per-method counts beyond the whiskers (`n_fliers`) and
+    beyond `BOXPLOT_EXCEEDANCE_THRESHOLD_M` (`n_exceeding_threshold`, from `exceedance`)
+    are reported in the title - stripped from the `_notitle` manuscript copy, where the
+    caption carries them instead, per CLAUDE.md's "no in-plot explanatory text" rule.
     """
     order = [m for m in METHOD_ORDER if m in stats["Method"].unique()]
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
@@ -299,7 +314,7 @@ def fig_boxplot_3d_error(
     ].set_index("Method")["n_exceeding"]
     n_exceeding = {m: int(exceeding_by_method.get(m, 0)) for m in order}
     ax.set_title(
-        "Positioning 3D error by method, unfiltered (iono weighting)\n"
+        "Positioning 3D error by method, common set, unfiltered (iono weighting)\n"
         "Tukey whiskers (1.5×IQR); outlier points not drawn, none excluded from the "
         "statistics - "
         + ", ".join(f"{m}: {n_fliers[m]} beyond whiskers" for m in order)
@@ -335,7 +350,9 @@ def fig_cdf_unfiltered(
     are marked on each curve. The x-axis view is clipped at 1.2x the pooled 99th
     percentile for readability; every value is still in the written CSV, and the count
     of points beyond the clipped view is annotated on the figure rather than silently
-    cropped.
+    cropped. Since 2026-09-15 both callers below pass the common set (see the module
+    docstring's section 6 note); "unfiltered" still means no outcome-based (>10 m)
+    exclusion on top of that population, unchanged from the 2026-08-28 decision.
     """
     order = [m for m in METHOD_ORDER if m in cdf["Method"].unique()]
     view_limit = float(1.2 * cdf["error_3d_rms"].quantile(0.99))
@@ -370,7 +387,7 @@ def fig_cdf_unfiltered(
     ax.legend(loc="lower right")
     beyond_note = "; ".join(f"{m}: {beyond_view[m]} beyond view" for m in order)
     ax.set_title(
-        "Positioning error CDF, unfiltered (iono weighting)\n"
+        "Positioning error CDF, common set, unfiltered (iono weighting)\n"
         f"circle = median, triangle = p95 - {beyond_note}"
     )
     _save(
@@ -402,6 +419,13 @@ def fig_storm_quiet_boxplot(
     quiet-day outliers inflate the quiet mean); the median tells a materially different,
     physically sensible story - every method's storm-day median is higher than its
     quiet-day median.
+
+    2026-09-15 (owner instruction, results_register.md consistency item A): `stats` is
+    now the common set (N=10,387 station-days), matching `storm_stratification.py`'s own
+    manuscript-facing storm/quiet table - storm vs quiet is a temporal condition
+    independent of which methods solved a given station-day, so (unlike the
+    original/recovered split below) restricting to the common set does not remove the
+    contrast this figure exists to show, only its N.
     """
     order = [m for m in METHOD_ORDER if m in stats["Method"].unique()]
     fig, axes = plt.subplots(
@@ -439,7 +463,7 @@ def fig_storm_quiet_boxplot(
     # tightens the row spacing.
     fig.supylabel("3D positioning error [m] (log scale)")
     fig.suptitle(
-        "Storm vs quiet 3D positioning error by method, unfiltered\n"
+        "Storm vs quiet 3D positioning error by method, common set, unfiltered\n"
         f"storm = daily min Dst ≤ -50 nT (Tukey box, {int(stats['n'].sum()):,} station-days total)"
     )
     plotted = stats[
@@ -461,7 +485,13 @@ def fig_percentile_exceedance_table(
 ) -> None:
     """The Table 5 replacement rendered as a figure: one row per method, median/IQR/p95/
     p99 plus the exceedance rate at each of 5/10/20/50 m. The same numbers are in
-    `TABLE5_NUMBERS.md`; this is the one-glance version."""
+    `TABLE5_NUMBERS.md`; this is the one-glance version.
+
+    2026-09-15 (owner instruction, results_register.md consistency item A): `percentiles`/
+    `exceedance` are now the common set, so this reads `common_set_percentile_summary.csv`/
+    `common_set_exceedance.csv` - i.e. `TABLE5_COMMON_SET_NUMBERS.md`'s numbers, not
+    `TABLE5_NUMBERS.md`'s.
+    """
     order = [m for m in METHOD_ORDER if m in percentiles["Method"].unique()]
     thresholds = sorted(exceedance["threshold_m"].unique())
     pct_pivot = exceedance.pivot(
@@ -509,7 +539,7 @@ def fig_percentile_exceedance_table(
         row_label_cell.set_color(color)
         row_label_cell.set_fontweight("bold")
     ax.set_title(
-        "Positioning error summary, unfiltered (iono weighting) - "
+        "Positioning error summary, common set, unfiltered (iono weighting) - "
         "the Table 5 replacement"
     )
     long = pd.concat(
@@ -542,6 +572,16 @@ def fig_population_split_boxplot(
     This is the distributional form of the +19.4%/-31.9% mean-based split: the model's
     behaviour on geometry-only recovered station-days shown directly rather than
     summarised into two numbers.
+
+    **Deliberately still the full population (results_register.md consistency item A
+    reviewed this figure and left it as is, 2026-09-15).** Unlike every other figure in
+    this module, `stats` here is NOT the common set: "recovered" means exactly
+    "geometry-only, missing from at least one method's coverage that day" - the
+    coverage difference the common set exists to intersect away. Restricting this
+    figure to the common set would remove most of the recovered population it is built
+    to show, collapsing the population-crossover finding (CLAUDE.md's
+    `positioning_diagnostics` entry: recovered station-days are exactly where the model
+    underperforms relative to GIM) rather than merely changing its N.
     """
     order = [m for m in METHOD_ORDER if m in stats["Method"].unique()]
     fig, axes = plt.subplots(
@@ -599,6 +639,12 @@ def fig_population_split_boxplot(
 
 
 def _build_figures(args: argparse.Namespace, output_dir: Path) -> None:
+    """2026-09-15 (results_register.md consistency item A): every figure here except
+    `fig_population_split_boxplot` now reads the `common_set_*` CSVs (N=10,387,
+    matching Tables 5-7) instead of the full-population `overall_*`/`regime_*` ones -
+    see the module docstring. `fig_population_split_boxplot` keeps reading the full
+    population deliberately (see its own docstring), so it gets its own provenance
+    string rather than the common-set one the rest share."""
     source = analysis_dir(args.results_dir, "positioning_distributions")
     if not source.is_dir():
         logger.warning(
@@ -607,46 +653,56 @@ def _build_figures(args: argparse.Namespace, output_dir: Path) -> None:
         return
     prov = (
         f"{source} (stec.analysis.positioning_distributions), SF-PPP 2024 test period, "
-        "iono weighting, no outcome filter"
+        "iono weighting, common set (N=10,387 station-days solved by all four methods "
+        "under both weighting schemes), no outcome-based outlier filter"
+    )
+    prov_full_population = (
+        f"{source} (stec.analysis.positioning_distributions), SF-PPP 2024 test period, "
+        "iono weighting, full population, no outcome-based outlier filter"
     )
 
-    overall_stats_path = source / "overall_boxplot_stats.csv"
-    overall_fliers_path = source / "overall_boxplot_fliers.csv"
-    overall_exceedance_path = source / "overall_exceedance.csv"
+    common_stats_path = source / "common_set_boxplot_stats.csv"
+    common_fliers_path = source / "common_set_boxplot_fliers.csv"
+    common_exceedance_path = source / "common_set_exceedance.csv"
     if (
-        overall_stats_path.exists()
-        and overall_fliers_path.exists()
-        and overall_exceedance_path.exists()
+        common_stats_path.exists()
+        and common_fliers_path.exists()
+        and common_exceedance_path.exists()
     ):
         fig_boxplot_3d_error(
-            pd.read_csv(overall_stats_path),
-            pd.read_csv(overall_fliers_path),
+            pd.read_csv(common_stats_path),
+            pd.read_csv(common_fliers_path),
             output_dir,
             prov,
-            pd.read_csv(overall_exceedance_path),
+            pd.read_csv(common_exceedance_path),
         )
 
-    cdf_path = source / "overall_cdf_points.csv"
-    percentile_path = source / "overall_percentile_summary.csv"
-    if cdf_path.exists() and percentile_path.exists():
+    common_cdf_path = source / "common_set_cdf_points.csv"
+    common_percentile_path = source / "common_set_percentile_summary.csv"
+    if common_cdf_path.exists() and common_percentile_path.exists():
         fig_cdf_unfiltered(
-            pd.read_csv(cdf_path), pd.read_csv(percentile_path), output_dir, prov
+            pd.read_csv(common_cdf_path),
+            pd.read_csv(common_percentile_path),
+            output_dir,
+            prov,
         )
 
-    regime_stats_path = source / "regime_boxplot_stats.csv"
-    if regime_stats_path.exists():
-        fig_storm_quiet_boxplot(pd.read_csv(regime_stats_path), output_dir, prov)
+    common_regime_stats_path = source / "common_set_regime_boxplot_stats.csv"
+    if common_regime_stats_path.exists():
+        fig_storm_quiet_boxplot(pd.read_csv(common_regime_stats_path), output_dir, prov)
 
-    exceedance_path = source / "overall_exceedance.csv"
-    if percentile_path.exists() and exceedance_path.exists():
+    if common_percentile_path.exists() and common_exceedance_path.exists():
         fig_percentile_exceedance_table(
-            pd.read_csv(percentile_path), pd.read_csv(exceedance_path), output_dir, prov
+            pd.read_csv(common_percentile_path),
+            pd.read_csv(common_exceedance_path),
+            output_dir,
+            prov,
         )
 
     population_stats_path = source / "population_boxplot_stats.csv"
     if population_stats_path.exists():
         fig_population_split_boxplot(
-            pd.read_csv(population_stats_path), output_dir, prov
+            pd.read_csv(population_stats_path), output_dir, prov_full_population
         )
 
 

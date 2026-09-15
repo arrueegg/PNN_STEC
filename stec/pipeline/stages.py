@@ -530,6 +530,20 @@ _POSITIONING_DISTRIBUTIONS_MIN_ROWS = {
     str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_percentile_summary.csv"): 4,
     str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_exceedance.csv"): 16,
     str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_component_medians.csv"): 4,
+    # Common set, extended 2026-09-15 to feed Figures 12-15 (results_register.md
+    # consistency item A) - same shapes as the overall_* rows above, over the smaller
+    # N=10,387 common-set population rather than the full one.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_boxplot_stats.csv"): 4,
+    # Individual outlier points over the common set - scales with its own tail,
+    # measured 3,076.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_boxplot_fliers.csv"): 2_000,
+    # One row per station-day per method over the common set, measured 41,548.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_cdf_points.csv"): 35_000,
+    # 4 methods x 2 regimes (storm/quiet), same shape as regime_boxplot_stats.csv above.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_regime_boxplot_stats.csv"): 8,
+    # One row per station-day per method over the common set, measured 41,548 - what
+    # Figures 12 and 14 (stec.viz.manuscript_figures) group by (date, method) themselves.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_daily_rows.csv"): 35_000,
 }
 
 _POSITIONING_DISTRIBUTIONS_FIGURES_MIN_ROWS = {
@@ -1943,6 +1957,11 @@ STAGES: list[Stage] = [
             str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_exceedance.csv"),
             str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_component_medians.csv"),
             str(POSITIONING_DISTRIBUTIONS_DIR / "TABLE5_COMMON_SET_NUMBERS.md"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_boxplot_stats.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_boxplot_fliers.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_cdf_points.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_regime_boxplot_stats.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_daily_rows.csv"),
         ],
         min_rows=_POSITIONING_DISTRIBUTIONS_MIN_ROWS,
         checks=[positioning_distributions_overall_has_all_four_methods],
@@ -1972,6 +1991,15 @@ STAGES: list[Stage] = [
             "stage still applies the 10 m outlier rule; the 201-row gap is exactly the "
             "station-days where at least one arm exceeds it - see "
             "coverage_common_station_days's own docstring for the verification.",
+            "common_set_boxplot_stats.csv/common_set_boxplot_fliers.csv/"
+            "common_set_cdf_points.csv/common_set_regime_boxplot_stats.csv/"
+            "common_set_daily_rows.csv (2026-09-15, results_register.md consistency "
+            "item A) extend the same common-set restriction to Figures 12-15 and the "
+            "standalone storm/quiet figure, which used to read the full per-method "
+            "population (10,717-10,853) while Tables 5-7 already used the N=10,387 "
+            "common set - the same positioning chapter reporting two N's. "
+            "fig_population_split_boxplot is deliberately not moved: see this stage's "
+            "module docstring section 6.",
             "The mean is preserved for comparison (percentile_summary's mean_m column, "
             "and positioning_summary's own superseded overall.csv) but is not the "
             "reported statistic: it is non-monotonic in the outlier-exclusion "
@@ -2342,9 +2370,10 @@ STAGES: list[Stage] = [
             "above this one) and must run first - without it this stage logs a "
             "warning and skips Figure 11 rather than failing.",
             "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / "
-            "pretrained_test_diagnostics / positioning_coverage's outputs (Figures 4-15) - "
-            "a partial multiday_results tree produces a partial figure set with a logged "
-            "warning per missing input, not a crash.",
+            "pretrained_test_diagnostics (Figures 4-11) / positioning_distributions "
+            "(Figures 12-15, common-set restricted since 2026-09-15 - see that stage's "
+            "module docstring section 6) - a partial multiday_results tree produces a "
+            "partial figure set with a logged warning per missing input, not a crash.",
         ],
     ),
     Stage(

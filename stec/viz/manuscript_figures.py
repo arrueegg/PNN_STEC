@@ -27,11 +27,10 @@ Coverage
 
 Figure 3 (`network`) is hand-drawn (`docs/ResNet.drawio`) and needs no code.
 
-**Figures 12-15 report the full, unfiltered population (owner decision, 2026-08-28,
-`docs/revision/positioning_reporting.md`)**: no >10 m station-day exclusion, and the
-across-station-day statistic is the median, not the mean - the mean is not a robust summary
-of this comparison, see that document's Sec 1. Figures 13 and 15 are not separately
-implemented here any more; they call `stec.viz.positioning_distributions.
+**Figures 12-15 report the median, not the mean, with no >10 m outcome-based station-day
+exclusion (owner decision, 2026-08-28, `docs/revision/positioning_reporting.md`)** - the
+mean is not a robust summary of this comparison, see that document's Sec 1. Figures 13 and
+15 are not separately implemented here any more; they call `stec.viz.positioning_distributions.
 fig_boxplot_3d_error`/`fig_cdf_unfiltered` directly against that module's own CSVs, so the
 distribution figure the manuscript embeds and the one `positioning_distributions_figures`
 produces standalone are the same rendering, not two implementations that could drift apart.
@@ -46,6 +45,22 @@ box/whisker statistics still come from the full unfiltered population, only the 
 clipped, and the count of station-days beyond 10 m per method is written to the plotted CSV
 and the figure's own title (stripped from the `_notitle` manuscript copy, like every other
 figure here).
+
+**2026-09-15 (owner instruction, `docs/revision/results_register.md` consistency item A):
+restricted to the common set.** Figures 12-15 used to read the full per-method population
+(10,717-10,853 station-days depending on method) straight from `positioning_coverage`'s
+`multiday_summary.csv`, while Tables 5-7 had already moved to the smaller common set - the
+same positioning chapter reporting two different N's for the same station-days. All four
+now read `stec.analysis.positioning_distributions`'s common-set outputs
+(`common_set_daily_rows.csv` for Figures 12/14; `common_set_boxplot_stats.csv`/
+`common_set_boxplot_fliers.csv`/`common_set_exceedance.csv` for Figure 13;
+`common_set_cdf_points.csv`/`common_set_percentile_summary.csv` for Figure 15) - the
+station-days solved by all four methods under both weighting schemes that Tables 5-7
+already use (N=10,387; `common_set_positioning.coverage_common_station_days`). No
+outcome-based outlier filter is applied on top of that restriction, unchanged from the
+2026-08-28 decision. `oracle_benchmark` is not part of this change - it is permanently not
+comparable with Table 5 by design (elev weighting, placeholder reference sigma) and stays
+on its own population.
 
 **Figures 4-9 are wired via one shared streaming cache**
 (`stec/analysis/pretrained_test_diagnostics.py`,
@@ -1293,7 +1308,15 @@ def _load_positioning_frame(path: Path) -> pd.DataFrame:
     per the owner's 2026-08-28 decision (`docs/revision/positioning_reporting.md`): the
     10 m rule filters on the *outcome* being compared and is not neutral between methods
     (Direct STEC carried 4.4x as many station-days above 10 m as IGS GIM), so every
-    positioning figure now reads the full, unfiltered population, matching Table 5.
+    positioning figure reads a population with no outcome-based filter, matching Table 5.
+
+    `path` is now `stec.analysis.positioning_distributions`'s `common_set_daily_rows.csv`
+    (2026-09-15, results_register.md consistency item A) rather than `positioning_coverage`'s
+    raw `multiday_summary.csv` - the common-set restriction (station-days solved by all
+    four methods under both weighting schemes) already happened upstream, in that analysis
+    module; this function still only reads `date`/`method`/`error_3d_rms` and maps method
+    codes to display names exactly as before, since the extra `station`/`doy` columns that
+    CSV also carries are for the common-set restriction itself, not for this figure.
     """
     frame = pd.read_csv(path, usecols=["date", "method", "error_3d_rms"])
     frame["method"] = frame["method"].map(_POSITIONING_METHOD_MAP)
@@ -1345,6 +1368,13 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
     about those days, and nothing is. A glyph on all 242 daily points x 4 series is
     unreadable, so the series are distinguished by colour alone, which is what
     `APPROACH_COLORS` is for.
+
+    2026-09-15 (owner instruction, results_register.md consistency item A): `df` is now
+    the common set (N=10,387 station-days, all four methods solved under both weighting
+    schemes) rather than the full per-method population, matching Tables 5-7 - see
+    `_load_positioning_frame` and `stec.analysis.positioning_distributions`'s
+    `common_set_daily_rows.csv`. The grouping/median computation below is unchanged;
+    only which rows reach it moved.
     """
     daily = (
         df.groupby(["date", "method"])["error_3d_rms"]
@@ -1377,7 +1407,7 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
     ax.set_ylim(0, 3.5)
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(loc="best")
-    ax.set_title("Daily positioning accuracy (median), unfiltered")
+    ax.set_title("Daily positioning accuracy (median), common set, unfiltered")
     _save(
         fig,
         "pos_trend",
@@ -1406,6 +1436,9 @@ def fig_positioning_improvement_timeseries(
     view-only-clip convention `stec.viz.positioning_distributions.fig_cdf_unfiltered`
     uses - so a single day's extreme swing cannot compress the rest of the year onto a
     flat line; every value still counts toward the plotted median and the written CSV.
+
+    2026-09-15 (owner instruction, results_register.md consistency item A): `df` is now
+    the common set, same population and same reasoning as `fig_positioning_trend` above.
     """
     daily_median = df.groupby(["date", "method"])["error_3d_rms"].median()
     pivot = daily_median.unstack("method").sort_index()
@@ -1450,8 +1483,8 @@ def fig_positioning_improvement_timeseries(
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend()
     ax.set_title(
-        "Daily relative improvement over IGS GIM + Mapping (median), unfiltered\n"
-        f"{beyond_view} day(s) beyond the clipped view"
+        "Daily relative improvement over IGS GIM + Mapping (median), common set, "
+        f"unfiltered\n{beyond_view} day(s) beyond the clipped view"
     )
     _save(
         fig,
@@ -1471,27 +1504,35 @@ def _build_positioning_figures(args: argparse.Namespace, output_dir: Path) -> No
     `docs/revision/positioning_reporting.md`) - the manuscript's distribution/CDF figures
     and the ones `positioning_distributions_figures` produces standalone are therefore the
     same rendering, not two implementations of the same boxplot/CDF that could drift
-    apart. All four report the full, unfiltered population.
+    apart. All four now read the common set (2026-09-15, results_register.md consistency
+    item A) - N=10,387 station-days solved by all four methods under both weighting
+    schemes, matching Tables 5-7 - rather than the full per-method population.
     """
     path = (
-        analysis_dir(args.results_dir, "positioning_coverage") / "multiday_summary.csv"
+        analysis_dir(args.results_dir, "positioning_distributions")
+        / "common_set_daily_rows.csv"
     )
     if not path.exists():
-        logger.warning(f"{path} not found - run stec/analysis/positioning_coverage.py")
+        logger.warning(
+            f"{path} not found - run stec/analysis/positioning_distributions.py"
+        )
         return
     df = _load_positioning_frame(path)
+    n_station_days = len(df) // df["method"].nunique()
     prov = (
         f"{path} - SF-PPP, iono weighting, SINEX ground truth, 2024 test period, "
-        f"{len(df):,} station-days, no outcome-based outlier filter "
-        "(docs/revision/positioning_reporting.md)"
+        f"common set (N={n_station_days:,} station-days solved by all four methods "
+        "under both weighting schemes), no outcome-based outlier filter "
+        "(docs/revision/positioning_reporting.md, docs/revision/results_register.md "
+        "item A)"
     )
     fig_positioning_trend(df, output_dir, prov)
     fig_positioning_improvement_timeseries(df, output_dir, prov)
 
     distributions_dir = analysis_dir(args.results_dir, "positioning_distributions")
-    box_stats_path = distributions_dir / "overall_boxplot_stats.csv"
-    box_fliers_path = distributions_dir / "overall_boxplot_fliers.csv"
-    box_exceedance_path = distributions_dir / "overall_exceedance.csv"
+    box_stats_path = distributions_dir / "common_set_boxplot_stats.csv"
+    box_fliers_path = distributions_dir / "common_set_boxplot_fliers.csv"
+    box_exceedance_path = distributions_dir / "common_set_exceedance.csv"
     if (
         box_stats_path.exists()
         and box_fliers_path.exists()
@@ -1510,8 +1551,8 @@ def _build_positioning_figures(args: argparse.Namespace, output_dir: Path) -> No
             f"{distributions_dir} - run stec/analysis/positioning_distributions.py"
         )
 
-    cdf_path = distributions_dir / "overall_cdf_points.csv"
-    percentile_path = distributions_dir / "overall_percentile_summary.csv"
+    cdf_path = distributions_dir / "common_set_cdf_points.csv"
+    percentile_path = distributions_dir / "common_set_percentile_summary.csv"
     if cdf_path.exists() and percentile_path.exists():
         fig_cdf_unfiltered(
             pd.read_csv(cdf_path),

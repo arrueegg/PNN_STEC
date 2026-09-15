@@ -6,19 +6,19 @@
     "Not a manuscript or revision-response figure set yet - lives in its own plots/positioning_distributions/ tree, exclusively (no other module writes there), the same convention positioning_diagnostics_figures uses."
   ],
   "code": {
-    "commit": "f46805e1b9e7a29ac917e2ba9c4ae09e3952a575",
+    "commit": "2f57a6c2a2f1089d29d46d9dfd63e16a6b269687",
     "dirty": true
   },
   "command": "-m stec.viz.positioning_distributions --output_dir plots/positioning_distributions",
   "description": "box/CDF/percentile-exceedance figures for positioning_distributions's CSVs",
-  "duration_s": 5.3,
-  "fingerprint": "4e09fed1ab0e590a4f79897b2bb921cb6bb8b73c1b99c49c22796e27ad6a0e97",
+  "duration_s": 5.4,
+  "fingerprint": "5543da53e1b93f1bf67e88c1e65af7d1a41c5c718b0ae0401ac99185fd7d07e8",
   "inputs": {
     "multiday_results/analyses/positioning_distributions/rebuilt": {
-      "files": 37,
+      "files": 47,
       "kind": "tree",
-      "mtime_ns": 1789398862491392858,
-      "size": 2127752
+      "mtime_ns": 1789460358621350437,
+      "size": 5610778
     }
   },
   "outputs": {
@@ -28,21 +28,21 @@
     },
     "plots/positioning_distributions/positioning_2024/boxplot_3d_error.csv": {
       "present": true,
-      "rows": 3283,
-      "sha256": "7c4f51bbc5c4c8d758f97a0c313efbbb2b0db0e8b6d1d171bd28b988b3d5e941",
-      "size": 96499
+      "rows": 3116,
+      "sha256": "5cdf8c072b892fafa3acd93cb1a85176da51dd697161e208dc97551a96c7ca5a",
+      "size": 91472
     },
     "plots/positioning_distributions/positioning_2024/cdf_unfiltered.csv": {
       "present": true,
-      "rows": 43215,
-      "sha256": "f2f82de6f8e1fd547ae3ae71e288ee5e0b360826eb2f154bb5c5dc7875a932ab",
-      "size": 1814858
+      "rows": 41548,
+      "sha256": "9663f40729d6602375b4be8d8cc9b7d3cf1d229d676aeece71a83f476baaf21a",
+      "size": 1744221
     },
     "plots/positioning_distributions/positioning_2024/percentile_exceedance_table.csv": {
       "present": true,
       "rows": 20,
-      "sha256": "74de42cee71b0dc275e0d27b85bd5792f6215128117c7858873ffebb9428b5b0",
-      "size": 1947
+      "sha256": "ce17a8206f69f20103dbb3abc13edd3ea1b949ab1317bd60d3bbb2eb5a6af7a9",
+      "size": 1949
     },
     "plots/positioning_distributions/positioning_2024/population_split_boxplot.csv": {
       "present": true,
@@ -53,12 +53,12 @@
     "plots/positioning_distributions/positioning_2024/storm_quiet_boxplot.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "672c1d8e159aac4a74b79d9893a7884a32a4c2c529c7a92b3ad29f2a585fee3a",
-      "size": 548
+      "sha256": "4d8efe5e8d0e383a6084a90d70ecae15cba0af8f2e403632d720ed897eb3f9db",
+      "size": 551
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T15:14:27.832228+00:00",
+  "recorded_at": "2026-09-15T08:19:35.395023+00:00",
   "stage": "positioning_distributions_figures",
   "supersedes": []
 }

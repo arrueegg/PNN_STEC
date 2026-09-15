@@ -63,6 +63,26 @@ Six sections, the first five matching the five figures in
    everything else here: no filter is applied, so a mean would inherit the same
    single-outlier sensitivity documented throughout this module.
 
+   **Extended 2026-09-15 (owner instruction, `docs/revision/results_register.md`
+   consistency item A) to also feed Figures 12-15.** Those four manuscript figures used
+   to read the full per-method population (`positioning_coverage`'s `multiday_summary.csv`
+   directly, in `stec.viz.manuscript_figures`) while Tables 5-7 had already moved to the
+   common set - the same chapter reporting two different N's. This section now also
+   writes `common_set_daily_rows.csv` (the common-set-restricted per-station-day rows,
+   with `date` attached, for Figures 12 and 14's own day-by-day grouping),
+   `common_set_boxplot_stats.csv`/`common_set_boxplot_fliers.csv` (Figure 13) and
+   `common_set_cdf_points.csv` (Figure 15) - the same `boxplot_stats`/`cdf_points`
+   functions sections 1-2 already use, applied to `common_frame` instead of `frame`, so
+   there is one computation per statistic, not two. `common_set_regime_boxplot_stats.csv`
+   does the same for `stec.viz.positioning_distributions.fig_storm_quiet_boxplot` (a
+   standalone figure, not a numbered manuscript one, but drawing the same quantity Table
+   5 does and therefore moved for the same consistency reason).
+   `stec.viz.positioning_distributions.fig_population_split_boxplot` is deliberately
+   NOT moved: original/recovered is exactly the coverage distinction the common set
+   intersects away, so restricting that figure to it would remove most of the
+   population-crossover signal it exists to show (CLAUDE.md, `positioning_diagnostics`
+   stage) rather than merely change its N.
+
 Usage::
 
     python -m stec.analysis.positioning_distributions
@@ -545,6 +565,43 @@ def main() -> None:
     )
     (args.output_dir / "TABLE5_COMMON_SET_NUMBERS.md").write_text(
         table5_common_set_markdown
+    )
+
+    # --- common set, continued: the same box/CDF statistics sections 1-2 already
+    # compute, over `common_frame` instead of `frame` - feeds Figures 12-15
+    # (stec.viz.manuscript_figures) and the storm/quiet standalone figure
+    # (stec.viz.positioning_distributions.fig_storm_quiet_boxplot), so those figures and
+    # Table 5 stop reporting two different N's for the same chapter (results_register.md
+    # consistency item A). ---
+    common_box_stats, common_fliers = boxplot_stats(common_frame, ["Method"])
+    common_box_stats.to_csv(
+        args.output_dir / "common_set_boxplot_stats.csv", index=False
+    )
+    common_fliers.to_csv(args.output_dir / "common_set_boxplot_fliers.csv", index=False)
+
+    common_cdf = cdf_points(common_frame, ["Method"])
+    common_cdf.to_csv(args.output_dir / "common_set_cdf_points.csv", index=False)
+
+    common_with_storm = attach_storm_flag(common_frame, args.year, args.swi_path)
+    common_with_storm["regime"] = np.where(common_with_storm["storm"], "storm", "quiet")
+    common_regime_box_stats, _ = boxplot_stats(common_with_storm, ["Method", "regime"])
+    common_regime_box_stats.to_csv(
+        args.output_dir / "common_set_regime_boxplot_stats.csv", index=False
+    )
+
+    # Figures 12 and 14 group their own input by (date, method) rather than reading a
+    # pre-aggregated daily table - `date` is derived from `year`/`doy` (both already
+    # columns of `common_frame` via `load_positioning_table`) rather than re-read from
+    # the source CSV, and `method` is left as the raw code (e.g. "STEC_iono") so
+    # `stec.viz.manuscript_figures._load_positioning_frame`'s existing display-name
+    # mapping keeps working unchanged - only the population feeding it moved.
+    common_daily_rows = common_frame.copy()
+    common_daily_rows["date"] = (
+        pd.to_datetime(common_daily_rows["year"], format="%Y")
+        + pd.to_timedelta(common_daily_rows["doy"] - 1, unit="D")
+    ).dt.strftime("%Y-%m-%d")
+    common_daily_rows[["station", "doy", "date", "method", "error_3d_rms"]].to_csv(
+        args.output_dir / "common_set_daily_rows.csv", index=False
     )
 
     print(table5_markdown)

@@ -64,9 +64,12 @@ now disagree with each other or with the revised manuscript.
   mean, no outcome-based outlier filter, why. Its own §2 recommends pasting `TABLE5_NUMBERS.md`
   (the **full per-method** population, N=10,717 Direct STEC) directly into Table 5. The
   manuscript instead prints the **common-set** population (N=10,387, `TABLE5_COMMON_SET_NUMBERS.md`)
-  for the table itself, while using the full per-method population for the surrounding prose and
-  Figures 12-15. That divergence between what this document recommended and what the manuscript
-  did is real and is not recorded anywhere, including in this file itself (§Consistency, item A).
+  for the table itself. That divergence between what this document recommended and what the
+  manuscript did is real and is not recorded in `positioning_reporting.md` itself (§Consistency,
+  item G, still open). Figures 12-15 and the two standalone figures that draw the same quantity
+  now share Table 5's common-set population too (§Consistency, item A, resolved 2026-09-15); the
+  full-per-method population survives only in the deliberately-unmoved population-split prose/
+  figure (row P6) and in `positioning_diagnostics`/`positioning_geography`.
 - **`docs/revision/reviewer_comments_verbatim.md`** (427 lines) supplies the `R1.#`/`R2.#`
   labels used throughout the other documents and this one; its coverage table (which comments are
   answered at all) was not re-derived here and is taken as given.
@@ -116,11 +119,11 @@ in the time available — treat it as an open question, not a guess suppressed.
 | P5 | §4.4, l.459 | One station-day (URUM, DOY 365) where PPPx did not converge under either weighting moves the Direct STEC elev-weighted **mean** by 25% (2.283 m → 1.706 m) while leaving the median unmoved | `weighting_ablation` | `common_set.csv`'s `elev_mean` column (2.2828) for the "with" value; the "without" value (1.706) is the mean after dropping that one row, not itself a separate declared-stage column — recompute rather than assume a source file for it | same population as P1 | 10,387, minus 1 for the "without" figure | n/a — a single genuine PPPx solve failure, not an outlier rule | mean (used only to illustrate why the table reports medians) | elev |
 | P6 | §4.4, l.461, first sentence | Population split by whether the station-day has a real STEC-DB observation ("original") or only a geometry-only fallback ("recovered"): Direct STEC median 0.778 m vs GIM 1.015 m (original, N=8,468/8,576); Direct STEC 2.771 m vs GIM 1.991 m (recovered, N=2,249/2,277) | `positioning_diagnostics` (`canonical_for=None`) feeding `positioning_distributions` | `multiday_results/analyses/positioning_distributions/rebuilt/population_percentile_summary.csv` | 2024 test period, iono weighting, **full per-method population** (not the Table 5 common set — see Consistency item A) | 8,468/8,576/2,249/2,277 (per-method, per-population) | none | median | iono |
 | P7 | §4.4, l.461, second sentence | Direct STEC exceeds 10 m on 0.65% of station-days vs 0.15% for IGS GIM; P95/P99 5.29/8.95 m vs 4.13/5.80 m | `positioning_distributions` (`canonical_for="Table 5"`) | `multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_NUMBERS.md` | 2024 test period, iono weighting, **full per-method population** | Direct STEC 10,717; IGS GIM 10,853 | none | exceedance %, P95, P99 | iono |
-| P8 | Fig 12, l.463-468 | Daily median 3D RMS + IQR shading, 4 methods, "no station-day is excluded... vertical axis is clipped for readability" | `positioning_distributions_figures` (`canonical_for=None`) | `plots/manuscript/positioning_2024/pos_trend*` (or the CSV twin under `plots/positioning_distributions/`) | 2024 test period, iono weighting, full per-method population | 10,717-10,853 depending on method | none (view-clipped only, not the data) | daily median + IQR | iono |
-| P9 | Fig 13, l.471-479 | Boxplot distribution, all 4 methods; mean swings −1.2% (no exclusion) to +16.0% (5 m exclusion) vs IGS GIM; median stays 18-21% across every threshold; exceeds-10m counts 70/115/80/16 for Direct STEC/Pretrained/VTEC/IGS GIM | `positioning_diagnostics` (`canonical_for=None`, headline-sensitivity table) + `positioning_distributions` (exceedance counts) | `multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_headline_sensitivity.csv`; `multiday_results/analyses/positioning_distributions/rebuilt/overall_exceedance.csv` | 2024 test period, iono weighting, full per-method population | Direct STEC 10,717 / GIM 10,853 (the "none" row); the mean/median-swing table itself uses the paired STEC/GIM counts shown in the sensitivity CSV | none for the headline (that's the point of the figure); the sensitivity table sweeps 5/10/20/50 m for comparison | mean (shown to be non-robust) and median (reported) | iono |
+| P8 | Fig 12, l.463-468 | Daily median 3D RMS, 4 methods, "restricted to the common set... vertical axis is clipped for readability" — resolved 2026-09-15, see Consistency item A | `manuscript_figures` (`canonical_for=None`), reading `positioning_distributions`'s `common_set_daily_rows.csv` | `plots/manuscript/positioning_2024/pos_trend*` | 2024 test period, iono weighting, **4-method × 2-weighting common set** (same population as Table 5) | 10,387 | none (view-clipped only, not the data) | daily median | iono |
+| P9 | Fig 13, l.471-479 | Boxplot distribution, all 4 methods (caption: mean swings −1.2% (no exclusion) to +16.0% (5 m exclusion) vs IGS GIM, from the full-population sensitivity table, unaffected by this row's own resolution; median stays 18-21% across every threshold); exceeds-10m counts **65/105/72/14** for Direct STEC/Pretrained/VTEC/IGS GIM — resolved 2026-09-15 (was 70/115/80/16 on the full population), see Consistency item A | `positioning_diagnostics` (`canonical_for=None`, headline-sensitivity table, still full population — that table's own point is the sensitivity sweep, see Task 2 reasoning) + `positioning_distributions` (exceedance counts, now common-set) | `multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_headline_sensitivity.csv`; `multiday_results/analyses/positioning_distributions/rebuilt/common_set_exceedance.csv` | mean/median-swing table: 2024 test period, iono weighting, full per-method population (unchanged); exceeds-10m counts: **4-method × 2-weighting common set** | mean/median-swing table: Direct STEC 10,717 / GIM 10,853 (unchanged); exceeds-10m counts: 10,387 (all 4 methods) | none for the headline (that's the point of the figure); the sensitivity table sweeps 5/10/20/50 m for comparison | mean (shown to be non-robust) and median (reported) | iono |
 | P10 | l.459/§Appendix l.538/566 | Pretrained model's worst positioning excursions coincide with Dst < −300 nT storms, DOY 132-133 and 282-285 | `positioning_diagnostics` (`canonical_for=None`) | `multiday_results/analyses/positioning_diagnostics/rebuilt/daily_timeseries.csv`, `FINDINGS.md` | 2024 test period, iono weighting | n/a (event identification, not a population statistic) | none | daily mean by DOY | iono |
-| P11 | Fig 14 (Appendix), l.559-566 | Daily relative improvement vs IGS GIM+Mapping, computed from daily median 3D RMS, 3 methods (Direct STEC, VTEC+Mapping, Pretrained) | `positioning_distributions_figures` / `positioning_diagnostics_figures` (both `canonical_for=None`) | `plots/positioning_diagnostics/positioning_2024/daily_timeseries.csv` or the `positioning_distributions` figure twin | 2024 test period, iono weighting, full per-method population | 10,717-10,853 | none (view-clipped) | daily median, relative % | iono |
-| P12 | Fig 15 (Appendix), l.568-573 | CDF of 3D RMS errors, 4 methods, median/P95 markers, "full population reported in Table 5" | `positioning_distributions_figures` (`canonical_for=None`) | `plots/manuscript/positioning_2024/cdf_unfiltered*` | 2024 test period, iono weighting, **full per-method population** (caption itself points to Table 5, which is the narrower common-set population — a cross-reference across the two populations named directly in the caption text) | 10,717-10,853 | none | CDF, median, P95 markers | iono |
+| P11 | Fig 14 (Appendix), l.559-566 | Daily relative improvement vs IGS GIM+Mapping, computed from daily median 3D RMS, 3 methods (Direct STEC, VTEC+Mapping, Pretrained) — resolved 2026-09-15, see Consistency item A | `manuscript_figures` (`canonical_for=None`), reading `positioning_distributions`'s `common_set_daily_rows.csv` | `plots/manuscript/positioning_2024/pos_improvement_timeseries*` | 2024 test period, iono weighting, **4-method × 2-weighting common set** (same population as Table 5) | 10,387 | none (view-clipped) | daily median, relative % | iono |
+| P12 | Fig 15 (Appendix), l.568-573 | CDF of 3D RMS errors, 4 methods, median/P95 markers, "complete distribution reported in Table 5" — resolved 2026-09-15, see Consistency item A (caption used to say "full population reported in Table 5" while itself plotting the full per-method population, a cross-reference across two different populations named directly in the same sentence; both sides now agree) | `manuscript_figures` (`canonical_for=None`), calling `stec.viz.positioning_distributions.fig_cdf_unfiltered` on `positioning_distributions`'s `common_set_cdf_points.csv`/`common_set_percentile_summary.csv` | `plots/manuscript/positioning_2024/cdf_unfiltered*` | 2024 test period, iono weighting, **4-method × 2-weighting common set** (same population as Table 5) | 10,387 | none | CDF, median, P95 markers | iono |
 
 ---
 
@@ -190,6 +193,51 @@ surrounding prose use the (slightly larger) iono-only population, and why (the t
 population that supports the elev/iono weighting comparison in Table 7; the figures don't); or
 move everything to one population (loses either the weighting-comparison table's exact match to
 Table 5, or the figures' larger, more complete sample).
+
+**Resolved 2026-09-15** (owner instruction: "do everything on the common set"). Took the second
+option. All four manuscript positioning figures now read the same N=10,387 common set Tables 5-7
+already use, instead of the full per-method population (N=10,717-10,853):
+`stec.viz.manuscript_figures.fig_positioning_trend` (Figure 12) and
+`fig_positioning_improvement_timeseries` (Figure 14) now read
+`stec.analysis.positioning_distributions`'s new `common_set_daily_rows.csv`; Figure 13
+(`fig_boxplot_3d_error`) and Figure 15 (`fig_cdf_unfiltered`), both in
+`stec.viz.positioning_distributions` and called directly by `manuscript_figures` (one rendering,
+not two — see that module's own docstring), now read that same analysis module's new
+`common_set_boxplot_stats.csv`/`common_set_boxplot_fliers.csv` and `common_set_cdf_points.csv`
+respectively, alongside the `common_set_exceedance.csv`/`common_set_percentile_summary.csv` that
+already existed. `positioning_distributions`'s declared outputs (`stec/pipeline/stages.py`) grew
+by these five new CSVs; no existing output changed shape. Figure 13's caption exceeds-10m counts
+moved from 70/115/80/16 (Direct STEC/Pretrained/VTEC+Mapping/IGS GIM, full population) to
+65/105/72/14 (common set) — recomputed from `common_set_exceedance.csv`, not hand-edited — and
+all four figure captions now state the common-set restriction and N explicitly, the same
+language Tables 5-7 already use.
+
+The two standalone (non-numbered) figures in `stec.viz.positioning_distributions` that draw the
+same per-method quantity Table 5 reports — `fig_storm_quiet_boxplot` and
+`fig_percentile_exceedance_table` — moved to the common set too, for the same consistency reason,
+reading new `common_set_regime_boxplot_stats.csv` and the existing `common_set_percentile_summary
+.csv`/`common_set_exceedance.csv`. `fig_population_split_boxplot` (the distributional form of row
+P6 above) deliberately did **not** move and still reads the full-population
+`population_boxplot_stats.csv`: "recovered" means exactly "missing from at least one method's
+coverage that day," the coverage difference the common set intersects away, so restricting this
+one figure would erase most of the population-crossover signal it exists to show rather than
+merely shrink its N — row P6's full-population N (8,468/8,576/2,249/2,277) is unaffected by this
+resolution and remains the intentional exception it always was. `positioning_diagnostics.py` and
+`positioning_geography.py` (analysis and viz) were reviewed and left on the full population for
+the same reason — their outlier-threshold sensitivity, per-station and recovered/original-by-
+latitude results all depend on exactly the coverage variation the common set removes.
+`oracle_benchmark` was out of scope from the start (elev weighting, placeholder reference sigma,
+permanently non-comparable with Table 5 by design, per CLAUDE.md) and was not touched.
+
+Verification: `verification/gate_f_figures.py`'s Figures 12-15 checks were updated to
+independently recompute the common-set intersection from `multiday_summary_all_weightings.csv`
+with plain pandas (`_common_set_station_days`, mirroring but not importing
+`common_set_positioning.coverage_common_station_days`, for the same reason this gate never calls
+the code it is checking) rather than reading the full population — all four still report `MATCH`
+(10/10 overall), so the figures plot exactly what the common-set methodology says they should,
+not merely what they used to. This is a population-scope change only: no figure's underlying
+statistic (median, Tukey box convention, empirical CDF, day-by-day grouping) changed, and no
+value disagreed with the gate's independent recomputation for any other reason.
 
 **Item G — `positioning_reporting.md`'s own recommended Table 5 content is not what the
 manuscript printed, and the document was never updated to say so.** §2 of that file explicitly

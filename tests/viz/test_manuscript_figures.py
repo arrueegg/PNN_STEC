@@ -613,12 +613,23 @@ def _write_synthetic_positioning_distributions(output_dir) -> None:
     """Builds `positioning_distributions`'s own CSVs from the same synthetic
     station-day population `_synthetic_positioning_frame` produces, using that module's
     real `boxplot_stats`/`cdf_points`/`percentile_summary` - not hand-built numbers - so
-    Figures 13/15's reused generators have something real to read."""
-    frame = _synthetic_positioning_frame()
+    Figures 13/15's reused generators have something real to read.
+
+    Also writes the `common_set_*` twins Figures 12-15 read since 2026-09-15
+    (results_register.md consistency item A) - this fixture has no real coverage
+    restriction to model, so every synthetic row is treated as if it were already the
+    common set, the same population as the `overall_*`/`multiday_summary.csv` files
+    above rather than a genuinely smaller one."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    raw_frame = _synthetic_positioning_frame()
+    raw_frame[["date", "method", "error_3d_rms"]].to_csv(
+        output_dir / "common_set_daily_rows.csv", index=False
+    )
+
+    frame = raw_frame.copy()
     frame["Method"] = frame["method"].map(mf._POSITIONING_METHOD_MAP)
     frame = frame.dropna(subset=["Method"])
 
-    output_dir.mkdir(parents=True, exist_ok=True)
     stats, fliers = pdist.boxplot_stats(frame, ["Method"])
     stats.to_csv(output_dir / "overall_boxplot_stats.csv", index=False)
     fliers.to_csv(output_dir / "overall_boxplot_fliers.csv", index=False)
@@ -632,6 +643,18 @@ def _write_synthetic_positioning_distributions(output_dir) -> None:
     # table to annotate how many station-days per method fall outside the cap.
     pdist.exceedance_table(frame, ["Method"]).to_csv(
         output_dir / "overall_exceedance.csv", index=False
+    )
+    # common_set_* twins - same rows, see the docstring above.
+    stats.to_csv(output_dir / "common_set_boxplot_stats.csv", index=False)
+    fliers.to_csv(output_dir / "common_set_boxplot_fliers.csv", index=False)
+    pdist.cdf_points(frame, ["Method"]).to_csv(
+        output_dir / "common_set_cdf_points.csv", index=False
+    )
+    pdist.percentile_summary(frame, ["Method"]).to_csv(
+        output_dir / "common_set_percentile_summary.csv", index=False
+    )
+    pdist.exceedance_table(frame, ["Method"]).to_csv(
+        output_dir / "common_set_exceedance.csv", index=False
     )
 
 
