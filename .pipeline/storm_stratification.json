@@ -2,16 +2,17 @@
   "answers": "R2.7",
   "canonical_for": null,
   "caveats": [
-    "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This is a different, deliberately kept-separate threshold from the STEC-domain scenario_evaluation.py, which classifies individual hours as storm at Kp>=37 or Dst<=-33: the daily rule finds 39 storm days over the 242-day positioning test period against 102 under the per-observation rule applied at the day level. Do not port one rule's day count into the other's table."
+    "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This is a different, deliberately kept-separate threshold from the STEC-domain scenario_evaluation.py, which classifies individual hours as storm at Kp>=37 or Dst<=-33: the daily rule finds 39 storm days over the 242-day positioning test period against 102 under the per-observation rule applied at the day level. Do not port one rule's day count into the other's table.",
+    "Headline changed from mean to median and restricted to the same 4-method x 2-weighting common set Tables 5-7 use (N=10,387, owner decision applied 2026-09-15 - see the module docstring). improvement_over_gim.csv's headline columns are now _median_% (matching Tables 5-7); the previous mean-only, per-method-population version is what response_to_reviewers.md and evidence_summary.md quoted as +25.4%/+19.6% (itself already a stale restatement of the published +31.9%/+26.3%) - all three numbers are superseded by this stage's current output, not by each other."
   ],
   "code": {
-    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
+    "commit": "71843944b99c7459eb9ed8b473f5f6f5aa2c75eb",
     "dirty": true
   },
   "command": "-m stec.analysis.storm_stratification --output-dir multiday_results/analyses/storm_stratification/rebuilt",
   "description": "positioning accuracy on storm against quiet days",
-  "duration_s": 0.4,
-  "fingerprint": "18d26700d2d98602af5a2332dd780debbfe5da99225c9a07ecbfec68026c2881",
+  "duration_s": 0.5,
+  "fingerprint": "f1a68599a4fbae5692eb7f78e5c14e2d5a1aec5eccf56bf641a20ab597443791",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -22,6 +23,11 @@
       "kind": "file",
       "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
       "size": 13972373
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "kind": "file",
+      "sha256": "430e110bc2c7bbc57290b1c493b982494c6478663e6fdee12009550d6d4e85b7",
+      "size": 29032811
     }
   },
   "outputs": {
@@ -31,7 +37,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T07:22:24.570793+00:00",
+  "recorded_at": "2026-09-15T07:20:20.660192+00:00",
   "stage": "storm_stratification",
   "supersedes": []
 }

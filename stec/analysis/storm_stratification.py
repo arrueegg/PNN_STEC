@@ -34,6 +34,43 @@ it is fully implemented - this module takes no flag that disables the regime spl
 always classifies and reports both regimes when invoked; there is nothing to silently
 leave off.
 
+**Headline statistic: median, not mean (owner decision 2026-08-28, applied here
+2026-09-15).** ``docs/revision/positioning_reporting.md`` decided that positioning
+results are reported as medians and distributions, never means, once the 10 m
+outcome-based exclusion was recognised as non-neutral between methods
+(``positioning_distributions.py``, Tables 5-7). This module was the one case that
+decision missed. Under the pre-fix mean headline, Direct STEC read **+5.2% over IGS GIM
+in quiet conditions and -2.7% in storm conditions** - worse than the baseline it is meant
+to beat, which reads as exactly the operational failure R1.7 warns about. The same
+station-days, read as a median (already sitting unused in the pre-fix ``by_regime.csv``'s
+``3D_median_m`` column), gave +18.9% quiet / +13.6% storm: the advantage narrows under
+storms, it does not invert. The sign flip is a mean-statistic artifact, not a real
+regime-dependent failure - the storm regime has roughly a fifth as many station-days as
+quiet, which is exactly where a mean is least robust to a handful of large residuals.
+Both figures above are the pre-fix numbers, quoted only to show why the fix was needed -
+read the current numbers from ``improvement_over_gim.csv`` itself, never from here.
+
+**Population: the same 4-method x 2-weighting common set Tables 5-7 use** (N=10,387,
+``common_set_positioning.coverage_common_station_days``), not each method's own count.
+Before this pass, ``stratify()`` read the iono-weighted tree unrestricted, so a
+station-day missing from one method's coverage stayed in every other method's regime
+statistics - Direct STEC and IGS GIM were compared over different populations by
+construction (10,647 against 10,837 station-days overall), the same unmatched-population
+problem ``common_set_positioning.py`` documents for Table 5's predecessor. This is a
+population fix, independent of the median-over-mean fix above, and both are applied
+together here.
+
+**The 10 m outcome-based station-day exclusion (``pm.exclude_outlier_station_days``) is
+dropped, matching Tables 5-7** (``docs/revision/positioning_reporting.md``): filtering on
+the outcome being measured is not neutral between methods, and every other positioning
+table in this codebase has already dropped it. ``improvement_over_gim.csv`` now carries
+both statistics, named explicitly so neither can be mistaken for the other:
+``improvement_over_gim_{quiet,storm}_median_%`` is the headline; the parallel
+``_mean_%`` columns are kept only for the sensitivity comparison the decision record
+argues from, not as a second number to quote. ``degradation.csv`` gained the same split
+(``3D_median`` alongside the pre-existing mean-based ``quiet``/``storm``/
+``storm_vs_quiet_%`` columns).
+
 Usage::
 
     python -m stec.analysis.storm_stratification
@@ -51,6 +88,7 @@ import pandas as pd
 
 from ..config import paths
 from ..positioning import metrics as pm
+from .common_set_positioning import coverage_common_station_days
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +116,6 @@ STORM_DST_THRESHOLD_NT = -50.0
 # default here. Selecting it is a behaviour-changing divergence and must be recorded as one.
 SCENARIO_KP_THRESHOLD = 37.0
 SCENARIO_DST_THRESHOLD_NT = -33.0
-
-# Figure 12 of the paper excludes station-days worse than 10 m as extreme outliers. Reused
-# from `stec.positioning.metrics` (`pm.OUTLIER_3D_RMS_M`) rather than redefined here - the
-# same rule has to be applied here or the comparison is not with the published numbers,
-# and 0.29% of station-days otherwise dominate the quiet-period mean badly enough to
-# reverse the storm/quiet ordering.
 
 METHOD_LABELS = {
     "STEC_iono": "Direct STEC",
@@ -176,7 +208,10 @@ def load_daily_geomagnetic_indices(
 
 
 def stratify(
-    summary_path: Path, year: int, swi_path: Path = paths.OMNI_INDICES
+    summary_path: Path,
+    year: int,
+    swi_path: Path = paths.OMNI_INDICES,
+    common_station_days: pd.MultiIndex | None = None,
 ) -> pd.DataFrame:
     """Join the positioning summary with the daily storm classification.
 
@@ -184,6 +219,15 @@ def stratify(
     the daily rule the published R2.7 table used; see the constants for why the
     per-observation rule in scenario_evaluation.py is a different test, not a variant of
     this one.
+
+    `common_station_days` restricts to the 4-method x 2-weighting common set Tables 5-7
+    use (`common_set_positioning.coverage_common_station_days`) rather than each method's
+    own count - see the module docstring. Computed from the live checkout's own tree by
+    default (`None`); tests pass a synthetic index directly rather than depending on that
+    production path, the same parameter-injection pattern `weighting_ablation.py` and
+    `positioning_distributions.py` use for the identical restriction. No outcome-based
+    (10 m) exclusion is applied; that rule was dropped here for the same reason Tables 5-7
+    dropped it.
     """
     positions = pd.read_csv(summary_path)
     indices = load_daily_geomagnetic_indices(year, swi_path)
@@ -196,15 +240,15 @@ def stratify(
         )
         merged = merged.dropna(subset=["dst_min"])
 
+    if common_station_days is None:
+        common_station_days = coverage_common_station_days()
     n_before = len(merged)
-    merged = pm.exclude_outlier_station_days(merged)
-    dropped = n_before - len(merged)
-    if n_before:
-        logger.info(
-            f"applied the {pm.OUTLIER_3D_RMS_M:.0f} m outlier rule used in Figure 12: "
-            f"dropped {dropped} of {n_before} station-days "
-            f"({100 * dropped / n_before:.2f}%)"
-        )
+    merged = merged.set_index(["station", "doy"])
+    merged = merged[merged.index.isin(common_station_days)].reset_index()
+    logger.info(
+        f"restricted to the common set solved by all methods under both weightings: "
+        f"{len(merged):,} of {n_before:,} station-day rows kept"
+    )
 
     merged["Method"] = merged["method"].map(METHOD_LABELS).fillna(merged["method"])
     is_storm = merged["dst_min"] <= STORM_DST_THRESHOLD_NT
@@ -218,24 +262,44 @@ def build_tables(stratified: pd.DataFrame) -> dict[str, pd.DataFrame]:
     `by_regime` reuses `stec.positioning.metrics.summarise` rather than reimplementing the
     station-day aggregation, so its convention (mean/median of per-station-day RMSE, not
     an epoch-pooled statistic) matches Table 5 exactly.
+
+    **Median is the headline statistic** (owner decision, see the module docstring);
+    mean columns are kept alongside, explicitly suffixed, only for the sensitivity
+    comparison that decision argues from.
     """
     order = [m for m in METHOD_ORDER if m in set(stratified["Method"])]
 
     by_regime = pm.summarise(stratified, ["Method", "regime"])
 
+    medians = by_regime["3D_median_m"].unstack("regime").reindex(order)
     means = by_regime["3D_mean_m"].unstack("regime").reindex(order)
-    means["storm_vs_quiet_%"] = 100 * (means["storm"] - means["quiet"]) / means["quiet"]
+
+    degradation = pd.DataFrame(index=order)
+    degradation["quiet_median"] = medians["quiet"]
+    degradation["storm_median"] = medians["storm"]
+    degradation["storm_vs_quiet_median_%"] = (
+        100 * (medians["storm"] - medians["quiet"]) / medians["quiet"]
+    )
+    degradation["quiet_mean"] = means["quiet"]
+    degradation["storm_mean"] = means["storm"]
+    degradation["storm_vs_quiet_mean_%"] = (
+        100 * (means["storm"] - means["quiet"]) / means["quiet"]
+    )
 
     improvement = pd.DataFrame(index=order)
     for regime in ("quiet", "storm"):
-        baseline = means.loc[GIM_LABEL, regime]
-        improvement[f"improvement_over_gim_{regime}_%"] = (
-            100 * (baseline - means[regime]) / baseline
+        median_baseline = medians.loc[GIM_LABEL, regime]
+        improvement[f"improvement_over_gim_{regime}_median_%"] = (
+            100 * (median_baseline - medians[regime]) / median_baseline
+        )
+        mean_baseline = means.loc[GIM_LABEL, regime]
+        improvement[f"improvement_over_gim_{regime}_mean_%"] = (
+            100 * (mean_baseline - means[regime]) / mean_baseline
         )
 
     return {
         "by_regime": by_regime,
-        "degradation": means,
+        "degradation": degradation,
         "improvement_over_gim": improvement,
     }
 

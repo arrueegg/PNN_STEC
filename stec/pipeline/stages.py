@@ -186,8 +186,9 @@ POSITIONING_DIAGNOSTICS_DIR = _analysis_dir("positioning_diagnostics", rebuilt=T
 # Owner decision 2026-08-28 (docs/revision/positioning_reporting.md): Table 5 reports
 # distributions/medians with no outcome-based filter. positioning_distributions.py wrote
 # that table from the start but was left undeclared while the owner looked at it before
-# deciding - now declared, and it is what carries canonical_for="Table 5" below (moved off
-# positioning_summary, which implements the superseded mean/10 m-exclusion methodology).
+# deciding - now declared, and it is what carries canonical_for="Tables 5 and 6" below
+# (moved off positioning_summary, which implements the superseded mean/10 m-exclusion
+# methodology; widened from "Table 5" alone 2026-09-15, see the Stage's own comment).
 POSITIONING_DISTRIBUTIONS_DIR = _analysis_dir("positioning_distributions", rebuilt=True)
 # Shared with two further, still-undeclared modules (positioning_quality_gate.py,
 # positioning_model_attribution.py both reuse positioning_geography.DEFAULT_OUTPUT_DIR
@@ -425,6 +426,37 @@ def positioning_distributions_overall_has_all_four_methods(outputs: dict) -> str
     empty = [method for method in METHOD_ORDER if not rows[method].get("n")]
     if empty:
         return f"{path} has no station-day count recorded for {sorted(empty)}"
+    return None
+
+
+def weighting_ablation_common_set_has_all_four_methods(outputs: dict) -> str | None:
+    """Table 7's real source, `common_set.csv`: `common_set_ablation` groups by
+    whatever `correction` values are present in the input and then
+    `.reindex(COMMON_SET_CORRECTION_ORDER)`, which fills a missing correction with NaN
+    rather than dropping the row - the same reindex-guaranteed-shape gap
+    `positioning_summary_overall_has_all_four_methods` checks for Table 5. Declared
+    2026-09-15 alongside this stage's first `canonical_for` (results_register.md,
+    Consistency item C: Table 7 had a directory-level output only, no `min_rows`, no
+    `checks` - the exact gap Tables 3/4 used to have before they were declared)."""
+    path = WEIGHTING_ABLATION_DIR / "common_set.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(
+        path, ["correction", "common_set_station_days"]
+    )
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = {row["correction"]: row for row in _read_csv_rows(path)}
+    missing = set(METHOD_ORDER) - set(rows)
+    if missing:
+        return f"{path} is missing method(s) {sorted(missing)}"
+    empty = [
+        method
+        for method in METHOD_ORDER
+        if not rows[method].get("common_set_station_days")
+    ]
+    if empty:
+        return f"{path} has no common_set_station_days recorded for {sorted(empty)}"
     return None
 
 
@@ -1556,7 +1588,18 @@ STAGES: list[Stage] = [
         "R2.5",
         "elevation against predicted-uncertainty weighting, paired station-days",
         inputs=[WEIGHTING_RUN, WEIGHTING_ABLATION_FIXED_VARIANCE_DIR],
-        outputs=[str(WEIGHTING_ABLATION_DIR)],
+        outputs=[
+            str(WEIGHTING_ABLATION_DIR),
+            str(WEIGHTING_ABLATION_DIR / "common_set.csv"),
+        ],
+        min_rows={str(WEIGHTING_ABLATION_DIR / "common_set.csv"): 4},
+        checks=[weighting_ablation_common_set_has_all_four_methods],
+        # Declared 2026-09-15 (results_register.md, Consistency item C): common_set.csv
+        # is Table 7 (tab:weighting_ablation), but this stage carried canonical_for=None,
+        # so the registry's one-owner-per-canonical_for check gave it no protection at
+        # all - the same gap Tables 3/4 used to have before they were declared.
+        # paired.csv/fixed_variance.csv are not part of Table 7; only common_set.csv is.
+        canonical_for="Table 7",
         caveats=[
             "common_set.csv (2026-09-14, owner instruction) restricts the "
             "elev-vs-iono comparison to positioning_distributions's own common set "
@@ -1584,7 +1627,12 @@ STAGES: list[Stage] = [
         f"-m stec.analysis.storm_stratification --output-dir {STORM_STRATIFICATION_DIR}",
         "R2.7",
         "positioning accuracy on storm against quiet days",
-        inputs=[POSITIONING, SWI],
+        # WEIGHTING_RUN joined 2026-09-15: stratify() now restricts to
+        # common_set_positioning.coverage_common_station_days(), which reads
+        # multiday_summary_all_weightings.csv - undeclared before this pass, which
+        # would have let that file change silently under this stage's skip decision,
+        # the same class of bug WEIGHTING_RUN was added to weighting_ablation for.
+        inputs=[POSITIONING, SWI, WEIGHTING_RUN],
         outputs=[str(STORM_STRATIFICATION_DIR)],
         caveats=[
             "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This "
@@ -1593,6 +1641,14 @@ STAGES: list[Stage] = [
             "Kp>=37 or Dst<=-33: the daily rule finds 39 storm days over the 242-day "
             "positioning test period against 102 under the per-observation rule applied "
             "at the day level. Do not port one rule's day count into the other's table.",
+            "Headline changed from mean to median and restricted to the same 4-method "
+            "x 2-weighting common set Tables 5-7 use (N=10,387, owner decision applied "
+            "2026-09-15 - see the module docstring). improvement_over_gim.csv's "
+            "headline columns are now _median_% (matching Tables 5-7); the previous "
+            "mean-only, per-method-population version is what response_to_reviewers.md "
+            "and evidence_summary.md quoted as +25.4%/+19.6% (itself already a stale "
+            "restatement of the published +31.9%/+26.3%) - all three numbers are "
+            "superseded by this stage's current output, not by each other.",
         ],
     ),
     Stage(
@@ -1600,8 +1656,20 @@ STAGES: list[Stage] = [
         f"-m stec.analysis.positioning_robustness --output-dir {POSITIONING_ROBUSTNESS_DIR}",
         "R2.7b",
         "tail behaviour and convergence of the positioning solutions",
-        inputs=[POSITIONING],
+        # WEIGHTING_RUN joined 2026-09-15 for the same reason as storm_stratification's
+        # identical addition just above: load() now restricts to
+        # coverage_common_station_days(), which reads multiday_summary_all_weightings.csv.
+        inputs=[POSITIONING, WEIGHTING_RUN],
         outputs=[str(POSITIONING_ROBUSTNESS_DIR)],
+        caveats=[
+            "Restricted to the same 4-method x 2-weighting common set Tables 5-7 use "
+            "(N=10,387) and the 10 m outcome-based outlier exclusion dropped, matching "
+            "Tables 5-7 (owner decision applied 2026-09-15 - see the module docstring). "
+            "tail_distribution.csv reports median first (headline); "
+            "error_components.csv gained _median_m columns as the headline, alongside "
+            "the pre-existing mean-based columns (now suffixed _mean_m) kept only for "
+            "the sensitivity comparison.",
+        ],
     ),
     Stage(
         "common_set_positioning",
@@ -1672,6 +1740,19 @@ STAGES: list[Stage] = [
             "four methods.",
             "Read ratios to the floor within this table. Take absolute positioning numbers "
             "from Table 5.",
+            "Deliberately still uses the 10 m outcome-based exclusion and reports a mean "
+            "headline (paired_station_days.csv/summary.csv), unlike Table 5-7 and the "
+            "other two R2.7 stages (storm_stratification, positioning_robustness), which "
+            "moved to the common-set population, no outlier filter and a median headline "
+            "2026-09-15. This is not an unfixed instance of that same change, and should "
+            "not be tracked as one: this stage answers a self-contained question (what "
+            "floor the reference STEC implies, as a ratio against the same four baselines "
+            "restricted to the all-four-method set its own methodology already imposes), "
+            "and every number in it is read as a ratio within this table - never against "
+            "Table 5's population or absolute numbers, per the two caveats above. Matching "
+            "Tables 5-7's median/no-filter/common-set methodology here would change what "
+            "this table's own internal ratios look like without changing what they are "
+            "compared against, so it is left as is on purpose.",
         ],
     ),
     Stage(
@@ -1821,13 +1902,23 @@ STAGES: list[Stage] = [
         # outlier exclusion. Was built the same day as positioning_diagnostics but left
         # undeclared while the owner decided what Table 5 should say (see that module's
         # own docstring, quoted verbatim in positioning_reporting.md's line 11-17); now
-        # that the decision is made, this is what canonical_for="Table 5" must point at.
-        # Must follow positioning_diagnostics (reads its recovered-station-days cache)
-        # and positioning_coverage (reads POSITIONING and SWI).
+        # that the decision is made, this is what canonical_for="Tables 5 and 6" must
+        # point at. Must follow positioning_diagnostics (reads its recovered-station-days
+        # cache) and positioning_coverage (reads POSITIONING and SWI).
+        #
+        # canonical_for widened from "Table 5" to "Tables 5 and 6" 2026-09-15
+        # (results_register.md, Consistency item C): common_set_component_medians.csv
+        # is Table 6 (tab:pos_components), written by this same stage, but Table 6 had
+        # no owner of its own in the registry - it only inherited this stage's general
+        # min_rows/checks by accident of being one of its outputs, the same gap Table 7
+        # had (see weighting_ablation's own canonical_for change just below). One stage
+        # legitimately owning two manuscript tables is not a double-ownership violation
+        # of the registry's one-owner rule - see "Tables 3 and 4" (daily_metrics) for
+        # the precedent of a single combined string.
         "positioning_distributions",
         "-m stec.analysis.positioning_distributions "
         f"--output-dir {POSITIONING_DISTRIBUTIONS_DIR}",
-        "Table 5",
+        "Tables 5 and 6",
         "positioning error as distributions - median/IQR/p95/p99/exceedance, no "
         "outcome-based outlier filter, per method and by storm/quiet and "
         "original/recovered population",
@@ -1855,7 +1946,7 @@ STAGES: list[Stage] = [
         ],
         min_rows=_POSITIONING_DISTRIBUTIONS_MIN_ROWS,
         checks=[positioning_distributions_overall_has_all_four_methods],
-        canonical_for="Table 5",
+        canonical_for="Tables 5 and 6",
         caveats=[
             "The overall/regime/population sections (Figures 12-15) are iono weighting "
             "only, read from POSITIONING alone. The common_set_* sections and "

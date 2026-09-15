@@ -106,7 +106,7 @@ def test_every_paper_deliverable_has_exactly_one_owner_in_the_manifest():
     assert len(owners) == len(set(owners)), (
         "a deliverable with two owners has no answer"
     )
-    for expected in ("Tables 1 and 2", "Tables 3 and 4", "Table 5"):
+    for expected in ("Tables 1 and 2", "Tables 3 and 4", "Tables 5 and 6", "Table 7"):
         assert expected in owners
     # "Table A1" does not exist in the manuscript (5 tables, no lettered appendix) -
     # common_set_positioning backs the R1.5 reviewer-response numbers instead and

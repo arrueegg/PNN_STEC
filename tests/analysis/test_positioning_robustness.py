@@ -56,31 +56,46 @@ def _write(path, frame: pd.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
-# load: outlier exclusion and method mapping
+# load: common-set restriction and method mapping (no 10 m outlier exclusion any
+# more - dropped 2026-09-15, matching Tables 5-7's methodology; see the module
+# docstring)
 # ---------------------------------------------------------------------------
 
 
-def test_load_excludes_outliers_above_10m_and_drops_unmapped_methods(tmp_path):
+def test_load_keeps_outliers_above_10m_drops_unmapped_methods_and_non_common_days(
+    tmp_path,
+):
     frame = pd.concat(
         [
             pd.DataFrame(
                 [_row("AMC4", 130, "STEC_iono", 1.0, 1.5, 0.6, 0.3, 0.4, 0.4)]
             ),
+            # Above the old 10 m rule - must now be kept, not excluded.
             pd.DataFrame(
                 [_row("ZIMM", 131, "STEC_iono", 15.0, 15.0, 9.0, 4.5, 6.0, 6.0)]
             ),
+            # Unmapped method - still dropped regardless of the outlier/common-set fix.
             pd.DataFrame([_row("WTZR", 132, "unmapped", 2.0, 2.0, 1.0, 0.5, 0.5, 0.5)]),
+            # In range and a mapped method, but not in the common set - dropped by the
+            # new population restriction.
+            pd.DataFrame(
+                [_row("ONSA", 133, "STEC_iono", 1.0, 1.5, 0.6, 0.3, 0.4, 0.4)]
+            ),
         ],
         ignore_index=True,
     )
     summary_path = tmp_path / "summary.csv"
     _write(summary_path, frame)
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", 130), ("ZIMM", 131), ("WTZR", 132)], names=["station", "doy"]
+    )
 
-    loaded = pr.load(summary_path)
+    loaded = pr.load(summary_path, common_station_days=common_station_days)
 
-    assert len(loaded) == 1
-    assert loaded.iloc[0]["station"] == "AMC4"
-    assert loaded.iloc[0]["Method"] == "Direct STEC"
+    assert sorted(loaded["station"]) == ["AMC4", "ZIMM"]
+    assert set(loaded["Method"]) == {"Direct STEC"}
+    # The 15.0 m ZIMM row survived - the outlier rule is gone.
+    assert 15.0 in loaded["error_3d_rms"].values
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +138,13 @@ def test_tail_table_fraction_above_threshold_matches_hand_count(direct_stec_fram
 # ---------------------------------------------------------------------------
 
 
-def test_component_table_matches_hand_computed_horizontal_and_vertical_means(
+def test_component_table_matches_hand_computed_horizontal_and_vertical_medians_and_means(
     direct_stec_frame,
 ):
+    """`direct_stec_frame`'s four values are evenly spaced (0.6/1.2/1.8/2.4 etc.), so
+    median and mean coincide exactly - this fixture cannot distinguish the two
+    statistics, only confirm both the `_median_m` (headline) and `_mean_m`
+    (sensitivity) columns exist and are computed correctly."""
     direct_stec_frame["Method"] = "Direct STEC"
 
     components = pr.component_table(direct_stec_frame)
@@ -133,13 +152,15 @@ def test_component_table_matches_hand_computed_horizontal_and_vertical_means(
 
     expected_horizontal = (0.6 + 1.2 + 1.8 + 2.4) / 4
     expected_vertical = (0.3 + 0.6 + 0.9 + 1.2) / 4
-    assert row["horizontal_2D_rms"] == pytest.approx(expected_horizontal)
-    assert row["vertical_up_rms"] == pytest.approx(expected_vertical)
-    assert row["vertical_to_horizontal_ratio"] == pytest.approx(
-        expected_vertical / expected_horizontal
-    )
-    assert row["east_rms"] == pytest.approx((0.4 + 0.8 + 1.2 + 1.6) / 4)
-    assert row["north_rms"] == pytest.approx((0.4 + 0.8 + 1.2 + 1.6) / 4)
+    expected_east_north = (0.4 + 0.8 + 1.2 + 1.6) / 4
+    for suffix in ("median", "mean"):
+        assert row[f"horizontal_2D_{suffix}_m"] == pytest.approx(expected_horizontal)
+        assert row[f"vertical_up_{suffix}_m"] == pytest.approx(expected_vertical)
+        assert row[f"vertical_to_horizontal_{suffix}_ratio"] == pytest.approx(
+            expected_vertical / expected_horizontal
+        )
+        assert row[f"east_{suffix}_m"] == pytest.approx(expected_east_north)
+        assert row[f"north_{suffix}_m"] == pytest.approx(expected_east_north)
 
 
 # ---------------------------------------------------------------------------

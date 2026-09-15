@@ -1,20 +1,27 @@
 {
   "answers": "R2.7b",
   "canonical_for": null,
-  "caveats": [],
+  "caveats": [
+    "Restricted to the same 4-method x 2-weighting common set Tables 5-7 use (N=10,387) and the 10 m outcome-based outlier exclusion dropped, matching Tables 5-7 (owner decision applied 2026-09-15 - see the module docstring). tail_distribution.csv reports median first (headline); error_components.csv gained _median_m columns as the headline, alongside the pre-existing mean-based columns (now suffixed _mean_m) kept only for the sensitivity comparison."
+  ],
   "code": {
-    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
+    "commit": "71843944b99c7459eb9ed8b473f5f6f5aa2c75eb",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_robustness --output-dir multiday_results/analyses/positioning_robustness/rebuilt",
   "description": "tail behaviour and convergence of the positioning solutions",
-  "duration_s": 0.3,
-  "fingerprint": "02094363143b654b540bd1656d31e5913598b8a0325b2aacf09a2b04c14ef88c",
+  "duration_s": 0.4,
+  "fingerprint": "bdf8bfe96a656742af625731fc3e7778ca442a57bcc7e3a0ab5fe8274f843e51",
   "inputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
       "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
       "size": 13972373
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "kind": "file",
+      "sha256": "430e110bc2c7bbc57290b1c493b982494c6478663e6fdee12009550d6d4e85b7",
+      "size": 29032811
     }
   },
   "outputs": {
@@ -24,7 +31,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T07:22:24.899368+00:00",
+  "recorded_at": "2026-09-15T07:20:07.960781+00:00",
   "stage": "positioning_robustness",
   "supersedes": []
 }

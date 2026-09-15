@@ -324,26 +324,34 @@ generalisation arguments.
 `plots/revision/stec_finetuned_2024/calibration_{coverage,pit}_notitle.png`
 
 ### R1.7 — convergence, tails, vertical/horizontal, storm-time ✅
-*Storm:* Direct STEC keeps **+25.4% over GIM in quiet and +19.6% in storm** conditions, and
-degrades least of the ML models (+19.6% quiet→storm, against the pretrained variant's +41.2%).
-Smaller than an earlier version of this document (+31.9%/+26.3%) because the 2026-08-24
-station-recovery sweep enlarged the evaluated population; the advantage holds in both regimes.
-*Tails:* best through p95 — 3.66 m vs GIM 4.10 m — but IGS GIM's p99 is now lower than Direct
-STEC's: 5.66 m vs 6.24 m, a reversal from the earlier, smaller population. 15.9% of
-station-days above 2 m against GIM's 28.1%.
-*Components:* vertical error cut 25% (1.00 m vs 1.34 m), horizontal 22% (0.68 m vs 0.87 m) —
-both smaller than an earlier version of this document (32%/28%), same population change.
+*Storm:* Reported as medians over the 4-method × 2-weighting common set Tables 5-7 use
+(N = 10,387: 8,706 quiet, 1,681 storm), per the median-not-mean decision
+(`docs/revision/positioning_reporting.md`; applied to this stage 2026-09-15). Direct STEC
+keeps **+19.5% over GIM in quiet and +14.5% in storm** conditions - the advantage narrows,
+it does not disappear. Under the mean the same population reads +1.3%/−7.2% (Direct STEC
+*loses* to GIM by the mean on storm days) - an outlier-sensitivity artefact of the
+statistic, not a real regime failure. This supersedes both the published +31.9%/+26.3% and
+this document's own earlier +25.4%/+19.6% restatement, which used the mean, a smaller
+per-method (not 4-method/2-weighting-intersected) population, and the now-retired 10 m
+outlier rule. Quiet-to-storm degradation (median) is +23.5% for Direct STEC against +46.3%
+for the pretrained-only variant; for completeness, VTEC + Mapping (+8.9%) and GIM itself
+(+16.3%) both degrade less in absolute terms than Direct STEC - its advantage is staying
+ahead of GIM in both regimes, not having the most stable error of the four.
+*Tails:* same common set, no outlier exclusion. Direct STEC leads through the median and
+roughly p90 (3.82 m vs GIM 3.42 m); from p95 GIM is lower (4.13 m vs 5.27 m), widening at
+p99 (5.76 m vs 8.92 m). 24.4% of Direct STEC station-days sit above 2 m against GIM's
+28.5%; above 5 m Direct STEC is worse (5.7% vs 2.3%). The crossover now starts earlier than
+this document previously reported (previously level through p95) because dropping the
+10 m rule - the same change Table 5 made - lets the extreme tail back into the comparison.
+*Components:* vertical error cut 17.0% (0.73 m vs 0.88 m), horizontal 20.6% (0.50 m vs
+0.63 m) - both medians, smaller than this document's earlier mean-based 25%/22%, same
+reason as above.
 *Convergence time:* not derivable from the stored solutions and not meaningful for kinematic,
 daily-reprocessed SF-PPP — decline that sub-point explicitly.
-⚠️ Methodological note worth including: without the paper's own 10 m outlier rule, a small
-number of station-days out of the current 37,209 (grown from 35,652 pre-recovery-sweep)
-dominate the quiet-period mean enough to **reverse** the storm/quiet ordering *[the previously
-reported count, 102 station-days / 0.29%, has not been recomputed against the recovered
-population — no artifact currently supports that recount]*.
-⚠️ **Staleness marker (2026-08-25):** as in R1.5, this 37,209-row population predates today's
-downloader fix and the still-queued recovery re-run — see
-`docs/revision/coverage_recovery_status.md`. Expect these figures to move again.
-`multiday_results/{storm_stratification,positioning_robustness,positioning_summary}/` ·
+The population is the settled 4-method × 2-weighting common set (N = 10,387), not the
+provisional 37,209-row population this document previously flagged as pending a
+RINEX-downloader-fix re-run - that staleness marker no longer applies.
+`multiday_results/analyses/{storm_stratification,positioning_robustness}/rebuilt/` ·
 `plots/revision/positioning_2024/{storm_positioning_*,positioning_tail}_notitle.png`
 
 ### R1.8 — observation-derived upper bound — **NOT YET QUOTABLE (two disagreeing artifacts)**

@@ -76,7 +76,13 @@ def test_paper_deliverables_have_exactly_one_owner():
     # (docs/revision/positioning_reporting.md): Table 5 reports distributions/medians
     # with no outcome-based filter, which positioning_distributions.py implements and
     # positioning_summary.py (the mean/10 m-exclusion methodology) does not.
-    assert owners["Table 5"] == "positioning_distributions"
+    # Widened to "Tables 5 and 6" 2026-09-15: common_set_component_medians.csv (Table 6,
+    # tab:pos_components) is written by this same stage and had no owner of its own -
+    # results_register.md Consistency item C.
+    assert owners["Tables 5 and 6"] == "positioning_distributions"
+    # Declared 2026-09-15 for the same reason as Table 6 above: weighting_ablation's
+    # common_set.csv is Table 7 (tab:weighting_ablation) and previously had no owner.
+    assert owners["Table 7"] == "weighting_ablation"
     # "Table A1" does not exist in either manuscript copy (5 tables, no lettered
     # appendix - Figures 14/15 are the only appendix content, numbered continuously).
     # Locking in its absence so a future edit cannot silently reintroduce the label.
@@ -87,9 +93,9 @@ def test_common_set_positioning_backs_no_manuscript_table():
     """It recomputes Table 5's methods on a different, smaller station-day population -
     the one solved under both weightings - to answer R1.5's reviewer-response comparison,
     not a printed manuscript table. Unlike positioning_distributions, it correctly claims
-    no `canonical_for`, so it can never collide with that stage's "Table 5"."""
+    no `canonical_for`, so it can never collide with that stage's "Tables 5 and 6"."""
     assert stage("common_set_positioning").canonical_for is None
-    assert stage("positioning_distributions").canonical_for == "Table 5"
+    assert stage("positioning_distributions").canonical_for == "Tables 5 and 6"
 
 
 def test_positioning_summary_no_longer_owns_table_5():
@@ -1006,7 +1012,9 @@ _POSITIONING_GEOGRAPHY_CSVS = [
 def test_positioning_distributions_owns_table_5_exactly_once():
     matches = [s for s in STAGES if s.name == "positioning_distributions"]
     assert len(matches) == 1
-    assert matches[0].canonical_for == "Table 5"
+    # Widened to "Tables 5 and 6" 2026-09-15 - see test_paper_deliverables_have_
+    # exactly_one_owner's comment for why.
+    assert matches[0].canonical_for == "Tables 5 and 6"
 
     figure_matches = [
         s for s in STAGES if s.name == "positioning_distributions_figures"

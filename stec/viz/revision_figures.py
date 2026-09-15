@@ -309,14 +309,18 @@ def _build_relative_error_figures(args: argparse.Namespace, output_dir: Path) ->
 def fig_storm_positioning_absolute(
     d: pd.DataFrame, output_dir: Path, provenance: str
 ) -> None:
+    # Median, not mean (owner decision, applied to this module 2026-09-15 - see
+    # `stec.analysis.storm_stratification`'s module docstring): `degradation.csv` now
+    # carries both explicitly-suffixed statistics, and the mean columns are kept only
+    # for the sensitivity comparison, not for this figure.
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     plotted = _grouped_bars(
         ax,
         _method_labels(d.index),
         ["quiet", "storm"],
-        {"quiet": d["quiet"].values, "storm": d["storm"].values},
+        {"quiet": d["quiet_median"].values, "storm": d["storm_median"].values},
         [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
-        "3D RMS positioning error [m]",
+        "Median 3D RMS positioning error [m]",
     )
     ax.legend(title="Geomagnetic conditions")
     ax.set_title("Positioning error by geomagnetic regime")
@@ -336,7 +340,9 @@ def fig_storm_positioning_improvement(
     gim = "IGS GIM + Mapping"
     improvement = pd.DataFrame(
         {
-            reg: 100 * (d.loc[gim, reg] - d[reg]) / d.loc[gim, reg]
+            reg: 100
+            * (d.loc[gim, f"{reg}_median"] - d[f"{reg}_median"])
+            / d.loc[gim, f"{reg}_median"]
             for reg in ("quiet", "storm")
         }
     ).drop(index=gim)
@@ -348,7 +354,7 @@ def fig_storm_positioning_improvement(
         ["quiet", "storm"],
         {"quiet": improvement["quiet"].values, "storm": improvement["storm"].values},
         [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
-        "Improvement over IGS GIM + Mapping [%]",
+        "Median improvement over IGS GIM + Mapping [%]",
     )
     ax.axhline(0, color="black", linewidth=1.2, zorder=4)
     ax.legend(title="Geomagnetic conditions", loc="lower left")
@@ -373,7 +379,8 @@ def _build_storm_positioning_figures(
     d = pd.read_csv(path, index_col=0).reindex(METHOD_ORDER)
     prov = (
         f"{path} - SF-PPP, 2024 test period, 39 storm days (daily min Dst <= -50 nT) "
-        "of 242, station-days <= 10 m"
+        "of 242, common set solved by all 4 methods under both weightings (N=10,387), "
+        "no outcome-based outlier exclusion, median across station-days"
     )
     fig_storm_positioning_absolute(d, output_dir, prov)
     fig_storm_positioning_improvement(d, output_dir, prov)

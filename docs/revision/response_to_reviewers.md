@@ -282,37 +282,47 @@ chain fixed — the storm/quiet split and the station-distance analysis — are 
 for that.
 
 ### R1.7 — convergence, tails, vertical/horizontal, storm-time ✅
-*Storm-time.* 39 storm days (daily min Dst ≤ −50 nT) of 242. Direct STEC retains **+25.4% over
-IGS GIM in quiet conditions and +19.6% during storms**, and degrades least of the machine-learning
-models (+19.6% quiet→storm, against +41.2% for the pretrained-only variant). These figures are
-smaller than an earlier version of this document reported (+31.9%/+26.3%), because the
-2026-08-24 station-recovery sweep enlarged the evaluated positioning population; the advantage
-over IGS GIM holds in both regimes, at a reduced margin.
+*Storm-time.* Reported as medians over the 4-method × 2-weighting common set Tables 5-7
+use (N = 10,387: 8,706 quiet, 1,681 storm; daily min Dst ≤ −50 nT), per the median-not-mean
+decision in `docs/revision/positioning_reporting.md`. Direct STEC retains **+19.5% over IGS
+GIM in quiet conditions and +14.5% during storms** — the advantage narrows under storms but
+does not disappear. Under the mean, the same population reads +1.3%/−7.2%:
+Direct STEC *loses* to GIM by the mean on storm days, an outlier-sensitivity artefact, not a
+real regime failure (see `stec/analysis/storm_stratification.py`'s module docstring). These
+figures supersede both the published +31.9%/+26.3% and this letter's own earlier
++25.4%/+19.6% restatement, which used the mean, a smaller per-method population (no
+4-method/2-weighting intersection), and the now-retired 10 m outlier exclusion.
 
-*Tails.* Direct STEC remains best through the 95th percentile — p95 3.66 m against 4.10 m for
-IGS GIM — but at the very tail IGS GIM is now lower: p99 5.66 m against Direct STEC's 6.24 m, a
-reversal from an earlier, smaller population. 15.9% of Direct STEC station-days sit above 2 m,
-against 28.1% for IGS GIM.
+Quiet-to-storm degradation (median error growth) is +23.5% for Direct STEC against +46.3%
+for the pretrained-only variant - fine-tuning roughly halves the storm-time degradation.
+For completeness: VTEC + Mapping (+8.9%) and IGS GIM itself (+16.3%) both degrade less in
+absolute terms than Direct STEC; Direct STEC's advantage is that it stays ahead of GIM in
+both regimes, not that its own error is the most stable of the four.
 
-*Vertical vs horizontal.* Vertical error reduced 25% (1.00 m against 1.34 m), horizontal 22%
-(0.68 m against 0.87 m) — both smaller reductions than an earlier version of this document
-reported (32%/28%), again due to the enlarged post-recovery-sweep population.
+*Tails.* Same common set, no outlier exclusion. Direct STEC leads IGS GIM through the
+median and roughly through p90 (3.82 m against 3.42 m); from p95 GIM is lower (4.13 m
+against 5.27 m), widening at p99 (5.76 m against 8.92 m). Station-days above 2 m are close
+(24.4% Direct STEC, 28.5% GIM); above 5 m Direct STEC is worse (5.7% against 2.3%). The
+crossover now starts earlier than this letter previously reported (previously: level
+through p95, GIM lower only from p99), because dropping the 10 m exclusion - the same
+change Table 5 made - lets the extreme tail this filter used to hide back into the
+comparison.
+
+*Vertical vs horizontal.* Vertical error reduced 17.0% (0.73 m against 0.88 m), horizontal
+20.6% (0.50 m against 0.63 m) - both medians, smaller than this letter's earlier mean-based
+25%/22%, for the same reason as above.
 
 *Convergence time.* Not derivable from the stored solutions and not meaningful for the
-kinematic, daily-reprocessed single-frequency PPP used here; we will say so rather than
-report a quantity the processing strategy does not support.
+kinematic, daily-reprocessed single-frequency PPP used here; we say so rather than report a
+quantity the processing strategy does not support.
 
-A methodological note we will include: without the 10 m outlier exclusion already used in
-Figure 12, a small number of station-days out of the current 37,209 (grown from 35,652
-pre-recovery-sweep) dominate the quiet-period mean strongly enough to reverse the storm/quiet
-ordering *[the previously reported count, 102 station-days / 0.29%, has not been recomputed
-against the recovered population — no artifact currently supports that recount]*.
-
-*Staleness marker (2026-08-25).* As in R1.5: the 37,209-row population above predates today's
-RINEX-downloader fix and the recovery re-run it enables. All storm/quiet, tail and
-vertical/horizontal figures in this section will be recomputed on a larger population once that
-re-run finishes — see `docs/revision/coverage_recovery_status.md`. They are today's honest
-numbers, not final ones.
+**Methodology.** This section reports the median, with no 10 m outcome-based outlier
+exclusion, over the settled 4-method × 2-weighting common station-day set (N = 10,387),
+matching Tables 5-7 (`docs/revision/positioning_reporting.md`; applied to
+`stec.analysis.storm_stratification`/`positioning_robustness` 2026-09-15). The population is
+final, not provisional - the previous staleness marker in this section, referencing a
+37,209-row, pre-recovery-sweep population pending a further RINEX-downloader-fix re-run, no
+longer applies.
 
 ### R1.8 — observation-derived upper bound ⏳ not yet quotable
 **Two artifacts exist for this comparison and they disagree in population, not just in

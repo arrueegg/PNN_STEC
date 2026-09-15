@@ -111,13 +111,24 @@ def boundary_fixture(tmp_path):
     _write_swi_fixture(swi_path, doy_to_hourly)
     summary_path = tmp_path / "summary.csv"
     _positioning_summary(summary_path, list(doy_to_hourly))
-    return summary_path, swi_path
+    # A synthetic common set covering every (station, doy) the fixture writes, injected
+    # explicitly rather than left at `stratify`'s default (which calls
+    # `coverage_common_station_days()` against the live checkout's own production tree -
+    # a real 2024 network that may or may not happen to include "AMC4" on these doys, so
+    # relying on the default here would make these tests pass or fail by coincidence of
+    # what is on disk rather than by the logic under test).
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", doy) for doy in doy_to_hourly], names=["station", "doy"]
+    )
+    return summary_path, swi_path, common_station_days
 
 
 def test_stratify_lands_each_boundary_day_on_the_correct_side(boundary_fixture):
-    summary_path, swi_path = boundary_fixture
+    summary_path, swi_path, common_station_days = boundary_fixture
 
-    stratified = ss.stratify(summary_path, YEAR, swi_path)
+    stratified = ss.stratify(
+        summary_path, YEAR, swi_path, common_station_days=common_station_days
+    )
     regime_by_doy = stratified.set_index("doy")["regime"].to_dict()
 
     assert regime_by_doy == {
@@ -144,9 +155,11 @@ def test_stratification_always_produces_both_regimes_with_no_enabling_flag(
     per-observation stratification for weeks. `stratify`/`build_tables` take no flag that
     could leave the regime split off by default - calling them with only the required
     arguments must produce both regimes, never an empty or single-regime result."""
-    summary_path, swi_path = boundary_fixture
+    summary_path, swi_path, common_station_days = boundary_fixture
 
-    stratified = ss.stratify(summary_path, YEAR, swi_path)
+    stratified = ss.stratify(
+        summary_path, YEAR, swi_path, common_station_days=common_station_days
+    )
     assert set(stratified["regime"]) == {"storm", "quiet"}
 
     tables = ss.build_tables(stratified)
@@ -197,21 +210,30 @@ def test_build_tables_gim_improvement_over_itself_is_zero(tmp_path):
         ]
     )
     frame.to_csv(summary_path, index=False)
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", 130), ("AMC4", 131)], names=["station", "doy"]
+    )
 
-    stratified = ss.stratify(summary_path, YEAR, swi_path)
+    stratified = ss.stratify(
+        summary_path, YEAR, swi_path, common_station_days=common_station_days
+    )
     tables = ss.build_tables(stratified)
 
     improvement = tables["improvement_over_gim"]
-    assert improvement.loc[
-        ss.GIM_LABEL, "improvement_over_gim_quiet_%"
-    ] == pytest.approx(0.0)
-    assert improvement.loc[
-        ss.GIM_LABEL, "improvement_over_gim_storm_%"
-    ] == pytest.approx(0.0)
-    # Direct STEC (1.0) beats GIM (2.0) in quiet by 50%.
-    assert improvement.loc[
-        "Direct STEC", "improvement_over_gim_quiet_%"
-    ] == pytest.approx(50.0)
+    # Median and mean coincide here (one station-day per method per regime), but both
+    # columns must exist and be named explicitly - the headline (median) is unsuffixed
+    # by regime name only, the sensitivity comparison (mean) is suffixed `_mean_%`.
+    for suffix in ("median_%", "mean_%"):
+        assert improvement.loc[
+            ss.GIM_LABEL, f"improvement_over_gim_quiet_{suffix}"
+        ] == pytest.approx(0.0)
+        assert improvement.loc[
+            ss.GIM_LABEL, f"improvement_over_gim_storm_{suffix}"
+        ] == pytest.approx(0.0)
+        # Direct STEC (1.0) beats GIM (2.0) in quiet by 50%.
+        assert improvement.loc[
+            "Direct STEC", f"improvement_over_gim_quiet_{suffix}"
+        ] == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------

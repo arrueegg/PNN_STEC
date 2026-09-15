@@ -20,8 +20,21 @@ Convergence time is not derivable from these files and is not meaningful for the
 kinematic, daily-reprocessed single-frequency PPP used here; that part of the comment is
 answered in the text rather than with a number.
 
-The 10 m station-day outlier rule (Figure 12 / Table 5) is reused from
-`stec.positioning.metrics.exclude_outlier_station_days` rather than reimplemented.
+**Median is the headline statistic; the 10 m outcome-based outlier rule is dropped; the
+population is the same 4-method x 2-weighting common set Tables 5-7 use (owner decision,
+applied here 2026-09-15 - see `stec.analysis.storm_stratification`'s module docstring
+for the full argument and the evidence it is based on).** `tail_table` already reported
+both `mean` and `median` - median is now reported first, as the headline column, with
+`mean` kept alongside for the sensitivity comparison
+`docs/revision/positioning_reporting.md` argues from. `component_table` (horizontal vs
+vertical error) previously reported only the mean and is extended with the matching
+median columns, since a mean-only table for exactly the R2.7 "vertical/horizontal error
+behavior" comment would carry the same single-outlier sensitivity this module exists to
+avoid elsewhere. The 10 m rule (`stec.positioning.metrics.exclude_outlier_station_days`)
+is dropped for the same reason Tables 5-7 dropped it: filtering on the outcome being
+measured is not neutral between methods. `load()` restricts to
+`common_set_positioning.coverage_common_station_days()` instead, so every method in
+this module's tables is reported over the same station-days.
 
 Usage::
 
@@ -37,7 +50,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..config import paths
-from ..positioning import metrics as pm
+from .common_set_positioning import coverage_common_station_days
 
 logger = logging.getLogger(__name__)
 
@@ -94,22 +107,46 @@ def canonical_positioning_summary(prefer: Path | None = None) -> Path:
     return PUBLISHED_SUMMARY
 
 
-def load(summary_path: Path) -> pd.DataFrame:
+def load(
+    summary_path: Path, common_station_days: pd.MultiIndex | None = None
+) -> pd.DataFrame:
+    """Load the per-station-day summary, restricted to the common set.
+
+    Restricted to the same 4-method x 2-weighting common set Tables 5-7 use
+    (`common_set_positioning.coverage_common_station_days`) rather than each method's
+    own coverage - see the module docstring. Computed from the live checkout's own tree
+    by default (`None`); tests pass a synthetic index directly, the same
+    parameter-injection pattern `weighting_ablation.py` and `positioning_distributions.py`
+    use for the identical restriction. No outcome-based (10 m) exclusion is applied;
+    that rule was dropped here for the same reason Tables 5-7 dropped it.
+    """
     runs = pd.read_csv(summary_path)
-    runs = pm.exclude_outlier_station_days(runs)
+    if common_station_days is None:
+        common_station_days = coverage_common_station_days()
+    n_before = len(runs)
+    runs = runs.set_index(["station", "doy"])
+    runs = runs[runs.index.isin(common_station_days)].reset_index()
+    logger.info(
+        f"restricted to the common set solved by all methods under both weightings: "
+        f"{len(runs):,} of {n_before:,} station-day rows kept"
+    )
     runs["Method"] = runs["method"].map(METHOD_LABELS)
     return runs.dropna(subset=["Method"])
 
 
 def tail_table(runs: pd.DataFrame) -> pd.DataFrame:
-    """Distribution of the daily 3D RMS across station-days, per method."""
+    """Distribution of the daily 3D RMS across station-days, per method.
+
+    `median` is the headline statistic (reported first); `mean` is kept alongside for
+    the sensitivity comparison `docs/revision/positioning_reporting.md` argues from.
+    """
     rows = []
     for method, group in runs.groupby("Method"):
         error = group["error_3d_rms"]
         row = {
             "station_days": len(group),
-            "mean": error.mean(),
             "median": error.median(),
+            "mean": error.mean(),
             "p90": error.quantile(0.90),
             "p95": error.quantile(0.95),
             "p99": error.quantile(0.99),
@@ -123,19 +160,35 @@ def tail_table(runs: pd.DataFrame) -> pd.DataFrame:
 
 
 def component_table(runs: pd.DataFrame) -> pd.DataFrame:
-    """Horizontal vs vertical error, per method."""
+    """Horizontal vs vertical error, per method.
+
+    Median is the headline statistic; the matching `_mean` columns are kept only for
+    the sensitivity comparison, not as a second number to report (owner decision, see
+    the module docstring).
+    """
     rows = []
     for method, group in runs.groupby("Method"):
-        horizontal = group["error_2d_rms"].mean()
-        vertical = group["u_rms"].mean()
+        horizontal_median = group["error_2d_rms"].median()
+        vertical_median = group["u_rms"].median()
+        horizontal_mean = group["error_2d_rms"].mean()
+        vertical_mean = group["u_rms"].mean()
         rows.append(
             pd.Series(
                 {
-                    "horizontal_2D_rms": horizontal,
-                    "vertical_up_rms": vertical,
-                    "vertical_to_horizontal_ratio": vertical / horizontal,
-                    "east_rms": group["e_rms"].mean(),
-                    "north_rms": group["n_rms"].mean(),
+                    "horizontal_2D_median_m": horizontal_median,
+                    "vertical_up_median_m": vertical_median,
+                    "vertical_to_horizontal_median_ratio": (
+                        vertical_median / horizontal_median
+                    ),
+                    "east_median_m": group["e_rms"].median(),
+                    "north_median_m": group["n_rms"].median(),
+                    "horizontal_2D_mean_m": horizontal_mean,
+                    "vertical_up_mean_m": vertical_mean,
+                    "vertical_to_horizontal_mean_ratio": (
+                        vertical_mean / horizontal_mean
+                    ),
+                    "east_mean_m": group["e_rms"].mean(),
+                    "north_mean_m": group["n_rms"].mean(),
                 },
                 name=method,
             )
@@ -162,13 +215,19 @@ def main() -> None:
 
     tails = tail_table(runs)
     tails.to_csv(args.output_dir / "tail_distribution.csv")
-    print("=== Tail behaviour of the daily 3D RMS [m] ===")
+    print(
+        f"=== Tail behaviour of the daily 3D RMS [m] (N={len(runs):,} common set) ==="
+    )
     print(tails.round(3).to_string())
+    print("median is the headline column; mean is the sensitivity comparison.")
 
     components = component_table(runs)
     components.to_csv(args.output_dir / "error_components.csv")
     print("\n=== Horizontal vs vertical error [m] ===")
     print(components.round(3).to_string())
+    print(
+        "_median columns are the headline; _mean columns are the sensitivity comparison."
+    )
 
     logger.info(f"wrote {args.output_dir}")
 
