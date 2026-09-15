@@ -1,0 +1,58 @@
+{
+  "answers": "R1.7",
+  "canonical_for": "positioning ionospheric-activity stratification",
+  "caveats": [
+    "The activity proxy is GIM VTEC at the station from the IONEX maps, not the model's own predicted STEC (circular) and not the prediction store (absent on exactly the recovered station-days this axis exists to look at).",
+    "'elevated' is relative to each station's own median VTEC, not a global threshold - otherwise every equatorial station would be permanently elevated and the stratification would just re-encode latitude.",
+    "No station-day is excluded. Every percentile column is paired with an exceedance count; do not quote the median alone.",
+    "iono weighting only, matching Tables 5 and 6."
+  ],
+  "code": {
+    "commit": "6e5d8abc98921444dbf0f26e05dbcbf19976ff9d",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.positioning_activity --output-dir multiday_results/analyses/positioning_activity/rebuilt",
+  "description": "positioning error stratified by local ionospheric activity - the axis that replaces the recovered/original population split, which was measured to be a proxy for activity rather than a property of the recovery pipeline",
+  "duration_s": 45.3,
+  "fingerprint": "e83895b5ddb3e447035f653434b7998d7d00b204514c669561b0373bb86acef7",
+  "inputs": {
+    "/home/space/data/iono/GIM_IONEX": {
+      "files": 55718,
+      "kind": "tree",
+      "mtime_ns": 1785580388235900958,
+      "size": 89606542543
+    },
+    "/scratch2/arrueegg/WP4/PNN_STEC/stec/data/splits/IGSNetwork.csv": {
+      "kind": "file",
+      "sha256": "c3c40f5139c56d4eda800f1bf61264f3e7bad1140d73df14be5dd8d175920f55",
+      "size": 122926
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "kind": "file",
+      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
+      "size": 13972373
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/positioning_activity/rebuilt": {
+      "present": true,
+      "size": 102
+    },
+    "multiday_results/analyses/positioning_activity/rebuilt/activity_stratification.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "5b5fca3c16994e4bba8badd85ee0461fc41378922cdfe7e60694913b15e34ebf",
+      "size": 975
+    },
+    "multiday_results/analyses/positioning_activity/rebuilt/station_day_activity.csv": {
+      "present": true,
+      "rows": 43215,
+      "sha256": "5fb2b041ab54cbf9a960091245b3ab192823a421517d920d3963d3b2a7739030",
+      "size": 16426372
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-15T14:03:53.298826+00:00",
+  "stage": "positioning_activity",
+  "supersedes": []
+}

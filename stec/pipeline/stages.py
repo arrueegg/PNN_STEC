@@ -179,6 +179,7 @@ WEIGHTING_ABLATION_DIR = _analysis_dir("weighting_ablation", rebuilt=True)
 STORM_STRATIFICATION_DIR = _analysis_dir("storm_stratification", rebuilt=True)
 POSITIONING_ROBUSTNESS_DIR = _analysis_dir("positioning_robustness", rebuilt=True)
 POSITIONING_COVERAGE_DIR = _analysis_dir("positioning_coverage", rebuilt=True)
+POSITIONING_ACTIVITY_DIR = _analysis_dir("positioning_activity", rebuilt=True)
 COMMON_SET_POSITIONING_DIR = _analysis_dir("common_set_positioning", rebuilt=True)
 POSITIONING_SUMMARY_DIR = _analysis_dir("positioning_summary", rebuilt=True)
 ORACLE_BENCHMARK_DIR = _analysis_dir("oracle_benchmark", rebuilt=True)
@@ -1859,6 +1860,40 @@ STAGES: list[Stage] = [
             "and evidence_summary.md quoted as +25.4%/+19.6% (itself already a stale "
             "restatement of the published +31.9%/+26.3%) - all three numbers are "
             "superseded by this stage's current output, not by each other.",
+        ],
+    ),
+    Stage(
+        "positioning_activity",
+        f"-m stec.analysis.positioning_activity --output-dir {POSITIONING_ACTIVITY_DIR}",
+        "R1.7",
+        "positioning error stratified by local ionospheric activity - the axis that "
+        "replaces the recovered/original population split, which was measured to be a "
+        "proxy for activity rather than a property of the recovery pipeline",
+        inputs=[
+            str(POSITIONING_COVERAGE_DIR / "multiday_summary.csv"),
+            str(paths.GIM_IONEX_ROOT),
+            str(paths.IGS_STATION_COORDINATES),
+        ],
+        outputs=[
+            str(POSITIONING_ACTIVITY_DIR),
+            str(POSITIONING_ACTIVITY_DIR / "activity_stratification.csv"),
+            str(POSITIONING_ACTIVITY_DIR / "station_day_activity.csv"),
+        ],
+        min_rows={
+            str(POSITIONING_ACTIVITY_DIR / "activity_stratification.csv"): 8,
+            str(POSITIONING_ACTIVITY_DIR / "station_day_activity.csv"): 30_000,
+        },
+        canonical_for="positioning ionospheric-activity stratification",
+        caveats=[
+            "The activity proxy is GIM VTEC at the station from the IONEX maps, not the "
+            "model's own predicted STEC (circular) and not the prediction store (absent "
+            "on exactly the recovered station-days this axis exists to look at).",
+            "'elevated' is relative to each station's own median VTEC, not a global "
+            "threshold - otherwise every equatorial station would be permanently "
+            "elevated and the stratification would just re-encode latitude.",
+            "No station-day is excluded. Every percentile column is paired with an "
+            "exceedance count; do not quote the median alone.",
+            "iono weighting only, matching Tables 5 and 6.",
         ],
     ),
     Stage(
