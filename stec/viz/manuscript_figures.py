@@ -1338,7 +1338,7 @@ _POSITIONING_TREND_LINEWIDTH = 1.1
 # series stay legible. An earlier pass drew one on every sixth point, which reads as an
 # inconsistency - it invites the question of what is special about those days, and nothing is.
 _POSITIONING_TREND_MARKERSIZE = 2.5
-_POSITIONING_TREND_LEGEND_FONTSIZE = 9
+_POSITIONING_TREND_LEGEND_FONTSIZE = 12
 # Only every Nth day gets a marker symbol; the line itself still connects every raw
 # daily value, so no data point's shape is hidden, only the marker clutter is reduced.
 
