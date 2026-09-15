@@ -83,6 +83,12 @@ def day_metrics(truth: np.ndarray, prediction: np.ndarray) -> dict | None:
         "Bias": float(np.mean(error)),
         "Std": float(np.std(error)),
         "Count": int(truth.size),
+        # The observation-level tail Tables 3/4 previously said nothing about. Computed
+        # per day while the day is in memory; summarise() reports the across-day median
+        # of these, which is a typical day's tail - deliberately not the pooled
+        # percentile, which would need the whole 475M-row store in memory at once.
+        "AbsErr_p95": float(np.percentile(np.abs(error), 95)),
+        "AbsErr_p99": float(np.percentile(np.abs(error), 99)),
     }
 
 
@@ -171,6 +177,18 @@ def summarise(per_day: pd.DataFrame) -> pd.DataFrame:
                 ),
                 "pooled_MAE": float((counts * group["MAE"]).sum() / counts.sum()),
                 "observations": int(counts.sum()),
+                # Across-day distribution. mean +/- std misdescribes a skewed day
+                # distribution: the Pretrained row runs 7.53 min / 12.19 median /
+                # 44.63 max against a reported 13.45 +/- 4.84 (per_day.csv, 2026-09-15).
+                "RMSE_median": group["RMSE"].median(),
+                "RMSE_q1": group["RMSE"].quantile(0.25),
+                "RMSE_q3": group["RMSE"].quantile(0.75),
+                "MAE_median": group["MAE"].median(),
+                "MAE_q1": group["MAE"].quantile(0.25),
+                "MAE_q3": group["MAE"].quantile(0.75),
+                "R2_median": group["R2"].median(),
+                "AbsErr_p95_median": group["AbsErr_p95"].median(),
+                "AbsErr_p99_median": group["AbsErr_p99"].median(),
             }
         )
 

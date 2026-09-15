@@ -1253,6 +1253,12 @@ STAGES: list[Stage] = [
             "the manuscript states. pooled_RMSE in the same file is over observations and "
             "is consistently higher; the two are not interchangeable.",
             "Madrigal rows carry the madrigal_reference_offset caveat.",
+            "Tables 3/4 report RMSE/MAE/R2 with across-day median and quartiles "
+            "(RMSE_median/RMSE_q1/RMSE_q3), not mean +/- std - the day distribution is "
+            "skewed and mean +/- std implies a symmetry it does not have. The _mean/_std "
+            "columns are kept so nothing already published moves. AbsErr_p95_median/"
+            "AbsErr_p99_median are the across-day median of each day's own absolute-error "
+            "percentile, not a pooled percentile over all observations.",
         ],
         supersedes=[str(WITH_PRETRAINED_BASELINE_SUMMARY / "summary_statistics.csv")],
     ),

@@ -130,6 +130,37 @@ def test_day_metrics_returns_none_when_nothing_is_finite():
     assert dm.day_metrics(truth, prediction) is None
 
 
+def test_day_metrics_reports_absolute_error_percentiles():
+    truth = np.zeros(1000)
+    pred = np.arange(1000, dtype=float)  # |error| = 0..999
+    metrics = dm.day_metrics(truth, pred)
+    assert metrics["AbsErr_p95"] == pytest.approx(np.percentile(np.arange(1000.0), 95))
+    assert metrics["AbsErr_p99"] == pytest.approx(np.percentile(np.arange(1000.0), 99))
+
+
+def test_summarise_reports_across_day_median_and_quartiles():
+    per_day = pd.DataFrame(
+        {
+            "dataset": "own_vtec_gim",
+            "Model": "Direct STEC Model",
+            "doy": [1, 2, 3, 4, 5],
+            "RMSE": [1.0, 2.0, 3.0, 4.0, 100.0],
+            "MAE": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "R2": [0.9] * 5,
+            "Count": [10] * 5,
+            "AbsErr_p95": [5.0, 5.0, 5.0, 5.0, 5.0],
+            "AbsErr_p99": [9.0, 9.0, 9.0, 9.0, 9.0],
+        }
+    )
+    summary = dm.summarise(per_day).iloc[0]
+    assert summary["RMSE_median"] == 3.0
+    assert summary["RMSE_q1"] == 2.0
+    assert summary["RMSE_q3"] == 4.0
+    assert summary["AbsErr_p95_median"] == 5.0
+    # the skewed day must move the mean and leave the median alone
+    assert summary["RMSE_mean"] > summary["RMSE_median"]
+
+
 # --- compare_to_published: the diff against the pre-rebuild summary_statistics.csv -----
 
 
