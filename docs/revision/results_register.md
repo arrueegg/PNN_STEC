@@ -112,13 +112,13 @@ in the time available — treat it as an open question, not a guess suppressed.
 
 | # | Location | Claim | Stage | Artifact | Dataset / population / dates | N | Outlier rule | Statistic | Weighting |
 |---|---|---|---|---|---|---|---|---|---|
-| P1 | Abstract l.78, PLS l.84, §4.4 l.459/500, Conclusion l.550 | Median 3D RMS improvement ≈18% over IGS GIM+Mapping, "over the common set of station-days solved by all four methods under both weighting schemes" | `positioning_distributions` (`canonical_for="Table 5"`) | `multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_COMMON_SET_NUMBERS.md` | 2024 test period, iono weighting, **4-method × 2-weighting common set** | 10,387 | **none** (no outcome-based exclusion) | median | iono |
+| P1 | Abstract l.78, PLS l.84, §4.4 l.459/461/500, Conclusion l.550 | Median 3D RMS improvement ≈18% (rounded) / **18.7%** (exact, l.461) over IGS GIM+Mapping, "over the common set of station-days solved by all four methods under both weighting schemes" | `positioning_distributions` (`canonical_for="Tables 5 and 6"`) | `multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_COMMON_SET_NUMBERS.md` | 2024 test period, iono weighting, **4-method × 2-weighting common set** | 10,387 | **none** (no outcome-based exclusion) | median | iono |
 | P2 | Table 5, l.487-501 | Median/IQR/P95/P99/exceedance-at-5,10,20,50m, per method | `positioning_distributions` (`canonical_for="Table 5"`) | `multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_COMMON_SET_NUMBERS.md` | same as P1 | 10,387 (all 4 rows) | none | median, IQR, P95, P99, exceedance % | iono |
 | P3 | Table 6, l.503-519 | Median 3D/2D(horizontal)/Up(vertical) error, same population as Table 5 | `positioning_distributions` — **same stage as Table 5, but Table 6 itself carries no `canonical_for`** (see Consistency item C) | `multiday_results/analyses/positioning_distributions/rebuilt/common_set_component_medians.csv` | same as P1 | 10,387 | none | median | iono |
 | P4 | Table 7, l.521-535 | Elevation-weighting vs predicted-uncertainty-weighting 3D RMS, per correction, same population as Table 5 | `weighting_ablation` (`canonical_for=None`) | `multiday_results/analyses/weighting_ablation/rebuilt/common_set.csv` | same population as P1, both weightings compared directly | 10,387 (all 4 corrections) | none | **median** (`gain_median_%` — changed from mean 2026-09-15, same day this table was last touched; means are still written to the CSV for the sensitivity comparison only) | elev vs iono, paired |
 | P5 | §4.4, l.459 | One station-day (URUM, DOY 365) where PPPx did not converge under either weighting moves the Direct STEC elev-weighted **mean** by 25% (2.283 m → 1.706 m) while leaving the median unmoved | `weighting_ablation` | `common_set.csv`'s `elev_mean` column (2.2828) for the "with" value; the "without" value (1.706) is the mean after dropping that one row, not itself a separate declared-stage column — recompute rather than assume a source file for it | same population as P1 | 10,387, minus 1 for the "without" figure | n/a — a single genuine PPPx solve failure, not an outlier rule | mean (used only to illustrate why the table reports medians) | elev |
 | P6 | §4.4, l.461, first sentence | Population split by whether the station-day has a real STEC-DB observation ("original") or only a geometry-only fallback ("recovered"): Direct STEC median 0.778 m vs GIM 1.015 m (original, N=8,468/8,576); Direct STEC 2.771 m vs GIM 1.991 m (recovered, N=2,249/2,277) | `positioning_diagnostics` (`canonical_for=None`) feeding `positioning_distributions` | `multiday_results/analyses/positioning_distributions/rebuilt/population_percentile_summary.csv` | 2024 test period, iono weighting, **full per-method population** (not the Table 5 common set — see Consistency item A) | 8,468/8,576/2,249/2,277 (per-method, per-population) | none | median | iono |
-| P7 | §4.4, l.461, second sentence | Direct STEC exceeds 10 m on 0.65% of station-days vs 0.15% for IGS GIM; P95/P99 5.29/8.95 m vs 4.13/5.80 m | `positioning_distributions` (`canonical_for="Table 5"`) | `multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_NUMBERS.md` | 2024 test period, iono weighting, **full per-method population** | Direct STEC 10,717; IGS GIM 10,853 | none | exceedance %, P95, P99 | iono |
+| P7 | §4.4, l.461, third sentence | Direct STEC exceeds 10 m on 0.63% of station-days vs 0.13% for IGS GIM; P95/P99 5.27/8.92 m vs 4.13/5.76 m — **fixed 2026-09-15, see Item A addendum**; was 0.65%/0.15%/5.29/8.95/4.13/5.80 (full per-method population), a straggler the "everything moves to the common set" pass missed | `positioning_distributions` (`canonical_for="Tables 5 and 6"`) | `multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_COMMON_SET_NUMBERS.md` (`common_set_exceedance.csv`, `common_set_percentile_summary.csv`) | 2024 test period, iono weighting, **4-method × 2-weighting common set** (same population as P1/P2, not the full per-method population this row used before) | 10,387 (all 4 methods) | none | exceedance %, P95, P99 | iono |
 | P8 | Fig 12, l.463-468 | Daily median 3D RMS, 4 methods, "restricted to the common set... vertical axis is clipped for readability" — resolved 2026-09-15, see Consistency item A | `manuscript_figures` (`canonical_for=None`), reading `positioning_distributions`'s `common_set_daily_rows.csv` | `plots/manuscript/positioning_2024/pos_trend*` | 2024 test period, iono weighting, **4-method × 2-weighting common set** (same population as Table 5) | 10,387 | none (view-clipped only, not the data) | daily median | iono |
 | P9 | Fig 13, l.471-479 | Boxplot distribution, all 4 methods (caption: mean swings −1.2% (no exclusion) to +16.0% (5 m exclusion) vs IGS GIM, from the full-population sensitivity table, unaffected by this row's own resolution; median stays 18-21% across every threshold); exceeds-10m counts **65/105/72/14** for Direct STEC/Pretrained/VTEC/IGS GIM — resolved 2026-09-15 (was 70/115/80/16 on the full population), see Consistency item A | `positioning_diagnostics` (`canonical_for=None`, headline-sensitivity table, still full population — that table's own point is the sensitivity sweep, see Task 2 reasoning) + `positioning_distributions` (exceedance counts, now common-set) | `multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_headline_sensitivity.csv`; `multiday_results/analyses/positioning_distributions/rebuilt/common_set_exceedance.csv` | mean/median-swing table: 2024 test period, iono weighting, full per-method population (unchanged); exceeds-10m counts: **4-method × 2-weighting common set** | mean/median-swing table: Direct STEC 10,717 / GIM 10,853 (unchanged); exceeds-10m counts: 10,387 (all 4 methods) | none for the headline (that's the point of the figure); the sensitivity table sweeps 5/10/20/50 m for comparison | mean (shown to be non-robust) and median (reported) | iono |
 | P10 | l.459/§Appendix l.538/566 | Pretrained model's worst positioning excursions coincide with Dst < −300 nT storms, DOY 132-133 and 282-285 | `positioning_diagnostics` (`canonical_for=None`) | `multiday_results/analyses/positioning_diagnostics/rebuilt/daily_timeseries.csv`, `FINDINGS.md` | 2024 test period, iono weighting | n/a (event identification, not a population statistic) | none | daily mean by DOY | iono |
@@ -238,6 +238,39 @@ the code it is checking) rather than reading the full population — all four st
 not merely what they used to. This is a population-scope change only: no figure's underlying
 statistic (median, Tukey box convention, empirical CDF, day-by-day grouping) changed, and no
 value disagreed with the gate's independent recomputation for any other reason.
+
+**Addendum, 2026-09-15 (later pass) — the prose paragraph at l.461 was a straggler this
+resolution missed.** The 2026-09-15 pass above moved every *figure* and *table* onto the
+common set, but the free-text paragraph immediately above Table 5 (l.461: the population-split
+sentence, P6; the sentence deriving "the pooled 18% improvement" from it; and the tail-exceedance
+sentence, P7) was not re-checked against that pass, because P6 is the deliberate exception (row
+P6's full-population N is intentional, see above) and the other two sentences in the same
+paragraph were not distinguished from it. Re-reading the paragraph against the current CSVs
+found two numbers that were still the pre-resolution full-population values:
+- "The pooled 18% improvement" (unhedged, unlike every other ≈18% mention in the manuscript,
+  all of which carry "approximately"/"about") read as the common-set figure rounded to a whole
+  percent, but the common set's own median improvement is **18.7%**
+  (`TABLE5_COMMON_SET_NUMBERS.md`), not 18%. Fixed to state 18.7% explicitly, since the sentence
+  is deriving a precise number from other precise numbers (the two population medians just
+  quoted to 3 decimals) rather than giving a rounded headline.
+- P7's exceedance/percentile numbers (0.65%/0.15% exceeding 10 m; P95 5.29/4.13 m; P99 8.95/5.80
+  m) were the full per-method population's `TABLE5_NUMBERS.md` values, not the common set's
+  `TABLE5_COMMON_SET_NUMBERS.md` values (0.63%/0.13%; P95 5.27/4.13 m; P99 8.92/5.76 m) — see the
+  corrected P7 row above. Both fixes were applied directly to `PNN_main_revised.tex`; the
+  paragraph now states in one added clause which sentences use which population ("Over the full
+  coverage-recovered population rather than the common set above..." / "Within that common
+  set..."), so a reader no longer has to infer it.
+
+**This closes Item A fully.** Every figure, table and prose sentence in the positioning
+subsection now either states the common-set population explicitly (Tables 5-7, Figures 12-15,
+P1, P2, P7) or is explicitly labelled as the deliberate full-population exception (P6, and the
+methodological median-vs-mean argument at l.471, which draws on
+`positioning_diagnostics`'s full-population `outlier_headline_sensitivity.csv` to make a general
+robustness point unrelated to which table population is used — checked against that CSV during
+this pass and found numerically correct as a full-population statistic; left as is rather than
+restated on the common set, since the argument it makes ("the median doesn't move much across
+exclusion thresholds, including no threshold at all") does not depend on which population
+demonstrates it, and no equivalent sensitivity sweep exists computed on the common set).
 
 **Item G — `positioning_reporting.md`'s own recommended Table 5 content is not what the
 manuscript printed, and the document was never updated to say so.** §2 of that file explicitly
@@ -509,3 +542,11 @@ consistency` (R1.3), `positioning_geography` (R2.3/discussion).
   hyperparameter rows and unbacked patience cell; Figures 5-8's evidence resting only on Gate F
   equivalence).
 - **Could not determine**: 3 items, listed under Gaps above, marked `UNKNOWN` rather than guessed.
+- **Closed since the above was written (2026-09-15, later pass)**: Item A, fully — its own
+  resolution had moved every figure and table onto the common set but missed two numbers in the
+  free-text paragraph at l.461 (P7's exceedance/percentile figures, and the "pooled 18%"
+  derivation, both still the full per-method population/rounding); both are now fixed in
+  `PNN_main_revised.tex` and the paragraph states which population each sentence uses. Task 4's
+  two report-only items (Table 2's unbacked patience row, `positioning_reporting.md`'s Table 5
+  population diverging from the manuscript's) were independently re-confirmed still open and were
+  not touched, per that task's instruction to report rather than fix.
