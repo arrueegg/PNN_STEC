@@ -1334,6 +1334,11 @@ def _load_positioning_frame(path: Path) -> pd.DataFrame:
 # both use the identical `mdates.DateFormatter("%m-%d")` + `rotation=45`, nothing to
 # restore.
 _POSITIONING_TREND_LINEWIDTH = 1.1
+# Owner review 2026-09-15: a marker on every daily point, small enough that 242 points x 4
+# series stay legible. An earlier pass drew one on every sixth point, which reads as an
+# inconsistency - it invites the question of what is special about those days, and nothing is.
+_POSITIONING_TREND_MARKERSIZE = 2.5
+_POSITIONING_TREND_LEGEND_FONTSIZE = 9
 # Only every Nth day gets a marker symbol; the line itself still connects every raw
 # daily value, so no data point's shape is hidden, only the marker clutter is reduced.
 
@@ -1396,17 +1401,23 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
             subset["date"],
             subset["median"],
             linewidth=_POSITIONING_TREND_LINEWIDTH,
+            marker="o",
+            markersize=_POSITIONING_TREND_MARKERSIZE,
             color=color,
             label=method,
             zorder=len(order) - i,
         )
     ax.set_ylabel("3D RMS error [m]")
     ax.set_xlabel("Date")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+    # Ticks land on month boundaries, so the day adds nothing and "%Y-%m-%d" cost two
+    # pages of the manuscript: the longer rotated labels make the figure taller, and at
+    # width=\linewidth that cascades through float placement.
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     plt.setp(ax.get_xticklabels(), rotation=45)
     ax.set_ylim(0, 3.5)
     ax.grid(True, linestyle="--", alpha=0.3)
-    ax.legend(loc="best")
+    ax.legend(loc="lower right", fontsize=_POSITIONING_TREND_LEGEND_FONTSIZE)
     ax.set_title("Daily positioning accuracy (median), common set, unfiltered")
     _save(
         fig,
