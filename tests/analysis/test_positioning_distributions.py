@@ -239,3 +239,67 @@ def test_format_table5_markdown_reports_median_iqr_and_exceedance_per_method():
     assert STEC in markdown and GIM in markdown
     # Direct STEC median = 3.0, IGS GIM median = 6.0 -> 50% improvement.
     assert "**50.0%**" in markdown
+
+
+def test_format_table5_markdown_accepts_overrides_for_the_common_set_variant():
+    df = frame([(STEC, v) for v in [1.0, 3.0]] + [(GIM, v) for v in [2.0, 4.0]])
+    percentiles = pdist.percentile_summary(df, ["Method"])
+    exceedance = pdist.exceedance_table(df, ["Method"])
+
+    markdown = pdist._format_table5_markdown(
+        percentiles,
+        exceedance,
+        len(df),
+        heading="# Custom heading",
+        population_note="Custom population note.",
+        source_note="Custom source ({n:,} rows).",
+        distribution_files_note="Custom distribution note.",
+    )
+
+    assert markdown.startswith("# Custom heading")
+    assert "Custom population note." in markdown
+    assert "Custom source (4 rows)." in markdown
+    assert "Custom distribution note." in markdown
+
+
+# ---------------------------------------------------------------------------
+# restrict_to_common_set / component_medians - the common-set restriction and the
+# restored per-component (3D/2D/Up) table (owner instruction, 2026-09-14).
+# ---------------------------------------------------------------------------
+
+
+def test_restrict_to_common_set_keeps_only_listed_station_days():
+    df = pd.DataFrame(
+        [
+            ("AMC4", 132, STEC, 1.0),
+            ("ZIMM", 133, STEC, 2.0),
+            ("WTZR", 134, STEC, 3.0),
+        ],
+        columns=["station", "doy", "Method", "error_3d_rms"],
+    )
+    common = pd.MultiIndex.from_tuples(
+        [("AMC4", 132), ("ZIMM", 133)], names=["station", "doy"]
+    )
+
+    result = pdist.restrict_to_common_set(df, common)
+
+    assert sorted(result["station"]) == ["AMC4", "ZIMM"]
+
+
+def test_component_medians_reports_3d_2d_and_up_medians_per_method():
+    df = pd.DataFrame(
+        [
+            (STEC, 1.0, 0.5, 0.8),
+            (STEC, 3.0, 1.5, 2.4),
+            (GIM, 10.0, 5.0, 8.0),
+        ],
+        columns=["Method", "error_3d_rms", "error_2d_rms", "u_rms"],
+    )
+
+    result = pdist.component_medians(df, ["Method"]).set_index("Method")
+
+    assert result.loc[STEC, "n"] == 2
+    assert result.loc[STEC, "median_3d_m"] == pytest.approx(2.0)  # mean(1, 3)
+    assert result.loc[STEC, "median_2d_m"] == pytest.approx(1.0)  # mean(0.5, 1.5)
+    assert result.loc[STEC, "median_up_m"] == pytest.approx(1.6)  # mean(0.8, 2.4)
+    assert result.loc[GIM, "median_3d_m"] == pytest.approx(10.0)

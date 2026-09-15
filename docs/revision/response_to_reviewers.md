@@ -100,14 +100,25 @@ needs no mapping at all.** We regard that as a property of the method rather tha
 "IGS GIM + Mapping" is the quantity a user of the published product actually obtains on a slant
 path, not a measure of the GIM's intrinsic quality, and we will relabel it in the text to say so.
 
-**3. Madrigal is the only place a second reference enters, and we downgrade what we claim from
-it.** Model and GIM disagree with Madrigal the same way at 67 stations: both exceed it at 95.5%
-of stations, Spearman ρ = +0.698 between their per-station offsets, and removing a per-station
-constant drops the model's Madrigal RMSE from 15.05 to 11.13 TECU — **45% of that column is a
-station-dependent reference offset**. The mean offset, 6.69 TECU, is 24× the reference's own
-stated slant precision (0.28 TECU), so it is systematic, not noise. We therefore present Table 4's
-Madrigal column as a **cross-product consistency check, not an accuracy measurement**, and report
-the offset-removed value beside it.
+**3. Madrigal is the only place a second reference enters, and we say plainly what that does and
+does not affect.** Model and GIM disagree with Madrigal the same way at 67 stations: both exceed
+it at 95.5% of stations, Spearman ρ = +0.698 between their per-station offsets, and a per-station
+constant would drop the model's Madrigal RMSE from 15.05 to 11.13 TECU if removed — **45% of that
+column's variance is a station-dependent reference offset**. The mean offset, 6.69 TECU, is 24×
+the reference's own stated slant precision (0.28 TECU), so it is systematic, not noise, and
+common-mode: the same per-station offset is present, and highly correlated, across all four
+methods being compared (all six pairwise Pearson correlations exceed 0.92,
+`madrigal_method_offset_comparison`). That is the reason every method's *absolute* Madrigal error
+is larger than its own-test-set error, and we state it for exactly that explanatory purpose. We
+present Table 4's Madrigal column as what it is — the plain agreement between each product and
+the Madrigal reference, the same RMSE/MAE/R2 metric Table 3 reports on the own test set, no
+correction applied — and on that plain comparison VTEC + Mapping has the lowest RMSE and MAE and
+the highest R2 of the four methods, with Direct STEC second. We do **not** report an
+offset-removed value beside it: fitting each method's own per-station offset on the evaluation
+rows and rescoring on those same rows reverses this ranking, but that correction is fitted on the
+evaluation data itself and is not a result we are willing to put in front of a reviewer — kept
+only as an internal sensitivity diagnostic (`docs/revision/manuscript_change_list.md` §11), never
+quoted here or in the manuscript as a corrected accuracy figure.
 
 *Stated against ourselves:* the Pearson correlation over all stations is +0.925 but is inflated by
 a sparse arm of large-offset stations (+0.617 restricted to |offset| < 15 TECU, n = 53), which is

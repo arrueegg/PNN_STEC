@@ -102,6 +102,59 @@ DEFAULT_EXPERIMENT = paths.LEGACY_EXPERIMENTS / (
 )
 DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("common_set_positioning", rebuilt=True)
 
+# The eight arms `coverage_common_station_days` requires present, read directly off
+# `multiday_summary_all_weightings.csv` (the concatenation `positioning_coverage.py`
+# writes) rather than through `build()`'s three-source merge above.
+COVERAGE_COMMON_SET_METHODS: tuple[str, ...] = (
+    "STEC_iono",
+    "STEC_elev",
+    "Pretrained_STEC_iono",
+    "Pretrained_STEC_elev",
+    "VTEC_iono",
+    "VTEC_elev",
+    "gim_iono",
+    "gim_elev",
+)
+
+
+def coverage_common_station_days(
+    summary_path: Path = DEFAULT_WEIGHTING_SUMMARY,
+) -> pd.MultiIndex:
+    """(station, doy) pairs where all four methods have a solution under both weighting
+    schemes - a coverage-only intersection, with no outcome-based (10 m) exclusion.
+
+    This is a different, larger common set from `build()`'s own N above, used by
+    `positioning_distributions.py` (Table 5) and `weighting_ablation.py` (the R2.5
+    weighting-scheme table) to put both manuscript tables on one shared population,
+    removing the need to explain a different N per table in the text.
+
+    Reconciled against `build()`'s N (measured 2026-09-14): this function returns
+    N=10,387; `build()` returns N=10,186 over the same eight arms. The entire 201-row
+    gap is station-days where at least one arm exceeds the 10 m outlier threshold
+    (`stec.positioning.metrics.OUTLIER_3D_RMS_M`) that `build()` still excludes and this
+    function does not - verified directly, not merely asserted: intersecting `build()`'s
+    dates and this function's coverage set changes nothing (both already cover the same
+    242 dates), and applying `pm.exclude_outlier_station_days` on top of this function's
+    result reproduces `build()`'s 10,186 exactly. No 10 m filter is applied here, for the
+    same reason `positioning_distributions.py` applies none for Table 5 (owner decision,
+    docs/revision/positioning_reporting.md): an outcome-based filter is not neutral
+    between methods.
+    """
+    frame = pd.read_csv(
+        summary_path, usecols=["station", "doy", "method", "error_3d_rms"]
+    )
+    wide = frame.pivot_table(
+        index=["station", "doy"],
+        columns="method",
+        values="error_3d_rms",
+        aggfunc="first",
+    )
+    for method in COVERAGE_COMMON_SET_METHODS:
+        if method not in wide.columns:
+            wide[method] = pd.NA
+    is_common = wide[list(COVERAGE_COMMON_SET_METHODS)].notna().all(axis=1)
+    return wide.index[is_common]
+
 
 def load_tree(path: Path) -> pd.DataFrame:
     frame = pd.read_csv(path, usecols=lambda c: c in COLUMNS)

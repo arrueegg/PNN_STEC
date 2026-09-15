@@ -28,11 +28,14 @@ readable, the *view* is clipped (matplotlib axis limits), not the data - see
 clipped view rather than silently cropping them.
 
 Source: `multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv`,
-the iono-weighted per-station-day table (the elev arm is mid-re-solve as of 2026-08-28 -
-see CLAUDE.md - so this module, like `positioning_diagnostics.py`, states "iono" in every
-output rather than leaving the weighting implicit).
+the iono-weighted per-station-day table - sections 1-5 below read only this file, so
+(like `positioning_diagnostics.py`) they state "iono" in every output rather than leaving
+the weighting implicit. The elev arm, mid-re-solve when this module was first built, has
+since completed (see CLAUDE.md / `docs/revision/work_queue.md`); section 6 below is what
+reads it.
 
-Five sections, matching the five figures in `stec.viz.positioning_distributions`:
+Six sections, the first five matching the five figures in
+`stec.viz.positioning_distributions`:
 
 1. `boxplot_stats` - Tukey box statistics (median/Q1/Q3/whiskers) plus the individual
    outlier ("flier") values, computed by hand so the CSV a figure writes is exactly what
@@ -48,6 +51,17 @@ Five sections, matching the five figures in `stec.viz.positioning_distributions`
    counts/rates at 5/10/20/50 m, per group. This is what replaces Table 5's numeric
    content; `main()` also writes it out as `TABLE5_NUMBERS.md`, formatted to be read
    straight into the manuscript.
+6. **Common-set Table 5 + the per-component table (owner instruction, 2026-09-14).**
+   `coverage_common_station_days` (`common_set_positioning.py`) restricts sections 1-5's
+   full population to the station-days solved by all four methods under *both* weighting
+   schemes (N=10,387, no outlier filter - see that function's docstring for the
+   reconciliation against `common_set_positioning.build()`'s own, smaller, 10 m-filtered
+   N=10,186). `weighting_ablation.py`'s own ablation table is restricted to the same set,
+   so Table 5 and the ablation table share one population and stop needing separate N
+   caveats in the manuscript text. `component_medians` is the restored per-component
+   table (median 3D/2D/Up error per method, R1.7) - medians for the same reason as
+   everything else here: no filter is applied, so a mean would inherit the same
+   single-outlier sensitivity documented throughout this module.
 
 Usage::
 
@@ -64,6 +78,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import paths
+from .common_set_positioning import coverage_common_station_days
 from .positioning_diagnostics import (
     RECOVERED_STEC_DB_ROOT,
     attach_population,
@@ -72,7 +87,11 @@ from .positioning_diagnostics import (
     load_recovered_station_days,
     outlier_threshold_counts,
 )
-from .positioning_summary import METHOD_ORDER, canonical_positioning_summary
+from .positioning_summary import (
+    DEFAULT_WEIGHTING_SUMMARY,
+    METHOD_ORDER,
+    canonical_positioning_summary,
+)
 from .storm_stratification import STORM_DST_THRESHOLD_NT
 
 logger = logging.getLogger(__name__)
@@ -261,16 +280,70 @@ def exceedance_table(
 
 
 # --------------------------------------------------------------------------
+# 6. Common-set restriction: shared population for Table 5 and the weighting-ablation
+# table, and the restored per-component (3D/2D/Up) table
+# --------------------------------------------------------------------------
+
+
+def restrict_to_common_set(
+    frame: pd.DataFrame, common_station_days: pd.MultiIndex
+) -> pd.DataFrame:
+    """`frame` restricted to the (station, doy) pairs in `common_station_days`
+    (`common_set_positioning.coverage_common_station_days`), keyed on the same two
+    columns every positioning table in this codebase uses."""
+    keyed = frame.set_index(["station", "doy"])
+    return keyed[keyed.index.isin(common_station_days)].reset_index()
+
+
+def component_medians(frame: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+    """Median 3D, 2D (horizontal) and Up (vertical) positioning error per group - the
+    per-component table the published Table 5 reported (as means) and the distribution
+    replacement dropped. Restored per R1.7 ("vertical/horizontal error behavior"),
+    reported as medians rather than means for the same reason as everything else in this
+    module: no outcome-based filter is applied, so a mean inherits the same
+    single-outlier sensitivity documented in the module docstring and
+    `docs/revision/positioning_reporting.md`.
+    """
+    grouped = frame.groupby(group_cols, observed=True)
+    out = grouped.agg(
+        n=("error_3d_rms", "size"),
+        median_3d_m=("error_3d_rms", "median"),
+        median_2d_m=("error_2d_rms", "median"),
+        median_up_m=("u_rms", "median"),
+    ).reset_index()
+    return out.round(4)
+
+
+# --------------------------------------------------------------------------
 # Driver
 # --------------------------------------------------------------------------
 
 
 def _format_table5_markdown(
-    percentiles: pd.DataFrame, exceedances: pd.DataFrame, n_source_rows: int
+    percentiles: pd.DataFrame,
+    exceedances: pd.DataFrame,
+    n_source_rows: int,
+    *,
+    heading: str = "# Table 5 replacement: positioning error, unfiltered distributions",
+    population_note: str = (
+        "Every station-day in the coverage-recovered population is included - **no "
+        "outcome-based outlier filter is applied** (replacing the old 10 m station-day "
+        "exclusion)."
+    ),
+    source_note: str = (
+        "Source: `multiday_results/analyses/positioning_coverage/rebuilt/"
+        "multiday_summary.csv` ({n:,} rows across all four methods)."
+    ),
+    distribution_files_note: str = (
+        "See `overall_boxplot_stats.csv`/`overall_boxplot_fliers.csv` and "
+        "`overall_cdf_points.csv` for the full distributions these numbers summarise."
+    ),
 ) -> str:
     """The Table 5 replacement as markdown: one row per method, ready to read into the
     manuscript. Iono weighting, no outcome filter - stated explicitly rather than left
-    implicit, per the owner's instruction."""
+    implicit, per the owner's instruction. `heading`/`population_note`/`source_note`
+    let `main()` reuse this for the common-set-restricted variant without duplicating
+    the row/summary-line logic below."""
     order = [m for m in METHOD_ORDER if m in percentiles["Method"].unique()]
     exc_pivot = exceedances.pivot(
         index="Method", columns="threshold_m", values="pct_station_days_exceeding"
@@ -280,15 +353,13 @@ def _format_table5_markdown(
     )
 
     lines = [
-        "# Table 5 replacement: positioning error, unfiltered distributions",
+        heading,
         "",
-        "Iono weighting (predicted-uncertainty-weighted PPP). Every station-day in the "
-        "coverage-recovered population is included - **no outcome-based outlier "
-        "filter is applied** (replacing the old 10 m station-day exclusion). Values are "
-        "3D positioning RMSE per station-day, in metres.",
+        "Iono weighting (predicted-uncertainty-weighted PPP). "
+        + population_note
+        + " Values are 3D positioning RMSE per station-day, in metres.",
         "",
-        f"Source: `multiday_results/analyses/positioning_coverage/rebuilt/"
-        f"multiday_summary.csv` ({n_source_rows:,} rows across all four methods).",
+        source_note.format(n=n_source_rows),
         "",
         "| Method | N | Median | IQR (Q1-Q3) | P95 | P99 | Exceed 5 m | Exceed 10 m | "
         "Exceed 20 m | Exceed 50 m |",
@@ -319,9 +390,7 @@ def _format_table5_markdown(
         "",
         f"Direct STEC exceeds 10 m on {stec_exceed_10} station-days against IGS GIM's "
         f"{gim_exceed_10} ({stec_exceed_10 / max(gim_exceed_10, 1):.1f}x) - the tail this "
-        "table reports explicitly rather than filtering out. See "
-        "`overall_boxplot_stats.csv`/`overall_boxplot_fliers.csv` and "
-        "`overall_cdf_points.csv` for the full distributions these numbers summarise.",
+        f"table reports explicitly rather than filtering out. {distribution_files_note}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -337,6 +406,9 @@ def main() -> None:
     parser.add_argument("--recovered-root", type=Path, default=RECOVERED_STEC_DB_ROOT)
     parser.add_argument("--year", type=int, default=2024)
     parser.add_argument("--swi-path", type=Path, default=paths.OMNI_INDICES)
+    parser.add_argument(
+        "--weighting-summary-path", type=Path, default=DEFAULT_WEIGHTING_SUMMARY
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
 
@@ -426,7 +498,57 @@ def main() -> None:
     )
     (args.output_dir / "TABLE5_NUMBERS.md").write_text(table5_markdown)
 
+    # --- common set: Table 5 + the ablation table share one population (owner
+    # instruction, 2026-09-14) ---
+    common_station_days = coverage_common_station_days(args.weighting_summary_path)
+    common_frame = restrict_to_common_set(frame, common_station_days)
+    logger.info(
+        f"common set (coverage-only, all four methods x both weightings, no outlier "
+        f"filter): {len(common_station_days):,} station-days, "
+        f"{len(common_frame):,} rows across {common_frame['Method'].nunique()} methods"
+    )
+
+    common_percentiles = percentile_summary(common_frame, ["Method"])
+    common_percentiles.to_csv(
+        args.output_dir / "common_set_percentile_summary.csv", index=False
+    )
+
+    common_exceedance = exceedance_table(common_frame, ["Method"])
+    common_exceedance.to_csv(args.output_dir / "common_set_exceedance.csv", index=False)
+
+    common_components = component_medians(common_frame, ["Method"])
+    common_components.to_csv(
+        args.output_dir / "common_set_component_medians.csv", index=False
+    )
+
+    table5_common_set_markdown = _format_table5_markdown(
+        common_percentiles,
+        common_exceedance,
+        len(common_frame),
+        heading="# Table 5 (common set): positioning error restricted to the "
+        "station-days solved by all four methods under both weighting schemes",
+        population_note=(
+            "Restricted to the station-days solved by all four methods under both "
+            "weighting schemes (iono and elev) - see `common_set_positioning."
+            "coverage_common_station_days` - with **no outcome-based outlier filter "
+            "applied** on top of that restriction."
+        ),
+        source_note=(
+            "Source: `multiday_results/analyses/positioning_coverage/rebuilt/"
+            "multiday_summary_all_weightings.csv` ({n:,} common-set rows across all "
+            "four methods, iono weighting)."
+        ),
+        distribution_files_note=(
+            "See `common_set_component_medians.csv` for the per-component (3D/2D/Up) "
+            "median table over the same population."
+        ),
+    )
+    (args.output_dir / "TABLE5_COMMON_SET_NUMBERS.md").write_text(
+        table5_common_set_markdown
+    )
+
     print(table5_markdown)
+    print(table5_common_set_markdown)
     logger.info(f"wrote {args.output_dir}")
 
 

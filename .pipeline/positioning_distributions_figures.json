@@ -6,19 +6,19 @@
     "Not a manuscript or revision-response figure set yet - lives in its own plots/positioning_distributions/ tree, exclusively (no other module writes there), the same convention positioning_diagnostics_figures uses."
   ],
   "code": {
-    "commit": "22937f350d58c94b2c6578c0ae198159bbaa9bfe",
+    "commit": "f46805e1b9e7a29ac917e2ba9c4ae09e3952a575",
     "dirty": true
   },
   "command": "-m stec.viz.positioning_distributions --output_dir plots/positioning_distributions",
   "description": "box/CDF/percentile-exceedance figures for positioning_distributions's CSVs",
   "duration_s": 5.3,
-  "fingerprint": "db6a481e7315fea6f2799067ad9ed067437df3abb067f5f08de9b545e9a0d0d6",
+  "fingerprint": "4e09fed1ab0e590a4f79897b2bb921cb6bb8b73c1b99c49c22796e27ad6a0e97",
   "inputs": {
     "multiday_results/analyses/positioning_distributions/rebuilt": {
-      "files": 29,
+      "files": 37,
       "kind": "tree",
-      "mtime_ns": 1789378710358137088,
-      "size": 2101699
+      "mtime_ns": 1789398862491392858,
+      "size": 2127752
     }
   },
   "outputs": {
@@ -58,7 +58,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T14:14:47.744145+00:00",
+  "recorded_at": "2026-09-14T15:14:27.832228+00:00",
   "stage": "positioning_distributions_figures",
   "supersedes": []
 }

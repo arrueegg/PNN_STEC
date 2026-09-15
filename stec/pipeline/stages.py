@@ -492,6 +492,12 @@ _POSITIONING_DISTRIBUTIONS_MIN_ROWS = {
     str(POSITIONING_DISTRIBUTIONS_DIR / "population_exceedance.csv"): 32,
     str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_stats.csv"): 8,
     str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_fliers.csv"): 2_000,
+    # Common set (2026-09-14, owner instruction): 4 PAPER_METHODS, same shape as
+    # overall_percentile_summary.csv above, over the smaller N=10,387 coverage-only
+    # common-set population rather than the full one.
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_percentile_summary.csv"): 4,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_exceedance.csv"): 16,
+    str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_component_medians.csv"): 4,
 }
 
 _POSITIONING_DISTRIBUTIONS_FIGURES_MIN_ROWS = {
@@ -1382,7 +1388,10 @@ STAGES: list[Stage] = [
             str(MADRIGAL_METHOD_OFFSET_COMPARISON_DIR / "offset_correlation.csv"): 6,
         },
         checks=[madrigal_method_offset_comparison_has_all_four_methods],
-        canonical_for="Madrigal method-offset comparison (R1.3)",
+        canonical_for=(
+            "Madrigal per-station reference-offset diagnostic (R1.3) - descriptive "
+            "only, not a manuscript results table"
+        ),
         caveats=[
             *MADRIGAL_CAVEAT,
             "Removing a per-station offset fitted on the same data can only reduce "
@@ -1394,6 +1403,15 @@ STAGES: list[Stage] = [
             "madrigal_reference_offset.MIN_OBSERVATIONS_PER_STATION - see "
             "row_intersection_diagnostics.csv for whether that population differs "
             "meaningfully from the full store daily_metrics reports against.",
+            "Owner decision, 2026-09-14: the offset-removed re-scoring in this stage's "
+            "output (FINDINGS.md's 'SENSITIVITY DIAGNOSTIC' section, "
+            "pooled_before_after.csv's *_after columns) is fitted on the evaluation "
+            "data and reverses the method ranking in the paper's favour. It must NOT "
+            "be quoted in the manuscript or the response letter as a corrected result, "
+            "and must NOT be used to re-rank the methods. The plain, uncorrected "
+            "comparison - matching daily_metrics/Table 4, VTEC + Mapping lowest RMSE "
+            "and MAE and highest R2 on Madrigal - is the result; see "
+            "docs/revision/manuscript_change_list.md for the decision record.",
         ],
     ),
     Stage(
@@ -1539,6 +1557,16 @@ STAGES: list[Stage] = [
         "elevation against predicted-uncertainty weighting, paired station-days",
         inputs=[WEIGHTING_RUN, WEIGHTING_ABLATION_FIXED_VARIANCE_DIR],
         outputs=[str(WEIGHTING_ABLATION_DIR)],
+        caveats=[
+            "common_set.csv (2026-09-14, owner instruction) restricts the "
+            "elev-vs-iono comparison to positioning_distributions's own common set "
+            "(coverage_common_station_days, N=10,387 - see that stage's caveats) "
+            "instead of paired.csv's per-correction pairing (10,366/10,640/10,733), "
+            "so the manuscript's weighting-ablation table and Table 5 share one N. No "
+            "10 m outlier exclusion is applied there, unlike paired.csv, which leaves "
+            "in one genuine PPPx solve failure (~5,988 m) that inflates the mean - read "
+            "common_set.csv's elev_median/iono_median alongside its mean-based gain_%.",
+        ],
     ),
     Stage(
         "storm_stratification",
@@ -1792,7 +1820,7 @@ STAGES: list[Stage] = [
         "positioning error as distributions - median/IQR/p95/p99/exceedance, no "
         "outcome-based outlier filter, per method and by storm/quiet and "
         "original/recovered population",
-        inputs=[POSITIONING, SWI, str(POSITIONING_DIAGNOSTICS_DIR)],
+        inputs=[POSITIONING, SWI, str(POSITIONING_DIAGNOSTICS_DIR), WEIGHTING_RUN],
         outputs=[
             str(POSITIONING_DISTRIBUTIONS_DIR),
             str(POSITIONING_DISTRIBUTIONS_DIR / "overall_percentile_summary.csv"),
@@ -1809,13 +1837,20 @@ STAGES: list[Stage] = [
             str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_stats.csv"),
             str(POSITIONING_DISTRIBUTIONS_DIR / "population_boxplot_fliers.csv"),
             str(POSITIONING_DISTRIBUTIONS_DIR / "TABLE5_NUMBERS.md"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_percentile_summary.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_exceedance.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "common_set_component_medians.csv"),
+            str(POSITIONING_DISTRIBUTIONS_DIR / "TABLE5_COMMON_SET_NUMBERS.md"),
         ],
         min_rows=_POSITIONING_DISTRIBUTIONS_MIN_ROWS,
         checks=[positioning_distributions_overall_has_all_four_methods],
         canonical_for="Table 5",
         caveats=[
-            "iono weighting only - the elev arm was mid-re-solve when this module was "
-            "built (see CLAUDE.md) and every output states 'iono' explicitly rather "
+            "The overall/regime/population sections (Figures 12-15) are iono weighting "
+            "only, read from POSITIONING alone. The common_set_* sections and "
+            "TABLE5_COMMON_SET_NUMBERS.md additionally read WEIGHTING_RUN (both "
+            "weightings) to define the population restriction, but still report iono "
+            "weighting values within it - every output states 'iono' explicitly rather "
             "than leaving the weighting implicit.",
             "No outcome-based filter anywhere in this stage: every station-day in the "
             "coverage-repaired population counts. Where a figure needs a bounded axis "
@@ -1825,6 +1860,16 @@ STAGES: list[Stage] = [
             "errors than GIM does - a real, operationally important property of the "
             "method. Every percentile table here is paired with an exceedance table for "
             "exactly that reason; do not quote the median alone.",
+            "common_set_* and TABLE5_COMMON_SET_NUMBERS.md (2026-09-14, owner "
+            "instruction) restrict Table 5 and the new per-component table to the "
+            "station-days solved by all four methods under both weighting schemes "
+            "(coverage_common_station_days, N=10,387) - a coverage-only intersection, "
+            "no 10 m outlier exclusion. weighting_ablation.py's common_set.csv shares "
+            "this exact population so the two manuscript tables report one N. Larger "
+            "than common_set_positioning's own N=10,186 (same eight arms) because that "
+            "stage still applies the 10 m outlier rule; the 201-row gap is exactly the "
+            "station-days where at least one arm exceeds it - see "
+            "coverage_common_station_days's own docstring for the verification.",
             "The mean is preserved for comparison (percentile_summary's mean_m column, "
             "and positioning_summary's own superseded overall.csv) but is not the "
             "reported statistic: it is non-monotonic in the outlier-exclusion "

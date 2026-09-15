@@ -365,3 +365,78 @@ overwritten. `STEC_Modelling/_published_figures_backup/` now holds a snapshot of
 note that 12-15 in that backup are the *new* renderings, the originals being already gone. The
 authoritative published copies remain in the owner's Overleaf project. Owner's decision
 (2026-09-14): leave `.gitignore` as it is, the backup directory is sufficient.
+
+## 11. Madrigal method-offset comparison: the corrected ranking is a diagnostic, not a result
+
+**2026-09-14. Caught by the owner, not by the analysis.** `stec/analysis/
+madrigal_method_offset_comparison.py` (commit `7591cab`) was written to settle whether VTEC +
+Mapping's Madrigal win over Direct STEC (Table 4, row 27 above) is a real generalisation
+advantage or an artefact of `madrigal_reference_offset.py`'s per-station reference offset,
+generalised from Direct STEC alone to all four methods. It computed, correctly, that: (a) on
+the plain comparison every method's own-test-set counterpart already uses — pooled RMSE/MAE/R2,
+no correction — VTEC + Mapping wins (13.90 < 15.01 < 15.73 < 17.98 TECU, matching row 27
+exactly); (b) a per-station offset between Madrigal and each product is common-mode (all six
+pairwise Pearson correlations between the four methods' offset vectors exceed 0.92) and
+4.5–8.8 TECU mean absolute per method; and (c) fitting each method's own per-station offset on
+the evaluation rows and rescoring on those same rows **reverses the ranking**: Direct STEC
+15.01 → 11.03 moves ahead of VTEC + Mapping 13.90 → 11.66.
+
+The module's first version led with (c) as its headline — titled "Does the Madrigal
+VTEC-over-Direct-STEC reversal survive offset removal?" and opening with the re-ranked table.
+The owner flagged this directly, verbatim: *"i'm not sure if what you did is fully scientific
+for the madrigal dataset. what we should show is just the agreement of our corrections to the
+corrections suggested by madrigal and no fancy computation that puts anything in a favourable
+direction (no cheating!) it should be easy to read and correspond to the comparison we do on
+our own testset so madrigal is the same but on a different dataset."** They are right. (c) is a
+correction fitted on the same data it is then scored on — with only 67 station parameters
+against 449 million observations the resulting optimism is numerically negligible, but the
+*shape* of the move is not: it happens to favour Direct STEC, the paper's own headline method,
+over the baseline that plainly beats it. Reporting that as a result, however well-motivated the
+mechanics, is exactly the kind of move a reviewer should be suspicious of.
+
+**Why the offset-corrected ranking is NOT going into the paper or the response letter.** It is
+fit-then-scored on the evaluation data — a correction estimated from the same rows it then
+adjusts, for every one of the four methods being compared. That is a different and weaker
+standard than anything else in this document: every other Madrigal number here (row 27's
+plain ranking, the `madrigal_reference_offset` decomposition cited in
+`response_to_reviewers.md`'s R1.3 answer) either applies no fitted correction at all, or
+applies one to a single method as a descriptive decomposition of *that method's own* error, not
+as a lever that moves one method ahead of another. Demoted accordingly: `stec/pipeline/
+stages.py`'s `madrigal_method_offset_comparison` stage now carries an explicit caveat (written
+into every output's `.caveats.json` sidecar by `runner.record_context`) forbidding the
+offset-removed numbers from being quoted as a corrected result or used to re-rank the methods,
+and its `canonical_for` string now says "diagnostic ... not a manuscript results table" instead
+of naming a deliverable. The generator (`_format_findings_markdown`) was rewritten so the
+FINDINGS.md it produces leads with the plain comparison, states the VTEC + Mapping win without
+hedging, reports the per-station offset only as a descriptive property that explains inflated
+absolute error, and moves the offset-removed re-scoring to a section headed "SENSITIVITY
+DIAGNOSTIC, NOT A RESULT" with the same warning repeated inline. Nothing about *what was
+computed* changed — the module's own numbers are unchanged and still on disk — only how the
+result is framed and which parts are demoted.
+
+**What the Madrigal section should say instead.** State plainly, as row 27 already does, that
+on the plain product-vs-reference comparison — the same RMSE/MAE/R2 metric the own-test-set
+Table 3 uses, on a different dataset, no correction applied — VTEC + Mapping has the lowest
+RMSE and MAE and the highest R2 of the four methods, with Direct STEC second. Cite the
+common-mode per-station offset (4.5–8.8 TECU mean absolute per method, all six pairwise
+correlations > 0.92) only as the reason every method's *absolute* error is larger on Madrigal
+than on the own test set — the same descriptive role `response_to_reviewers.md`'s R1.3 answer
+already gives the single-method version of this finding — never as a basis for adjusting or
+re-ranking the reported numbers. If the manuscript or response letter wants to acknowledge that
+the ranking is not offset-invariant, that belongs as a named limitation ("the Madrigal ranking
+has not been shown to survive a per-station reference correction, unlike the own-test-set
+result"), not as a substituted "corrected" table.
+
+**Cross-check performed against `response_to_reviewers.md` and `evidence_summary.md`
+(task 5 below).** `response_to_reviewers.md`'s R1.3 §3 planned to "present Table 4's Madrigal
+column as a cross-product consistency check, not an accuracy measurement, and report the
+offset-removed value beside it" — for the single-method (Direct STEC) offset decomposition,
+not this module's four-method reversal, but the same principle applies and the same
+sentence was about to do the thing this section rejects: downgrade the plain, real comparison
+and replace it with a fitted-on-eval-data number reported as if it were the accuracy figure.
+Corrected in place (see that file's diff) to state that Table 4's Madrigal column is the plain
+agreement metric, with the offset cited only as the explanation for inflated absolute error.
+`evidence_summary.md`'s R1.3 entry only ever discussed the single-method decomposition
+descriptively (RMSE 15.05 → 11.13 for Direct STEC alone, framed as "45% of the Table 4 variance
+is a reference offset, not model error," never as a cross-method re-ranking) and needed no
+change.

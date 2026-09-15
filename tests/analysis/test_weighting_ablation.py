@@ -178,3 +178,82 @@ def test_fixed_variance_comparison_returns_none_when_arm_is_missing(tmp_path):
     result = wa.fixed_variance_comparison(summary_path, tmp_path / "does_not_exist")
 
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# common_set_ablation: restricted to an externally-supplied common set (owner
+# instruction, 2026-09-14), not each correction's own elev+iono pairing.
+# ---------------------------------------------------------------------------
+
+
+def test_common_set_ablation_restricts_to_the_supplied_station_days(tmp_path):
+    summary_path = tmp_path / "summary.csv"
+    _write_summary(
+        summary_path,
+        [
+            _row("AMC4", 132, "STEC_elev", 2.0),
+            _row("AMC4", 132, "STEC_iono", 1.0),
+            # ZIMM/133 is solved too, but is not in the common set below - must be
+            # excluded even though it would otherwise pair fine.
+            _row("ZIMM", 133, "STEC_elev", 20.0),
+            _row("ZIMM", 133, "STEC_iono", 20.0),
+        ],
+    )
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", 132)], names=["station", "doy"]
+    )
+
+    table = wa.common_set_ablation(summary_path, common_station_days)
+
+    row = table.loc["Direct STEC"]
+    assert row["common_set_station_days"] == 1
+    assert row["elev_mean"] == pytest.approx(2.0)
+    assert row["iono_mean"] == pytest.approx(1.0)
+    # gain_% = 100 * (elev - iono) / elev = 100 * (2 - 1) / 2 = 50
+    assert row["gain_%"] == pytest.approx(50.0)
+
+
+def test_common_set_ablation_reports_the_same_n_for_every_correction(tmp_path):
+    """The whole point of this function: unlike paired_ablation, every correction
+    reports the same station-day count, because it comes from the shared common set
+    rather than each correction's own pairing."""
+    summary_path = tmp_path / "summary.csv"
+    _write_summary(
+        summary_path,
+        [
+            _row("AMC4", 132, "STEC_elev", 1.0),
+            _row("AMC4", 132, "STEC_iono", 1.0),
+            _row("AMC4", 132, "VTEC_elev", 2.0),
+            _row("AMC4", 132, "VTEC_iono", 2.0),
+            _row("AMC4", 132, "gim_elev", 3.0),
+            _row("AMC4", 132, "gim_iono", 3.0),
+        ],
+    )
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", 132)], names=["station", "doy"]
+    )
+
+    table = wa.common_set_ablation(summary_path, common_station_days)
+
+    assert set(table["common_set_station_days"]) == {1}
+
+
+def test_common_set_ablation_applies_no_outlier_exclusion(tmp_path):
+    """Unlike paired_ablation, a station-day above 10 m must still be counted - the
+    population is fixed by the caller-supplied common set, not filtered again here."""
+    summary_path = tmp_path / "summary.csv"
+    _write_summary(
+        summary_path,
+        [
+            _row("AMC4", 132, "STEC_elev", 5988.0),
+            _row("AMC4", 132, "STEC_iono", 1.0),
+        ],
+    )
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", 132)], names=["station", "doy"]
+    )
+
+    table = wa.common_set_ablation(summary_path, common_station_days)
+
+    assert table.loc["Direct STEC", "common_set_station_days"] == 1
+    assert table.loc["Direct STEC", "elev_mean"] == pytest.approx(5988.0)

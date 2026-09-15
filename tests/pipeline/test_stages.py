@@ -980,6 +980,13 @@ _POSITIONING_DISTRIBUTIONS_CSVS = [
     "population_boxplot_stats.csv",
     "population_boxplot_fliers.csv",
     "TABLE5_NUMBERS.md",
+    # Common set (2026-09-14, owner instruction): Table 5 and the per-component table
+    # restricted to the station-days solved by all four methods under both weighting
+    # schemes - see coverage_common_station_days.
+    "common_set_percentile_summary.csv",
+    "common_set_exceedance.csv",
+    "common_set_component_medians.csv",
+    "TABLE5_COMMON_SET_NUMBERS.md",
 ]
 
 _POSITIONING_GEOGRAPHY_CSVS = [
@@ -1028,9 +1035,11 @@ def test_positioning_distributions_declares_the_inputs_it_reads():
     assert POSITIONING in inputs
     assert SWI in inputs
     assert str(POSITIONING_DIAGNOSTICS_DIR) in inputs
+    # Added 2026-09-14: the common-set restriction reads both weighting schemes.
+    assert WEIGHTING_RUN in inputs
 
 
-def test_positioning_distributions_declares_all_fourteen_outputs():
+def test_positioning_distributions_declares_all_eighteen_outputs():
     outputs = stage("positioning_distributions").outputs
     for name in _POSITIONING_DISTRIBUTIONS_CSVS:
         assert str(POSITIONING_DISTRIBUTIONS_DIR / name) in outputs, name
@@ -1039,7 +1048,7 @@ def test_positioning_distributions_declares_all_fourteen_outputs():
 def test_positioning_distributions_every_declared_csv_has_a_positive_min_rows_floor():
     floors = stage("positioning_distributions").min_rows
     for name in _POSITIONING_DISTRIBUTIONS_CSVS:
-        if name == "TABLE5_NUMBERS.md":
+        if name in ("TABLE5_NUMBERS.md", "TABLE5_COMMON_SET_NUMBERS.md"):
             continue  # markdown, not a CSV - carries no row count to floor
         key = str(POSITIONING_DISTRIBUTIONS_DIR / name)
         assert key in floors, f"{name} has no min_rows floor"

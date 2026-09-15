@@ -44,6 +44,7 @@ import pandas as pd
 
 from ..config import paths
 from ..positioning import metrics as pm
+from .common_set_positioning import coverage_common_station_days
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,58 @@ def paired_ablation(summary_path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("correction").reindex(CORRECTION_ORDER)
 
 
+def common_set_ablation(
+    summary_path: Path, common_station_days: pd.MultiIndex
+) -> pd.DataFrame:
+    """The same elevation-vs-predicted-uncertainty comparison as `paired_ablation`, but
+    restricted to `common_station_days` (`common_set_positioning.
+    coverage_common_station_days`) instead of each correction pairing on its own.
+
+    This puts the ablation table on the same population as Table 5
+    (`positioning_distributions.py`, owner instruction 2026-09-14): every correction now
+    reports the same N (`len(common_station_days)`), rather than the 10,366/10,640/10,733
+    `paired_ablation` reports (each correction's own elev+iono pairing, no cross-method
+    restriction). No 10 m outlier exclusion is applied, for the same reason Table 5
+    applies none (`docs/revision/positioning_reporting.md`): unlike `paired_ablation`,
+    which drops it. This leaves one genuine PPPx solve failure in the population
+    (~5,988 m under Direct STEC / elev, ~5,940 m under Direct STEC / iono, the same
+    station-day under both weightings), which inflates the mean substantially - Direct
+    STEC's elev mean moves from `paired_ablation`'s filtered 1.60 m to 2.28 m here - so
+    the mean-based `gain_%` here should be read together with `elev_median`/`iono_median`
+    below it, not as a like-for-like replacement of the filtered number.
+    """
+    runs = pd.read_csv(summary_path)
+    runs = runs.set_index(["station", "doy"])
+    runs = runs[runs.index.isin(common_station_days)].reset_index()
+
+    known = runs["method"].isin(METHOD_LABELS)
+    runs = runs[known].copy()
+    runs[["correction", "weighting"]] = pd.DataFrame(
+        runs["method"].map(METHOD_LABELS).tolist(), index=runs.index
+    )
+
+    rows = []
+    for correction, group in runs.groupby("correction"):
+        wide = group.pivot_table(
+            index=["station", "doy"], columns="weighting", values="error_3d_rms"
+        ).dropna()
+        reference = wide[REFERENCE_WEIGHTING]
+        difference = reference - wide["iono"]
+        rows.append(
+            {
+                "correction": correction,
+                "common_set_station_days": len(wide),
+                "elev_mean": wide["elev"].mean(),
+                "elev_median": wide["elev"].median(),
+                "iono_mean": wide["iono"].mean(),
+                "iono_median": wide["iono"].median(),
+                "gain_%": 100 * difference.mean() / reference.mean(),
+                "iono_better_frac_%": 100 * (difference > 0).mean(),
+            }
+        )
+    return pd.DataFrame(rows).set_index("correction").reindex(CORRECTION_ORDER)
+
+
 def fixed_variance_comparison(
     summary_path: Path, fixed_variance_dir: Path
 ) -> pd.Series | None:
@@ -221,6 +274,17 @@ def main() -> None:
     table = paired_ablation(args.summary)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     table.to_csv(args.output_dir / "paired.csv")
+
+    # --- common set: same population as Table 5 (positioning_distributions.py),
+    # so this table and Table 5 stop needing separate N caveats in the manuscript ---
+    common_station_days = coverage_common_station_days(args.summary)
+    common_table = common_set_ablation(args.summary, common_station_days)
+    common_table.to_csv(args.output_dir / "common_set.csv")
+    print(
+        f"\n=== Predicted-uncertainty vs elevation weighting, common set "
+        f"(N={len(common_station_days):,}) ==="
+    )
+    print(common_table.round(3).to_string())
 
     # The fixed-variance arm is kept out of the headline table and the figure: elevation
     # weighting is the operational default, so that is the comparison the figure should

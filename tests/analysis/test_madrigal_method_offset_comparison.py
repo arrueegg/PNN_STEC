@@ -371,11 +371,21 @@ def test_collect_pass_one_returns_empty_when_store_is_absent(tmp_path):
 
 
 def test_findings_markdown_reports_ranking_unchanged_when_stable():
+    plain_table = pd.DataFrame(
+        {
+            "Method": ["A", "B", "C", "D"],
+            "pooled_RMSE": [1.0, 2.0, 3.0, 4.0],
+            "pooled_MAE": [1.0, 2.0, 3.0, 4.0],
+            "R2_mean": [0.9, 0.8, 0.7, 0.6],
+            "rank_RMSE": [1, 2, 3, 4],
+        }
+    )
     pooled_table = pd.DataFrame(
         {
             "Method": ["A", "B", "C", "D"],
             "observations": [100, 100, 100, 100],
             "qualifying_stations": [4, 4, 4, 4],
+            "mean_abs_station_offset": [1.0, 1.2, 1.4, 1.6],
             "RMSE_before": [1.0, 2.0, 3.0, 4.0],
             "RMSE_after": [0.5, 1.5, 2.5, 3.5],
             "MAE_before": [1.0, 2.0, 3.0, 4.0],
@@ -407,7 +417,9 @@ def test_findings_markdown_reports_ranking_unchanged_when_stable():
     )
 
     text = mmoc._format_findings_markdown(
-        pooled_table, correlation, diagnostics, pd.DataFrame()
+        plain_table, pooled_table, correlation, diagnostics, pd.DataFrame()
     )
 
-    assert "Ranking did NOT change" in text
+    assert "The order does NOT change" in text
+    assert "SENSITIVITY DIAGNOSTIC, NOT A RESULT" in text
+    assert "A has the lowest RMSE and MAE and the highest R2" in text

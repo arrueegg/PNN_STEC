@@ -155,3 +155,59 @@ def test_load_pretrained_elev_returns_empty_frame_when_experiment_has_no_summari
 
     assert frame.empty
     assert list(frame.columns) == csp.COLUMNS
+
+
+# ---------------------------------------------------------------------------
+# coverage_common_station_days: the shared Table 5 / weighting-ablation population
+# (owner instruction, 2026-09-14) - coverage-only, no 10 m outlier exclusion, unlike
+# build()'s own common set above.
+# ---------------------------------------------------------------------------
+
+
+def write_all_weightings_csv(path, rows: list[dict]) -> None:
+    pd.DataFrame(rows, columns=["station", "doy", "method", "error_3d_rms"]).to_csv(
+        path, index=False
+    )
+
+
+def all_eight_arms(station: str, doy: int, error_3d: float = 1.0) -> list[dict]:
+    return [
+        {"station": station, "doy": doy, "method": method, "error_3d_rms": error_3d}
+        for method in csp.COVERAGE_COMMON_SET_METHODS
+    ]
+
+
+def test_coverage_common_station_days_requires_every_one_of_the_eight_arms(tmp_path):
+    path = tmp_path / "all_weightings.csv"
+    rows = all_eight_arms("AMC4", 132)
+    # ZIMM/133 is missing its STEC_elev row - one arm short of the eight required.
+    rows += [r for r in all_eight_arms("ZIMM", 133) if r["method"] != "STEC_elev"]
+    write_all_weightings_csv(path, rows)
+
+    common = csp.coverage_common_station_days(path)
+
+    assert list(common) == [("AMC4", 132)]
+
+
+def test_coverage_common_station_days_applies_no_outlier_exclusion(tmp_path):
+    """Unlike build(), a station-day with an arm above 10 m must still count - the
+    whole point of this function is a coverage-only intersection."""
+    path = tmp_path / "all_weightings.csv"
+    rows = all_eight_arms("AMC4", 132, error_3d=1.0)
+    rows[0]["error_3d_rms"] = 5988.0  # a genuine PPPx solve failure, still present
+    write_all_weightings_csv(path, rows)
+
+    common = csp.coverage_common_station_days(path)
+
+    assert list(common) == [("AMC4", 132)]
+
+
+def test_coverage_common_station_days_counts_every_qualifying_station_day(tmp_path):
+    path = tmp_path / "all_weightings.csv"
+    rows = all_eight_arms("AMC4", 132) + all_eight_arms("ZIMM", 133)
+    write_all_weightings_csv(path, rows)
+
+    common = csp.coverage_common_station_days(path)
+
+    assert len(common) == 2
+    assert set(common) == {("AMC4", 132), ("ZIMM", 133)}

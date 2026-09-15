@@ -1,4 +1,5 @@
-"""Does VTEC + Mapping's Madrigal win over Direct STEC survive the reference-offset fix?
+"""Madrigal per-station reference-offset diagnostics: plain comparison, plus why the
+absolute errors are inflated.
 
 Evidence for reviewer comment R1.3:
 
@@ -6,55 +7,67 @@ Evidence for reviewer comment R1.3:
      references ... the reported RMSE/MAE values may conflate model error with
      reference-product inconsistency."
 
-`madrigal_reference_offset.py` already showed that 45% of Direct STEC's Madrigal RMSE
-variance is a per-station reference offset - but it only ever decomposed Direct STEC (and,
-in passing, the IGS GIM, to show the two agree with each other). On Madrigal, VTEC +
-Mapping currently *beats* Direct STEC on all three headline metrics (Tables 3/4's
-`daily_metrics` summary: RMSE 13.60 vs 14.63, MAE 8.27 vs 8.79, R2 0.87 vs 0.85), which
-reverses the own-test-set result where Direct STEC wins by 23%. Nobody has checked whether
-that reversal is a real generalisation advantage or whether it is carried by the same
-reference inconsistency `madrigal_reference_offset.py` found in Direct STEC's number - the
-question this module exists to answer, for all four methods on identical rows rather than
-for one method in isolation.
+**What this module reports, and in what order (owner decision, 2026-09-14 - see
+`docs/revision/manuscript_change_list.md` for the record).** The headline is the same
+plain RMSE/MAE/R2 comparison against Madrigal that `daily_metrics` already computes for
+Tables 3/4 (`dataset="madrigal_vtec_gim"`) - quoted here, not recomputed, so there is one
+owner for that number. **On that plain comparison, VTEC + Mapping has the lowest RMSE and
+MAE and the highest R2 of the four methods on Madrigal; that ranking stands and is stated
+without hedging.** Below the headline, this module measures a per-station offset between
+Madrigal and each of the four products, purely as a descriptive property of the
+comparison: it is common-mode across all four methods (every pairwise correlation between
+the methods' offset vectors exceeds 0.92 Pearson) and 4.5-8.8 TECU mean absolute per
+method, which legitimately explains why every method's *absolute* error is much larger on
+Madrigal than on the own test set. **It does not license re-ranking anyone.**
 
-Method: the same per-station-offset idea, generalised to all four methods, computed on the
-row set every method has a finite prediction for (see `row_intersection_diagnostics.csv`
-for whether that set is actually smaller than the full store). If the four methods' offset
-vectors are highly correlated across the 67-odd Madrigal stations, the offset is a property
-of the Madrigal reference and the RMSE ranking is meaningful only after removing it. If
-Direct STEC's offset vector is distinctly larger or differently shaped from the other
-three, the reversal reflects the model, not the reference.
+A separate, clearly labelled final section keeps an offset-removed re-scoring for
+transparency, and says plainly what it is not. Fitting each method's own per-station
+offset from the same evaluation rows it is then used to correct, and rescoring on those
+same rows, reverses the plain ranking above: Direct STEC 15.01 -> 11.03 moves ahead of
+VTEC + Mapping 13.90 -> 11.66. That reordering is reported once, in the diagnostic section
+only, and is **not admissible as a manuscript or response-letter result**: it is
+fit-then-scored on the evaluation data, exactly the kind of correction a reviewer should be
+suspicious of however well-motivated the mechanics. It must not be quoted as a corrected
+result and must not be used to re-rank the methods. (Caught by the repo owner reviewing
+this module's output, not by the analysis itself - the module's first version led with the
+reversed ranking as its headline finding, which is what prompted this rewrite.)
+
+Method: per-station offset = mean(pred - truth), computed on the row set every method has
+a finite prediction for (see `row_intersection_diagnostics.csv` for whether that set is
+actually smaller than the full store), for all four methods on identical rows rather than
+for one method in isolation the way `madrigal_reference_offset.py` originally did for
+Direct STEC alone.
 
 **Removing a per-station offset fitted on the same data can only ever reduce RMSE.** With
 67 stations against ~449 M observations the optimism this introduces is negligible (roughly
 67 degrees of freedom against hundreds of millions), but it is not zero, and every reported
-"after" number in this module is fit-then-scored on the same data for exactly that reason -
-stated here rather than left for a reader to wonder about.
+"after" number in the diagnostic section is fit-then-scored on the same data for exactly
+that reason - stated here rather than left for a reader to wonder about.
 
 **Result (2026-09-14, full 238-day store, 448,938,780 rows, all four methods finite on
-every one of them, 67 qualifying stations):** the offset is common-mode. All six pairwise
-Pearson correlations between the methods' offset vectors exceed 0.92 (Direct STEC vs IGS
-GIM: 0.925, matching `madrigal_reference_offset.py`'s own +0.946-ish finding for that same
-pair to within sampling), and the ranking changes once the offset is removed. Before:
-VTEC + Mapping (13.90) < Direct STEC (15.01) < IGS GIM (15.73) < Pretrained (17.98). After:
-IGS GIM (10.25) < **Direct STEC (11.03) < VTEC + Mapping (11.66)** < Pretrained (15.26) -
-Direct STEC moves back ahead of VTEC + Mapping on both RMSE and MAE, matching the
-own-test-set ranking, once the same per-station correction `madrigal_reference_offset.py`
-already applies to Direct STEC alone is applied to all four. VTEC + Mapping's Madrigal win
-is real in the raw numbers but is carried by having the *smallest* reference offset to
-begin with (mean |offset| 4.54 TECU against 6.06-8.76 TECU for the other three), not by a
-genuine accuracy advantage that survives a fair reference.
+every one of them, 67 qualifying stations):** plain pooled RMSE ranking VTEC + Mapping
+(13.90) < Direct STEC (15.01) < IGS GIM (15.73) < Pretrained (17.98), matching Tables 3/4 -
+this is the headline, and it is unaffected by anything below. The per-station offset is
+common-mode (minimum pairwise Pearson 0.925, Direct STEC vs IGS GIM, matching
+`madrigal_reference_offset.py`'s own +0.946-ish finding for that same pair to within
+sampling) and 4.5-8.8 TECU mean absolute per method (smallest for VTEC + Mapping, largest
+for IGS GIM). The offset-removed diagnostic reorders to IGS GIM (10.25) < Direct STEC
+(11.03) < VTEC + Mapping (11.66) < Pretrained (15.26) - reported in its own labelled
+section for transparency, not as a corrected ranking: VTEC + Mapping's plain Madrigal win
+is real in the raw numbers and is what the manuscript reports; it is carried by having the
+*smallest* reference offset to begin with, which is exactly why an offset-removed number
+must not be substituted for it.
 
 Two streaming passes over `predictions/finetuned_stec/madrigal`, matching
 `madrigal_reference_offset.py`'s design: pass 1 computes the per-station offsets (needed
 before anything can be corrected) and, on the way, the full-population pairwise pooled RMSE
 per method - the correctness check against `daily_metrics`'s `pooled_RMSE` column, since
 both are observation-pooled residuals over the same store. Pass 2 applies the pass-1
-offsets and accumulates the corrected pooled RMSE/MAE; MAE cannot be recovered from pass-1
-sums algebraically the way RMSE could (`sum_sq - sum_err**2/n` gives the corrected sum of
-squares in closed form, but `sum(|x - offset|)` needs the individual residuals), so both
-passes read every row rather than mixing an analytic shortcut for one metric with a real
-pass for the other.
+offsets and accumulates the corrected pooled RMSE/MAE, for the diagnostic section only; MAE
+cannot be recovered from pass-1 sums algebraically the way RMSE could (`sum_sq -
+sum_err**2/n` gives the corrected sum of squares in closed form, but `sum(|x - offset|)`
+needs the individual residuals), so both passes read every row rather than mixing an
+analytic shortcut for one metric with a real pass for the other.
 
 Usage::
 
@@ -342,6 +355,44 @@ def compare_pairwise_to_daily_metrics(
     return pd.DataFrame(rows)
 
 
+def build_plain_comparison_table(daily_metrics_summary_path: Path) -> pd.DataFrame:
+    """The headline of this diagnostic: the plain RMSE/MAE/R2 comparison against the
+    Madrigal reference that `daily_metrics` already reports for Tables 3/4, quoted
+    directly rather than recomputed - that stage owns Tables 3 and 4, and this module
+    must not become a second, possibly-drifting source for the same numbers (CLAUDE.md's
+    "one owner per output"). No offset correction anywhere in this table: it is the
+    plain product-vs-Madrigal-reference agreement, the same metrics and the same four
+    methods as the own-test-set comparison, on a different dataset."""
+    if not daily_metrics_summary_path.exists():
+        logger.warning(
+            f"no daily_metrics summary at {daily_metrics_summary_path} - cannot build "
+            "the plain headline comparison"
+        )
+        return pd.DataFrame()
+    reference = pd.read_csv(daily_metrics_summary_path)
+    reference = reference[reference["dataset"] == DATASET_LABELS["madrigal"]]
+    rows = []
+    for col in METHOD_COLUMNS:
+        label = MODELS[col]
+        match = reference[reference["Model"] == label]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        rows.append(
+            {
+                "Method": label,
+                "pooled_RMSE": float(row["pooled_RMSE"]),
+                "pooled_MAE": float(row["pooled_MAE"]),
+                "R2_mean": float(row["R2_mean"]),
+            }
+        )
+    table = pd.DataFrame(rows)
+    if table.empty:
+        return table
+    table["rank_RMSE"] = table["pooled_RMSE"].rank(method="min").astype(int)
+    return table.sort_values("rank_RMSE").reset_index(drop=True)
+
+
 def collect_pass_two(
     store_root: Path,
     model_variant: str,
@@ -448,6 +499,7 @@ def _markdown_table(frame: pd.DataFrame) -> str:
 
 
 def _format_findings_markdown(
+    plain_table: pd.DataFrame,
     pooled_table: pd.DataFrame,
     correlation: pd.DataFrame,
     diagnostics: pd.DataFrame,
@@ -455,24 +507,137 @@ def _format_findings_markdown(
 ) -> str:
     """A narrative generated from the CSVs this run just wrote, not hand-maintained
     prose - so it cannot drift from the numbers the way earlier hand-written summaries
-    of this comparison did (see CLAUDE.md's canonical-results table on that history)."""
+    of this comparison did (see CLAUDE.md's canonical-results table on that history).
+
+    Structure is deliberate (owner decision, 2026-09-14, recorded in
+    `docs/revision/manuscript_change_list.md`): the headline is the plain, uncorrected
+    four-method comparison against Madrigal - the same RMSE/MAE/R2 agreement Table 4
+    reports, nothing fitted on the evaluation data. The per-station offset is reported
+    next as a descriptive property of the comparison, explaining why every method's
+    absolute error is larger on Madrigal than on the own test set. The offset-removed
+    re-scoring, which reverses the ranking in the paper's favour, is demoted to a
+    clearly labelled sensitivity diagnostic at the end and must not be read as a
+    corrected result.
+    """
     lines = [
-        "# Does the Madrigal VTEC-over-Direct-STEC reversal survive offset removal?",
+        "# Madrigal per-station reference-offset diagnostics",
+        "",
+        "This module answers R1.3 with the same plain product-vs-reference comparison "
+        "(RMSE, MAE, R2, the same four methods) that Tables 3 and 4 already use on the "
+        "own test set, run here on Madrigal instead. It also measures a per-station "
+        "offset between Madrigal and every product, purely as a descriptive property of "
+        "the comparison. **No corrected or offset-removed number is reported as a "
+        "result anywhere in this document** - the one exception, an offset-removed "
+        "re-scoring kept for transparency, is fitted on the evaluation data and is "
+        "explicitly labelled a sensitivity diagnostic in its own section at the end, "
+        "not a finding.",
         "",
     ]
 
-    lines.append("## Correctness check against `daily_metrics`'s pooled_RMSE")
+    lines.append(
+        "## Headline: plain comparison against the Madrigal reference\n\n"
+        "Pooled over all observations. Table 4 reports the mean across daily\n"
+        "evaluations instead, so its absolute values differ slightly (VTEC 13.60\n"
+        "against 13.90 pooled); the ranking is identical under both statistics."
+    )
+    if plain_table.empty:
+        lines.append("(skipped - no daily_metrics summary.csv found)")
+    else:
+        lines.append(_markdown_table(plain_table.round(4)))
+        lines.append("")
+        best_rmse = plain_table.loc[plain_table["pooled_RMSE"].idxmin(), "Method"]
+        best_mae = plain_table.loc[plain_table["pooled_MAE"].idxmin(), "Method"]
+        best_r2 = plain_table.loc[plain_table["R2_mean"].idxmax(), "Method"]
+        if best_rmse == best_mae == best_r2:
+            lines.append(
+                f"**{best_rmse} has the lowest RMSE and MAE and the highest R2 of the "
+                "four methods on Madrigal.** This is the plain, unadjusted agreement "
+                "between each product and the Madrigal reference - the same metrics and "
+                "the same four methods as the own-test-set comparison (Table 3), on a "
+                "different dataset, no correction applied. This stands and is stated "
+                "without hedging."
+            )
+        else:
+            lines.append(
+                f"**Best on Madrigal: {best_rmse} by RMSE, {best_mae} by MAE, {best_r2} "
+                "by R2.** Plain, unadjusted agreement between each product and the "
+                "Madrigal reference, no correction applied."
+            )
+    lines.append("")
+
+    lines.append(
+        "### Consistency check: this module's own independent pass reproduces the same "
+        "pooled RMSE"
+    )
     if correctness.empty:
         lines.append("(skipped - no daily_metrics summary.csv found)")
     else:
         lines.append(_markdown_table(correctness.round(4)))
+        lines.append("")
+        lines.append(
+            "Matches `daily_metrics`'s `pooled_RMSE` to 4 decimals for all four methods "
+            "- the headline table above is quoted from Table 4's own source, not a "
+            "second, independently-drifting copy of it, and this pass confirms the two "
+            "agree."
+        )
+    lines.append("")
+
+    min_pearson = float(correlation["pearson_r"].min())
+    lines.append(
+        "## Why absolute error is larger on Madrigal than on the own test set: a "
+        "common-mode per-station reference offset"
+    )
+    lines.append(
+        "A large per-station offset exists between Madrigal and all four products, "
+        f"{pooled_table['mean_abs_station_offset'].min():.1f}-"
+        f"{pooled_table['mean_abs_station_offset'].max():.1f} TECU mean absolute per "
+        "method:"
+    )
+    lines.append("")
+    lines.append(
+        _markdown_table(pooled_table[["Method", "mean_abs_station_offset"]].round(3))
+    )
+    lines.append("")
+    lines.append(_markdown_table(correlation.round(3)))
+    lines.append("")
+    if min_pearson > 0.7:
+        lines.append(
+            f"All six pairwise Pearson correlations exceed 0.7 (minimum {min_pearson:.3f}) "
+            "- the offset is common-mode, i.e. a property of the Madrigal reference that "
+            "every method inherits, not a property of any one method."
+        )
+    else:
+        lines.append(
+            f"At least one pair falls below 0.7 Pearson (minimum {min_pearson:.3f}) - the "
+            "offset is not uniformly common-mode; check `offset_correlation.csv` for which "
+            "pair disagrees before treating it as a reference-only property."
+        )
+    lines.append(
+        "This measurably explains why every method's absolute error is much larger on "
+        "Madrigal than on the own test set. **It does not license re-ranking the "
+        "methods**: the headline comparison above is the one to read and quote."
+    )
     lines.append("")
 
     lines.append("## Row population")
     lines.append(_markdown_table(diagnostics.round(2)))
     lines.append("")
 
-    lines.append("## Before / after per-station offset removal")
+    lines.append(
+        "## SENSITIVITY DIAGNOSTIC, NOT A RESULT: ranking after removing each method's "
+        "own per-station offset"
+    )
+    lines.append(
+        "**Do not quote this section in the manuscript or the response letter as a "
+        "corrected result, and do not use it to re-rank the methods.** Every number "
+        "below is fit-then-scored on the same evaluation data: each method's "
+        "per-station offset is estimated from the same rows it is then used to "
+        "correct, which can only ever reduce that method's own RMSE/MAE. It is kept "
+        "here only as a transparency check on how much of the headline ranking the "
+        "common-mode offset could, in principle, be hiding - not as an improved or "
+        "'true' accuracy figure."
+    )
+    lines.append("")
     lines.append(
         _markdown_table(
             pooled_table[
@@ -496,39 +661,32 @@ def _format_findings_markdown(
     rmse_order_before = list(pooled_table.sort_values("rank_before_RMSE")["Method"])
     rmse_order_after = list(pooled_table.sort_values("rank_after_RMSE")["Method"])
     ranking_changed = rmse_order_before != rmse_order_after
-    lines.append("## Ranking")
-    lines.append(f"Before: {' < '.join(rmse_order_before)}")
-    lines.append(f"After:  {' < '.join(rmse_order_after)}")
     lines.append(
-        "**Ranking changed.**"
+        f"Before (= the headline table above): {' < '.join(rmse_order_before)}"
+    )
+    lines.append(
+        f"After this diagnostic's fitted-on-eval-data correction: "
+        f"{' < '.join(rmse_order_after)}"
+    )
+    lines.append(
+        "The order changes once this diagnostic's own-data-fitted correction is "
+        "applied - reported here for transparency, but this reordering is an artifact "
+        "of fitting and scoring the correction on the same evaluation rows, not "
+        "evidence that the plain, headline ranking above is wrong."
         if ranking_changed
-        else "**Ranking did NOT change** - removing the per-station reference offset "
-        "does not reverse or alter the method ordering."
+        else "The order does NOT change even under this diagnostic's fitted-on-eval-data "
+        "correction, which is the strongest evidence available that the headline "
+        "ranking is not carried by the reference offset."
     )
     lines.append("")
-
-    lines.append("## Offset vector agreement across methods")
-    lines.append(_markdown_table(correlation.round(3)))
-    min_pearson = float(correlation["pearson_r"].min())
-    lines.append("")
-    if min_pearson > 0.7:
-        lines.append(
-            f"All six pairwise Pearson correlations exceed 0.7 (minimum {min_pearson:.3f}) "
-            "- the per-station offset looks common-mode, i.e. a property of the Madrigal "
-            "reference that every method inherits, not a property of any one method."
-        )
-    else:
-        lines.append(
-            f"At least one pair falls below 0.7 Pearson (minimum {min_pearson:.3f}) - the "
-            "offset is not uniformly common-mode; check `offset_correlation.csv` for which "
-            "pair disagrees before treating the correction as reference-only."
-        )
-    lines.append("")
     lines.append(
-        "Removing a per-station offset fitted on the same data can only ever reduce RMSE; "
-        f"with {int(pooled_table['qualifying_stations'].iloc[0])} station parameters "
-        f"against {int(pooled_table['observations'].sum()):,} observations across all four "
-        "methods, the resulting optimism is negligible but not exactly zero."
+        "Removing a per-station offset fitted on the same data can only ever reduce "
+        f"RMSE; with {int(pooled_table['qualifying_stations'].iloc[0])} station "
+        f"parameters against {int(pooled_table['observations'].sum()):,} observations "
+        "across all four methods, the resulting optimism is negligible in magnitude, "
+        "but the direction of the effect - favouring whichever method's error happens "
+        "to correlate most with station identity - is exactly why this section must "
+        "not be read as a result."
     )
     return "\n".join(lines) + "\n"
 
@@ -554,6 +712,14 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
+
+    plain_table = build_plain_comparison_table(args.daily_metrics_summary)
+    if not plain_table.empty:
+        print(
+            "=== Headline: plain comparison against the Madrigal reference "
+            "(matches daily_metrics / Table 4) ==="
+        )
+        print(plain_table.round(4).to_string(index=False))
 
     logger.info("pass 1/2: pairwise pooled stats and per-station offsets")
     pass_one = collect_pass_one(args.store_root, args.model_variant, doys=args.doys)
@@ -592,14 +758,17 @@ def main() -> None:
         )
         print(correctness.round(4).to_string(index=False))
 
-    logger.info("pass 2/2: offset-corrected pooled stats")
+    logger.info("pass 2/2: offset-corrected pooled stats (sensitivity diagnostic only)")
     raw, corrected = collect_pass_two(
         args.store_root, args.model_variant, offsets, doys=args.doys
     )
 
     pooled_table = build_pooled_before_after(raw, corrected, offsets)
     pooled_table.to_csv(args.output_dir / "pooled_before_after.csv", index=False)
-    print("\n=== Before / after per-station offset removal, all four methods ===")
+    print(
+        "\n=== SENSITIVITY DIAGNOSTIC, not a result: before/after per-station offset "
+        "removal, all four methods ==="
+    )
     print(pooled_table.round(4).to_string(index=False))
 
     correlation = offset_correlation_matrix(offsets)
@@ -611,7 +780,7 @@ def main() -> None:
     print(correlation.round(3).to_string(index=False))
 
     findings = _format_findings_markdown(
-        pooled_table, correlation, diagnostics, correctness
+        plain_table, pooled_table, correlation, diagnostics, correctness
     )
     (args.output_dir / "FINDINGS.md").write_text(findings)
 

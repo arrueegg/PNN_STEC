@@ -1,19 +1,20 @@
 {
   "answers": "R1.3",
-  "canonical_for": "Madrigal method-offset comparison (R1.3)",
+  "canonical_for": "Madrigal per-station reference-offset diagnostic (R1.3) - descriptive only, not a manuscript results table",
   "caveats": [
     "Read only alongside madrigal_reference_offset, never standalone: 45% of the RMSE variance is a per-station reference offset, not model error.",
     "Does not support claims about the model's out-of-distribution uncertainty - dataset shift and reference-chain difference are confounded here.",
     "Removing a per-station offset fitted on the same data can only reduce RMSE/MAE, never increase it - with ~67 station parameters against ~449M observations the resulting optimism is negligible, but it is not exactly zero. Stated in FINDINGS.md, not left for a reader to wonder about.",
-    "The before/after comparison is restricted to the row set all four methods have a finite prediction for, and to stations clearing madrigal_reference_offset.MIN_OBSERVATIONS_PER_STATION - see row_intersection_diagnostics.csv for whether that population differs meaningfully from the full store daily_metrics reports against."
+    "The before/after comparison is restricted to the row set all four methods have a finite prediction for, and to stations clearing madrigal_reference_offset.MIN_OBSERVATIONS_PER_STATION - see row_intersection_diagnostics.csv for whether that population differs meaningfully from the full store daily_metrics reports against.",
+    "Owner decision, 2026-09-14: the offset-removed re-scoring in this stage's output (FINDINGS.md's 'SENSITIVITY DIAGNOSTIC' section, pooled_before_after.csv's *_after columns) is fitted on the evaluation data and reverses the method ranking in the paper's favour. It must NOT be quoted in the manuscript or the response letter as a corrected result, and must NOT be used to re-rank the methods. The plain, uncorrected comparison - matching daily_metrics/Table 4, VTEC + Mapping lowest RMSE and MAE and highest R2 on Madrigal - is the result; see docs/revision/manuscript_change_list.md for the decision record."
   ],
   "code": {
-    "commit": "22937f350d58c94b2c6578c0ae198159bbaa9bfe",
+    "commit": "f46805e1b9e7a29ac917e2ba9c4ae09e3952a575",
     "dirty": true
   },
   "command": "-m stec.analysis.madrigal_method_offset_comparison --output-dir multiday_results/analyses/madrigal_method_offset_comparison/rebuilt",
   "description": "whether VTEC + Mapping's Madrigal win over Direct STEC survives the same per-station reference-offset correction, for all four methods on identical rows",
-  "duration_s": 93.9,
+  "duration_s": 94.1,
   "fingerprint": "4e17cc2e27275625092503b072eca420389c7edd678030771feec87f31398786",
   "inputs": {
     "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
@@ -31,12 +32,12 @@
   "outputs": {
     "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt": {
       "present": true,
-      "size": 298
+      "size": 776
     },
     "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/FINDINGS.md": {
       "present": true,
-      "sha256": "f057241a609d6612cb7d25feaaf44f7bb93cb8de9faa775e7bbac0bb64f1e9fc",
-      "size": 2517
+      "sha256": "12af28dfc88d79e78e1e51223ed451951f5029439d55c15a61acb43a08af8ed0",
+      "size": 5728
     },
     "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/correctness_check_vs_daily_metrics.csv": {
       "present": true,
@@ -70,7 +71,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T14:23:57.112525+00:00",
+  "recorded_at": "2026-09-14T14:54:04.894725+00:00",
   "stage": "madrigal_method_offset_comparison",
   "supersedes": []
 }
