@@ -113,7 +113,16 @@ BASE_REQUIRED_COLUMNS = ["station", "sat", "satele", "sod", "true_stec", "stec_p
 # store partition doesn't carry them (see the module docstring).
 ARC_FALLBACK_COLUMNS = ["slipc", "gfphase"]
 REQUIRED_COLUMNS = BASE_REQUIRED_COLUMNS
-OPTIONAL_COLUMNS = ["gim_stec"]
+# Every baseline the store already carries per observation, keyed by the prefix its
+# per-arc columns get. `stec_pred` (Direct STEC) is deliberately absent: it is required
+# rather than optional, and its columns keep the `model_*` names the first version of
+# this module used when it only ever compared the model against IGS GIM.
+COMPARISON_METHODS = {
+    "gim": "gim_stec",
+    "vtec": "vtec_model_stec",
+    "pretrained": "pretrained_stec_pred",
+}
+OPTIONAL_COLUMNS = list(COMPARISON_METHODS.values())
 
 # Matches the module docstring's own validation (2024 DOY 150): a `(station, sat)` gap
 # longer than this had `slipc` differing on the two sides in every case examined, so it
@@ -193,7 +202,11 @@ def compute_arc_dstec(
     the differential and absolute pictures side by side rather than one standing
     in for the other.
     """
-    has_gim = "gim_stec" in frame.columns
+    present_comparisons = {
+        prefix: column
+        for prefix, column in COMPARISON_METHODS.items()
+        if column in frame.columns
+    }
     has_slipc = "slipc" in frame.columns
     has_gfphase = "gfphase" in frame.columns
     year = int(frame["year"].iloc[0]) if "year" in frame.columns else None
@@ -261,22 +274,28 @@ def compute_arc_dstec(
             row["model_dstec_rmse"] / dstec_rms if dstec_rms > 0 else np.nan
         )
 
-        if has_gim:
-            gim_stec = group["gim_stec"].to_numpy()
-            valid = np.isfinite(gim_stec)
-            if valid[mask].sum() > 0:
-                gim_mask = mask & valid
-                dstec_gim = gim_stec - gim_stec[idx_max]
-                gim_dstec_error = (dstec_gim - dstec_truth)[gim_mask]
-                gim_abs_error = (gim_stec - true_stec)[gim_mask]
-                row["n_gim_valid"] = int(gim_mask.sum())
-                row["gim_dstec_rmse"] = float(np.sqrt(np.mean(gim_dstec_error**2)))
-                row["gim_dstec_mae"] = float(np.mean(np.abs(gim_dstec_error)))
-                row["gim_abs_rmse"] = float(np.sqrt(np.mean(gim_abs_error**2)))
-                row["gim_abs_mae"] = float(np.mean(np.abs(gim_abs_error)))
-                row["gim_dstec_re"] = (
-                    row["gim_dstec_rmse"] / dstec_rms if dstec_rms > 0 else np.nan
-                )
+        for prefix, column in present_comparisons.items():
+            values = group[column].to_numpy()
+            # Every difference is taken against the reference epoch, so a baseline with
+            # no value *there* yields an all-NaN arc rather than a missing one - the
+            # arc has to be dropped for that baseline, not silently reported as NaN.
+            if not np.isfinite(values[idx_max]):
+                continue
+            valid = np.isfinite(values)
+            if valid[mask].sum() == 0:
+                continue
+            method_mask = mask & valid
+            dstec_method = values - values[idx_max]
+            dstec_error = (dstec_method - dstec_truth)[method_mask]
+            abs_error = (values - true_stec)[method_mask]
+            row[f"n_{prefix}_valid"] = int(method_mask.sum())
+            row[f"{prefix}_dstec_rmse"] = float(np.sqrt(np.mean(dstec_error**2)))
+            row[f"{prefix}_dstec_mae"] = float(np.mean(np.abs(dstec_error)))
+            row[f"{prefix}_abs_rmse"] = float(np.sqrt(np.mean(abs_error**2)))
+            row[f"{prefix}_abs_mae"] = float(np.mean(np.abs(abs_error)))
+            row[f"{prefix}_dstec_re"] = (
+                row[f"{prefix}_dstec_rmse"] / dstec_rms if dstec_rms > 0 else np.nan
+            )
 
         rows.append(row)
 
@@ -383,7 +402,8 @@ def _single_value_or_mixed(arcs: pd.DataFrame, column: str) -> str:
 
 def summarise(arcs: pd.DataFrame) -> pd.Series:
     """Headline numbers: per-arc means and pooled (observation-weighted) RMSE, for
-    dSTEC and for absolute STEC on the same masked observations, model and GIM.
+    dSTEC and for absolute STEC on the same masked observations, for the Direct STEC
+    model and for every baseline in COMPARISON_METHODS the store actually carries.
 
     `arc_method`/`truth_source` surface which fallback (if any) produced the arcs
     below - see `compute_arc_dstec`'s docstring - so a reader of just this file,
@@ -399,15 +419,39 @@ def summarise(arcs: pd.DataFrame) -> pd.Series:
         "model_dstec_rmse_mean_of_arcs": float(arcs["model_dstec_rmse"].mean()),
         "model_dstec_rmse_pooled": _pooled_rmse(arcs, "model_dstec_rmse", "n_masked"),
         "model_abs_rmse_pooled": _pooled_rmse(arcs, "model_abs_rmse", "n_masked"),
+        # The arc is the reporting unit and the across-arc distribution is right-skewed,
+        # so the median is the headline and the mean is kept beside it - the same
+        # decision, for the same reason, as Tables 3/4 and Table 5. Pooled is
+        # observation-weighted and is kept too: arc lengths run 1 to 1,395 masked
+        # observations, so it answers a different question (per observation, not per
+        # pass) rather than a better or worse version of the same one.
+        "model_dstec_rmse_median_of_arcs": float(arcs["model_dstec_rmse"].median()),
+        "model_dstec_rmse_q1_of_arcs": float(arcs["model_dstec_rmse"].quantile(0.25)),
+        "model_dstec_rmse_q3_of_arcs": float(arcs["model_dstec_rmse"].quantile(0.75)),
     }
-    if "gim_dstec_rmse" in arcs.columns:
-        gim_weight = arcs.get("n_gim_valid", arcs["n_masked"])
-        summary["gim_dstec_rmse_mean_of_arcs"] = float(arcs["gim_dstec_rmse"].mean())
-        summary["gim_dstec_rmse_pooled"] = _pooled_rmse(
-            arcs.assign(_w=gim_weight), "gim_dstec_rmse", "_w"
+    for prefix in COMPARISON_METHODS:
+        if f"{prefix}_dstec_rmse" not in arcs.columns:
+            continue
+        # Each baseline is weighted by its own valid-observation count: a day where GIM
+        # is missing and VTEC is not must not weight both by the same n_masked.
+        weight = arcs.assign(_w=arcs.get(f"n_{prefix}_valid", arcs["n_masked"]))
+        summary[f"{prefix}_dstec_rmse_mean_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].mean()
         )
-        summary["gim_abs_rmse_pooled"] = _pooled_rmse(
-            arcs.assign(_w=gim_weight), "gim_abs_rmse", "_w"
+        summary[f"{prefix}_dstec_rmse_median_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].median()
+        )
+        summary[f"{prefix}_dstec_rmse_q1_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].quantile(0.25)
+        )
+        summary[f"{prefix}_dstec_rmse_q3_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].quantile(0.75)
+        )
+        summary[f"{prefix}_dstec_rmse_pooled"] = _pooled_rmse(
+            weight, f"{prefix}_dstec_rmse", "_w"
+        )
+        summary[f"{prefix}_abs_rmse_pooled"] = _pooled_rmse(
+            weight, f"{prefix}_abs_rmse", "_w"
         )
     return pd.Series(summary)
 

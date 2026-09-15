@@ -227,6 +227,34 @@ DIAGNOSTIC_TEST_OBSERVATIONS_DIR = _analysis_dir(
 )
 DIAGNOSTIC_FIGURES_DIR = "plots/diagnostics"
 
+# Everything below feeds the `figures` and `manuscript_figures` Stages' `inputs`, derived
+# by reading `stec/viz/revision_figures.py::FIGURE_BUILDERS` and
+# `stec/viz/manuscript_figures.py::FIGURE_BUILDERS` directly rather than declaring the
+# entire `multiday_results/` tree those two Stages used to point at - see the two
+# Stages' own comments for the false-staleness bug that declaration caused.
+
+# revision_figures.py's `_build_relative_error_figures` has its own fallback: it first
+# checks `<results_dir>/relative_error_metrics_rebuilt/yearly_metrics.csv`, and only that
+# literal path - not `RELATIVE_ERROR_METRICS_DIR` above, whose real layout is
+# `analyses/relative_error_metrics/rebuilt/` - so today, with that literal path absent,
+# it silently falls through to the pre-rebuild flat file below. Flagged, not fixed here:
+# fixing revision_figures.py's own path is out of scope for this file, but declaring
+# RELATIVE_ERROR_METRICS_DIR as this stage's input would be wrong - it names a directory
+# the figure code never opens - and declaring nothing would repeat the exact
+# silently-stale-figure failure this narrowing is meant to prevent. Both of the module's
+# own candidate paths are declared so whichever one it actually reads is tracked.
+RELATIVE_ERROR_METRICS_LEGACY_FLAT_CSV = "multiday_results/relative_error_metrics.csv"
+RELATIVE_ERROR_METRICS_REBUILT_CANDIDATE = (
+    "multiday_results/relative_error_metrics_rebuilt"
+)
+# stratified_comparison's pretrained-model counterpart has no declared stage of its own
+# (see CLAUDE.md's "Unreviewed"/"unclassified" note and revision_figures.py's own
+# `_build_stratified_figures` comment) - read directly from the restructure's own
+# "don't know" bucket, not from a `stec.analysis` output.
+STRATIFIED_COMPARISON_PRETRAINED_DIR = _rel(
+    paths.UNCLASSIFIED_RESULTS / "stratified_comparison_pretrained"
+)
+
 # The canonical STEC-metrics sweep (CLAUDE.md's "Which results are canonical" table) is a
 # full evaluation tree, not a `stec.analysis` output, so it lives under
 # `stec_evaluation/`, not `analyses/` - see docs/revision/results_layout.md.
@@ -2458,32 +2486,75 @@ STAGES: list[Stage] = [
         outputs=[
             str(DSTEC_EVALUATION_DIR),
             str(DSTEC_EVALUATION_DIR / "pass_statistics.csv"),
+            str(DSTEC_EVALUATION_DIR / "summary.csv"),
         ],
         # Keyed on the per-arc CSV, not the directory: a tree digest carries files/size/
         # mtime but no row count, so a min_rows on a directory can never be satisfied.
         # 500,000 is a floor, not the expected count (672,542 on the full 242-day store) -
         # comfortably above what an accidental partial run (e.g. the old 18-day default,
         # ~51,547) would produce, comfortably below normal day-to-day variation.
-        min_rows={str(DSTEC_EVALUATION_DIR / "pass_statistics.csv"): 500_000},
+        # summary.csv holds 5 common rows + 6 for the model + 6 per baseline = 29 with
+        # all three baselines; 20 is a floor that survives one baseline being absent
+        # from a store partition but fails on the old GIM-only output.
+        min_rows={
+            str(DSTEC_EVALUATION_DIR / "pass_statistics.csv"): 500_000,
+            str(DSTEC_EVALUATION_DIR / "summary.csv"): 20,
+        },
         canonical_for="dSTEC (differential STEC) RMSE vs GIM, R1.3",
         caveats=[
             "Tests the TEC gradient along a pass, not the absolute level - a low dSTEC "
             "error is evidence the model gets the pass *shape* right, not evidence about "
             "the absolute calibration Tables 3/4 report. Read model_abs_rmse_pooled/ "
             "gim_abs_rmse_pooled alongside the dSTEC numbers, never as a substitute.",
-            "Runs on finetuned_stec/own (--model-variant/--dataset default) - the "
-            "scientifically sharper Madrigal comparison is parameterised and ready "
-            "(see the module docstring) but blocked on the Madrigal local-time "
-            "re-inference finishing first.",
+            "Runs on finetuned_stec/own (--model-variant/--dataset default). The "
+            "Madrigal arm is no longer blocked on data - the local-time re-inference "
+            "that used to gate it finished 2026-08-26 (238 days, logs/"
+            "madrigal_local_time_reinference_manifest.csv) - but there is still no "
+            "declared dstec_evaluation_madrigal stage; --dataset madrigal remains a "
+            "manual, undeclared invocation.",
+            "Covers all four methods as of 2026-09-15 (COMPARISON_METHODS): Direct "
+            "STEC keeps the model_* prefix, IGS GIM gim_*, VTEC + Mapping vtec_*, "
+            "Pretrained pretrained_*. The pre-existing model_*/gim_* numbers were "
+            "verified byte-identical across that change on both datasets.",
+            "The reporting unit is the arc and the headline statistic is the median "
+            "across arcs; mean-of-arcs and pooled (observation-weighted) are kept "
+            "beside it because they answer different questions and the improvement "
+            "over IGS GIM differs materially between them (38.6% / 30.2% / 22.3% on "
+            "own, 2026-09-15). No minimum arc length is applied.",
         ],
     ),
-    # Last: reads the metric CSVs every stage above writes, so it must follow all of them.
+    # Last: reads the metric CSVs every stage above writes, so it must follow all of them
+    # in run order. Its declared `inputs`, though, name only the specific directories
+    # `stec.viz.revision_figures.FIGURE_BUILDERS` actually opens (read from that module
+    # directly, not guessed) - not the whole `multiday_results/` tree, which used to make
+    # this stage (and manuscript_figures below) go stale every time an unrelated
+    # hand-maintained CSV under that tree changed, e.g. revision_metrics_index.csv. See
+    # RELATIVE_ERROR_METRICS_LEGACY_FLAT_CSV's own comment above for the one figure that
+    # is confirmed to read a different, pre-rebuild file than its own analysis Stage's
+    # declared output.
     Stage(
         "figures",
         "-m stec.viz.revision_figures",
         "all",
         "one PNG per revision figure, plus the _notitle manuscript variants",
-        inputs=[str(paths.RESULTS_ROOT)],
+        inputs=[
+            RELATIVE_ERROR_METRICS_LEGACY_FLAT_CSV,
+            RELATIVE_ERROR_METRICS_REBUILT_CANDIDATE,
+            str(STORM_STRATIFICATION_DIR),
+            str(WEIGHTING_ABLATION_DIR),
+            str(ORACLE_BENCHMARK_DIR),
+            str(HYPERPARAMETER_SEARCH_DIR),
+            str(ACTIVITY_STRATIFICATION_DIR),
+            str(STRATIFIED_COMPARISON_DIR),
+            str(STRATIFIED_COMPARISON_PRETRAINED_DIR),
+            str(UNCERTAINTY_ERROR_RELATION_DIR),
+            str(IONEX_RMS_BENCHMARK_DIR),
+            str(MADRIGAL_REFERENCE_OFFSET_DIR),
+            str(DSTEC_EVALUATION_DIR),
+            str(UNCERTAINTY_CALIBRATION_DIR),
+            str(STATION_INDEPENDENCE_DIR),
+            str(POSITIONING_ROBUSTNESS_DIR),
+        ],
         outputs=["plots/revision"],
         caveats=[
             "The _notitle and _no_legend variants are the manuscript figures; the titled "
@@ -2493,16 +2564,30 @@ STAGES: list[Stage] = [
             "anything else.",
         ],
     ),
-    # Also last: reads daily_metrics's per_day.csv, elevation_metrics_finetuned's
-    # per_day_by_elevation.csv, pretrained_test_diagnostics's observations.parquet and
-    # positioning_coverage's multiday_summary.csv, so it must follow all of them, same as
-    # `figures` above.
+    # Also last, same reasoning as `figures` above: must run after every stage whose
+    # output it reads, but its declared `inputs` name only those specific directories -
+    # read from `stec.viz.manuscript_figures.FIGURE_BUILDERS` directly - not the whole
+    # `multiday_results/` tree. Figures 1-2 read stec.config.paths.SPLIT_LISTS (not under
+    # multiday_results/ at all, and not covered by the old whole-tree declaration
+    # either); Figures 4-9 read pretrained_test_diagnostics's cache; Figure 10 reads
+    # daily_metrics's per_day.csv; Figure 11 reads elevation_metrics_finetuned's
+    # per_day_by_elevation.csv; Figures 12-15 read positioning_distributions's
+    # common_set_daily_rows.csv and common_set_*.csv (not positioning_coverage's
+    # multiday_summary.csv - that was true before the 2026-09-15 common-set restriction
+    # this file's own caveats below already describe, but this comment had not been
+    # updated to match).
     Stage(
         "manuscript_figures",
         "-m stec.viz.manuscript_figures",
         "all",
         "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
-        inputs=[str(paths.RESULTS_ROOT)],
+        inputs=[
+            str(_rel(paths.SPLIT_LISTS)),
+            str(PRETRAINED_TEST_DIAGNOSTICS_DIR),
+            str(DAILY_METRICS_DIR),
+            str(ELEVATION_METRICS_FINETUNED_DIR),
+            str(POSITIONING_DISTRIBUTIONS_DIR),
+        ],
         outputs=[
             "plots/manuscript",
             "plots/manuscript/dataset_construction/temp_split.csv",

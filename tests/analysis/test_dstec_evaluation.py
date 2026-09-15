@@ -282,3 +282,51 @@ def test_pooled_rmse_matches_direct_computation_across_streamed_days(tmp_path):
     )
     assert summary["n_masked_obs"] == mask.sum()
     assert summary["n_days"] == 2
+
+
+def test_summary_carries_every_baseline_present_in_the_frame():
+    """A store day with all three baselines must summarise all three, not just GIM."""
+    frame = pd.DataFrame(
+        {
+            "year": 2024,
+            "doy": 200,
+            "station": "AAAA",
+            "sat": "G01",
+            "slipc": 1,
+            "sod": np.arange(0, 3000, 30, dtype=float),
+            "satele": np.concatenate(
+                [np.linspace(10, 80, 50), np.linspace(80, 10, 50)]
+            ),
+            "true_stec": np.linspace(20, 40, 100),
+            "gfphase": np.linspace(20, 40, 100),
+            "stec_pred": np.linspace(20, 40, 100) + 1.0,
+            "gim_stec": np.linspace(20, 40, 100) + 2.0,
+            "vtec_model_stec": np.linspace(20, 40, 100) + 3.0,
+            "pretrained_stec_pred": np.linspace(20, 40, 100) + 4.0,
+        }
+    )
+    arcs = de.compute_arc_dstec(frame)
+    summary = de.summarise(arcs)
+    for prefix in ("gim", "vtec", "pretrained"):
+        assert f"{prefix}_dstec_rmse_pooled" in summary.index
+        assert f"{prefix}_abs_rmse_pooled" in summary.index
+
+
+def test_summary_reports_the_across_arc_median_beside_the_mean():
+    arcs = pd.DataFrame(
+        {
+            "year": 2024,
+            "doy": 200,
+            "n_masked": [10, 10, 10, 10, 10],
+            "arc_method": "slipc",
+            "truth_source": "gfphase",
+            "model_dstec_rmse": [1.0, 2.0, 3.0, 4.0, 100.0],
+            "model_abs_rmse": [1.0] * 5,
+        }
+    )
+    summary = de.summarise(arcs)
+    assert summary["model_dstec_rmse_median_of_arcs"] == 3.0
+    assert summary["model_dstec_rmse_q1_of_arcs"] == 2.0
+    assert summary["model_dstec_rmse_q3_of_arcs"] == 4.0
+    # the skewed arc must move the mean and leave the median alone
+    assert summary["model_dstec_rmse_mean_of_arcs"] > 3.0
