@@ -1,0 +1,49 @@
+{
+  "answers": "R1.3",
+  "canonical_for": "Madrigal dSTEC panel (Table 4 companion)",
+  "caveats": [
+    "Both fallbacks are active here and both are weaker than the own-dataset arm's: Madrigal has no cycle-slip counter, so arcs are inferred from a 30-minute observation gap rather than read off a slip flag, and no gfphase, so the truth series is the noisier code-derived true_stec. arc_method/truth_source in the output record which was used. The two arms' arc counts are therefore not comparable and this is not a like-for-like comparison with the own-dataset dSTEC numbers.",
+    "dSTEC removes an *additive* per-arc offset, not a multiplicative scale. All four products read systematically higher than Madrigal by an amount that grows toward the geomagnetic equator (see madrigal_method_offset_comparison), so this panel is much less contaminated than the absolute comparison, not free of the reference difference.",
+    "The abs_rmse columns here are computed on the elevation-masked subset (205M of 449M observations), not Table 4's population. They are for reading beside the dSTEC columns only and must never be quoted as Table 4."
+  ],
+  "code": {
+    "commit": "e6cc337ae745c6fb4bac93e8b9b6690ca7f02ef4",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.dstec_evaluation --dataset madrigal --output-dir multiday_results/analyses/dstec_evaluation_madrigal/rebuilt",
+  "description": "differential STEC against the Madrigal reference - the panel that the per-station reference offset cannot affect, because a constant per-arc offset cancels by construction rather than by being estimated and subtracted",
+  "duration_s": 302.6,
+  "fingerprint": "d145abeb4108c453851f86fc12da1bace7c76c9f6c3d7147514b373ed2fb012b",
+  "inputs": {
+    "predictions/finetuned_stec/madrigal": {
+      "files": 238,
+      "kind": "tree",
+      "mtime_ns": 1787986645089832423,
+      "size": 38131901134
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/dstec_evaluation_madrigal/rebuilt": {
+      "present": true,
+      "size": 60
+    },
+    "multiday_results/analyses/dstec_evaluation_madrigal/rebuilt/pass_statistics.csv": {
+      "present": true,
+      "rows": 944845,
+      "sha256": "ee253b7b7e1475bc9db03e5210d1a406f0baf0be44939dbaca3404e0c919a77c",
+      "size": 440486295
+    },
+    "multiday_results/analyses/dstec_evaluation_madrigal/rebuilt/summary.csv": {
+      "present": true,
+      "rows": 29,
+      "sha256": "60e535c428b54ac690a6eb58a3d757e7e4bd5b2a8aa0efeac830e22b75f7027e",
+      "size": 1207
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-15T12:40:13.853263+00:00",
+  "stage": "dstec_evaluation_madrigal",
+  "supersedes": [
+    "multiday_results/analyses/dstec_evaluation/rebuilt/finetuned_stec_madrigal"
+  ]
+}

@@ -1,19 +1,19 @@
 {
   "answers": "R1.3",
-  "canonical_for": "dSTEC (differential STEC) RMSE vs GIM, R1.3",
+  "canonical_for": "dSTEC (differential STEC) RMSE vs IGS GIM, VTEC + Mapping and Pretrained, R1.3",
   "caveats": [
     "Tests the TEC gradient along a pass, not the absolute level - a low dSTEC error is evidence the model gets the pass *shape* right, not evidence about the absolute calibration Tables 3/4 report. Read model_abs_rmse_pooled/ gim_abs_rmse_pooled alongside the dSTEC numbers, never as a substitute.",
-    "Runs on finetuned_stec/own (--model-variant/--dataset default). The Madrigal arm is no longer blocked on data - the local-time re-inference that used to gate it finished 2026-08-26 (238 days, logs/madrigal_local_time_reinference_manifest.csv) - but there is still no declared dstec_evaluation_madrigal stage; --dataset madrigal remains a manual, undeclared invocation.",
+    "Runs on finetuned_stec/own (--model-variant/--dataset default). The Madrigal arm is its own declared stage, dstec_evaluation_madrigal, with a different arc rule (time gaps, no slipc) and truth source (code-derived, no gfphase) - read its own caveats rather than assuming this stage's apply.",
     "Covers all four methods as of 2026-09-15 (COMPARISON_METHODS): Direct STEC keeps the model_* prefix, IGS GIM gim_*, VTEC + Mapping vtec_*, Pretrained pretrained_*. The pre-existing model_*/gim_* numbers were verified byte-identical across that change on both datasets.",
     "The reporting unit is the arc and the headline statistic is the median across arcs; mean-of-arcs and pooled (observation-weighted) are kept beside it because they answer different questions and the improvement over IGS GIM differs materially between them (38.6% / 30.2% / 22.3% on own, 2026-09-15). No minimum arc length is applied."
   ],
   "code": {
-    "commit": "5dec7af42208d01fbb8804efadaea24dc434787e",
+    "commit": "e6cc337ae745c6fb4bac93e8b9b6690ca7f02ef4",
     "dirty": true
   },
   "command": "-m stec.analysis.dstec_evaluation --output-dir multiday_results/analyses/dstec_evaluation/rebuilt",
-  "description": "differential STEC (gradient-only) RMSE vs IGS GIM - cancels per-arc DCB/levelling offsets by construction, isolating the comparability concern from the model's own accuracy",
-  "duration_s": 282.0,
+  "description": "differential STEC (gradient-only) RMSE vs IGS GIM, VTEC + Mapping and Pretrained - cancels per-arc DCB/levelling offsets by construction, isolating the comparability concern from the model's own accuracy",
+  "duration_s": 283.1,
   "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
   "inputs": {
     "predictions/finetuned_stec/own": {
@@ -26,12 +26,12 @@
   "outputs": {
     "multiday_results/analyses/dstec_evaluation/rebuilt": {
       "present": true,
-      "size": 232
+      "size": 280
     },
     "multiday_results/analyses/dstec_evaluation/rebuilt/pass_statistics.csv": {
       "present": true,
       "rows": 672542,
-      "sha256": "a86b525ceba046e9084f7033685f769449b334c0d95e7dd07839af391633d941",
+      "sha256": "e89fc356d44b78e904ac30899d2be94df5f9e5d75617a61c631a64b8496fab31",
       "size": 311176163
     },
     "multiday_results/analyses/dstec_evaluation/rebuilt/summary.csv": {
@@ -42,7 +42,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T11:54:39.416706+00:00",
+  "recorded_at": "2026-09-15T13:43:34.419116+00:00",
   "stage": "dstec_evaluation",
   "supersedes": []
 }

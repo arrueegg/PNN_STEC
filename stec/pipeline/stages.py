@@ -216,6 +216,13 @@ ELEVATION_METRICS_FINETUNED_DIR = _analysis_dir(
     "elevation_metrics_finetuned", rebuilt=True
 )
 DSTEC_EVALUATION_DIR = _analysis_dir("dstec_evaluation", rebuilt=True)
+# Its own top-level directory, not nested under DSTEC_EVALUATION_DIR where the artifact
+# used to live: fingerprint._tree_digest walks a directory output with rglob("*"), so an
+# output nested inside dstec_evaluation's own declared directory would fold into that
+# stage's recorded output digest and mark it stale every time the Madrigal arm alone ran.
+# ionex_rms_benchmark_code already nests inside ionex_rms_benchmark this way - a
+# pre-existing instance of the same latent bug, not one to compound here.
+DSTEC_EVALUATION_MADRIGAL_DIR = _analysis_dir("dstec_evaluation_madrigal", rebuilt=True)
 EPISTEMIC_SCALE_DIAGNOSTIC_DIR = _analysis_dir(
     "epistemic_scale_diagnostic", rebuilt=True
 )
@@ -2519,9 +2526,9 @@ STAGES: list[Stage] = [
         "dstec_evaluation",
         f"-m stec.analysis.dstec_evaluation --output-dir {DSTEC_EVALUATION_DIR}",
         "R1.3",
-        "differential STEC (gradient-only) RMSE vs IGS GIM - cancels per-arc DCB/"
-        "levelling offsets by construction, isolating the comparability concern from "
-        "the model's own accuracy",
+        "differential STEC (gradient-only) RMSE vs IGS GIM, VTEC + Mapping and "
+        "Pretrained - cancels per-arc DCB/levelling offsets by construction, isolating "
+        "the comparability concern from the model's own accuracy",
         inputs=[STORE_OWN],
         outputs=[
             str(DSTEC_EVALUATION_DIR),
@@ -2540,18 +2547,17 @@ STAGES: list[Stage] = [
             str(DSTEC_EVALUATION_DIR / "pass_statistics.csv"): 500_000,
             str(DSTEC_EVALUATION_DIR / "summary.csv"): 20,
         },
-        canonical_for="dSTEC (differential STEC) RMSE vs GIM, R1.3",
+        canonical_for="dSTEC (differential STEC) RMSE vs IGS GIM, VTEC + Mapping and "
+        "Pretrained, R1.3",
         caveats=[
             "Tests the TEC gradient along a pass, not the absolute level - a low dSTEC "
             "error is evidence the model gets the pass *shape* right, not evidence about "
             "the absolute calibration Tables 3/4 report. Read model_abs_rmse_pooled/ "
             "gim_abs_rmse_pooled alongside the dSTEC numbers, never as a substitute.",
             "Runs on finetuned_stec/own (--model-variant/--dataset default). The "
-            "Madrigal arm is no longer blocked on data - the local-time re-inference "
-            "that used to gate it finished 2026-08-26 (238 days, logs/"
-            "madrigal_local_time_reinference_manifest.csv) - but there is still no "
-            "declared dstec_evaluation_madrigal stage; --dataset madrigal remains a "
-            "manual, undeclared invocation.",
+            "Madrigal arm is its own declared stage, dstec_evaluation_madrigal, with a "
+            "different arc rule (time gaps, no slipc) and truth source (code-derived, "
+            "no gfphase) - read its own caveats rather than assuming this stage's apply.",
             "Covers all four methods as of 2026-09-15 (COMPARISON_METHODS): Direct "
             "STEC keeps the model_* prefix, IGS GIM gim_*, VTEC + Mapping vtec_*, "
             "Pretrained pretrained_*. The pre-existing model_*/gim_* numbers were "
@@ -2561,6 +2567,52 @@ STAGES: list[Stage] = [
             "beside it because they answer different questions and the improvement "
             "over IGS GIM differs materially between them (38.6% / 30.2% / 22.3% on "
             "own, 2026-09-15). No minimum arc length is applied.",
+        ],
+    ),
+    Stage(
+        # Its own stage rather than a parameter of dstec_evaluation: the registry's
+        # one-owner-per-output rule means two configurations of one module writing two
+        # directories have to be two stages, and the Madrigal arm has different inputs
+        # (STORE_MADRIGAL), a different arc rule (time gaps, no slipc) and a different
+        # truth source (code-derived, no gfphase) - all of which its caveats must state
+        # separately from the own-dataset arm's.
+        "dstec_evaluation_madrigal",
+        f"-m stec.analysis.dstec_evaluation --dataset madrigal "
+        f"--output-dir {DSTEC_EVALUATION_MADRIGAL_DIR}",
+        "R1.3",
+        "differential STEC against the Madrigal reference - the panel that the "
+        "per-station reference offset cannot affect, because a constant per-arc offset "
+        "cancels by construction rather than by being estimated and subtracted",
+        inputs=[STORE_MADRIGAL],
+        outputs=[
+            str(DSTEC_EVALUATION_MADRIGAL_DIR),
+            str(DSTEC_EVALUATION_MADRIGAL_DIR / "pass_statistics.csv"),
+            str(DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv"),
+        ],
+        min_rows={
+            str(DSTEC_EVALUATION_MADRIGAL_DIR / "pass_statistics.csv"): 700_000,
+            str(DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv"): 20,
+        },
+        supersedes=[str(DSTEC_EVALUATION_DIR / "finetuned_stec_madrigal")],
+        canonical_for="Madrigal dSTEC panel (Table 4 companion)",
+        caveats=[
+            "Both fallbacks are active here and both are weaker than the own-dataset "
+            "arm's: Madrigal has no cycle-slip counter, so arcs are inferred from a "
+            "30-minute observation gap rather than read off a slip flag, and no "
+            "gfphase, so the truth series is the noisier code-derived true_stec. "
+            "arc_method/truth_source in the output record which was used. The two "
+            "arms' arc counts are therefore not comparable and this is not a "
+            "like-for-like comparison with the own-dataset dSTEC numbers.",
+            "dSTEC removes an *additive* per-arc offset, not a multiplicative scale. "
+            "All four products read systematically higher than Madrigal by an amount "
+            "that grows toward the geomagnetic equator (see "
+            "madrigal_method_offset_comparison), so this panel is much less "
+            "contaminated than the absolute comparison, not free of the reference "
+            "difference.",
+            "The abs_rmse columns here are computed on the elevation-masked subset "
+            "(205M of 449M observations), not Table 4's population. They are for "
+            "reading beside the dSTEC columns only and must never be quoted as "
+            "Table 4.",
         ],
     ),
     # Last: reads the metric CSVs every stage above writes, so it must follow all of them
