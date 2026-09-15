@@ -1417,7 +1417,7 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
     plt.setp(ax.get_xticklabels(), rotation=45)
     ax.set_ylim(0, 3.5)
     ax.grid(True, linestyle="--", alpha=0.3)
-    ax.legend(loc="lower right", fontsize=_POSITIONING_TREND_LEGEND_FONTSIZE)
+    ax.legend(loc="upper left", fontsize=_POSITIONING_TREND_LEGEND_FONTSIZE)
     ax.set_title("Daily positioning accuracy (median), common set, unfiltered")
     _save(
         fig,
