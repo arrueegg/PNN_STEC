@@ -4,10 +4,11 @@
   "caveats": [
     "Descriptive only. single_constellation is never used as a filter - the paper reports the stratification and excludes nothing.",
     "The root cause is upstream and unfixed: CamaliotGnss reports 'Constellations Used: GE' and lists the GPS satellites it processed, then writes zero GPS records into +SLANT/SOLUTION. Reproduced on BIK0/DOY 122 2026-09-15; ruled out by direct test: our observable selection, receiver DCB availability, and unpopulated observables. It is NOT the CAS DCB product's station coverage - an earlier claim, retracted.",
-    "STEC_DB_estDCB covers all ten affected stations with both constellations but is not used: owner decision 2026-09-15, it is an older (Feb 2025) build that may carry superseded errors."
+    "STEC_DB_estDCB covers all ten affected stations with both constellations but is not used: owner decision 2026-09-15, it is an older (Feb 2025) build that may carry superseded errors.",
+    "within_station_penalty's median is threshold-dependent on min_days_each, the per-station qualifying day count: x1.40 (26 stations, 24/26 significant) at 15, x1.41 (23 stations, 21/23 significant) at the coded default of 20, x1.48 (22 stations, 20/22 significant) at 22 and 25, and x1.55 (19 stations, 17/19 significant) at 30. It drifts upward with the threshold because a stricter cut keeps only the stations with the most of both kinds of day, which are the heavily-affected ones - so the population shifts as the threshold moves, not just its size. The manuscript must quote the range and name the threshold, never a bare point estimate. An earlier exploratory script in this work reported x1.48 from a >=25-day threshold; that figure is superseded by this stage, which is the authority now."
   ],
   "code": {
-    "commit": "b84ac7828e6f127e1d8e7f9888106d82f9d361f8",
+    "commit": "060d656db7a95296f0d14df49180c9090b5854ca",
     "dirty": true
   },
   "command": "-m stec.analysis.constellation_coverage --output-dir multiday_results/analyses/constellation_coverage/rebuilt",
@@ -24,7 +25,7 @@
   "outputs": {
     "multiday_results/analyses/constellation_coverage/rebuilt": {
       "present": true,
-      "size": 168
+      "size": 396
     },
     "multiday_results/analyses/constellation_coverage/rebuilt/per_station.csv": {
       "present": true,
@@ -46,7 +47,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T14:24:05.872038+00:00",
+  "recorded_at": "2026-09-15T14:48:45.429571+00:00",
   "stage": "constellation_coverage",
   "supersedes": []
 }

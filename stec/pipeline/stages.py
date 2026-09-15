@@ -1929,6 +1929,18 @@ STAGES: list[Stage] = [
             "STEC_DB_estDCB covers all ten affected stations with both constellations "
             "but is not used: owner decision 2026-09-15, it is an older (Feb 2025) "
             "build that may carry superseded errors.",
+            "within_station_penalty's median is threshold-dependent on min_days_each, "
+            "the per-station qualifying day count: x1.40 (26 stations, 24/26 "
+            "significant) at 15, x1.41 (23 stations, 21/23 significant) at the coded "
+            "default of 20, x1.48 (22 stations, 20/22 significant) at 22 and 25, and "
+            "x1.55 (19 stations, 17/19 significant) at 30. It drifts upward with the "
+            "threshold because a stricter cut keeps only the stations with the most of "
+            "both kinds of day, which are the heavily-affected ones - so the population "
+            "shifts as the threshold moves, not just its size. The manuscript must "
+            "quote the range and name the threshold, never a bare point estimate. An "
+            "earlier exploratory script in this work reported x1.48 from a >=25-day "
+            "threshold; that figure is superseded by this stage, which is the "
+            "authority now.",
         ],
     ),
     Stage(
