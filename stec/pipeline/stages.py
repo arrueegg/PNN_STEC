@@ -1564,8 +1564,19 @@ STAGES: list[Stage] = [
             "instead of paired.csv's per-correction pairing (10,366/10,640/10,733), "
             "so the manuscript's weighting-ablation table and Table 5 share one N. No "
             "10 m outlier exclusion is applied there, unlike paired.csv, which leaves "
-            "in one genuine PPPx solve failure (~5,988 m) that inflates the mean - read "
-            "common_set.csv's elev_median/iono_median alongside its mean-based gain_%.",
+            "in one genuine PPPx solve failure (~5,988 m under Direct STEC, both "
+            "weightings).",
+            "common_set.csv's headline is gain_median_%, not gain_mean_% (2026-09-15, "
+            "owner instruction - docs/revision/positioning_reporting.md's median-not-"
+            "mean decision, 2026-08-28, had missed this table). The single PPPx solve "
+            "failure above moves the Direct STEC elevation-weighted mean by 25% on its "
+            "own (2.283 m with it, 1.706 m without) while leaving the median unmoved. "
+            "elev_mean/iono_mean/gain_mean_% are still written to the CSV, but only for "
+            "the mean-vs-median sensitivity comparison that document argues from - they "
+            "are not a second number for the manuscript to quote. common_set.csv also "
+            "now carries a Pretrained Direct STEC row: Pretrained_STEC_elev/iono were "
+            "already in multiday_summary_all_weightings.csv, this table just hadn't "
+            "read them.",
         ],
     ),
     Stage(

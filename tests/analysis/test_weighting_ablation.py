@@ -207,10 +207,79 @@ def test_common_set_ablation_restricts_to_the_supplied_station_days(tmp_path):
 
     row = table.loc["Direct STEC"]
     assert row["common_set_station_days"] == 1
+    assert row["elev_median"] == pytest.approx(2.0)
+    assert row["iono_median"] == pytest.approx(1.0)
+    # With a single station-day, median and mean coincide, so both gain columns
+    # agree here: 100 * (elev - iono) / elev = 100 * (2 - 1) / 2 = 50.
+    assert row["gain_median_%"] == pytest.approx(50.0)
+    assert row["gain_mean_%"] == pytest.approx(50.0)
     assert row["elev_mean"] == pytest.approx(2.0)
     assert row["iono_mean"] == pytest.approx(1.0)
-    # gain_% = 100 * (elev - iono) / elev = 100 * (2 - 1) / 2 = 50
-    assert row["gain_%"] == pytest.approx(50.0)
+
+
+def test_common_set_ablation_headline_is_the_median_not_the_mean(tmp_path):
+    """The reason this table reports medians (owner decision 2026-08-28, applied to
+    this stage 2026-09-15): a single outlying station-day must not be able to swing the
+    headline gain. Four ordinary station-days improve by exactly 50% under iono
+    weighting; a fifth, a PPPx solve failure, gets far worse under iono. The mean-based
+    gain flips sign because of that one row; the median-based gain does not move at
+    all."""
+    summary_path = tmp_path / "summary.csv"
+    rows = []
+    for doy in (1, 2, 3, 4):
+        rows += [
+            _row("AMC4", doy, "STEC_elev", 2.0),
+            _row("AMC4", doy, "STEC_iono", 1.0),
+        ]
+    # The outlier: elevation weighting solves it fine, but predicted-uncertainty
+    # weighting blows up - a genuine PPPx solve failure under that scheme.
+    rows += [
+        _row("AMC4", 5, "STEC_elev", 2.0),
+        _row("AMC4", 5, "STEC_iono", 2000.0),
+    ]
+    _write_summary(summary_path, rows)
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", d) for d in range(1, 6)], names=["station", "doy"]
+    )
+
+    table = wa.common_set_ablation(summary_path, common_station_days)
+
+    row = table.loc["Direct STEC"]
+    assert row["common_set_station_days"] == 5
+    # Median is unaffected by the single outlier: elev and iono medians are both
+    # computed over {1, 1, 1, 1, 2000} vs {2, 2, 2, 2, 2} - the middle value ignores
+    # the outlier entirely, so the median-based gain is still the ordinary +50%.
+    assert row["elev_median"] == pytest.approx(2.0)
+    assert row["iono_median"] == pytest.approx(1.0)
+    assert row["gain_median_%"] == pytest.approx(50.0)
+    # The mean-based gain is dominated by the one outlier and goes strongly negative -
+    # the exact failure mode this table must not report as its headline.
+    assert row["gain_mean_%"] < 0
+
+
+def test_common_set_ablation_includes_pretrained_direct_stec(tmp_path):
+    """Pretrained_STEC_elev/iono have always been in the source CSV alongside the
+    other three corrections; the common-set table previously left them out."""
+    summary_path = tmp_path / "summary.csv"
+    _write_summary(
+        summary_path,
+        [
+            _row("AMC4", 132, "Pretrained_STEC_elev", 4.0),
+            _row("AMC4", 132, "Pretrained_STEC_iono", 2.0),
+        ],
+    )
+    common_station_days = pd.MultiIndex.from_tuples(
+        [("AMC4", 132)], names=["station", "doy"]
+    )
+
+    table = wa.common_set_ablation(summary_path, common_station_days)
+
+    assert "Pretrained Direct STEC" in table.index
+    row = table.loc["Pretrained Direct STEC"]
+    assert row["common_set_station_days"] == 1
+    assert row["elev_median"] == pytest.approx(4.0)
+    assert row["iono_median"] == pytest.approx(2.0)
+    assert row["gain_median_%"] == pytest.approx(50.0)
 
 
 def test_common_set_ablation_reports_the_same_n_for_every_correction(tmp_path):
@@ -223,6 +292,8 @@ def test_common_set_ablation_reports_the_same_n_for_every_correction(tmp_path):
         [
             _row("AMC4", 132, "STEC_elev", 1.0),
             _row("AMC4", 132, "STEC_iono", 1.0),
+            _row("AMC4", 132, "Pretrained_STEC_elev", 1.5),
+            _row("AMC4", 132, "Pretrained_STEC_iono", 1.5),
             _row("AMC4", 132, "VTEC_elev", 2.0),
             _row("AMC4", 132, "VTEC_iono", 2.0),
             _row("AMC4", 132, "gim_elev", 3.0),

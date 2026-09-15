@@ -29,6 +29,23 @@ count so the cost of pairing is never silent.
 The 10 m station-day outlier rule (Figure 12 / Table 5) is reused from
 `stec.positioning.metrics.exclude_outlier_station_days` rather than reimplemented.
 
+**Common-set headline: median, not mean (owner decision 2026-08-28, applied here
+2026-09-15).** `docs/revision/positioning_reporting.md` decided that positioning results
+are reported as medians and distributions, never means - this table was simply missed
+when that decision was made. The evidence is decisive on the common set itself: one
+station-day (URUM, DOY 365, a genuine PPPx solve failure at ~5,989 m under Direct
+STEC/elev) moves the Direct STEC elevation-weighted mean from 2.283 m to 1.706 m - a 25%
+swing from a single row out of 10,387 - while the median does not move at all.
+`common_set_ablation` now reports `gain_median_%` as the headline figure; `gain_mean_%`
+and the `*_mean` columns are still written to `common_set.csv` for the mean-vs-median
+sensitivity comparison `positioning_reporting.md` argues from, not as a second number for
+the manuscript to quote. This pass also adds the Pretrained Direct STEC correction to the
+common-set table: `Pretrained_STEC_elev`/`Pretrained_STEC_iono` have always been in
+`multiday_summary_all_weightings.csv` alongside the other three corrections, but the
+table omitted them. `paired_ablation` (and the revision figure built from its `paired.csv`
+output, `stec/viz/revision_figures.py::fig_weighting_ablation`) are untouched by either
+change - only `common_set_ablation` gains the row and the median headline.
+
 Usage::
 
     python -m stec.analysis.weighting_ablation
@@ -60,6 +77,24 @@ CORRECTION_ORDER = ["Direct STEC", "VTEC + Mapping", "IGS GIM + Mapping"]
 # Arms in the order they should be reported; elev is the reference for gains.
 WEIGHTING_ORDER = ["elev", "fixed", "iono"]
 REFERENCE_WEIGHTING = "elev"
+
+# common_set_ablation's own labels/order, kept separate from METHOD_LABELS/
+# CORRECTION_ORDER above: those two feed paired_ablation and the published revision
+# figure (fig_weighting_ablation), which must keep their existing three arms unchanged.
+# Pretrained_STEC_elev/iono have always been in multiday_summary_all_weightings.csv
+# alongside the other three corrections - only the common-set table previously omitted
+# them.
+COMMON_SET_METHOD_LABELS = dict(
+    METHOD_LABELS,
+    Pretrained_STEC_elev=("Pretrained Direct STEC", "elev"),
+    Pretrained_STEC_iono=("Pretrained Direct STEC", "iono"),
+)
+COMMON_SET_CORRECTION_ORDER = [
+    "Direct STEC",
+    "Pretrained Direct STEC",
+    "VTEC + Mapping",
+    "IGS GIM + Mapping",
+]
 
 # 2026-08-28: repointed off positioning_runs/20260216_2052/multiday_summary.csv, a
 # 2026-02-16 snapshot from before the rebuild that nothing regenerated (56,457 rows,
@@ -180,18 +215,25 @@ def common_set_ablation(
     which drops it. This leaves one genuine PPPx solve failure in the population
     (~5,988 m under Direct STEC / elev, ~5,940 m under Direct STEC / iono, the same
     station-day under both weightings), which inflates the mean substantially - Direct
-    STEC's elev mean moves from `paired_ablation`'s filtered 1.60 m to 2.28 m here - so
-    the mean-based `gain_%` here should be read together with `elev_median`/`iono_median`
-    below it, not as a like-for-like replacement of the filtered number.
+    STEC's elev mean moves from `paired_ablation`'s filtered 1.60 m to 2.28 m here, and
+    that single row alone accounts for a 25% swing in the elev mean (2.283 m with it,
+    1.706 m without). The median is unaffected by it either way.
+
+    **`gain_median_%` is the headline (owner decision 2026-08-28, applied 2026-09-15,
+    see the module docstring): the mean-based `gain_mean_%` and the `*_mean` columns are
+    kept only for the sensitivity comparison `docs/revision/positioning_reporting.md`
+    argues from, not as a second number to report.** Also includes Pretrained Direct
+    STEC, present in the source CSV alongside the other three corrections all along but
+    previously left out of this table.
     """
     runs = pd.read_csv(summary_path)
     runs = runs.set_index(["station", "doy"])
     runs = runs[runs.index.isin(common_station_days)].reset_index()
 
-    known = runs["method"].isin(METHOD_LABELS)
+    known = runs["method"].isin(COMMON_SET_METHOD_LABELS)
     runs = runs[known].copy()
     runs[["correction", "weighting"]] = pd.DataFrame(
-        runs["method"].map(METHOD_LABELS).tolist(), index=runs.index
+        runs["method"].map(COMMON_SET_METHOD_LABELS).tolist(), index=runs.index
     )
 
     rows = []
@@ -201,19 +243,26 @@ def common_set_ablation(
         ).dropna()
         reference = wide[REFERENCE_WEIGHTING]
         difference = reference - wide["iono"]
+        reference_median = reference.median()
+        difference_median = reference_median - wide["iono"].median()
         rows.append(
             {
                 "correction": correction,
                 "common_set_station_days": len(wide),
-                "elev_mean": wide["elev"].mean(),
                 "elev_median": wide["elev"].median(),
-                "iono_mean": wide["iono"].mean(),
                 "iono_median": wide["iono"].median(),
-                "gain_%": 100 * difference.mean() / reference.mean(),
+                "gain_median_%": 100 * difference_median / reference_median,
                 "iono_better_frac_%": 100 * (difference > 0).mean(),
+                # Sensitivity comparison only - see the docstring above and
+                # docs/revision/positioning_reporting.md. Not the reported statistic.
+                "elev_mean": wide["elev"].mean(),
+                "iono_mean": wide["iono"].mean(),
+                "gain_mean_%": 100 * difference.mean() / reference.mean(),
             }
         )
-    return pd.DataFrame(rows).set_index("correction").reindex(CORRECTION_ORDER)
+    return (
+        pd.DataFrame(rows).set_index("correction").reindex(COMMON_SET_CORRECTION_ORDER)
+    )
 
 
 def fixed_variance_comparison(
@@ -285,6 +334,11 @@ def main() -> None:
         f"(N={len(common_station_days):,}) ==="
     )
     print(common_table.round(3).to_string())
+    print(
+        "\ngain_median_% is the headline figure (medians, not means - see the module"
+        "\ndocstring for why). gain_mean_%/elev_mean/iono_mean are kept only for the"
+        "\nmean-vs-median sensitivity comparison, not as a second number to report."
+    )
 
     # The fixed-variance arm is kept out of the headline table and the figure: elevation
     # weighting is the operational default, so that is the comparison the figure should
