@@ -165,10 +165,28 @@ the CSV already has them); update the stage's caveat text to say "two" instead o
 accept it as a hand-verified constant that doesn't need one.
 
 **Item I — Figures 5-8 rest on the Gate F equivalence argument, not an independent re-derivation
-of the pretrained-model per-bin numbers.** `manuscript_change_list.md` states this directly
+of the pretrained-model per-bin numbers.** ~~`manuscript_change_list.md` states this directly
 ("their SAME verdict rests on the Gate F equivalence argument... not on an independent re-binning
-of the raw parquet"). This document did not re-derive them either — carried forward as an
-open point rather than silently upgraded to "confirmed."
+of the raw parquet"). This document did not re-derive them either.~~
+
+**RESOLVED 2026-09-15 — checked, no discrepancy found.**
+`stec.analysis.pretrained_residuals_from_store` (declared stage, commit `e6cc337`) re-derives all
+four figures' per-bin MAE/RMSE by streaming `predictions/pretrained_stec/own` with its own binning
+code, deliberately NOT reading the `pretrained_test_diagnostics` cache the figures use — reading
+that would only have shown the plotting is faithful, which was never the question. Wired into
+`verification/gate_f_figures.py` as four checks, taking it from 10 to 14.
+
+All four reproduce: largest relative difference 2.3e-7 against the gate's 1e-6 tolerance,
+consistent with the figures' float32 pandas arithmetic against the check's float64 accumulators.
+The decisive evidence is precision-independent — Figure 5's per-bin **observation counts match
+exactly**, all 17 elevation bins, across all 10,000,000 rows: two independently written binning
+implementations place every single observation in the same bin.
+
+One trap worth recording for anyone re-checking this: Figure 7's 24 local-time bins come from
+pandas' *data-dependent* edges (computed from the series' own min/max, padded 0.1%), not clean
+[0,24) hours. The independent pass reproduces those edges from a running min/max rather than
+assuming hourly boundaries; assuming them would have produced a spurious mismatch and sent
+someone hunting a bug that does not exist. Cost: 3.4 s, 707 MB, so it runs every pipeline pass.
 
 ### Positioning chapter (Table 5-7, Figures 12-15, Appendix)
 
@@ -234,7 +252,7 @@ independently recompute the common-set intersection from `multiday_summary_all_w
 with plain pandas (`_common_set_station_days`, mirroring but not importing
 `common_set_positioning.coverage_common_station_days`, for the same reason this gate never calls
 the code it is checking) rather than reading the full population — all four still report `MATCH`
-(10/10 overall), so the figures plot exactly what the common-set methodology says they should,
+(10/10 at the time; 14/14 since Item I closed), so the figures plot exactly what the common-set methodology says they should,
 not merely what they used to. This is a population-scope change only: no figure's underlying
 statistic (median, Tukey box convention, empirical CDF, day-by-day grouping) changed, and no
 value disagreed with the gate's independent recomputation for any other reason.
@@ -467,6 +485,27 @@ today (e.g. `storm_stratification.py`→ stage `storm_stratification`, output no
 Not a manuscript-facing problem, but anyone using these two CSVs as a file-finding index rather
 than a reviewer-comment index will be looking in the wrong place.
 
+**Item K — the relative-error figures read a path that is not their stage's output (latent, not
+active).** Found 2026-09-15 while narrowing the `figures` stage's declared inputs.
+`_build_relative_error_figures` in `stec/viz/revision_figures.py` reads
+`multiday_results/relative_error_metrics_rebuilt/yearly_metrics.csv` if present, else the flat
+`multiday_results/relative_error_metrics.csv` — neither of which is
+`relative_error_metrics/rebuilt/yearly_metrics.csv`, what the declared stage actually writes. The
+module's own comment admits `analysis_dir()` cannot express the pre-rebuild rename.
+
+**Checked before reporting, and the numbers are currently fine**: the flat legacy CSV (last
+written 2026-08-20) and the stage's `yearly_metrics.csv` are byte-identical today, so the R2.2
+figures are correct. An earlier note in this session's conversation called them "built from a
+stale number" — that was wrong and is retracted here.
+
+What is real is the coupling: the figures are correct by coincidence, not by construction. Rerun
+the stage against changed data and the flat CSV will not follow, so the figures go stale with
+nothing reporting it — the exact shape of the `full_coverage/` failure CLAUDE.md documents.
+Fixing it means changing `revision_figures.py` to read the stage's output AND the declared inputs
+in `stec/pipeline/stages.py` together; changing either alone makes it worse, because a declared
+input that is not what the module reads is what lets coverage rot silently. Not attempted this
+session: `stages.py` is being edited by a concurrent session.
+
 ---
 
 ## Gaps
@@ -510,9 +549,9 @@ consistency` (R1.3), `positioning_geography` (R2.3/discussion).
   both schemes" figure (row 32 of `manuscript_change_list.md`) — could not be reproduced from any
   single current artifact; that document already flags this rather than guessing, and this
   session did not find a way to resolve it either.
-- Whether Figures 5-8's per-bin numbers for the pretrained model have ever been independently
+- ~~Whether Figures 5-8's per-bin numbers for the pretrained model have ever been independently
   re-derived from the raw parquet rather than checked only via the Gate F equivalence argument
-  (Item I above) — `manuscript_change_list.md` states this gap; this session did not close it.
+  (Item I above).~~ **Resolved 2026-09-15**: they now have been, and they reproduce. See Item I.
 - ~~The precise current row-count reconciliation between `positioning_coverage`'s "10,712 solved
   by all methods" and `TABLE5_NUMBERS.md`'s per-method Direct STEC N=10,717.~~ **Resolved
   2026-09-15.** Verified directly from `positioning_coverage/rebuilt/multiday_summary.csv`: Direct
