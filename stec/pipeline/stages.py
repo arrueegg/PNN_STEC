@@ -180,6 +180,7 @@ STORM_STRATIFICATION_DIR = _analysis_dir("storm_stratification", rebuilt=True)
 POSITIONING_ROBUSTNESS_DIR = _analysis_dir("positioning_robustness", rebuilt=True)
 POSITIONING_COVERAGE_DIR = _analysis_dir("positioning_coverage", rebuilt=True)
 POSITIONING_ACTIVITY_DIR = _analysis_dir("positioning_activity", rebuilt=True)
+CONSTELLATION_COVERAGE_DIR = _analysis_dir("constellation_coverage", rebuilt=True)
 COMMON_SET_POSITIONING_DIR = _analysis_dir("common_set_positioning", rebuilt=True)
 POSITIONING_SUMMARY_DIR = _analysis_dir("positioning_summary", rebuilt=True)
 ORACLE_BENCHMARK_DIR = _analysis_dir("oracle_benchmark", rebuilt=True)
@@ -1894,6 +1895,40 @@ STAGES: list[Stage] = [
             "No station-day is excluded. Every percentile column is paired with an "
             "exceedance count; do not quote the median alone.",
             "iono weighting only, matching Tables 5 and 6.",
+        ],
+    ),
+    Stage(
+        "constellation_coverage",
+        f"-m stec.analysis.constellation_coverage "
+        f"--output-dir {CONSTELLATION_COVERAGE_DIR}",
+        "R1.5",
+        "how many satellites each correction source lets PPPx use, and the within-station "
+        "cost of a station-day where only one constellation could be corrected",
+        inputs=[str(POSITIONING_COVERAGE_DIR / "multiday_summary.csv")],
+        outputs=[
+            str(CONSTELLATION_COVERAGE_DIR),
+            str(CONSTELLATION_COVERAGE_DIR / "population_summary.csv"),
+            str(CONSTELLATION_COVERAGE_DIR / "per_station.csv"),
+            str(CONSTELLATION_COVERAGE_DIR / "within_station_penalty.csv"),
+        ],
+        min_rows={
+            str(CONSTELLATION_COVERAGE_DIR / "population_summary.csv"): 3,
+            str(CONSTELLATION_COVERAGE_DIR / "per_station.csv"): 40,
+            str(CONSTELLATION_COVERAGE_DIR / "within_station_penalty.csv"): 10,
+        },
+        canonical_for="constellation-coverage limitation",
+        caveats=[
+            "Descriptive only. single_constellation is never used as a filter - the "
+            "paper reports the stratification and excludes nothing.",
+            "The root cause is upstream and unfixed: CamaliotGnss reports "
+            "'Constellations Used: GE' and lists the GPS satellites it processed, then "
+            "writes zero GPS records into +SLANT/SOLUTION. Reproduced on BIK0/DOY 122 "
+            "2026-09-15; ruled out by direct test: our observable selection, receiver "
+            "DCB availability, and unpopulated observables. It is NOT the CAS DCB "
+            "product's station coverage - an earlier claim, retracted.",
+            "STEC_DB_estDCB covers all ten affected stations with both constellations "
+            "but is not used: owner decision 2026-09-15, it is an older (Feb 2025) "
+            "build that may carry superseded errors.",
         ],
     ),
     Stage(

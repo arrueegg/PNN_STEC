@@ -1,0 +1,52 @@
+{
+  "answers": "R1.5",
+  "canonical_for": "constellation-coverage limitation",
+  "caveats": [
+    "Descriptive only. single_constellation is never used as a filter - the paper reports the stratification and excludes nothing.",
+    "The root cause is upstream and unfixed: CamaliotGnss reports 'Constellations Used: GE' and lists the GPS satellites it processed, then writes zero GPS records into +SLANT/SOLUTION. Reproduced on BIK0/DOY 122 2026-09-15; ruled out by direct test: our observable selection, receiver DCB availability, and unpopulated observables. It is NOT the CAS DCB product's station coverage - an earlier claim, retracted.",
+    "STEC_DB_estDCB covers all ten affected stations with both constellations but is not used: owner decision 2026-09-15, it is an older (Feb 2025) build that may carry superseded errors."
+  ],
+  "code": {
+    "commit": "b84ac7828e6f127e1d8e7f9888106d82f9d361f8",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.constellation_coverage --output-dir multiday_results/analyses/constellation_coverage/rebuilt",
+  "description": "how many satellites each correction source lets PPPx use, and the within-station cost of a station-day where only one constellation could be corrected",
+  "duration_s": 0.6,
+  "fingerprint": "02094363143b654b540bd1656d31e5913598b8a0325b2aacf09a2b04c14ef88c",
+  "inputs": {
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "kind": "file",
+      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
+      "size": 13972373
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/constellation_coverage/rebuilt": {
+      "present": true,
+      "size": 168
+    },
+    "multiday_results/analyses/constellation_coverage/rebuilt/per_station.csv": {
+      "present": true,
+      "rows": 55,
+      "sha256": "8c76609b26934716f3c78c6cc3d462b51e61be55734e99c7bf2c61c7da256ef3",
+      "size": 2785
+    },
+    "multiday_results/analyses/constellation_coverage/rebuilt/population_summary.csv": {
+      "present": true,
+      "rows": 3,
+      "sha256": "dedc1176754581ef69bf337d62676e72b410743bbf60857964e5319c76cd319d",
+      "size": 510
+    },
+    "multiday_results/analyses/constellation_coverage/rebuilt/within_station_penalty.csv": {
+      "present": true,
+      "rows": 23,
+      "sha256": "1fe17f0ceeb732e226093dbf470551a838464ff90cd0190308ac2b196c2dcd0c",
+      "size": 2152
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-15T14:24:05.872038+00:00",
+  "stage": "constellation_coverage",
+  "supersedes": []
+}
