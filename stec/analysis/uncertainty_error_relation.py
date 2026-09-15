@@ -384,6 +384,26 @@ def finalise_elevation(rows: list[dict]) -> pd.DataFrame:
     ]
 
 
+def calibrating_factor(by_elevation: pd.DataFrame) -> pd.Series:
+    """The single scalar that would calibrate the predicted uncertainty, and its spread.
+
+    The paper's claim is not "the model is under-dispersed" but "it is under-dispersed
+    by a *constant* factor" - a uniform scale error rather than a broken uncertainty
+    model. That claim rests on the spread across elevation bands, so the spread is
+    reported beside the factor rather than left for a reader to compute.
+    """
+    ratios = by_elevation["rmse_over_sigma"].astype(float)
+    return pd.Series(
+        {
+            "factor_median": float(ratios.median()),
+            "factor_min": float(ratios.min()),
+            "factor_max": float(ratios.max()),
+            "factor_spread": float(ratios.max() - ratios.min()),
+            "n_bins": int(len(ratios)),
+        }
+    )
+
+
 def collect(
     model_variant: str,
     dataset: str,
@@ -492,6 +512,9 @@ def main() -> None:
     table.to_csv(out_path, index=False)
     elevation_out_path = args.output_dir / f"by_elevation{suffix}.csv"
     elevation_table.to_csv(elevation_out_path, index=False)
+    calibrating_factor(elevation_table).to_csv(
+        args.output_dir / "calibrating_factor.csv", header=["value"]
+    )
 
     print(
         f"=== predicted uncertainty vs realised error ({args.model_variant}/{args.dataset}) ==="

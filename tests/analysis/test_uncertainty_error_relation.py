@@ -254,3 +254,18 @@ def test_missing_aleatoric_column_is_skipped_not_errored():
     assert (table["n"] > 0).any()
     assert table["mean_aleatoric"].isna().all()
     assert table["epistemic_share_%"].isna().all()
+
+
+def test_calibrating_factor_reports_spread_across_elevation_bands():
+    by_elevation = pd.DataFrame(
+        {
+            "bin": ["(0, 10]", "(10, 20]", "(20, 30]"],
+            "n": [100, 200, 300],
+            "rmse_over_sigma": [1.60, 1.65, 1.70],
+        }
+    )
+    factor = uer.calibrating_factor(by_elevation)
+    assert factor["factor_median"] == pytest.approx(1.65)
+    assert factor["factor_min"] == pytest.approx(1.60)
+    assert factor["factor_max"] == pytest.approx(1.70)
+    assert factor["factor_spread"] == pytest.approx(0.10)

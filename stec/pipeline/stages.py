@@ -1270,7 +1270,15 @@ STAGES: list[Stage] = [
         "R2.6, R1.2",
         "predicted uncertainty against realised error, pooled over the test period",
         inputs=[STORE_OWN],
-        outputs=[str(UNCERTAINTY_ERROR_RELATION_DIR)],
+        outputs=[
+            str(UNCERTAINTY_ERROR_RELATION_DIR),
+            str(UNCERTAINTY_ERROR_RELATION_DIR / "by_elevation.csv"),
+            str(UNCERTAINTY_ERROR_RELATION_DIR / "calibrating_factor.csv"),
+        ],
+        min_rows={
+            str(UNCERTAINTY_ERROR_RELATION_DIR / "by_elevation.csv"): 5,
+            str(UNCERTAINTY_ERROR_RELATION_DIR / "calibrating_factor.csv"): 5,
+        },
         caveats=[
             "Bins are now fixed TECU intervals (0-1-2-3-4-5-7-10-15-20-30-inf), not the "
             "previous first-day sigma deciles. Those deciles were computed from "
@@ -1278,6 +1286,11 @@ STAGES: list[Stage] = [
             "other 241 days, so a bin labelled 'top decile' held 6.88%-18.80% of the "
             "full-year population rather than 10% - a 'decile' meant something "
             "different on every day but the first.",
+            "calibrating_factor.csv states the single scalar that would calibrate the "
+            "predicted uncertainty AND its spread across elevation bands. The spread is "
+            "the load-bearing number: a uniform factor is a scale error, a varying one "
+            "would be a broken uncertainty model, and only the former is safe to report "
+            "as a post-hoc recalibration.",
         ],
     ),
     Stage(
