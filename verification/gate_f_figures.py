@@ -101,6 +101,14 @@ PRETRAINED_DIAGNOSTICS_CACHE = (
     / "observations.parquet"
 )
 
+# `stec.analysis.pretrained_residuals_from_store` - the independent re-derivation of
+# Figures 5-8 straight from `predictions/pretrained_stec/own`, never from the cache
+# above. Its own module docstring is the design rationale; the fig5_*/fig6_*/fig7_*/
+# fig8_* checks below are what closes `docs/revision/results_register.md` Item I.
+PRETRAINED_RESIDUALS_FROM_STORE_DIR = paths.analysis_result_dir(
+    "pretrained_residuals_from_store", rebuilt=True
+)
+
 # Table 5 and Figures 12-15 used to share a >10 m station-day outlier rule
 # (`stec.positioning.metrics.OUTLIER_3D_RMS_M`). Dropped everywhere per the owner's
 # 2026-08-28 decision (`docs/revision/positioning_reporting.md`): no positioning figure
@@ -758,6 +766,99 @@ FIGURE9_CHECK = FigureCheck(
 
 
 # --------------------------------------------------------------------------
+# Figures 5-8, independently from the raw store - not from the
+# pretrained_test_diagnostics cache fig5_residuals_elev/fig9_uncertainty above read.
+#
+# `docs/revision/results_register.md` Item I: agreement between a figure and the cache
+# it reads proves the figure aggregates the cache correctly; it does not prove the cache
+# itself matches predictions/pretrained_stec/own, the 544-day-file store the cache is
+# built from. `stec.analysis.pretrained_residuals_from_store` closes that gap - it
+# streams the store directly, one day at a time, with its own from-scratch bin
+# definitions and running accumulators, never touching the cache and never importing
+# `stec.viz.manuscript_figures`'s binning code. That streaming pass (544 files, two
+# passes for the data-dependent local-time bins) is slow enough to not belong inside the
+# default gate run, so it is a separate entry point
+# (`python -m stec.analysis.pretrained_residuals_from_store`), and these four checks
+# simply load its output and compare - `run_check`'s existing "missing on disk" path
+# already makes them SKIP, not fail or hang, if that entry point has not been run yet.
+# --------------------------------------------------------------------------
+
+
+def _recompute_residuals_elev_from_store() -> pd.DataFrame:
+    return pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_elev.csv")
+
+
+FIGURE5_FROM_STORE_CHECK = FigureCheck(
+    name="fig5_residuals_elev_from_store",
+    figure="Figure 5 (residual MAE/RMSE by elevation bin) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_pretrained_testset" / "residuals_elev.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_elev.csv",),
+    join_keys=("bin_left", "bin_right"),
+    value_columns=("mae", "rmse", "n"),
+    load_plotted=_reduce_plotted_residuals_elev,
+    recompute=_recompute_residuals_elev_from_store,
+)
+
+
+def _recompute_residuals_lat_from_store() -> pd.DataFrame:
+    frame = pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_lat.csv")
+    frame["lat_bin_center"] = frame["lat_bin_center"].round(6)
+    return frame
+
+
+def _load_residuals_lat_plotted(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    frame["lat_bin_center"] = frame["lat_bin_center"].round(6)
+    return frame
+
+
+FIGURE6_FROM_STORE_CHECK = FigureCheck(
+    name="fig6_residuals_lat_from_store",
+    figure="Figure 6 (residual MAE/RMSE by sm-latitude bin) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_pretrained_testset" / "residuals_lat.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_lat.csv",),
+    join_keys=("lat_bin_center",),
+    value_columns=("mae", "rmse"),
+    load_plotted=_load_residuals_lat_plotted,
+    recompute=_recompute_residuals_lat_from_store,
+)
+
+
+def _recompute_residuals_localtime_from_store() -> pd.DataFrame:
+    return pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_localtime.csv")
+
+
+FIGURE7_FROM_STORE_CHECK = FigureCheck(
+    name="fig7_residuals_localtime_from_store",
+    figure="Figure 7 (residual MAE/RMSE by local-time hour) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS
+    / "stec_pretrained_testset"
+    / "residuals_localtime.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_localtime.csv",),
+    join_keys=("hour",),
+    value_columns=("mae", "rmse"),
+    recompute=_recompute_residuals_localtime_from_store,
+)
+
+
+def _recompute_residuals_year_month_from_store() -> pd.DataFrame:
+    return pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_year_month.csv")
+
+
+FIGURE8_FROM_STORE_CHECK = FigureCheck(
+    name="fig8_residuals_year_month_from_store",
+    figure="Figure 8 (monthly residual MAE/RMSE) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS
+    / "stec_pretrained_testset"
+    / "residuals_year_month.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_year_month.csv",),
+    join_keys=("year_month",),
+    value_columns=("mae", "rmse"),
+    recompute=_recompute_residuals_year_month_from_store,
+)
+
+
+# --------------------------------------------------------------------------
 # Stratified revision family - the one that was silently broken until the
 # `positioning_coverage` fix landed (see CLAUDE.md's canonical-results table). Elevation
 # axis only, both to keep this gate's scope bounded and because it is the same axis
@@ -887,6 +988,10 @@ CHECKS: tuple[FigureCheck, ...] = (
     FIGURE15_CHECK,
     FIGURE5_CHECK,
     FIGURE9_CHECK,
+    FIGURE5_FROM_STORE_CHECK,
+    FIGURE6_FROM_STORE_CHECK,
+    FIGURE7_FROM_STORE_CHECK,
+    FIGURE8_FROM_STORE_CHECK,
     FIGURE_STRATIFIED_ELEVATION_CHECK,
 )
 

@@ -184,8 +184,16 @@ def compute_arc_dstec(
 
     For each arc: sort by time of day, take the max-elevation epoch as the
     reference, keep only observations at least `elevation_diff_threshold` degrees
-    below that reference (the independence mask), and difference model
-    (`stec_pred`), truth and GIM (`gim_stec`, if present) against that reference.
+    below that reference (the independence mask), and difference the model
+    (`stec_pred`) and truth against that reference. Every baseline present in
+    `COMPARISON_METHODS` - currently `gim_stec`, `vtec_model_stec`,
+    `pretrained_stec_pred` - is differenced the same way, one at a time, each
+    keyed by its own column prefix: `{prefix}_dstec_rmse`/`_dstec_mae`/`_dstec_re`
+    for the differential numbers and `{prefix}_abs_rmse`/`_abs_mae` for the
+    absolute ones (e.g. `vtec_dstec_rmse`, `pretrained_abs_rmse`), with
+    `n_{prefix}_valid` recording the observation count both are computed over.
+    The Direct STEC model is required rather than optional and keeps the
+    original `model_*` prefix from before other baselines were added.
 
     Arc boundaries come from `(station, sat, slipc)` when `slipc` is in `frame`
     (the authoritative case - `own`), or from a `sod` gap on `(station, sat)`
@@ -197,10 +205,13 @@ def compute_arc_dstec(
     `true_stec` when it is not. Both choices are recorded per arc in `arc_method`
     and `truth_source` rather than substituted silently.
 
-    Also reports the *absolute*-STEC RMSE (`stec_pred`/`gim_stec` vs `true_stec`,
-    not differenced) on the exact same masked observations, so a caller can read
-    the differential and absolute pictures side by side rather than one standing
-    in for the other.
+    Also reports the *absolute*-STEC RMSE (the model's and each baseline's
+    predictions vs `true_stec`, not differenced) on the exact same masked
+    observations, so a caller can read the differential and absolute pictures
+    side by side rather than one standing in for the other. A baseline missing
+    its value at the reference epoch cannot produce a differential number for
+    that arc - but the absolute numbers do not depend on the reference epoch and
+    are still reported (see the per-baseline loop below).
     """
     present_comparisons = {
         prefix: column
@@ -276,26 +287,33 @@ def compute_arc_dstec(
 
         for prefix, column in present_comparisons.items():
             values = group[column].to_numpy()
-            # Every difference is taken against the reference epoch, so a baseline with
-            # no value *there* yields an all-NaN arc rather than a missing one - the
-            # arc has to be dropped for that baseline, not silently reported as NaN.
-            if not np.isfinite(values[idx_max]):
-                continue
             valid = np.isfinite(values)
-            if valid[mask].sum() == 0:
-                continue
             method_mask = mask & valid
-            dstec_method = values - values[idx_max]
-            dstec_error = (dstec_method - dstec_truth)[method_mask]
+            if method_mask.sum() == 0:
+                continue
+
+            # The absolute error never touches the reference epoch - it only needs
+            # `values` at the masked points themselves - so it is computed
+            # unconditionally here, over the same method_mask the differential
+            # fields below use.
             abs_error = (values - true_stec)[method_mask]
             row[f"n_{prefix}_valid"] = int(method_mask.sum())
-            row[f"{prefix}_dstec_rmse"] = float(np.sqrt(np.mean(dstec_error**2)))
-            row[f"{prefix}_dstec_mae"] = float(np.mean(np.abs(dstec_error)))
             row[f"{prefix}_abs_rmse"] = float(np.sqrt(np.mean(abs_error**2)))
             row[f"{prefix}_abs_mae"] = float(np.mean(np.abs(abs_error)))
-            row[f"{prefix}_dstec_re"] = (
-                row[f"{prefix}_dstec_rmse"] / dstec_rms if dstec_rms > 0 else np.nan
-            )
+
+            # The differential fields DO need the reference epoch's own value, since
+            # every dSTEC point is a difference against it. A baseline with no value
+            # *there* cannot produce a differential number for this arc - but that
+            # must not suppress the absolute statistics just computed above, which
+            # do not depend on the reference epoch at all.
+            if np.isfinite(values[idx_max]):
+                dstec_method = values - values[idx_max]
+                dstec_error = (dstec_method - dstec_truth)[method_mask]
+                row[f"{prefix}_dstec_rmse"] = float(np.sqrt(np.mean(dstec_error**2)))
+                row[f"{prefix}_dstec_mae"] = float(np.mean(np.abs(dstec_error)))
+                row[f"{prefix}_dstec_re"] = (
+                    row[f"{prefix}_dstec_rmse"] / dstec_rms if dstec_rms > 0 else np.nan
+                )
 
         rows.append(row)
 
@@ -434,7 +452,7 @@ def summarise(arcs: pd.DataFrame) -> pd.Series:
             continue
         # Each baseline is weighted by its own valid-observation count: a day where GIM
         # is missing and VTEC is not must not weight both by the same n_masked.
-        weight = arcs.assign(_w=arcs.get(f"n_{prefix}_valid", arcs["n_masked"]))
+        weighted_arcs = arcs.assign(_w=arcs.get(f"n_{prefix}_valid", arcs["n_masked"]))
         summary[f"{prefix}_dstec_rmse_mean_of_arcs"] = float(
             arcs[f"{prefix}_dstec_rmse"].mean()
         )
@@ -448,10 +466,10 @@ def summarise(arcs: pd.DataFrame) -> pd.Series:
             arcs[f"{prefix}_dstec_rmse"].quantile(0.75)
         )
         summary[f"{prefix}_dstec_rmse_pooled"] = _pooled_rmse(
-            weight, f"{prefix}_dstec_rmse", "_w"
+            weighted_arcs, f"{prefix}_dstec_rmse", "_w"
         )
         summary[f"{prefix}_abs_rmse_pooled"] = _pooled_rmse(
-            weight, f"{prefix}_abs_rmse", "_w"
+            weighted_arcs, f"{prefix}_abs_rmse", "_w"
         )
     return pd.Series(summary)
 

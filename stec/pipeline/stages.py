@@ -209,6 +209,9 @@ RESULTS_MANIFEST_DIR = _analysis_dir("results_manifest", rebuilt=True)
 PRETRAINED_TEST_DIAGNOSTICS_DIR = _analysis_dir(
     "pretrained_test_diagnostics", rebuilt=True
 )
+PRETRAINED_RESIDUALS_FROM_STORE_DIR = _analysis_dir(
+    "pretrained_residuals_from_store", rebuilt=True
+)
 ELEVATION_METRICS_FINETUNED_DIR = _analysis_dir(
     "elevation_metrics_finetuned", rebuilt=True
 )
@@ -2362,6 +2365,43 @@ STAGES: list[Stage] = [
             "py's original scope (test_df was never filtered by year before "
             "plot_test_metrics), not a like-for-like comparison against Direct STEC/"
             "VTEC/IGS GIM that would need a population matched to theirs.",
+        ],
+    ),
+    Stage(
+        # Figures 5-8 were the only manuscript figures with no independent check: their
+        # correctness rested on Gate F agreeing with the src/ predecessor, which CLAUDE.md
+        # is explicit is a weaker claim than correctness, since a refactor preserves the
+        # bug it ports. This re-derives the same binned residuals straight from the store
+        # with its own binning code, deliberately NOT reading pretrained_test_diagnostics'
+        # cache - reading that would only prove the plotting is faithful.
+        "pretrained_residuals_from_store",
+        "-m stec.analysis.pretrained_residuals_from_store "
+        f"--output-dir {PRETRAINED_RESIDUALS_FROM_STORE_DIR}",
+        "Figures 5-8 independent verification (results_register.md Item I)",
+        "per-bin MAE/RMSE by elevation, latitude, local time and year-month, streamed "
+        "from predictions/pretrained_stec/own rather than from the figures' own cache",
+        inputs=[STORE_PRETRAINED],
+        outputs=[
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_elev.csv"),
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_lat.csv"),
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_localtime.csv"),
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_year_month.csv"),
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "manifest.csv"),
+        ],
+        # Exact bin counts, not floors: the bin edges are fixed by the figures' own
+        # definitions, so a short file means a bin silently vanished.
+        min_rows={
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_elev.csv"): 17,
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_lat.csv"): 18,
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_localtime.csv"): 24,
+            str(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_year_month.csv"): 12,
+        },
+        canonical_for=None,  # verification support, not a manuscript deliverable
+        caveats=[
+            "Verification only. These CSVs are the independent side of a comparison - "
+            "the manuscript's numbers come from pretrained_test_diagnostics and the "
+            "figures built on it, never from here. Quoting this stage's output as a "
+            "result would defeat the purpose of computing it separately.",
         ],
     ),
     Stage(

@@ -107,6 +107,45 @@ def test_force_overrides_an_up_to_date_stage(workspace):
     assert runner.reason_to_run(stage, force=True) == "forced"
 
 
+def test_newly_declared_output_with_no_recorded_digest_forces_a_rerun(workspace):
+    """A stage record predating a newly declared output must not treat that output as
+    already verified just because a file happens to sit at that path.
+
+    This is the exact failure `outputs_intact` used to have: a stage ran and was
+    recorded as done before `new_output.csv` existed in its `outputs` list; the module
+    was later run directly (outside the pipeline) and left `new_output.csv` on disk;
+    then the stage grew that path as a declared output. The old record's `outputs` dict
+    has no entry for it at all, so there is no digest to trust - `outputs_intact` must
+    say "not intact" and force one real run, which then records one. This is what
+    actually happened to `positioning_distributions`'s five new `common_set_*` outputs.
+    """
+    stage = make_stage()
+    write(workspace / "input.csv", 3)
+    write(workspace / "output.csv", 3)
+    record_as_done(stage)
+
+    write(workspace / "new_output.csv", 1)
+    grown = make_stage(
+        outputs=["output.csv", "new_output.csv"],
+        min_rows={"output.csv": 2, "new_output.csv": 1},
+    )
+    assert runner.reason_to_run(grown, force=False) == "outputs missing or modified"
+
+
+def test_directory_output_with_no_digest_stays_up_to_date(workspace):
+    """`provenance.output_record` never puts a sha256 on a directory output - there is
+    nothing file-shaped to hash - so the fix above, which forces a rerun when a *file*
+    output's digest was never recorded, must not do the same for a directory: presence
+    is the only check available for one, exactly as before that fix existed.
+    """
+    stage = make_stage(outputs=["output_dir"], min_rows={})
+    write(workspace / "input.csv", 3)
+    (workspace / "output_dir").mkdir()
+    (workspace / "output_dir" / "a.csv").write_text("a,b\n1,2\n")
+    record_as_done(stage)
+    assert runner.reason_to_run(stage, force=False) is None
+
+
 # --- assertions ---------------------------------------------------------------------
 
 

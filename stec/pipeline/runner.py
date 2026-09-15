@@ -51,15 +51,29 @@ class CheckFailed(RuntimeError):
 
 
 def outputs_intact(stage: Stage, record: dict) -> bool:
-    """Every declared output still present, with the digest that was recorded."""
+    """Every declared output still present, with its digest verified against last time.
+
+    `provenance.output_record` always puts a `sha256` on a *file* output and never on a
+    *directory* one (hashing a directory makes no sense; there is nothing to compare, and
+    presence is the only check available for one, same as before this function existed).
+    So for a file, the current run always has a `sha256` to compare - and if the
+    previously recorded run does not, that output was never actually verified by this
+    pipeline. The likely cause is a newly declared output that already existed on disk
+    from a run outside the pipeline (a module invoked directly, or an older stage that
+    grew this output later): accepting it as unchanged would skip the stage forever
+    without ever recording or checking a real digest for it. Treating a missing recorded
+    digest as "not intact" forces exactly one rerun, which then records one.
+    """
     recorded = record.get("outputs", {})
     for output in stage.outputs:
         current = provenance.output_record(Path(output))
         if not current.get("present"):
             return False
-        was = recorded.get(output, {})
-        if "sha256" in was and was.get("sha256") != current.get("sha256"):
-            return False
+        current_sha256 = current.get("sha256")
+        if current_sha256 is not None:
+            was = recorded.get(output, {})
+            if was.get("sha256") != current_sha256:
+                return False
     return True
 
 

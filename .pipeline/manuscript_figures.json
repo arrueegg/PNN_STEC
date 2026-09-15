@@ -7,19 +7,43 @@
     "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / pretrained_test_diagnostics (Figures 4-11) / positioning_distributions (Figures 12-15, common-set restricted since 2026-09-15 - see that stage's module docstring section 6) - a partial multiday_results tree produces a partial figure set with a logged warning per missing input, not a crash."
   ],
   "code": {
-    "commit": "b81d33f8d60b4bc17244e3a665eca0c802a1bb62",
+    "commit": "5dec7af42208d01fbb8804efadaea24dc434787e",
     "dirty": true
   },
   "command": "-m stec.viz.manuscript_figures",
   "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
-  "duration_s": 27.8,
-  "fingerprint": "1cbfffbb98519b725c912c596d815e5dbaefc9843d3b2f4554320d6f2803c501",
+  "duration_s": 29.8,
+  "fingerprint": "054488b957aa9510ee22ea7f172f580767cc15fc1278751b75ab71806bd48f25",
   "inputs": {
-    "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results": {
-      "files": 13525,
+    "multiday_results/analyses/daily_metrics/rebuilt": {
+      "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789465885548976237,
-      "size": 246711628029
+      "mtime_ns": 1787986697353950553,
+      "size": 287864
+    },
+    "multiday_results/analyses/elevation_metrics_finetuned/rebuilt": {
+      "files": 3,
+      "kind": "tree",
+      "mtime_ns": 1787986815646191295,
+      "size": 2466393
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt": {
+      "files": 47,
+      "kind": "tree",
+      "mtime_ns": 1789460358621350437,
+      "size": 5610778
+    },
+    "multiday_results/analyses/pretrained_test_diagnostics/rebuilt": {
+      "files": 4,
+      "kind": "tree",
+      "mtime_ns": 1787563504147294473,
+      "size": 339796839
+    },
+    "stec/data/splits": {
+      "files": 7,
+      "kind": "tree",
+      "mtime_ns": 1787484696650298111,
+      "size": 126933
     }
   },
   "outputs": {
@@ -35,7 +59,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T10:42:33.644687+00:00",
+  "recorded_at": "2026-09-15T11:58:58.401080+00:00",
   "stage": "manuscript_figures",
   "supersedes": []
 }

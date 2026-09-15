@@ -285,7 +285,15 @@ def test_pooled_rmse_matches_direct_computation_across_streamed_days(tmp_path):
 
 
 def test_summary_carries_every_baseline_present_in_the_frame():
-    """A store day with all three baselines must summarise all three, not just GIM."""
+    """A store day with all three baselines must summarise all three, not just GIM -
+    and each baseline's error must be distinguishable and non-zero, so a wrong
+    column reference in the pooling/weighting logic would actually be caught. An
+    earlier version of this test used constant per-baseline offsets on an
+    identical truth curve, which cancel exactly in a difference and drove every
+    dSTEC RMSE to 0 regardless of which column summarise() actually read."""
+    n = 100
+    index = np.arange(n)
+    truth_curve = np.linspace(20, 40, n)
     frame = pd.DataFrame(
         {
             "year": 2024,
@@ -293,23 +301,44 @@ def test_summary_carries_every_baseline_present_in_the_frame():
             "station": "AAAA",
             "sat": "G01",
             "slipc": 1,
-            "sod": np.arange(0, 3000, 30, dtype=float),
+            "sod": np.arange(0, n * 30, 30, dtype=float),
             "satele": np.concatenate(
                 [np.linspace(10, 80, 50), np.linspace(80, 10, 50)]
             ),
-            "true_stec": np.linspace(20, 40, 100),
-            "gfphase": np.linspace(20, 40, 100),
-            "stec_pred": np.linspace(20, 40, 100) + 1.0,
-            "gim_stec": np.linspace(20, 40, 100) + 2.0,
-            "vtec_model_stec": np.linspace(20, 40, 100) + 3.0,
-            "pretrained_stec_pred": np.linspace(20, 40, 100) + 4.0,
+            "true_stec": truth_curve,
+            "gfphase": truth_curve,
+            "stec_pred": truth_curve + 1.0,
+            # Each baseline gets its own non-constant drift on top of its offset, so
+            # the differencing that cancels a *constant* offset leaves a real,
+            # distinguishable residual behind for every one of them.
+            "gim_stec": truth_curve + 2.0 + 0.05 * index,
+            "vtec_model_stec": truth_curve + 3.0 + 0.1 * np.sin(index / 5.0),
+            "pretrained_stec_pred": truth_curve + 4.0 - 0.03 * index,
         }
     )
     arcs = de.compute_arc_dstec(frame)
     summary = de.summarise(arcs)
+
+    rmses = {}
     for prefix in ("gim", "vtec", "pretrained"):
         assert f"{prefix}_dstec_rmse_pooled" in summary.index
         assert f"{prefix}_abs_rmse_pooled" in summary.index
+        rmses[prefix] = summary[f"{prefix}_dstec_rmse_pooled"]
+        assert rmses[prefix] > 0
+
+    # Distinguishable: no two baselines land on the same RMSE by accident.
+    assert len({round(v, 6) for v in rmses.values()}) == 3
+
+    # Direct, independently-written recomputation for gim - same style as
+    # test_dstec_and_absolute_errors_match_a_direct_computation above.
+    satele = frame["satele"].to_numpy()
+    idx_max = int(np.argmax(satele))
+    mask = (satele - satele[idx_max]) < -20.0
+    gim_stec = frame["gim_stec"].to_numpy()
+    dstec_truth = truth_curve - truth_curve[idx_max]
+    dstec_gim = gim_stec - gim_stec[idx_max]
+    direct_gim_rmse = np.sqrt(np.mean(((dstec_gim - dstec_truth)[mask]) ** 2))
+    assert summary["gim_dstec_rmse_pooled"] == pytest.approx(direct_gim_rmse)
 
 
 def test_summary_reports_the_across_arc_median_beside_the_mean():
@@ -330,3 +359,22 @@ def test_summary_reports_the_across_arc_median_beside_the_mean():
     assert summary["model_dstec_rmse_q3_of_arcs"] == 4.0
     # the skewed arc must move the mean and leave the median alone
     assert summary["model_dstec_rmse_mean_of_arcs"] > 3.0
+
+
+def test_missing_reference_epoch_value_still_yields_absolute_error_statistics():
+    """A baseline that is NaN exactly at the arc's own reference (max-elevation)
+    epoch cannot produce a differential number for this arc - every dSTEC point is
+    a difference against that one epoch - but the absolute-error statistics never
+    touch the reference epoch at all and must still be reported. An earlier version
+    of the reference-epoch guard skipped the whole per-baseline block on a NaN
+    reference, silently dropping otherwise-valid absolute data for the arc."""
+    frame = _triangular_pass_frame()
+    idx_max = int(frame["satele"].to_numpy().argmax())  # index 5, satele == 60
+    frame.loc[idx_max, "gim_stec"] = np.nan
+
+    arcs = de.compute_arc_dstec(frame, min_samples_per_pass=10)
+    row = arcs.iloc[0]
+
+    assert np.isfinite(row["gim_abs_rmse"])
+    assert row["n_gim_valid"] == 7  # the 7 masked points all still have gim_stec
+    assert "gim_dstec_rmse" not in arcs.columns or pd.isna(row["gim_dstec_rmse"])

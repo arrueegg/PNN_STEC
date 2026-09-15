@@ -22,8 +22,15 @@ from stec.analysis.positioning_summary import METHOD_ORDER
 from stec.config import paths
 from stec.pipeline import registry
 from stec.pipeline.stages import (
+    ACTIVITY_STRATIFICATION_DIR,
     DAILY_METRICS_DIR,
+    DSTEC_EVALUATION_DIR,
+    ELEVATION_METRICS_FINETUNED_DIR,
+    HYPERPARAMETER_SEARCH_DIR,
+    IONEX_RMS_BENCHMARK_DIR,
+    MADRIGAL_REFERENCE_OFFSET_DIR,
     MANUSCRIPT_TABLE2_ROW_BACKING,
+    ORACLE_BENCHMARK_DIR,
     ORACLE_EXPERIMENT_DIR,
     PAPER_TABLES_DIR,
     POSITIONING,
@@ -33,13 +40,26 @@ from stec.pipeline.stages import (
     POSITIONING_DISTRIBUTIONS_FIGURES_DIR,
     POSITIONING_GEOGRAPHY_DIR,
     POSITIONING_GEOGRAPHY_FIGURES_DIR,
+    POSITIONING_ROBUSTNESS_DIR,
     POSITIONING_SUMMARY_DIR,
+    PRETRAINED_TEST_DIAGNOSTICS_DIR,
     RECOVERED_STEC_DB,
+    RELATIVE_ERROR_METRICS_DIR,
+    RELATIVE_ERROR_METRICS_LEGACY_FLAT_CSV,
+    RELATIVE_ERROR_METRICS_REBUILT_CANDIDATE,
     STAGES,
+    STATION_INDEPENDENCE_DIR,
     STORE_PRETRAINED,
+    STORM_STRATIFICATION_DIR,
+    STRATIFIED_COMPARISON_DIR,
+    STRATIFIED_COMPARISON_PRETRAINED_DIR,
     SWI,
+    UNCERTAINTY_CALIBRATION_DIR,
+    UNCERTAINTY_ERROR_RELATION_DIR,
+    WEIGHTING_ABLATION_DIR,
     WEIGHTING_RUN,
     _extract_tex_table_rows,
+    _rel,
     _unwrap_braced_macro,
     daily_metrics_summary_has_all_methods_and_datasets,
     daily_metrics_summary_has_consistent_day_counts,
@@ -127,9 +147,9 @@ def test_gim_repair_precedes_the_metrics_that_read_it():
 
 def test_figures_and_manuscript_figures_run_last():
     """Last among the stages that actually feed them: `figures` and `manuscript_figures`
-    both read the metric CSVs every analysis stage above writes to `multiday_results`
-    (the latter also reads `daily_metrics` and `positioning_coverage` specifically), so
-    both must follow every stage that produces one of those CSVs.
+    each read a specific, narrow set of analysis output directories - not the whole
+    `multiday_results` tree (see the dedicated input tests below) - but every one of
+    those directories is written by a stage that must therefore precede both of these.
 
     `results_manifest` and `data_prep_smoke` are excluded, not exempted from a real
     invariant: neither reads `multiday_results` nor is read by either figure stage - the
@@ -148,6 +168,128 @@ def test_figures_and_manuscript_figures_run_last():
     )
     assert position("figures") > last_producer
     assert position("manuscript_figures") > last_producer
+
+
+# --- figures / manuscript_figures: narrowed off the whole `multiday_results` tree -------
+#
+# Both stages used to declare `str(paths.RESULTS_ROOT)` as their only input, which made
+# editing any hand-maintained CSV under that tree (revision_metrics_index.csv,
+# revision_analyses_status.csv) mark both stale for a reason no figure ever reads. Every
+# directory asserted below was found by reading `stec.viz.revision_figures.FIGURE_BUILDERS`
+# and `stec.viz.manuscript_figures.FIGURE_BUILDERS` directly, not guessed - each test also
+# re-checks the real module source, so a future refactor that stops reading one of these
+# directories fails the test here rather than leaving a now-wrong input declared forever.
+
+_REVISION_FIGURES_ANALYSIS_DIRS = {
+    "activity_stratification": ACTIVITY_STRATIFICATION_DIR,
+    "dstec_evaluation": DSTEC_EVALUATION_DIR,
+    "hyperparameter_search": HYPERPARAMETER_SEARCH_DIR,
+    "ionex_rms_benchmark": IONEX_RMS_BENCHMARK_DIR,
+    "madrigal_reference_offset": MADRIGAL_REFERENCE_OFFSET_DIR,
+    "oracle_benchmark": ORACLE_BENCHMARK_DIR,
+    "positioning_robustness": POSITIONING_ROBUSTNESS_DIR,
+    "station_independence": STATION_INDEPENDENCE_DIR,
+    "storm_stratification": STORM_STRATIFICATION_DIR,
+    "stratified_comparison": STRATIFIED_COMPARISON_DIR,
+    "uncertainty_calibration": UNCERTAINTY_CALIBRATION_DIR,
+    "uncertainty_error_relation": UNCERTAINTY_ERROR_RELATION_DIR,
+    "weighting_ablation": WEIGHTING_ABLATION_DIR,
+}
+
+
+@pytest.mark.parametrize(
+    "analysis_name,directory", sorted(_REVISION_FIGURES_ANALYSIS_DIRS.items())
+)
+def test_figures_declares_every_analysis_directory_its_builders_read(
+    analysis_name, directory
+):
+    inputs = stage("figures").inputs
+    assert str(directory) in inputs, (
+        f"stec.viz.revision_figures reads analysis_dir(..., {analysis_name!r}), but "
+        f"the figures Stage does not declare {directory} as an input"
+    )
+    module = _module_for(stage("figures"))
+    assert _module_source_mentions(module, f'"{analysis_name}"'), (
+        f"{analysis_name!r} is asserted as a figures input but the real module source "
+        "no longer mentions it - the mapping above is now a guess, not a reading"
+    )
+
+
+def test_figures_declares_the_unclassified_stratified_comparison_pretrained_source():
+    """`_build_stratified_figures` reads the results-restructure's own 'don't know'
+    bucket for the pretrained-model stratified comparison - it has no declared stage of
+    its own, so nothing else would ever fingerprint a change to it."""
+    inputs = stage("figures").inputs
+    assert str(STRATIFIED_COMPARISON_PRETRAINED_DIR) in inputs
+
+    module = _module_for(stage("figures"))
+    assert _module_source_mentions(module, "stratified_comparison_pretrained")
+
+
+def test_figures_declares_the_relative_error_legacy_path_not_its_own_stage_output():
+    """`_build_relative_error_figures` checks
+    `<results_dir>/relative_error_metrics_rebuilt/yearly_metrics.csv` first and falls
+    back to `<results_dir>/relative_error_metrics.csv` - neither is
+    RELATIVE_ERROR_METRICS_DIR (`analyses/relative_error_metrics/rebuilt/`), the real
+    output of the `relative_error_metrics` Stage, because `analysis_dir()` cannot
+    express the pre-rebuild rename (the module's own comment says so). Only the flat
+    legacy file exists on disk today, so that is genuinely what gets read; declaring
+    RELATIVE_ERROR_METRICS_DIR here would name a directory this figure never opens -
+    fixing the underlying mismatch is out of scope for this Stage's input declaration
+    (see RELATIVE_ERROR_METRICS_LEGACY_FLAT_CSV's own comment in stages.py)."""
+    inputs = stage("figures").inputs
+    assert RELATIVE_ERROR_METRICS_LEGACY_FLAT_CSV in inputs
+    assert RELATIVE_ERROR_METRICS_REBUILT_CANDIDATE in inputs
+    assert str(RELATIVE_ERROR_METRICS_DIR) not in inputs
+
+    module = _module_for(stage("figures"))
+    assert _module_source_mentions(module, '"relative_error_metrics.csv"')
+    assert _module_source_mentions(module, '"relative_error_metrics_rebuilt"')
+
+
+def test_figures_no_longer_declares_the_whole_results_tree():
+    assert str(paths.RESULTS_ROOT) not in stage("figures").inputs
+
+
+def test_manuscript_figures_declares_the_analysis_directories_its_builders_read():
+    inputs = stage("manuscript_figures").inputs
+    assert str(PRETRAINED_TEST_DIAGNOSTICS_DIR) in inputs
+    assert str(DAILY_METRICS_DIR) in inputs
+    assert str(ELEVATION_METRICS_FINETUNED_DIR) in inputs
+    assert str(POSITIONING_DISTRIBUTIONS_DIR) in inputs
+
+    module = _module_for(stage("manuscript_figures"))
+    assert _module_source_mentions(module, '"pretrained_test_diagnostics"')
+    assert _module_source_mentions(module, '"daily_metrics"')
+    assert _module_source_mentions(module, '"elevation_metrics_finetuned"')
+    assert _module_source_mentions(module, '"positioning_distributions"')
+
+
+def test_manuscript_figures_declares_the_split_lists_directory():
+    """Figures 1-2 read `stec.config.paths.SPLIT_LISTS` directly (`date_list`/
+    `station_list`), not anything under `multiday_results/` - the old whole-tree
+    declaration never covered this at all, so this closes a pre-existing gap, not just
+    a narrowing of something already declared."""
+    inputs = stage("manuscript_figures").inputs
+    assert str(_rel(paths.SPLIT_LISTS)) in inputs
+
+    module = _module_for(stage("manuscript_figures"))
+    assert _module_source_mentions(module, "paths.date_list")
+    assert _module_source_mentions(module, "paths.station_list")
+
+
+def test_manuscript_figures_no_longer_declares_the_whole_results_tree():
+    assert str(paths.RESULTS_ROOT) not in stage("manuscript_figures").inputs
+
+
+def test_manuscript_figures_positioning_figures_read_the_common_set():
+    """Pins the corrected reading: Figures 12-15 read positioning_distributions's
+    common_set_daily_rows.csv (the 2026-09-15 common-set restriction), not
+    positioning_coverage's multiday_summary.csv - this Stage's own leading comment
+    claimed the latter until this narrowing corrected it against the real module
+    source."""
+    module = _module_for(stage("manuscript_figures"))
+    assert _module_source_mentions(module, "common_set_daily_rows.csv")
 
 
 def test_oracle_benchmark_states_it_is_not_comparable_with_table_5():
