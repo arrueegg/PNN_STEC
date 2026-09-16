@@ -805,6 +805,24 @@ Two evaluations that are **not** what they look like:
 - **Substring-matching `/proc/<pid>/cmdline` for a script name matches any shell that merely
   mentions it**, including an interactive session grepping for it. Compare argv *fields* exactly
   (`[[ "${field##*/}" == "backfill_store.sh" ]]`), or a "is it still running?" guard waits forever.
+- **`prediction_store`'s default root is the fixture stub, not the real store — on this
+  machine.** `DEFAULT_STORE_ROOT` is `paths.PREDICTIONS` = `artifacts/predictions`, which
+  here holds a **one-day, five-station** smoke fixture. The real 242-day store is at
+  `paths.LEGACY_PREDICTIONS` = `predictions/`. So `ps.iter_days(...)`/`available_days(...)`
+  **without `root=`** returns confident, wrong answers with no error — one day where you
+  expected 242, or zeros for every station you asked about. Two sessions hit this on the same
+  day, 2026-09-16. **Always pass `root=paths.LEGACY_PREDICTIONS` for real data.** Every
+  declared stage and every call site in `stec/` and `tests/` already does — an AST sweep
+  found zero relying on the default — so no published number is affected; the exposure is
+  ad-hoc queries only. The write-side drivers are already hardened
+  (`prediction_store.require_explicit_store_root`, which refuses to resolve silently); the
+  read path deliberately is **not**, because the default is correct by design for a clean
+  clone, where `build_fixture_tree` redirects `paths.PREDICTIONS` by environment variable and
+  `tests/test_clean_clone.py` asserts the store round-trips through the defaults. Making
+  `root` mandatory was tried on 2026-09-16 and reverted for exactly that reason: it would
+  trade a documented, tested clean-clone behaviour for a workaround to a mid-migration
+  condition on one host. The trap disappears when the store finishes moving to
+  `artifacts/predictions`.
 - **Analyses must stream the store day by day, never read it whole.**
   `prediction_store.read_predictions(...)` without `doys=[...]`/`years=[...]` and without
   `allow_full_scan=True` now **raises `ValueError`** rather than silently loading everything —
