@@ -7,19 +7,19 @@
     "Three individual per-day source files were found truncated on disk, all with recovery-sweep mtimes (2026-08-23/24), independent of this stage: DOY 166 and 176 dropped from ~43 stations to 2 in all three ML methods' own trees plus the GIM arm simultaneously (identical mtimes across the independent STEC/VTEC/Pretrained experiment directories, so this is a PPPx-level failure for those two days, not a positioning_coverage aggregation bug); DOY 323 dropped from ~41 to 4 stations in the STEC tree only (VTEC and Pretrained trees for that day are intact, 89 lines each). These three days are included in the aggregate as genuinely-small samples, not dropped or backfilled - no PPPx re-run was in scope to fix them. They are 3 of 242 days and do not materially move the per-station-day-mean tables, but a per-day breakdown that weights days unevenly should exclude or flag them."
   ],
   "code": {
-    "commit": "75f19c075ec4c274aa10bb6a925314114b86843e",
+    "commit": "badcf909263a89ea7810a00b126a1645f2ed9416",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_coverage --output-dir multiday_results/analyses/positioning_coverage/rebuilt",
   "description": "which station-days each method solved, and why the rest are missing",
-  "duration_s": 10.3,
-  "fingerprint": "4e6fcc1931994afa083956f854913fb4170bf4843b19f7cb7460ef309e1258d4",
+  "duration_s": 10.6,
+  "fingerprint": "3f082385832939396cb9a57b5320a145da0b72f98a432c1fe806724ae445cdc2",
   "inputs": {
     "experiments": {
-      "files": 548652,
+      "files": 566604,
       "kind": "tree",
-      "mtime_ns": 1789370466836503716,
-      "size": 480457098729
+      "mtime_ns": 1789557003511682111,
+      "size": 483622728924
     }
   },
   "outputs": {
@@ -53,7 +53,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T07:31:32.020979+00:00",
+  "recorded_at": "2026-09-16T11:30:56.355994+00:00",
   "stage": "positioning_coverage",
   "supersedes": [
     "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_runs/full_coverage",

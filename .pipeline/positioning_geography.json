@@ -8,18 +8,18 @@
     "Shares its output directory with two further, undeclared modules (positioning_quality_gate.py, positioning_model_attribution.py) - only the files this stage's own command writes are declared as outputs above."
   ],
   "code": {
-    "commit": "77d5a85e738ba576cf55e66d403f3842de2c689d",
+    "commit": "badcf909263a89ea7810a00b126a1645f2ed9416",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_geography --output-dir multiday_results/analyses/positioning_geography/rebuilt",
   "description": "positioning error against geographic and geomagnetic station latitude, and recovered-population concentration by latitude",
   "duration_s": 1.9,
-  "fingerprint": "6742404cc7260985bae9fc25f32dfdc0a5b6560dcddfde1c6d520f4c29cbac1a",
+  "fingerprint": "7a4b03a9218de40a47262094af7f24dba03c4a6d42cfeb22502868ea1e1e09fd",
   "inputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt": {
       "files": 14,
       "kind": "tree",
-      "mtime_ns": 1789371086519928283,
+      "mtime_ns": 1789558250562295075,
       "size": 58867382
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
@@ -97,7 +97,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T09:38:37.834937+00:00",
+  "recorded_at": "2026-09-16T11:32:19.259939+00:00",
   "stage": "positioning_geography",
   "supersedes": []
 }

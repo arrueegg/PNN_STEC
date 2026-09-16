@@ -7,12 +7,12 @@
     "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / pretrained_test_diagnostics (Figures 4-11) / positioning_distributions (Figures 12-15, common-set restricted since 2026-09-15 - see that stage's module docstring section 6) - a partial multiday_results tree produces a partial figure set with a logged warning per missing input, not a crash."
   ],
   "code": {
-    "commit": "cf9835abba1dbc1a9c1d66314438e61286ae525f",
+    "commit": "6b48e0df44fe541d0121ab320ab40a9202801d42",
     "dirty": true
   },
   "command": "-m stec.viz.manuscript_figures",
   "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
-  "duration_s": 28.8,
+  "duration_s": 29.1,
   "fingerprint": "488d984d473d35fec9181fb45f215d560b739b14c9ddf27f5f254e148aac63ba",
   "inputs": {
     "multiday_results/analyses/daily_metrics/rebuilt": {
@@ -59,7 +59,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T16:17:25.487404+00:00",
+  "recorded_at": "2026-09-15T17:11:29.842126+00:00",
   "stage": "manuscript_figures",
   "supersedes": []
 }

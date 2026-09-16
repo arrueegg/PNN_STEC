@@ -40,7 +40,7 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R2.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
 | R1.3 Madrigal reference offset | **READY** | 67 stations, 238 possible days. Quote Spearman +0.693 and 95.5% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. Computed from the corrected (IPP-longitude local-time) Madrigal store; no re-inference caveat remains. |
 | R1.6 calibration | **READY** | Own-test-set coverage is settled; storm/quiet split and Madrigal offset-removed coverage are both final below. |
-| R1.8 oracle bound | **READY** | Resolved by the 2026-09-14 re-run, re-verified this session: `rebuilt` (5,514 station-days, 242/242 days) is a strict superset of `pre_rebuild` (5,364), identical on every shared row — the earlier two-artifact disagreement was coverage only, not a competing population. Quotable: oracle floor 0.1254 m mean / 0.0721 m median; Direct STEC 9.7x/11.5x the floor (mean/median), IGS GIM 11.2x/14.1x, VTEC + Mapping 12.9x/15.8x — see below. Uses **elev** weighting and paired station-days, so it is not comparable with Table 6. |
+| R1.8 oracle bound | **READY** | Methodology changed again 2026-09-16 (commit 66fe4bd): the stage moved to the common-set population, dropped the 10 m outlier filter, and switched to a median headline — the same axes Table 6 uses. Current: `rebuilt` 5,442 paired station-days (242/242 days, 52 stations), oracle floor 0.0720 m median; Direct STEC 11.6x the floor, IGS GIM 14.2x, VTEC + Mapping 15.9x — see below. The earlier 5,514-station-day population and the 9.7x/11.5x-style mean ratios are superseded: dropping the filter let one PPPx solve failure (URUM, DOY 365) into the oracle arm, which inflates the mean floor tenfold and must not be quoted. **elev** weighting is now the only remaining, permanent difference from Table 6. |
 | R1.5 fixed-variance arm | **READY** | 242 days, N = 6,896 paired (updated 2026-09-15). Constant sigma is 4.6% *better* than elevation weighting; the model's predicted sigma is 1.1% worse than the constant-sigma arm (mean-only figures — see R1.5 below for the current, common-set median table). |
 | R2.6 uncertainty vs error, fine-tuned | **READY, now in the response letter** | Full 242-day store; RMSE/σ 1.30–1.45× (σ bins, 95%+ of obs) to 2.03× at the extremes, 1.54–1.68× (elevation), epistemic share 5.1–6.6%. |
 | R1.2 fully-Bayesian comparison | **READY** | Done — matched-init retrain evaluated. Paper model RMSE 11.67 vs fully-Bayesian 15.54 (1.33×); uncertainty–error correlation marginally favours the fully-Bayesian arm (0.575 vs 0.568); epistemic-scale diagnostic shows the paper model's under-dispersion is scale, not structure. |
@@ -56,8 +56,8 @@ exist yet; draft around them and leave the numbers as placeholders.
 
 Nothing in the remaining PENDING list is expected to *change direction* — they are missing
 precision, not missing answers. (R1.8's oracle floor is no longer one of them: resolved this
-session — see below — with Direct STEC sitting 9.7x/11.5x the floor on mean/median, an order of
-magnitude above it, same as the other two corrections.)
+session — see below — with Direct STEC sitting 11.6x the median floor, an order of magnitude
+above it, same as the other two corrections.)
 
 **This status table tracks whether evidence exists and is computable, not whether it has been
 transcribed into `PNN_main_revised.tex`.** A comment-by-comment check of the manuscript itself
@@ -439,33 +439,59 @@ significant at the declared `min_days_each=20` default, x1.41). Root cause is up
 `multiday_results/analyses/constellation_coverage/rebuilt/{population_summary,within_station_penalty}.csv`
 
 ### R1.8 — observation-derived upper bound — **READY (resolved; not yet in the manuscript)**
-`rebuilt/summary.csv` (re-run 2026-09-14, re-verified this session): oracle floor **0.1254 m
-mean / 0.0721 m median** 3D RMS, against Direct STEC **1.219 / 0.831**, IGS GIM **1.408 /
-1.019**, VTEC + Mapping **1.622 / 1.136** (all m), on **5,514 station-days spanning all 242
-days, 52 stations**. Merging on (station, doy), all 5,364 of `pre_rebuild`'s station-days
-appear in `rebuilt`, and every method column agrees to max |Δ| = 0.000000 m — `rebuilt` is a
-**strict superset** of `pre_rebuild`, not a disagreeing population, so the "two artifacts"
-framing this document previously carried is retired. The extra 150 station-days are 2 from
-stations absent from `pre_rebuild` entirely (GLSV, HLFX) and 148 from additional recovered days
-for stations already present (BAIE +50, AMC4 +48, AIRA +34, BRST +7, plus singles) — consistent
-with the 2026-08-20→24 positioning station-recovery sweep. The stage's own declared-inputs bug
-(fixed; see `stec/pipeline/stages.py`'s comment on this stage) explains why an intermediate
-`rebuilt` read once showed only 1,810 station-days over 76 days: 166 of 242 oracle
-day-directories' SINEX symlinks had gone dangling under a stale input declaration, and
-242 − 166 = 76 matches that stale day count exactly. The 0.090 m/9-day and 0.128 m/1,232-row
-snapshots quoted in still-earlier drafts remain superseded and uncited.
+`rebuilt/summary.csv` (re-run 2026-09-14, methodology changed again 2026-09-16 — commit
+66fe4bd, re-verified this session): oracle floor **0.0720 m median** 3D RMS, against Direct
+STEC **0.837 m** (11.6x), IGS GIM + Mapping **1.021 m** (14.2x), VTEC + Mapping **1.143 m**
+(15.9x), on **5,442 paired station-days spanning all 242 days, 52 stations**.
 
-As multiples of the floor: Direct STEC **9.7× mean / 11.5× median**, IGS GIM **11.2× / 14.1×**,
-VTEC + Mapping **12.9× / 15.8×**. `ratio_to_oracle` in the CSV is computed from the mean column
-only; both statistics are reported here per the owner's median-first methodology
-(`docs/revision/positioning_reporting.md`). Direct STEC is the closest of the three corrections
-to the floor on both statistics, and all three remain roughly an order of magnitude above it —
-**"almost all remaining positioning error is ionospheric modelling error, not orbit, clock or
-multipath"** is the defensible claim, now on a settled number rather than a range. Validation:
-re-running the current stage reproduces the published elevation-weighted GIM arm at
-max |Δ| = 0.0000 m over **2,389** shared station-days. Caveats unchanged: elev weighting only,
-restricted to the all-four-method-solved population, 10 m outcome exclusion retained (unlike
-Table 6), not comparable with Table 6's absolute numbers.
+**Read the median; the mean is now actively misleading, not merely a second statistic.** Since
+2026-09-16 the stage drops the 10 m outcome-based exclusion, which matches it to the positioning
+tables but lets one genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under elevation
+weighting) into the oracle arm itself. That single row of 5,442 inflates the *mean* floor
+roughly tenfold — 0.1254 m to 1.255 m — while the median floor is unchanged to three figures
+(0.0721 m to 0.0720 m). The mean-based ratios consequently collapse to 1.9x/2.0x/2.3x, an
+artifact of that one station-day, and must not be quoted as a result; `summary.csv` keeps them
+as `ratio_to_oracle_mean` for sensitivity only, with `ratio_to_oracle_median` as the headline
+column.
+
+This document previously reported the population as **5,514 station-days**; that number is
+superseded twice over, not once. It first grew from 5,364 (`pre_rebuild`) to 5,514 via the
+2026-08-20→24 station-recovery sweep — merging on (station, doy), all 5,364 of `pre_rebuild`'s
+station-days appeared in that `rebuilt`, and every method column agreed to max |Δ| = 0.000000 m,
+so the "two disagreeing artifacts" framing this document previously carried was retired (the
+extra 150 station-days were 2 from stations absent from `pre_rebuild` entirely — GLSV, HLFX —
+and 148 more recovered days for stations already present: BAIE +50, AMC4 +48, AIRA +34, BRST
++7, plus singles). The stage's own declared-inputs bug (fixed; see `stec/pipeline/stages.py`'s
+comment on this stage) explains an even earlier, smaller misread of 1,810 station-days over 76
+days: 166 of 242 oracle day-directories' SINEX symlinks had gone dangling under a stale input
+declaration, and 242 − 166 = 76 matches that stale day count exactly. Then, on 2026-09-16, the
+population shrank again to the current 5,442 — not a data loss, but the stage being restricted
+to the same four-method/both-weighting common set the positioning tables use. The 0.090 m/9-day
+and 0.128 m/1,232-row snapshots quoted in still-earlier drafts remain superseded and uncited.
+
+Direct STEC is the closest of the three corrections to the floor, and all three remain more than
+an order of magnitude above it — **"almost all remaining positioning error is ionospheric
+modelling error, not orbit, clock or multipath"** is the defensible claim, now on a settled
+number rather than a range. Validation: re-running the current stage reproduces the published
+elevation-weighted GIM arm at max |Δ| = 0.0000 m over **2,389** shared station-days.
+
+**Caveats, corrected.** `oracle_benchmark` uses **elevation** weighting only — the reference
+STEC carries only a placeholder sigma, so `iono` would weight every observation by a constant —
+and since 2026-09-16 that is the *only* remaining methodological difference from Table 6: the
+stage now shares Table 6's common-set population, drops the 10 m outcome exclusion, and reports
+a median headline, the same three changes Table 6 and the other R2.7 stages made on 2026-09-15.
+Ratios to the floor still belong to this table; absolute positioning numbers still belong to
+Table 6.
+
+**Coverage is uneven, and that is a separate, standing caveat.** 52 of the common set's 55
+stations appear in the oracle experiment (DUMG, HRAO, PARC missing entirely); within those, 15
+stations contribute 3,279 of the 5,442 paired station-days (60%) while 22 contribute 114 between
+them — an imbalance that predates the common-set restriction and is unaffected by it.
+`station_median_check.csv` compares the pooled median against the median-of-per-station-medians
+and finds them within 5–8% for all four methods, so the headline is not an artifact of the
+well-covered minority, though the floor is still set predominantly by those 15 stations. The
+cause of the uneven coverage is under investigation elsewhere; no claim is made here about
+whether or how much of it is recoverable.
 `multiday_results/analyses/oracle_benchmark/{rebuilt,pre_rebuild}/summary.csv` ·
 `plots/revision/positioning_2024/oracle_benchmark_notitle.png`
 

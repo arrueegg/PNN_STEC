@@ -424,28 +424,31 @@ were made to work around it; the limitation is reported instead.
 and the finding is quotable.
 
 `multiday_results/analyses/oracle_benchmark/rebuilt/summary.csv`: applying the reference STEC
-directly as the correction gives an oracle floor of **0.1254 m mean / 0.0721 m median** 3D RMS,
-over **5,514 station-days, all 242 test days, 52 stations**. Against that floor: Direct STEC
-**1.219 m mean / 0.831 m median** (9.7× / 11.5× the floor), IGS GIM + Mapping **1.408 / 1.019**
-(11.2× / 14.1×), VTEC + Mapping **1.622 / 1.136** (12.9× / 15.8×). The file's own
-`ratio_to_oracle` column is computed from the **mean** column only (checked directly: Direct
-STEC's 1.2191167/0.1253682 = 9.7243, matching the column's own value to six decimals); this
-letter's standing methodology elsewhere reports medians
-(`docs/revision/positioning_reporting.md`), so both are given above rather than silently
-reporting only the statistic the artifact happens to compute.
+directly as the correction gives an oracle floor of **0.0720 m** median 3D RMS, over **5,442
+station-days** across all 242 test days and 52 stations. Against that floor: Direct STEC
+**0.837 m** (11.6x), IGS GIM + Mapping **1.021 m** (14.2x), VTEC + Mapping **1.143 m** (15.9x).
 
-**What the reviewer asked, answered both ways.** R1.8 asked for a benchmark that applies the
-GNSS-derived reference STEC directly as the ionospheric correction — a near-oracle upper
-bound — to show how close the model comes to the best achievable performance under the same
-processing chain. Of the three corrections, Direct STEC (the model's own output, with no
-VTEC/GIM mapping in between) is the closest to that floor on both mean and median — and it is
-still almost an order of magnitude above it (9.7× mean / 11.5× median), with IGS GIM and
-VTEC + Mapping trailing further still (11.2–12.9× mean, 14.1–15.8× median). Both halves matter:
-the model is the best of the three tested corrections at approaching the observation-derived
-floor, and none of the three comes close to it. Read plainly, almost all of the remaining
-positioning error — for every correction tested, including the model — is ionospheric-modelling
-error against the reference STEC's own processing chain, not orbit, clock or multipath; the
-model narrows that gap relative to the other two corrections without closing it.
+**Read the median, not the mean, and this is not a stylistic preference here.** Since
+2026-09-16 this stage no longer applies the 10 m outcome-based exclusion, which matches it to
+the positioning tables but lets one genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under
+elevation weighting) into the oracle arm itself. That single row of 5,442 inflates the *mean*
+floor roughly tenfold, 0.125 m to 1.255 m, while the median floor moves 0.0721 m to 0.0720 m.
+The mean-based ratios consequently collapse to 1.9x/2.0x/2.3x, which is an artifact of that one
+station-day and must not be quoted. `summary.csv` carries both as
+`ratio_to_oracle_median` (headline) and `ratio_to_oracle_mean` (sensitivity only).
+
+The methodology change did not move the finding: median-based ratios went from 11.5x/14.1x/15.8x
+on the old 5,514-station-day population to 11.6x/14.2x/15.9x on the current one. The conclusion
+was robust to it.
+
+**What the reviewer asked, answered.** R1.8 asked for a benchmark applying the GNSS-derived
+reference STEC directly as the ionospheric correction - a near-oracle upper bound - to show how
+close the model comes to the best achievable performance under the same processing chain. Of the
+three corrections, Direct STEC is closest to that floor, and it is still more than an order of
+magnitude above it. Both halves matter. Read plainly, almost all of the remaining positioning
+error - for every correction tested, the model included - is ionospheric-modelling error against
+the reference STEC's own processing chain, not orbit, clock or multipath; the model narrows that
+gap relative to the other two corrections without closing it.
 
 **Reconciliation, kept as history rather than deleted.** This section previously reported
 `rebuilt` and `pre_rebuild` as disagreeing in population — 1,810 station-days over 76 of 242
@@ -474,16 +477,32 @@ An even earlier draft of this section quoted 0.128 m mean 3D RMS against 1.149 /
 the files above existed, and already retracted at the time. Kept here only as a record that
 this section has moved through three populations before landing on the current one.
 
-**Caveats that still apply, unchanged.** `oracle_benchmark` uses **elevation** weighting only
-— the reference STEC carries only a placeholder sigma, so `iono` weighting would weight by a
-constant — and is restricted to the station-days solved by all four methods (the 5,514 above).
-It also still applies the 10 m outcome-based exclusion and reports a mean headline, unlike
-Table 6 and the other R2.7 stages, which moved to the common-set population with no outlier
-filter and a median headline on 2026-09-15; this is a deliberate, permanent difference in what
-question the stage answers (a self-contained ratio-to-floor question on its own restricted
-population), not an unfixed instance of that methodology change. It is therefore **not
-comparable with Table 6's absolute positioning numbers**, by design and permanently — read
-ratios to the floor from this table, and take absolute positioning numbers from Table 6.
+**A second, smaller population change, for a different reason.** The reconciliation above
+explains why `rebuilt` grew from 5,364 to 5,514 station-days (the station-recovery sweep). Since
+2026-09-16 (commit 66fe4bd) `rebuilt` is smaller again, 5,442 — not a data loss, but the stage
+being restricted to the same four-method/both-weighting common set the positioning tables use.
+Read 5,514 above as the population at that intermediate point in the stage's history, not as
+what `summary.csv` currently holds.
+
+**Caveats, corrected.** `oracle_benchmark` uses **elevation** weighting only — the reference
+STEC carries only a placeholder sigma, so `iono` weighting would weight every observation by a
+constant — and since 2026-09-16 that is the *only* remaining methodological difference from
+Table 6: the stage now shares Table 6's common-set population (intersected with the
+station-days solved by all four methods here, the 5,442 above), drops the 10 m outcome-based
+exclusion, and reports a median headline — the same three changes Table 6 and the other R2.7
+stages made on 2026-09-15. It is therefore comparable with Table 6 on population and outlier
+treatment; read ratios to the floor from this table, and take absolute positioning numbers from
+Table 6.
+
+**Coverage is uneven, and that is a separate, standing caveat.** 52 of the common set's 55
+stations appear in the oracle experiment (DUMG, HRAO, PARC missing entirely); within those, 15
+stations contribute 3,279 of the 5,442 paired station-days (60%) while 22 contribute 114 between
+them — an imbalance that predates the common-set restriction and is unaffected by it.
+`station_median_check.csv` compares the pooled median against the median-of-per-station-medians
+and finds them within 5–8% for all four methods, so the headline is not an artifact of the
+well-covered minority, though the floor is still set predominantly by those 15 stations. The
+cause of the uneven coverage is under investigation; this letter makes no claim about whether or
+how much of it is recoverable.
 
 ---
 
