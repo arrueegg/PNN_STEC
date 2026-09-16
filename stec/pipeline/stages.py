@@ -208,6 +208,11 @@ POSITIONING_GEOGRAPHY_DIR = _analysis_dir("positioning_geography", rebuilt=True)
 # subdirectory is declared as this stage's output.
 POSITIONING_DISTRIBUTIONS_FIGURES_DIR = "plots/positioning_distributions"
 POSITIONING_GEOGRAPHY_FIGURES_DIR = "plots/positioning_geography"
+# plots/oracle_benchmark/ - exclusive to stec.viz.oracle_benchmark, deployment-ready
+# figures for R1.8 held outside the manuscript (owner request, 2026-09-16). See the
+# oracle_benchmark_figures Stage below for why this is separate from both
+# revision_figures.py's own oracle_benchmark PNG and the manuscript tree.
+ORACLE_BENCHMARK_FIGURES_DIR = "plots/oracle_benchmark"
 RESULTS_MANIFEST_DIR = _analysis_dir("results_manifest", rebuilt=True)
 PRETRAINED_TEST_DIAGNOSTICS_DIR = _analysis_dir(
     "pretrained_test_diagnostics", rebuilt=True
@@ -2417,6 +2422,64 @@ STAGES: list[Stage] = [
             "all four methods, which no further oracle solving can fix. Only GLSV is an "
             "oracle-side failure: PPPx SIGSEGVs on it (missing Galileo PRN16 antenna "
             "calibration, 'no E16'), costing 95 of the 139 unrecovered station-days.",
+        ],
+    ),
+    Stage(
+        # Deployment-ready figures for R1.8, requested by the owner 2026-09-16 to have
+        # "nice plots ready if i use it later for the reviewer comment addressing" - held
+        # outside the manuscript until that decision is made, so this is a companion to
+        # oracle_benchmark above rather than a replacement for revision_figures.py's own
+        # oracle_benchmark bar chart (plots/revision/positioning_2024/oracle_benchmark.png,
+        # which still answers R1.8 at manuscript scale). Same pattern as
+        # positioning_diagnostics_figures and positioning_distributions_figures: a
+        # standalone plots/ tree, not wired into revision_figures.py or
+        # manuscript_figures.py, so it cannot be mistaken for either.
+        "oracle_benchmark_figures",
+        f"-m stec.viz.oracle_benchmark --output_dir {ORACLE_BENCHMARK_FIGURES_DIR}",
+        "R1.8",
+        "log-scale box plot, paired-difference scatter, station-coverage bar chart and a "
+        "generated table for oracle_benchmark's CSVs",
+        inputs=[str(ORACLE_BENCHMARK_DIR)],
+        outputs=[
+            ORACLE_BENCHMARK_FIGURES_DIR,
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/boxplot_oracle_benchmark.csv",
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/paired_difference.csv",
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/station_coverage.csv",
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/oracle_table.md",
+        ],
+        min_rows={
+            # Box geometry (7 stats + n_exceeding_5m + n_above_axis_cap) x 4 methods = 36,
+            # plus every flier point beyond the Tukey fence - measured 2,795 fliers on the
+            # 2026-09-16 population, 2,831 rows total. Floored below that so a smaller
+            # future population (station-day pairing can only shrink, never silently grow
+            # past what oracle_benchmark itself paired) does not fail this on its own.
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/boxplot_oracle_benchmark.csv": 2_000,
+            # 2 baselines (GIM, VTEC) x N station-days, one row per pairing - exact, not a
+            # floor with headroom, because paired_station_days.csv carries no NaNs (every
+            # row already has all four methods by construction) - measured 16,446 = 2 x
+            # 8,223.
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/paired_difference.csv": 16_000,
+            # One row per station in the paired population - measured 54.
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/station_coverage.csv": 40,
+        },
+        canonical_for=None,
+        caveats=[
+            "Held outside the manuscript pending the owner's decision on whether/how it "
+            "enters the R1.8 reviewer response - not a manuscript or revision-response "
+            "figure yet, and must not be treated as one. Lives exclusively in "
+            "plots/oracle_benchmark/, never plots/manuscript/ or plots/revision/.",
+            "Reads oracle_benchmark's CSVs, not the .pos files directly - must run after "
+            "that stage, and is only as current as its output (inherits oracle_benchmark's "
+            "own elev-weighting-only caveat unchanged).",
+            "The box plot's outlier points are drawn (unlike Figure 13's, which are "
+            "omitted on its linear axis) - see stec/viz/oracle_benchmark.py's module "
+            "docstring for why a log axis changes that trade-off, and why Figure 13 "
+            "itself must not be changed to match. The y-axis is cropped to "
+            "[BOXPLOT_Y_MIN_M, BOXPLOT_Y_MAX_M] = [1e-2, 1e2] m (owner review, "
+            "2026-09-16) so the boxes are not squeezed by the shared ~6,000 m PPPx "
+            "solve-failure cluster; every point above the cap is still a real row and is "
+            "still counted, per method, in the title and in boxplot_oracle_benchmark."
+            "csv's n_above_axis_cap rows - never silently dropped.",
         ],
     ),
     Stage(
