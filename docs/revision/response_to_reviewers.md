@@ -418,58 +418,72 @@ block (reproduced directly on BIK0/DOY 122). Our own observable selection, recei
 availability and unpopulated-observable checks all rule out a cause on our side. No PPPx re-runs
 were made to work around it; the limitation is reported instead.
 
-### R1.8 — observation-derived upper bound ⏳ not yet quotable
-**Two artifacts exist for this comparison and they disagree in population, not just in
-completeness, and we are not picking one yet.**
+### R1.8 — observation-derived upper bound ✅ (quotable; still not in the manuscript)
+**The "two disagreeing artifacts" position this section previously took is retired.** The stage was re-run on
+2026-09-14; re-verified directly this session, `rebuilt` now strictly contains `pre_rebuild`
+and the finding is quotable.
 
-`multiday_results/analyses/oracle_benchmark/rebuilt/summary.csv` (current pipeline stage,
-re-run and confirmed reproducible in this session): oracle floor **0.1245 m** mean 3D RMS,
-against 1.2100 m for Direct STEC, 1.3733 m for IGS GIM and 1.5612 m for VTEC + Mapping, on
-**1,810 station-days spanning 76 of the 242 test days**. `pre_rebuild/summary.csv` (retained
-from before the rebuild, dated 2026-08-19): oracle floor **0.1223 m**, against 1.2260 m
-(Direct STEC), 1.4147 m (IGS GIM), 1.6339 m (VTEC + Mapping), on **5,364 station-days
-spanning all 242 days** — three times the population.
+`multiday_results/analyses/oracle_benchmark/rebuilt/summary.csv`: applying the reference STEC
+directly as the correction gives an oracle floor of **0.1254 m mean / 0.0721 m median** 3D RMS,
+over **5,514 station-days, all 242 test days, 52 stations**. Against that floor: Direct STEC
+**1.219 m mean / 0.831 m median** (9.7× / 11.5× the floor), IGS GIM + Mapping **1.408 / 1.019**
+(11.2× / 14.1×), VTEC + Mapping **1.622 / 1.136** (12.9× / 15.8×). The file's own
+`ratio_to_oracle` column is computed from the **mean** column only (checked directly: Direct
+STEC's 1.2191167/0.1253682 = 9.7243, matching the column's own value to six decimals); this
+letter's standing methodology elsewhere reports medians
+(`docs/revision/positioning_reporting.md`), so both are given above rather than silently
+reporting only the statistic the artifact happens to compute.
 
-We checked whether the two differ by methodology or only by coverage: for every one of the
-1,810 station-days that appear in both files, all four columns agree to the last digit
-(max |Δ| = 0.0000 m) — so this is not a disagreement about how the ratio is computed. What
-differs is which station-days survive the "solved by every method" restriction the analysis
-requires. Re-running the current stage live traced part of that funnel: the raw oracle
-experiment holds `.pos` solutions and a `products/` SINEX file for all 242 day-directories on
-disk today, 4,439 raw oracle solutions get aggregated from it, 11,748 station-days are seen for
-at least one of the four methods, and only 1,810 survive the four-way intersection. Why
-`pre_rebuild` found a 5,364-station-day intersection from what appears to be the same
-underlying computation is not resolved this session; `pre_rebuild` predates the 2026-08-20→24
-positioning station-recovery sweep and results-layout restructure, both of which touched this
-exact experiment tree, which is circumstantial, not a confirmed cause.
+**What the reviewer asked, answered both ways.** R1.8 asked for a benchmark that applies the
+GNSS-derived reference STEC directly as the ionospheric correction — a near-oracle upper
+bound — to show how close the model comes to the best achievable performance under the same
+processing chain. Of the three corrections, Direct STEC (the model's own output, with no
+VTEC/GIM mapping in between) is the closest to that floor on both mean and median — and it is
+still almost an order of magnitude above it (9.7× mean / 11.5× median), with IGS GIM and
+VTEC + Mapping trailing further still (11.2–12.9× mean, 14.1–15.8× median). Both halves matter:
+the model is the best of the three tested corrections at approaching the observation-derived
+floor, and none of the three comes close to it. Read plainly, almost all of the remaining
+positioning error — for every correction tested, including the model — is ionospheric-modelling
+error against the reference STEC's own processing chain, not orbit, clock or multipath; the
+model narrows that gap relative to the other two corrections without closing it.
 
-**An earlier draft of this section quoted 0.128 m mean 3D RMS against 1.149 m (Direct STEC),
-1.336 m (IGS GIM) and 1.497 m (VTEC + Mapping), N = 1,232 over 48 days — that number matches
-neither artifact above.** It is an older, since-superseded intermediate snapshot from before
-either of the two files above existed. It should not have been carried forward as if settled,
-and we are retracting it here rather than replacing it with another number that has the same
-problem.
+**Reconciliation, kept as history rather than deleted.** This section previously reported
+`rebuilt` and `pre_rebuild` as disagreeing in population — 1,810 station-days over 76 of 242
+days versus 5,364 station-days over all 242 days — and declined to quote a number until they
+were reconciled. Re-verified this session: merging on (station, doy), all 5,364 of
+`pre_rebuild`'s station-days appear in the current `rebuilt`, and every one of the four method
+columns agrees to max |Δ| = 0.000000 m — so `rebuilt` is a strict superset of `pre_rebuild`,
+not a second, disagreeing population. Of the 150 extra station-days in `rebuilt`, 2 come from
+stations absent from `pre_rebuild` entirely (GLSV, HLFX, one day each); the other 148 are
+additional recovered days for stations already present in `pre_rebuild` — concentrated in BAIE
+(+50), AMC4 (+48), AIRA (+34) and BRST (+7), plus eight more single-day additions — consistent
+with the 2026-08-20→24 positioning station-recovery sweep, which recovers additional solved
+days for stations already in the population as well as bringing new stations in, not only the
+latter (a claim in an earlier read of this diff that this session found to be too narrow). This
+also resolves what the previous draft called unresolved: `stec/pipeline/stages.py`'s own
+comment on this stage records that its inputs were declared against the wrong dependency, so
+`pipeline status` reported it up to date while another experiment's cleanup step silently
+`rm -rf`'d the SINEX products behind 166 of the 242 oracle day-directories' symlinks —
+242 − 166 = 76, exactly the day count the stale "1,810 station-days over 76 days" reading
+reported. The fix (`positioning/geometry/recover_day.py`'s `run_models`) restored those
+symlinks and the corrected input declaration now changes when the oracle tree does — so it was
+`rebuilt` that had been undercounting, not `pre_rebuild` that was anomalously large.
 
-**What is not in question:** under both artifacts the oracle floor sits roughly an order of
-magnitude below every method's positioning error (Direct STEC 9.7–10.0×, IGS GIM 11.0–11.6×,
-VTEC + Mapping 12.5–13.4× the floor, depending on which artifact is read), so the qualitative
-claim is robust to which population is used even though the absolute numbers are not yet fixed.
-The reference STEC is the training target itself, derived from the same observations, so this
-is the pipeline's own noise floor rather than reachable headroom — the defensible statement
-remains that **almost all remaining positioning error in this experiment is ionospheric
-modelling error**, not orbit, clock or multipath. As a control, re-running the current stage
-reproduces the published elevation-weighted IGS GIM arm to **max |Δ| = 0.0000 m over 2,389
-shared station-days** (median 0.0000 m), which rules out a pipeline-configuration difference as
-the cause of the disagreement above; this replaces an earlier, incorrect "1,560 shared
-station-days" claim for the same control.
+An even earlier draft of this section quoted 0.128 m mean 3D RMS against 1.149 / 1.336 / 1.497 m
+(Direct STEC / IGS GIM / VTEC + Mapping), N = 1,232 over 48 days — superseded before either of
+the files above existed, and already retracted at the time. Kept here only as a record that
+this section has moved through three populations before landing on the current one.
 
-We will not put a number in the manuscript for this comparison until the two artifacts are
-reconciled — either by understanding why `pre_rebuild`'s population is larger, or by re-running
-the oracle experiment end to end against the current `experiments/Reference_STEC_Oracle/`
-tree and accepting whatever population that produces. Both are restricted to **elevation**
-weighting (the reference STEC carries only a placeholder sigma) and to station-days solved by
-all four methods, so neither is comparable with Table 6 regardless of which is eventually
-adopted.
+**Caveats that still apply, unchanged.** `oracle_benchmark` uses **elevation** weighting only
+— the reference STEC carries only a placeholder sigma, so `iono` weighting would weight by a
+constant — and is restricted to the station-days solved by all four methods (the 5,514 above).
+It also still applies the 10 m outcome-based exclusion and reports a mean headline, unlike
+Table 6 and the other R2.7 stages, which moved to the common-set population with no outlier
+filter and a median headline on 2026-09-15; this is a deliberate, permanent difference in what
+question the stage answers (a self-contained ratio-to-floor question on its own restricted
+population), not an unfixed instance of that methodology change. It is therefore **not
+comparable with Table 6's absolute positioning numbers**, by design and permanently — read
+ratios to the floor from this table, and take absolute positioning numbers from Table 6.
 
 ---
 

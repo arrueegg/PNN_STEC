@@ -40,7 +40,7 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R2.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
 | R1.3 Madrigal reference offset | **READY** | 67 stations, 238 possible days. Quote Spearman +0.693 and 95.5% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. Computed from the corrected (IPP-longitude local-time) Madrigal store; no re-inference caveat remains. |
 | R1.6 calibration | **READY** | Own-test-set coverage is settled; storm/quiet split and Madrigal offset-removed coverage are both final below. |
-| R1.8 oracle bound | **NOT QUOTABLE** | Two current artifacts disagree in population (76 vs 242 days, N=1,810 vs 5,364), not just completeness — see below. Qualitative "order of magnitude below the models" framing is safe; no absolute number is yet. Uses **elev** weighting and paired station-days, so it is not comparable with Table 6. |
+| R1.8 oracle bound | **READY** | Resolved by the 2026-09-14 re-run, re-verified this session: `rebuilt` (5,514 station-days, 242/242 days) is a strict superset of `pre_rebuild` (5,364), identical on every shared row — the earlier two-artifact disagreement was coverage only, not a competing population. Quotable: oracle floor 0.1254 m mean / 0.0721 m median; Direct STEC 9.7x/11.5x the floor (mean/median), IGS GIM 11.2x/14.1x, VTEC + Mapping 12.9x/15.8x — see below. Uses **elev** weighting and paired station-days, so it is not comparable with Table 6. |
 | R1.5 fixed-variance arm | **READY** | 242 days, N = 6,896 paired (updated 2026-09-15). Constant sigma is 4.6% *better* than elevation weighting; the model's predicted sigma is 1.1% worse than the constant-sigma arm (mean-only figures — see R1.5 below for the current, common-set median table). |
 | R2.6 uncertainty vs error, fine-tuned | **READY, now in the response letter** | Full 242-day store; RMSE/σ 1.30–1.45× (σ bins, 95%+ of obs) to 2.03× at the extremes, 1.54–1.68× (elevation), epistemic share 5.1–6.6%. |
 | R1.2 fully-Bayesian comparison | **READY** | Done — matched-init retrain evaluated. Paper model RMSE 11.67 vs fully-Bayesian 15.54 (1.33×); uncertainty–error correlation marginally favours the fully-Bayesian arm (0.575 vs 0.568); epistemic-scale diagnostic shows the paper model's under-dispersion is scale, not structure. |
@@ -54,8 +54,10 @@ as of this pass, R1.2 (the fully-Bayesian comparison, now done — see below). T
 provisional — safe to draft, worth rechecking the exact figures. Four need results that do not
 exist yet; draft around them and leave the numbers as placeholders.
 
-Nothing in the remaining PENDING list is expected to *change direction* — the oracle will stay
-an order of magnitude below the models. They are missing precision, not missing answers.
+Nothing in the remaining PENDING list is expected to *change direction* — they are missing
+precision, not missing answers. (R1.8's oracle floor is no longer one of them: resolved this
+session — see below — with Direct STEC sitting 9.7x/11.5x the floor on mean/median, an order of
+magnitude above it, same as the other two corrections.)
 
 **This status table tracks whether evidence exists and is computable, not whether it has been
 transcribed into `PNN_main_revised.tex`.** A comment-by-comment check of the manuscript itself
@@ -436,27 +438,34 @@ significant at the declared `min_days_each=20` default, x1.41). Root cause is up
 122); no PPPx re-runs were made to work around it.
 `multiday_results/analyses/constellation_coverage/rebuilt/{population_summary,within_station_penalty}.csv`
 
-### R1.8 — observation-derived upper bound — **NOT YET QUOTABLE (two disagreeing artifacts)**
-Two artifacts exist, and neither is picked as settled: `rebuilt/summary.csv` (current stage,
-re-run and confirmed this session) gives oracle floor 0.1245 m against Direct STEC 1.2100, IGS
-GIM 1.3733, VTEC + Mapping 1.5612 m, on 1,810 station-days over 76 of 242 days.
-`pre_rebuild/summary.csv` (dated 2026-08-19) gives 0.1223 m against 1.2260 / 1.4147 / 1.6339 m
-on 5,364 station-days over all 242 days. Every station-day present in both files agrees to the
-last digit (max |Δ| = 0.0000 m), so the two do **not** differ by formula — they differ in which
-station-days survive the "solved by every method" restriction, and why `pre_rebuild`'s
-population is 3× larger is not resolved this session (it predates the 2026-08-20→24 positioning
-recovery sweep and results restructure, which is circumstantial, not confirmed). The number
-this document previously quoted (0.090 m / 1.028 / 1.204 / 1.284, 9/242 days) is a third,
-even-older snapshot superseded by both of the above and should not be cited.
+### R1.8 — observation-derived upper bound — **READY (resolved; not yet in the manuscript)**
+`rebuilt/summary.csv` (re-run 2026-09-14, re-verified this session): oracle floor **0.1254 m
+mean / 0.0721 m median** 3D RMS, against Direct STEC **1.219 / 0.831**, IGS GIM **1.408 /
+1.019**, VTEC + Mapping **1.622 / 1.136** (all m), on **5,514 station-days spanning all 242
+days, 52 stations**. Merging on (station, doy), all 5,364 of `pre_rebuild`'s station-days
+appear in `rebuilt`, and every method column agrees to max |Δ| = 0.000000 m — `rebuilt` is a
+**strict superset** of `pre_rebuild`, not a disagreeing population, so the "two artifacts"
+framing this document previously carried is retired. The extra 150 station-days are 2 from
+stations absent from `pre_rebuild` entirely (GLSV, HLFX) and 148 from additional recovered days
+for stations already present (BAIE +50, AMC4 +48, AIRA +34, BRST +7, plus singles) — consistent
+with the 2026-08-20→24 positioning station-recovery sweep. The stage's own declared-inputs bug
+(fixed; see `stec/pipeline/stages.py`'s comment on this stage) explains why an intermediate
+`rebuilt` read once showed only 1,810 station-days over 76 days: 166 of 242 oracle
+day-directories' SINEX symlinks had gone dangling under a stale input declaration, and
+242 − 166 = 76 matches that stale day count exactly. The 0.090 m/9-day and 0.128 m/1,232-row
+snapshots quoted in still-earlier drafts remain superseded and uncited.
 
-**What still holds under either artifact:** the oracle floor sits roughly an order of magnitude
-below every method's error (9.7–10.0× for Direct STEC, 11.0–11.6× for IGS GIM, 12.5–13.4× for
-VTEC + Mapping), so **"almost all remaining positioning error is ionospheric modelling error,
-not orbit, clock or multipath"** is still the defensible qualitative claim — only the exact
-numbers are unsettled. Validation: re-running the current stage reproduces the published
-elevation-weighted GIM arm at max |Δ| = 0.0000 m over **2,389** shared station-days (not the
-45 previously stated here, nor the 1,560 the response letter previously stated — both
-corrected).
+As multiples of the floor: Direct STEC **9.7× mean / 11.5× median**, IGS GIM **11.2× / 14.1×**,
+VTEC + Mapping **12.9× / 15.8×**. `ratio_to_oracle` in the CSV is computed from the mean column
+only; both statistics are reported here per the owner's median-first methodology
+(`docs/revision/positioning_reporting.md`). Direct STEC is the closest of the three corrections
+to the floor on both statistics, and all three remain roughly an order of magnitude above it —
+**"almost all remaining positioning error is ionospheric modelling error, not orbit, clock or
+multipath"** is the defensible claim, now on a settled number rather than a range. Validation:
+re-running the current stage reproduces the published elevation-weighted GIM arm at
+max |Δ| = 0.0000 m over **2,389** shared station-days. Caveats unchanged: elev weighting only,
+restricted to the all-four-method-solved population, 10 m outcome exclusion retained (unlike
+Table 6), not comparable with Table 6's absolute numbers.
 `multiday_results/analyses/oracle_benchmark/{rebuilt,pre_rebuild}/summary.csv` ·
 `plots/revision/positioning_2024/oracle_benchmark_notitle.png`
 
@@ -468,14 +477,13 @@ corrected).
 still outstanding when it was written.** All rows it lists as "running" have since completed —
 the full 242-day (own) / 238-day (Madrigal) prediction store, the GIM repair on all twelve
 affected days, and daily metrics regenerated from the store are all confirmed done above, each
-with a current artifact path. R1.8 (oracle bound) remains genuinely unresolved, but for a
-different reason than "still running" — see R1.8 above: two completed artifacts disagree in
-population and neither is picked as settled.
+with a current artifact path. R1.8 (oracle bound) is also now resolved — see R1.8 above — so no
+row in this table is still open for a "disagreeing artifacts" reason any more.
 
 | Item | State when this table was written |
 |---|---|
 | Prediction store, full 242 days | was running (~57 GPU-h) — refreshes R1.3, R1.6, R2.3, R2.6 |
-| Oracle + fixed-variance, full 242 days | was running (~40 h) — R1.8 and the last R1.5 arm |
+| Oracle + fixed-variance, full 242 days | was running (~40 h) — R1.8 and the last R1.5 arm; now done, see R1.8 above |
 | GIM repair on the remaining 8 affected days | waited on the store; now done — see the GIM baseline defect section above |
 | Regenerate daily metrics from the store | now done — see Tables 3/4 section above |
 | R2.6 uncertainty vs error, fine-tuned | now done — see R2.6 above |

@@ -61,7 +61,7 @@ where nothing exists at all.
 | R1.5 | 6-arm stochastic-model ablation | Table 8: elevation vs. predicted-uncertainty weighting, all 4 corrections (covers 4 of 6 requested arms) | **PARTIALLY** | `weighting_ablation` (Table 8, verified exact); fixed-variance/no-weighting arms exist (`fixed_variance.csv`) but not in paper | Table 8 itself is clear; missing arms are silently absent |
 | R1.6 | Calibration: interval coverage, reliability, proper scoring rules, behaviour under shift/disturbance | §4.2 (l.401,441): CRPS, PIT-KS, 5-level coverage for pretrained **and** fine-tuned models | **PARTIALLY** | `uncertainty_calibration` (verified exact, one 0.1pp rounding slip noted below) | Numbers correct but dense prose, no table — see note below |
 | R1.7 | Convergence, tails, vertical/horizontal, storm-time positioning | Table 6 (tails, verified), Table 7 (2D/Up, verified), §4.4 activity split (verified) for storm-adjacent behaviour. Convergence time: absent, no acknowledgment at all | **PARTIALLY** | `positioning_distributions`, `positioning_activity` (both verified); `storm_stratification` computed but not the stage the paper actually uses | See detailed note below |
-| R1.8 | Observation-derived oracle/near-oracle PPP benchmark | Nothing — "oracle" does not appear anywhere in the manuscript | **NOT ADDRESSED** | `oracle_benchmark` exists but two artifacts disagree in population (N=1,810/76 days vs N=5,364/242 days); letter itself says "not yet quotable" | N/A — the repository's own position is that this is still unresolved, not merely unwritten |
+| R1.8 | Observation-derived oracle/near-oracle PPP benchmark | Nothing — "oracle" does not appear anywhere in the manuscript | **ANSWERED IN LETTER ONLY** | `oracle_benchmark` (`canonical_for=None`); re-run 2026-09-14 and re-verified this session — `rebuilt` (5,514 station-days, 242/242 days, 52 stations) is a strict superset of `pre_rebuild` (5,364 station-days), identical to max \|Δ\|=0.000000 m on every shared row, so the earlier "two disagreeing artifacts" position is retired; see the response letter's rewritten R1.8 | N/A — absent from paper. The evidence side is resolved and quotable (Direct STEC 9.7×/11.5× the oracle floor on mean/median); only the manuscript side is still unwritten |
 | R2.1 | Unconventional temporal split; interpolation (2014–23) vs. extrapolation (2024) confound | Data §2 (l.160) describes the staggered split and shows Fig.1, but never names the interpolation/extrapolation framing, the solar-activity confound, or the F10.7-matched-band result | **ANSWERED IN LETTER ONLY** | `temporal_regime_split`, `temporal_regime_activity_matched` (both `canonical_for` name R2.1 explicitly) | N/A — absent from paper |
 | R2.2 | Caution attributing 2024 degradation to solar max vs. extrapolation | l.369 still attributes degradation directly to "solar maximum," only a minor Pearson-range edit (0.93–0.95→0.91–0.96) was made | **ANSWERED IN LETTER ONLY** | `relative_error_metrics` (`canonical_for=None`) backs the letter's normalised-RMSE finding that 2024 is the *best* year in relative terms | See detailed note below — this is the one case where paper text and prepared rebuttal actively disagree |
 | R2.3 | Random station split may be over-optimistic; spatial correlation of nearby stations | l.170: one generic sentence about uneven coverage; no distance/correlation analysis | **PARTIALLY** | `station_independence` (`canonical_for=None`) backs the letter's distance-based finding (11.1%→19.5% nRMSE, Spearman +0.395) | Weak in paper; letter's quantified version absent |
@@ -86,9 +86,9 @@ where nothing exists at all.
 | R2.M6 | Final or rapid IGS GIM? | l.321: "daily final IGS GIMs" | **ANSWERED IN PAPER** | matches `igsg` prefix hardcoded in `stec/baselines/gim.py`/`stec/frozen/evaluation/gim_mapper.py` | Yes |
 
 **Tally (29 numbered comments, excluding the R2.8 stem):** ANSWERED IN PAPER **11** (R1.1, R1.3,
-R2.4, R2.6, R2.7, R2.8c, R2.8f, R2.8g, R2.M1, R2.M2, R2.M6) · ANSWERED IN LETTER ONLY **5** (R1.2,
-R2.1, R2.2, R2.5, R2.8h) · PARTIALLY **8** (R1.4, R1.5, R1.6, R1.7, R2.3, R2.8b, R2.8d, R2.M3) ·
-NOT ADDRESSED **5** (R1.8, R2.8a, R2.8e, R2.M4, R2.M5).
+R2.4, R2.6, R2.7, R2.8c, R2.8f, R2.8g, R2.M1, R2.M2, R2.M6) · ANSWERED IN LETTER ONLY **6** (R1.2,
+R1.8, R2.1, R2.2, R2.5, R2.8h) · PARTIALLY **8** (R1.4, R1.5, R1.6, R1.7, R2.3, R2.8b, R2.8d,
+R2.M3) · NOT ADDRESSED **4** (R2.8a, R2.8e, R2.M4, R2.M5).
 
 ---
 
@@ -169,10 +169,13 @@ Ordered by how likely each is to read, to a reviewer checking whether their comm
 addressed, as ignored rather than merely incomplete.
 
 1. **R1.8 — oracle/near-oracle PPP benchmark.** Explicitly requested by name; zero manuscript
-   trace; and uniquely, the repository's own position (`response_to_reviewers.md`) is that this
-   is *still unresolved* even for internal purposes — two artifacts disagree by population
-   (N=1,810/76 days vs. N=5,364/242 days) and neither is picked as settled. This is the one item
-   on this list that is not just "not yet written up" but "not yet known."
+   trace. Previously the one item on this list flagged as "not yet known," not just "not yet
+   written up" — that is now resolved: `oracle_benchmark` was re-run 2026-09-14, the earlier
+   two-artifact population disagreement turned out to be coverage only (`rebuilt` is a verified
+   strict superset of `pre_rebuild`, identical values on every shared row), and the response
+   letter's rewritten R1.8 section gives a quotable floor (Direct STEC 9.7×/11.5× the oracle
+   floor on mean/median, all caveats intact). What remains is the same gap as R2.5 and R2.8h
+   below: real, reproducible evidence sitting only in the letter.
 2. **R2.1 — temporal-split interpolation/extrapolation confound.** One of Reviewer 2's lead
    concerns, with the most thoroughly developed letter answer in the whole revision (an
    F10.7-matched-band analysis that honestly reports its own limits), and it is completely
