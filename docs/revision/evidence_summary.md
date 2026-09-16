@@ -12,8 +12,14 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 - Metric CSVs: `multiday_results/<analysis>/`, indexed in
   `multiday_results/revision_metrics_index.csv` (46 files, mapped to reviewer comment)
 - Figures: `plots/revision/<data source>/` — use the **`_notitle`** variants in the paper
-- Positioning tables in Table 5 format: `multiday_results/positioning_summary/`
-  (`overall.csv`, `by_regime.csv`, `by_weighting.csv`)
+- Positioning tables in Table 6 format: `multiday_results/analyses/positioning_distributions/rebuilt/`
+  (`TABLE5_COMMON_SET_NUMBERS.md`, `common_set_percentile_summary.csv`,
+  `common_set_component_medians.csv`, `common_set_exceedance.csv`) — corrected 2026-09-16.
+  `multiday_results/positioning_summary/` (`overall.csv`, `by_regime.csv`, `by_weighting.csv`) is
+  **superseded for Table 6** (`SUPERSEDED_FOR_TABLE5_NOTE` in `stec/analysis/positioning_summary.py`;
+  see CLAUDE.md's canonical-results table) and kept only for the mean-vs-median sensitivity
+  comparison the response letter's R1.5/R1.7 sections draw on — it is not the current source for
+  the manuscript's Table 6/7/8, which this audit verified cell-by-cell against the path above.
 
 ---
 
@@ -21,26 +27,27 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 
 | Reviewer comment | Status | Action |
 |---|---|---|
-| Framing (R2.4 / R1.1) | **READY** | Write now. No data needed; this is what caused the rejection. |
+| Framing (R2.4 / R1.1) | **WRITTEN** | Verified in `PNN_main_revised.tex` 2026-09-16 (abstract, §3.3, §3.4, Conclusion). No longer just ready — done. |
 | R2.1 split regimes | **READY, confound disclosed** | Lead with the solar-cycle confound (2024 is the only extrapolation year and the only high-activity year), then the naive and activity-matched numbers together — see the response letter's rewritten R2.1. |
 | R2.2 2024 attribution | **READY** | Final numbers. |
-| R2.5 / R2.8b architectures | **READY** | Final numbers. Also complete Table 2. |
-| R2.8f / R2.8g fine-tune details | **READY** | Already in the text; make prominent. |
-| R2.8h computational cost | **READY** | Final numbers. |
-| R1.4 activity stratification | **REVISED** | Conclusion reversed by the GIM fix — use the new table, not the old. 8 quiet days still to settle. |
+| R2.5 / R2.8b architectures | **PARTIALLY WRITTEN** | Final numbers exist. Table 2 is now complete in the manuscript (verified 2026-09-16) — that part is done. R2.5's architecture-search table and R2.8b's "how hyperparameters were selected" prose are both still absent from the manuscript. |
+| R2.8f / R2.8g fine-tune details | **WRITTEN** | Verified in the text (§3.3, §3.4), 2026-09-16. |
+| R2.8h computational cost | **READY, not yet written** | Final numbers exist in this document and the response letter; verified absent from `PNN_main_revised.tex` 2026-09-16 — lowest-effort item still to transcribe. |
+| R1.4 activity stratification | **READY, final** | All 242 days in place, including the 12 whose GIM was recomputed; all four Dst rows and all three F10.7 terciles are final (see below) — supersedes this row's earlier "8 quiet days still to settle", which the R1.4 section below had already moved past. |
 | R1.5 elevation vs uncertainty | **READY** | Final — already all 242 days. |
 | R1.7 storm, tails, components | **READY** | Final — already all 242 days. |
+| R1.7b constellation coverage | **READY, new** | Not raised by either reviewer. 10/55 stations single-constellation-corrected on 2,525/10,715 station-days; within-station penalty x1.4–1.55 depending on threshold. See below. |
 | R2.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
-| R1.3 Madrigal reference offset | **READY** | 67 stations, 235/238 possible days. Quote Spearman +0.698 and 95.5% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. Computed from the pre-correction Madrigal store (old local-time convention); a re-inference is under way. |
-| R1.6 calibration | **PROVISIONAL** | Own-test-set coverage is settled; the storm/quiet split will shift. |
-| R1.8 oracle bound | **NOT QUOTABLE** | Two current artifacts disagree in population (76 vs 242 days, N=1,810 vs 5,364), not just completeness — see below. Qualitative "order of magnitude below the models" framing is safe; no absolute number is yet. Uses **elev** weighting and paired station-days, so it is not comparable with Table 5. |
+| R1.3 Madrigal reference offset | **READY** | 67 stations, 238 possible days. Quote Spearman +0.693 and 95.5% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. Computed from the corrected (IPP-longitude local-time) Madrigal store; no re-inference caveat remains. |
+| R1.6 calibration | **READY** | Own-test-set coverage is settled; storm/quiet split and Madrigal offset-removed coverage are both final below. |
+| R1.8 oracle bound | **NOT QUOTABLE** | Two current artifacts disagree in population (76 vs 242 days, N=1,810 vs 5,364), not just completeness — see below. Qualitative "order of magnitude below the models" framing is safe; no absolute number is yet. Uses **elev** weighting and paired station-days, so it is not comparable with Table 6. |
 | R1.5 fixed-variance arm | **READY** | 242 days, N = 6,896 paired (updated 2026-09-15). Constant sigma is 4.6% *better* than elevation weighting; the model's predicted sigma is 1.1% worse than the constant-sigma arm (mean-only figures — see R1.5 below for the current, common-set median table). |
 | R2.6 uncertainty vs error, fine-tuned | **READY, now in the response letter** | Full 242-day store; RMSE/σ 1.30–1.45× (σ bins, 95%+ of obs) to 2.03× at the extremes, 1.54–1.68× (elevation), epistemic share 5.1–6.6%. |
 | R1.2 fully-Bayesian comparison | **READY** | Done — matched-init retrain evaluated. Paper model RMSE 11.67 vs fully-Bayesian 15.54 (1.33×); uncertainty–error correlation marginally favours the fully-Bayesian arm (0.575 vs 0.568); epistemic-scale diagnostic shows the paper model's under-dispersion is scale, not structure. |
 | R1.4b Figure 4 stratified | **PENDING** | Pretrained pass is queued; the stratification itself is not built. |
-| Tables 3 & 4 corrected | **PENDING** | `daily_metrics.py` recomputes them from the store; exact only at 242/242 days. |
+| Tables 3 & 4 corrected | **READY, final** | `daily_metrics.py` recomputes them from the store at 242/242 (own) and 238/238 (Madrigal) days. Columns also changed: median [Q1–Q3] across days plus an observation-level P95 tail column, replacing mean ± std — see below. |
 | R1.6b uncertainty vs IONEX RMS | **READY** | Final on the full 242-day / 475.1M-observation store (IGS, Direct STEC); CODE row still from `pre_rebuild` pending its own rebuilt re-run, but on the same 242-day population. |
-| IGS GIM baseline correction | **ACTION NEEDED** | Table 4's GIM column and the R1.4 text must be updated before resubmission. |
+| IGS GIM baseline correction | **READY, values below** | Table 3/4 GIM columns and the R1.4 text are corrected below (median-based, from the current store); still needs transcribing into the manuscript before resubmission. |
 
 **So: 12 of 19 items can be written today**, including the framing change that matters most and,
 as of this pass, R1.2 (the fully-Bayesian comparison, now done — see below). Two more are
@@ -49,6 +56,18 @@ exist yet; draft around them and leave the numbers as placeholders.
 
 Nothing in the remaining PENDING list is expected to *change direction* — the oracle will stay
 an order of magnitude below the models. They are missing precision, not missing answers.
+
+**This status table tracks whether evidence exists and is computable, not whether it has been
+transcribed into `PNN_main_revised.tex`.** A comment-by-comment check of the manuscript itself
+(2026-09-16, `docs/revision/reviewer_coverage.md`) found several rows marked READY above whose
+evidence has *not* reached the manuscript, despite being fully computed and fully written up in
+the response letter: R1.2 (fully-Bayesian comparison), R2.1 (temporal-split confound), R2.2 (the
+manuscript's text has not been updated and, unusually, still makes the claim R2.2's own evidence
+argues against), R2.5 (architecture search), and R2.8h (computational cost). R1.4's Dst-binned
+STEC-accuracy table is also READY but not in the manuscript, which instead stratifies positioning
+error (not STEC accuracy) by a different, station-relative measure of activity. Read
+`reviewer_coverage.md` for the per-comment manuscript status; this file's READY/PENDING labels
+answer a different, narrower question.
 
 ---
 
@@ -163,26 +182,43 @@ question, below) — use R1.2 consistently when citing this result.
 ### R1.3 — products may have inconsistent bias references — **PROVISIONAL** ✅ decisive
 On the Madrigal geometries there are three independent estimates of the same slant path: the
 model, the IGS GIM mapped to that line of sight, and Madrigal. The model and the GIM share
-nothing in their construction, yet Spearman ρ = **+0.698** between their per-station offsets
+nothing in their construction, yet Spearman ρ = **+0.693** between their per-station offsets
 over **67** stations, and both exceed Madrigal at **95.5%** of stations. The Pearson
 correlation over all 67 is +0.925, but that is inflated by a sparse arm of large-offset
-stations — restricted to |offset| < 15 TECU it falls to +0.617 at n = 53, which is why the
+stations — restricted to |offset| < 15 TECU it falls to +0.609 at n = 53, which is why the
 rank correlation and sign agreement are quoted instead. Removing a per-station constant drops
-the model's Madrigal RMSE from **15.05 → 11.13 TECU** (mean |offset| 6.69 TECU): **45% of the
-Table 4 variance is a reference offset, not model error.**
-*[All Madrigal-derived numbers in this section are computed from the pre-correction Madrigal
-store, under the old receiver-longitude local-time convention; they will be regenerated once
-the local-time re-inference and downstream Madrigal analyses re-run.]*
+the model's Madrigal RMSE from **15.01 → 11.03 TECU** (mean |offset| 6.72 TECU): **46% of the
+Table 4 variance is a reference offset, not model error**
+(`madrigal_reference_offset/rebuilt/decomposition.csv`). Previously reported here as
+15.05/11.13/45%/Spearman 0.698/Pearson-restricted 0.617, computed from a pre-correction
+Madrigal store under the old receiver-longitude local-time convention; that store has since
+been rebuilt under the corrected IPP-longitude convention and this stage re-run against it
+(2026-09-14), so the numbers above are current, not provisional.
 `multiday_results/madrigal_reference_offset/` ·
 `plots/revision/stec_finetuned_2024/madrigal_reference_offset_notitle.png`
 
 **Independent check, no offset estimation needed:** dSTEC (differencing each observation
 against its own pass's max-elevation epoch, so any constant per-arc levelling/DCB offset
 cancels by construction rather than being estimated and subtracted) reproduces the same
-ordering over the full 242-day own test set — pooled RMSE 5.16 TECU (model) vs 6.64 TECU
-(IGS GIM + Mapping), 672,542 arcs. Complementary to the offset-removal approach above, not a
-replacement — it tests the pass *gradient*, not the absolute level.
-`multiday_results/analyses/dstec_evaluation/rebuilt/summary.csv`
+ordering over the full 242-day own test set. It now has its own manuscript table (**Table 5**)
+covering all four methods on both datasets, and the decided reporting statistic is the
+**median across arcs**, not pooled or mean-of-arcs (owner decision 2026-09-15,
+`docs/revision/metrics_and_exclusions_design.md` Sec 2.2 — arc lengths run 1 to 1,395 masked
+observations, so pooling over-weights long overhead passes). Own test set (242 days, 672,542
+arcs): median dSTEC RMSE **2.52 TECU (model) vs 4.10 (IGS GIM + Mapping), 4.67 (VTEC +
+Mapping), 6.31 (Pretrained)** — a 38.6% model advantage over GIM (30.2% by mean-of-arcs, 22.3%
+by pooled RMSE — both previously quoted here and both still reported alongside the median).
+**Madrigal now has the same panel** (238 days, 944,845 arcs): median dSTEC RMSE **3.90 (model)
+vs 5.32 (IGS GIM), 6.00 (VTEC + Mapping), 7.38 (Pretrained)** — 26.7% advantage, same ordering
+as own. This is the *opposite* ranking from Table 4's plain-agreement panel, where VTEC +
+Mapping reads lowest on Madrigal (R1.3 above) — the two panels disagree because Table 4 is
+dominated by each product's absolute per-station offset, and dSTEC removes exactly that offset
+by construction; the flip is itself evidence the R1.3 offset is real. Complementary to the
+offset-removal approach above, not a
+replacement — it tests the pass *gradient*, not the absolute level. Computed on the corrected,
+IPP-longitude local-time Madrigal store; no pending re-inference caveat applies.
+`multiday_results/analyses/dstec_evaluation/rebuilt/summary.csv` ·
+`multiday_results/analyses/dstec_evaluation_madrigal/rebuilt/summary.csv`
 
 ### R1.4 — stratify beyond aggregate scatter ✅ — **conclusion revised, do not use the old table**
 Elevation, latitude, local time and season are already Figures 5–8. The missing axis was
@@ -260,6 +296,12 @@ the uncertain end — so it is not a single global scale error that one constant
 (observation-weighted mean 6.2%). That is the number for R1.2: with only the output layer
 Bayesian, essentially all the predicted spread is aleatoric.
 
+**The by-elevation RMSE/σ range is now also surfaced as a single calibrating factor**: median
+**1.644** across the 9 elevation bands (range 1.544–1.681,
+`uncertainty_error_relation/rebuilt/calibrating_factor.csv`). Its near-constancy across
+elevation is the argument for reading this as a scale error rather than a broken uncertainty
+model.
+
 *Correcting this entry's own previous numbers (1.31–1.53× by σ decile, 1.60–1.77× by elevation,
 4.7–6.8% epistemic share): those were computed against σ bins derived from DOY 122's
 distribution alone and reused unchanged for the other 241 days — a "decile" meant a different
@@ -269,23 +311,35 @@ R2.6 section quotes.*
 `multiday_results/analyses/uncertainty_error_relation/rebuilt/{by_elevation,by_uncertainty}.csv` ·
 `plots/revision/stec_finetuned_2024/uncertainty_vs_error_notitle.png`
 
-### Tables 3 and 4 — recomputed from the store
+### Tables 3 and 4 — recomputed from the store, and reporting statistic changed
 `daily_metrics.py` derives the per-day and pooled metrics from the prediction store instead of
 the inference-time aggregation, so it picks up the repaired GIM automatically and needs no GPU.
-It writes `vs_published.csv` diffing against the published table, and warns when the store covers
-fewer days than the published 242 — until then the deltas reflect the **day subset**, not the
-correction. Note the published tables report the *mean of daily RMSE*, not the pooled RMSE;
-both are written.
+It writes `vs_published.csv` diffing against the published table. The store now covers the full
+242 own / 238 Madrigal days, so this is no longer a partial-coverage caveat.
+**Columns also changed** (`docs/revision/metrics_and_exclusions_design.md` Sec 2.1): Tables 3
+and 4 now report the **median RMSE across days with quartiles [Q1–Q3]**, not mean ± std, plus
+one observation-level **P95** tail column — a skewed day distribution misdescribed by mean ± std
+(the Pretrained row is the clear case: `per_day.csv` gives RMSE 7.53 min / 12.19 median / 44.63
+max against a reported 13.45 ± 4.84). The mean ± std columns are unchanged and still written
+alongside; `summary.csv` also carries a separate, observation-weighted `pooled_RMSE` (differs
+from the mean-of-days column by under 3%, and the two are not interchangeable).
 `multiday_results/daily_metrics/{per_day,summary,vs_published}.csv`
 
-### GIM baseline defect — affects Table 4 and R1.4, **not** positioning
+### GIM baseline defect — affects Tables 3 and 4, **not** positioning
 `compare_stec_vtec_gim.py` picked the IONEX file from a `doy` that had round-tripped through
 float32 normalisation, so a truncating cast loaded the previous day's map on **DOY 184–189 and
-225–230** (12 of 242 days). Table 4's IGS GIM entry moves 8.56 → **8.28 TECU** (own, mean of
-daily RMSE, `daily_metrics/pre_rebuild/summary.csv`'s `own_vtec_gim` / IGS GIM row) and
-15.64 → ≈15.50 (Madrigal, *computed from the pre-correction Madrigal store — to be regenerated
-once the local-time re-inference re-runs*); the Direct STEC advantage over GIM falls
-19.1% → **16.4%**. Model and
+225–230** (12 of 242 days, all now in the store on both datasets — not a 4-exact/8-projected
+split any more). Table 3's (own test set) IGS GIM entry moves 8.56 → **8.28 TECU** mean / **8.32
+[7.63–8.97] TECU** median (`daily_metrics/rebuilt/summary.csv`'s `own_vtec_gim` / IGS GIM row —
+**corrected 2026-09-16**: an earlier version of this paragraph labelled this own-dataset row
+"Table 4," though the own dataset is Table 3 under the current numbering; that mislabelling is
+fixed here, the numbers themselves were already correct);
+Direct STEC's advantage over GIM is **16.4%** mean-based / **17.5%** median-based (was 19.1%
+mean-based, published). Table 4's (Madrigal) IGS GIM entry moves 15.64 → **15.47 TECU** mean /
+**15.07 [13.09–17.19] TECU** median; advantage **5.4%** mean-based / **7.1%** median-based
+(previously reported here as "≈15.50, 5.2%, pre-correction Madrigal store" — that store has
+since been rebuilt under the corrected IPP-longitude local-time convention and this stage
+re-run against it, so the number is no longer an approximation). Model and
 VTEC baselines untouched; **all positioning results untouched** (the positioning pipeline takes
 the day from `--date`). Fixed at source; `src/analysis/repair_gim_baseline.py` repairs stored
 days and reproduces the unaffected ones to 1.5e-5 TECU.
@@ -295,11 +349,11 @@ days and reproduces the unaffected ones to 1.5e-5 TECU.
 **Updated 2026-09-15** (the numbers below superseded the paired-population figures this
 section quoted before; see `docs/revision/positioning_reporting.md` and the response letter's
 R1.5 section for the fuller account). Restricted to the same 4-method × 2-weighting common set
-Tables 5-7 use (`common_set_positioning.coverage_common_station_days()`, N = 10,387), **median**
+Tables 6-8 use (`common_set_positioning.coverage_common_station_days()`, N = 10,387), **median**
 3D RMS gain, uncertainty vs elevation weighting: Direct STEC **+3.2%**, Pretrained Direct STEC
 **+4.4%**, VTEC + Mapping −6.7%, IGS GIM −0.7%. One genuine PPPx solve failure (URUM, DOY 365)
 moves the Direct STEC/elevation *mean* by 25% while leaving the median unmoved — the median is
-the reported figure for the same reason it is for Table 5.
+the reported figure for the same reason it is for Table 6.
 **Moderate the manuscript claim accordingly**: uncertainty weighting gives a small,
 direction-dependent effect; the bulk of the improvement over GIM comes from the STEC
 correction itself, not the weighting — Direct STEC's median improvement over IGS GIM + Mapping
@@ -313,17 +367,21 @@ better" reading, computed on an earlier population). This arm has no median coun
 `multiday_results/analyses/weighting_ablation/rebuilt/{common_set,fixed_variance}.csv` ·
 `plots/revision/positioning_2024/weighting_ablation_notitle.png`
 
-### R1.6 — calibration diagnostics — **PROVISIONAL** ✅
+### R1.6 — calibration diagnostics — **READY, final** ✅
 Conceded: monotonic association is not calibration. On the own test set (475.1 M observations,
 full 242-day store) the uncertainties are close to calibrated centrally and over-confident in
 the tails — 50% nominal → 49.9% empirical, 68% → 65.9%, 90% → 84.3%, 95% → 88.9%. **CRPS 2.89
 against 3.24 for a constant sigma**, so the per-observation uncertainty is worth ~11% on a
-proper score. Coverage degrades under storms (95% → 87.8% vs 89.1% quiet).
+proper score. Coverage degrades under storms (95% → 87.8% vs 89.1% quiet); this population is
+now the settled 4-method × 2-weighting common set, not a provisional one, so this row's earlier
+"PROVISIONAL" tag (status table above) is retired.
 
 ⚠️ **The Madrigal calibration figures are largely a reference artefact** — see R1.3. Coverage
-at 95% goes 61.4% → 73.8% once the per-station offset is removed *[computed from the
-pre-correction Madrigal store; to be regenerated once the local-time re-inference and
-downstream Madrigal analyses re-run]*. **Do not cite the Madrigal
+at 95% goes **61.2% → 73.9%** once the per-station offset is removed
+(`madrigal_reference_offset/rebuilt/coverage_before_after.csv`; previously reported here as
+61.4%/73.8% while still marked as computed from a pre-correction Madrigal store — that store
+and this decomposition have since been rebuilt under the corrected IPP-longitude local-time
+convention, so the caveat is retired). **Do not cite the Madrigal
 calibration as evidence about out-of-distribution uncertainty.** The claims that hold the
 processing chain fixed — storm/quiet, and station distance — are the ones that carry
 generalisation arguments.
@@ -331,7 +389,7 @@ generalisation arguments.
 `plots/revision/stec_finetuned_2024/calibration_{coverage,pit}_notitle.png`
 
 ### R1.7 — convergence, tails, vertical/horizontal, storm-time ✅
-*Storm:* Reported as medians over the 4-method × 2-weighting common set Tables 5-7 use
+*Storm:* Reported as medians over the 4-method × 2-weighting common set Tables 6-8 use
 (N = 10,387: 8,706 quiet, 1,681 storm), per the median-not-mean decision
 (`docs/revision/positioning_reporting.md`; applied to this stage 2026-09-15). Direct STEC
 keeps **+19.5% over GIM in quiet and +14.5% in storm** conditions - the advantage narrows,
@@ -349,7 +407,7 @@ roughly p90 (3.82 m vs GIM 3.42 m); from p95 GIM is lower (4.13 m vs 5.27 m), wi
 p99 (5.76 m vs 8.92 m). 24.4% of Direct STEC station-days sit above 2 m against GIM's
 28.5%; above 5 m Direct STEC is worse (5.7% vs 2.3%). The crossover now starts earlier than
 this document previously reported (previously level through p95) because dropping the
-10 m rule - the same change Table 5 made - lets the extreme tail back into the comparison.
+10 m rule - the same change Table 6 made - lets the extreme tail back into the comparison.
 *Components:* vertical error cut 17.0% (0.73 m vs 0.88 m), horizontal 20.6% (0.50 m vs
 0.63 m) - both medians, smaller than this document's earlier mean-based 25%/22%, same
 reason as above.
@@ -360,6 +418,23 @@ provisional 37,209-row population this document previously flagged as pending a
 RINEX-downloader-fix re-run - that staleness marker no longer applies.
 `multiday_results/analyses/{storm_stratification,positioning_robustness}/rebuilt/` ·
 `plots/revision/positioning_2024/{storm_positioning_*,positioning_tail}_notitle.png`
+
+### R1.7b — constellation-coverage limitation, new, not raised by either reviewer
+Parked as an upstream data limitation, reported with measured numbers rather than fixed this
+revision. 10 of 55 test stations (KOUG, FAA1, KAT1, NKLG, HRAO, SUTH, ZECK, SOLO, BIK0, UNSA)
+carry model corrections for one GNSS constellation only; the other 45 have a method-to-method
+satellite-count gap of 0.00–0.10. On the 2,525 of 10,715 station-days this affects, the ML arms
+solve with median **8.6 satellites** against IGS GIM's **17.1**, and Direct STEC *loses* to GIM
+there (median 3D RMS 2.53 m vs 1.09 m for the full population, −8.2% median improvement against
++18.5% for the full population). **67% of Direct STEC's >10 m station-days and 9 of its 12
+>20 m station-days sit in this population; IGS GIM has zero >10 m station-days there** — this
+is part of what sits behind the R1.7 tail crossover above, on a related but not identical
+population. Within-station cost of losing one constellation, controlling for the recovery flag
+and ionospheric level: **x1.4–1.55** depending on the `min_days_each` threshold (21/23 stations
+significant at the declared `min_days_each=20` default, x1.41). Root cause is upstream
+(CamaliotGnss silently drops GPS records for some stations, reproduced directly on BIK0/DOY
+122); no PPPx re-runs were made to work around it.
+`multiday_results/analyses/constellation_coverage/rebuilt/{population_summary,within_station_penalty}.csv`
 
 ### R1.8 — observation-derived upper bound — **NOT YET QUOTABLE (two disagreeing artifacts)**
 Two artifacts exist, and neither is picked as settled: `rebuilt/summary.csv` (current stage,
@@ -389,17 +464,22 @@ corrected).
 
 ## Still running / pending
 
-| Item | State |
-|---|---|
-| Prediction store, full 242 days | running (~57 GPU-h) — refreshes R1.3, R1.6, R2.3, R2.6 |
-| Oracle + fixed-variance, full 242 days | running (~40 h) — R1.8 and the last R1.5 arm |
-| GIM repair on the remaining 8 affected days | waits on the store; re-run `repair_gim_baseline.py --apply`, then `activity_stratification.py` |
-| Regenerate daily metrics from the store | replaces `all_results.csv`, retires the repair patch in `activity_stratification.py` |
-| R2.6 uncertainty vs error, fine-tuned | pending, needs the store |
-| R1.4b Figure 4 stratified (pretrained) | pending, ~30 GPU-min |
+**This table is stale and superseded by the sections above; kept only as a record of what was
+still outstanding when it was written.** All rows it lists as "running" have since completed —
+the full 242-day (own) / 238-day (Madrigal) prediction store, the GIM repair on all twelve
+affected days, and daily metrics regenerated from the store are all confirmed done above, each
+with a current artifact path. R1.8 (oracle bound) remains genuinely unresolved, but for a
+different reason than "still running" — see R1.8 above: two completed artifacts disagree in
+population and neither is picked as settled.
 
-Numbers above are from the current data. When the jobs finish, `build_all.py --figures`
-refreshes everything; only R1.8 and the storm half of R1.6 are expected to change materially.
+| Item | State when this table was written |
+|---|---|
+| Prediction store, full 242 days | was running (~57 GPU-h) — refreshes R1.3, R1.6, R2.3, R2.6 |
+| Oracle + fixed-variance, full 242 days | was running (~40 h) — R1.8 and the last R1.5 arm |
+| GIM repair on the remaining 8 affected days | waited on the store; now done — see the GIM baseline defect section above |
+| Regenerate daily metrics from the store | now done — see Tables 3/4 section above |
+| R2.6 uncertainty vs error, fine-tuned | now done — see R2.6 above |
+| R1.4b Figure 4 stratified (pretrained) | **still pending**, ~30 GPU-min — this one row remains open |
 
 ## Venue
 
