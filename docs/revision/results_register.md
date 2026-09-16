@@ -510,6 +510,22 @@ session: `stages.py` is being edited by a concurrent session.
 
 ## Gaps
 
+**Added 2026-09-15 — relative-error figures read a path their stage does not write (latent).**
+`stec/viz/revision_figures.py::_build_relative_error_figures` reads
+`multiday_results/relative_error_metrics_rebuilt/yearly_metrics.csv`, falling back to the flat
+`multiday_results/relative_error_metrics.csv`. Neither is what the `relative_error_metrics` stage
+writes (`multiday_results/analyses/relative_error_metrics/rebuilt/yearly_metrics.csv`); the
+module's own comment records that `analysis_dir()` cannot express the pre-rebuild rename. The
+first path does not exist, so the flat legacy file (last written 2026-08-20) is what is actually
+read. **Checked: that file is byte-identical to the stage's current output, so no figure is
+presently wrong.** The defect is latent - if the stage is ever rerun against changed data, the
+flat file will not follow and the figures will go stale with nothing reporting it. This is the
+same shape as the `full_coverage/` failure CLAUDE.md documents. Fixing it means changing the
+figure module and the stage's declared inputs together, or the declaration ends up naming a file
+nobody reads while the real input goes undeclared.
+
+
+
 **Asserted in supporting documents, not yet in the manuscript** (each already flagged as a
 recommendation in `manuscript_change_list.md`'s "New claims now available," not newly found
 here, but confirmed still absent from `PNN_main_revised.tex` by direct reading):
