@@ -272,8 +272,37 @@ constant factor (2.6).
 - CamaliotGnss GPS-slant behaviour: diagnosed, not fixed. Needs the WP2 pipeline owner.
 - No PPPx re-runs. A satellite-matched IGS GIM arm and a constellation-completed ML arm were
   both considered and declined; the limitation is reported instead.
-- `oracle_benchmark` keeps its own elev-weighted, 10 m-excluded methodology by explicit owner
-  instruction - it answers a self-contained ratio-to-floor question, not one of these tables.
+- ~~`oracle_benchmark` keeps its own elev-weighted, 10 m-excluded methodology by explicit
+  owner instruction - it answers a self-contained ratio-to-floor question, not one of these
+  tables.~~ **Superseded 2026-09-16.** The earlier position is left visible rather than
+  edited away, because CLAUDE.md's Gotchas entry still states it as holding "by design and
+  permanently" and a reader hitting that will need to know which came first.
+
+  **Reported reversal, not yet confirmed in this session.** `pnn-stec-c4` reports that it put
+  the change to the owner explicitly - restrict to the 4-method x 2-weighting common set,
+  drop the 10 m outcome exclusion, report medians, keep elev weighting - and was told to
+  proceed. This session did not receive that instruction directly and a peer's report is not
+  authorization, so it is recorded here as attributed rather than as settled. **Remove this
+  paragraph once the owner confirms it here.** Two documents still carry the old position and
+  will need updating when that happens: this section, and CLAUDE.md's Gotchas entry (the
+  owner's file; not edited on a peer's say-so).
+
+  What stays true under the new methodology, and is *more* important once the other three
+  differences go: **elev weighting is a permanent, physical difference, not a property of a
+  run.** The reference STEC carries only a placeholder sigma, so `iono` weighting would weight
+  every observation by a constant; the comparison arms match elev to keep the floor fair.
+  When it becomes the last remaining difference from the positioning tables it will read like
+  a residual detail somebody can tidy away, which is exactly when it must not be.
+
+  **A larger limitation than the weighting one, and it survives the reversal.** Verified
+  directly from `oracle_benchmark/rebuilt/paired_station_days.csv` on 2026-09-16: the oracle
+  covers 52 stations and 5,514 station-days, but the coverage is severely bimodal. Median 113
+  days per station; **22 of the 52 stations contribute 120 station-days between them (2.2%),
+  while 14 stations contribute 3,078 (56%)**, and the best-covered 15 carry 59%. The floor,
+  and therefore every ratio taken against it, is dominated by a well-covered minority and is
+  not a balanced network sample. Restricting to the common set does not fix this - it is a
+  property of which station-days have a reference-STEC correction at all. Any statement of
+  the form "the model reaches X% of the achievable floor" inherits it.
 - The x1.52 confound-free constellation penalty (Sec 2.4) - owner decision 2026-09-16 not to
   pursue it.
 - No automated check that numbers quoted in figure *captions* match their CSVs. The captions
