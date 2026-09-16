@@ -278,14 +278,11 @@ constant factor (2.6).
   edited away, because CLAUDE.md's Gotchas entry still states it as holding "by design and
   permanently" and a reader hitting that will need to know which came first.
 
-  **Reported reversal, not yet confirmed in this session.** `pnn-stec-c4` reports that it put
-  the change to the owner explicitly - restrict to the 4-method x 2-weighting common set,
-  drop the 10 m outcome exclusion, report medians, keep elev weighting - and was told to
-  proceed. This session did not receive that instruction directly and a peer's report is not
-  authorization, so it is recorded here as attributed rather than as settled. **Remove this
-  paragraph once the owner confirms it here.** Two documents still carry the old position and
-  will need updating when that happens: this section, and CLAUDE.md's Gotchas entry (the
-  owner's file; not edited on a peer's say-so).
+  **Confirmed by the owner 2026-09-16, in this session.** `oracle_benchmark` is restricted to
+  the 4-method x 2-weighting common set, the 10 m outcome exclusion is dropped, and the
+  headline is a median - the same three choices the positioning tables already made. Elev
+  weighting stays. CLAUDE.md's Gotchas entry was updated in the same pass, so the old position
+  no longer survives anywhere as a live rule; it remains visible above only as history.
 
   What stays true under the new methodology, and is *more* important once the other three
   differences go: **elev weighting is a permanent, physical difference, not a property of a
