@@ -32,6 +32,7 @@ else does.
 from __future__ import annotations
 
 import csv
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -342,19 +343,19 @@ def _missing_csv_columns(path: Path, required: Sequence[str]) -> list[str]:
     return [column for column in required if column not in fieldnames]
 
 
-def _extract_tex_table_rows(tex_path: Path, label: str) -> list[str]:
-    """First-column cell text of every data row in the `tabular` tagged `\\label{label}`.
+def _extract_tex_table_full_rows(tex_path: Path, label: str) -> list[list[str]]:
+    """Every data row of the `tabular` tagged `\\label{label}`, as raw (unstripped-of-
+    markup) cell text split on `&`. Shared scoping/filtering logic behind
+    `_extract_tex_table_rows` (Table 2's row-*label* check, which only needs the first
+    cell) and the manuscript-vs-CSV value checks (Tables 3-5, which need every column).
 
     Scoped to the text between that label and the next `\\end{tabular}`, skipping the
     header row above the first `\\midrule` (`\\textbf{Parameter} & \\textbf{Value}`, not
-    a hyperparameter) and every `\\multicolumn{...}` section-title row. A label cell
-    wrapped whole in `\\revised{...}` - the convention this repository uses for
-    changed/new table content, since `trackchanges`/`soul` cannot nest inside a real
-    `tabular` under `agujournal2019.cls` - is unwrapped to its inner text via brace
-    matching, so a revised row's label still compares equal to an unrevised one's.
-    Nothing else about the cell is normalised: math mode, `\\textbf{}` etc. inside a
-    label are left as written, so a caller's expected-label set must spell them the same
-    way the manuscript does.
+    a data row) and every `\\multicolumn{...}` section-title row. A `\\cmidrule`/
+    similar rule line is skipped for the same reason a blank line is: it does not end in
+    `\\\\`, the line terminator every real table row uses. Nothing about a cell's own
+    text is normalised here - callers that need `\\revised{...}` unwrapped or other
+    markup stripped do that themselves.
     """
     text = tex_path.read_text()
     marker = f"\\label{{{label}}}"
@@ -370,10 +371,26 @@ def _extract_tex_table_rows(tex_path: Path, label: str) -> list[str]:
             continue
         if line in (r"\midrule", r"\bottomrule") or line.startswith(r"\multicolumn"):
             continue
-        cell = line[: -len(r"\\")].split("&", 1)[0].strip()
-        cell = _unwrap_braced_macro(cell, r"\revised")
-        rows.append(cell.strip())
+        cell_text = line[: -len(r"\\")]
+        rows.append([cell.strip() for cell in cell_text.split("&")])
     return rows
+
+
+def _extract_tex_table_rows(tex_path: Path, label: str) -> list[str]:
+    """First-column cell text of every data row in the `tabular` tagged `\\label{label}`.
+
+    A label cell wrapped whole in `\\revised{...}` - the convention this repository uses
+    for changed/new table content, since `trackchanges`/`soul` cannot nest inside a real
+    `tabular` under `agujournal2019.cls` - is unwrapped to its inner text via brace
+    matching, so a revised row's label still compares equal to an unrevised one's.
+    Nothing else about the cell is normalised: math mode, `\\textbf{}` etc. inside a
+    label are left as written, so a caller's expected-label set must spell them the same
+    way the manuscript does.
+    """
+    return [
+        _unwrap_braced_macro(row[0], r"\revised")
+        for row in _extract_tex_table_full_rows(tex_path, label)
+    ]
 
 
 def _unwrap_braced_macro(text: str, macro: str) -> str:
@@ -478,6 +495,325 @@ def daily_metrics_summary_has_consistent_day_counts(outputs: dict) -> str | None
             f"a day silently missing one baseline column shrinks that model's "
             f"Num_days without failing the presence check: {mismatches}"
         )
+    return None
+
+
+def _strip_tex_number_markup(cell: str) -> str:
+    """Plain text of a manuscript table cell, with the markup Tables 3-5 actually wrap
+    a number in removed: a whole-cell `\\revised{...}`/`\\add{...}`, an inner
+    `\\mathbf{...}` highlight, `$...$` math delimiters and `\\,` thin-space. Digits,
+    the surrounding `[...]` interval brackets and the `--` range separator are left
+    untouched for a caller to parse. A single helper rather than inlining this in both
+    value-comparison checks below, since `\\revised{$\\mathbf{6.87}$ [6.09--7.66]}` is a
+    real cell shape and getting the brace-matching wrong silently drops a digit rather
+    than raising.
+    """
+    for macro in (r"\revised", r"\add"):
+        cell = _unwrap_braced_macro(cell, macro)
+    cell = re.sub(r"\\mathbf\{([^{}]*)\}", r"\1", cell)
+    cell = cell.replace(r"\,", "").replace("$", "")
+    return cell.strip()
+
+
+_MEDIAN_IQR_CELL = re.compile(
+    r"^(?P<median>-?\d+(?:\.\d+)?)\s*\[(?P<q1>-?\d+(?:\.\d+)?)--(?P<q3>-?\d+(?:\.\d+)?)\]$"
+)
+_PLAIN_NUMBER_CELL = re.compile(r"^(?P<value>-?\d+(?:\.\d+)?)$")
+
+
+def _parse_median_iqr_cell(cell: str) -> tuple[float, float, float]:
+    """A `median [q1--q3]` manuscript cell (Tables 3-5's RMSE/MAE/dSTEC columns) as
+    three floats. Raises `ValueError` on a cell that isn't shaped this way, rather than
+    returning a sentinel - a cell this cannot parse (a reformatted table, an extra
+    footnote marker) is exactly the kind of drift this check must not paper over by
+    silently skipping it."""
+    match = _MEDIAN_IQR_CELL.match(_strip_tex_number_markup(cell))
+    if not match:
+        raise ValueError(f"cell {cell!r} is not shaped 'median [q1--q3]'")
+    return (
+        float(match["median"]),
+        float(match["q1"]),
+        float(match["q3"]),
+    )
+
+
+def _parse_plain_number_cell(cell: str) -> float:
+    """A single-number manuscript cell (Tables 3/4's $R^2$ and P95 columns) as a float.
+    Raises `ValueError` on a cell that isn't a bare number, same reasoning as
+    `_parse_median_iqr_cell`."""
+    match = _PLAIN_NUMBER_CELL.match(_strip_tex_number_markup(cell))
+    if not match:
+        raise ValueError(f"cell {cell!r} is not a plain number")
+    return float(match["value"])
+
+
+# Manuscript Tables 3/4 row label -> daily_metrics/rebuilt/summary.csv "Model" value.
+# Deliberately explicit rather than `.lower()`-normalised, same reasoning as
+# `MANUSCRIPT_TABLE2_ROW_BACKING`: the manuscript prints "Direct STEC model" (lower-case
+# "model") while the CSV's own column says "Direct STEC Model" (capital "Model") - an
+# explicit mapping means a renamed row on either side fails this check instead of
+# silently no longer matching.
+MANUSCRIPT_DAILY_METRICS_ROW_BACKING: dict[str, str] = {
+    "Direct STEC model": "Direct STEC Model",
+    "Pretrained Direct STEC model": "Pretrained STEC",
+    "VTEC + Mapping": "VTEC + Mapping",
+    "IGS GIM + Mapping": "IGS GIM",
+}
+
+# (manuscript table name, tex \label, daily_metrics "dataset" value) for the two tables
+# this stage backs - Table 3 on the own test set, Table 4 on Madrigal.
+_DAILY_METRICS_MANUSCRIPT_TABLES = (
+    ("Table 3", "testset_performance", "own_vtec_gim"),
+    ("Table 4", "tab:testset_performance_madrigal", "madrigal_vtec_gim"),
+)
+
+# Manuscript column -> (csv median column, csv q1 column, csv q3 column), for the two
+# "median [q1--q3]" columns Tables 3/4 print in this order after the row label.
+_DAILY_METRICS_IQR_COLUMNS = (
+    ("RMSE", ("RMSE_median", "RMSE_q1", "RMSE_q3")),
+    ("MAE", ("MAE_median", "MAE_q1", "MAE_q3")),
+)
+
+
+def _daily_metrics_row_mismatch(
+    table_name: str, row_label: str, csv_row: dict[str, str], cells: list[str]
+) -> str | None:
+    """`cells` is the manuscript's own column order for Tables 3/4: row label, RMSE,
+    MAE, $R^2$, P95. Returns a message naming the table, row, column and both values on
+    the first disagreement, or `None` if every column agrees with `csv_row`."""
+    _, rmse_cell, mae_cell, r2_cell, p95_cell = cells
+    try:
+        parsed_iqr = {
+            "RMSE": _parse_median_iqr_cell(rmse_cell),
+            "MAE": _parse_median_iqr_cell(mae_cell),
+        }
+        r2 = _parse_plain_number_cell(r2_cell)
+        p95 = _parse_plain_number_cell(p95_cell)
+    except ValueError as exc:
+        return f"manuscript {table_name} row '{row_label}': {exc}"
+
+    for column_label, csv_columns in _DAILY_METRICS_IQR_COLUMNS:
+        for stat_name, manuscript_value, csv_column in zip(
+            ("median", "q1", "q3"), parsed_iqr[column_label], csv_columns
+        ):
+            csv_value = round(float(csv_row[csv_column]), 2)
+            if csv_value != manuscript_value:
+                return (
+                    f"manuscript {table_name} row '{row_label}' column "
+                    f"{column_label} {stat_name}: manuscript prints {manuscript_value} "
+                    f"but {csv_row['dataset']}/{csv_column} in {DAILY_METRICS_DIR / 'summary.csv'} "
+                    f"rounds to {csv_value}"
+                )
+
+    csv_r2 = round(float(csv_row["R2_median"]), 2)
+    if csv_r2 != r2:
+        return (
+            f"manuscript {table_name} row '{row_label}' column R2: manuscript prints "
+            f"{r2} but {csv_row['dataset']}/R2_median in "
+            f"{DAILY_METRICS_DIR / 'summary.csv'} rounds to {csv_r2}"
+        )
+    csv_p95 = round(float(csv_row["AbsErr_p95_median"]), 2)
+    if csv_p95 != p95:
+        return (
+            f"manuscript {table_name} row '{row_label}' column P95: manuscript prints "
+            f"{p95} but {csv_row['dataset']}/AbsErr_p95_median in "
+            f"{DAILY_METRICS_DIR / 'summary.csv'} rounds to {csv_p95}"
+        )
+    return None
+
+
+def daily_metrics_manuscript_tables_match_csv(outputs: dict) -> str | None:
+    """Every cell of the manuscript's Table 3 (`testset_performance`, own test set) and
+    Table 4 (`tab:testset_performance_madrigal`, Madrigal) must round-trip against
+    `daily_metrics/rebuilt/summary.csv` at the manuscript's own 2 dp precision - the gap
+    `paper_tables_manuscript_rows_are_backed`'s own docstring names explicitly: a row
+    present and correctly named on both sides can still carry two different numbers.
+    Both tables share `RMSE_median`/`RMSE_q1`/`RMSE_q3`, `MAE_median`/`MAE_q1`/
+    `MAE_q3`, `R2_median` and `AbsErr_p95_median`, keyed by (dataset, Model) via
+    `MANUSCRIPT_DAILY_METRICS_ROW_BACKING`.
+
+    A manuscript row not in that mapping fails this check immediately, the same
+    triage-before-trust rule `paper_tables_manuscript_rows_are_backed` enforces for
+    Table 2 - a newly added or renamed model row must be mapped before either check can
+    be believed again. Only once every printed row resolves to a real CSV row are the
+    cell values themselves compared, so a value mismatch is always reported against a
+    row the mapping already vouches for.
+    """
+    csv_path = DAILY_METRICS_DIR / "summary.csv"
+    if str(csv_path) not in outputs:
+        return f"{csv_path} is not a declared output of this stage"
+    rows_by_key = {
+        (row["dataset"], row["Model"]): row for row in _read_csv_rows(csv_path)
+    }
+
+    tex_path = paths.REPO_ROOT / "STEC_Modelling" / "PNN_main_revised.tex"
+    if not tex_path.exists():
+        return f"manuscript not found at {tex_path}"
+
+    tables = [
+        (table_name, dataset, _extract_tex_table_full_rows(tex_path, label))
+        for table_name, label, dataset in _DAILY_METRICS_MANUSCRIPT_TABLES
+    ]
+
+    unrecognised = [
+        (table_name, cells[0])
+        for table_name, _dataset, rows in tables
+        for cells in rows
+        if _unwrap_braced_macro(cells[0], r"\revised")
+        not in MANUSCRIPT_DAILY_METRICS_ROW_BACKING
+    ]
+    if unrecognised:
+        return (
+            f"manuscript prints row(s) {unrecognised} that "
+            "MANUSCRIPT_DAILY_METRICS_ROW_BACKING does not know about - triage them "
+            "there before trusting this check again"
+        )
+
+    mismatches = []
+    for table_name, dataset, rows in tables:
+        for cells in rows:
+            row_label = _unwrap_braced_macro(cells[0], r"\revised")
+            csv_model = MANUSCRIPT_DAILY_METRICS_ROW_BACKING[row_label]
+            csv_row = rows_by_key.get((dataset, csv_model))
+            if csv_row is None:
+                mismatches.append(
+                    f"manuscript {table_name} row '{row_label}' has no matching "
+                    f"({dataset}, {csv_model}) row in {csv_path}"
+                )
+                continue
+            mismatch = _daily_metrics_row_mismatch(
+                table_name, row_label, csv_row, cells
+            )
+            if mismatch:
+                mismatches.append(mismatch)
+    if mismatches:
+        return "; ".join(mismatches)
+    return None
+
+
+# Manuscript Table 5 (`tab:dstec`) row label -> dstec_evaluation's `COMPARISON_METHODS`
+# prefix (`gim`/`vtec`/`pretrained`) or "model" for the Direct STEC model itself, which
+# keeps the bare `model_*` prefix rather than one from that dict (see
+# stec.analysis.dstec_evaluation's own COMPARISON_METHODS comment). Explicit for the
+# same reason MANUSCRIPT_DAILY_METRICS_ROW_BACKING is: a renamed row must be triaged
+# here, not silently stop matching.
+MANUSCRIPT_DSTEC_ROW_BACKING: dict[str, str] = {
+    "Direct STEC model": "model",
+    "IGS GIM + Mapping": "gim",
+    "VTEC + Mapping": "vtec",
+    "Pretrained Direct STEC model": "pretrained",
+}
+
+
+def _read_kv_csv(path: Path) -> dict[str, str]:
+    """A `pandas.Series.to_csv(path, header=["value"])` file - dstec_evaluation's own
+    `summary.csv` - as `{row label: value string}`. Not `_read_csv_rows`: that assumes
+    every column has a real header name, but this file's index column's header is the
+    empty string pandas writes for an unnamed index."""
+    with path.open(newline="") as handle:
+        reader = csv.reader(handle)
+        next(reader)  # header row: "", "value"
+        return {row[0]: row[1] for row in reader}
+
+
+def _dstec_row_mismatch(
+    row_label: str,
+    prefix: str,
+    own_values: dict[str, str],
+    madrigal_values: dict[str, str],
+    cells: list[str],
+) -> str | None:
+    """`cells` is Table 5's own column order: row label, own test set, Madrigal - each
+    a `median [q1--q3]` dSTEC RMSE cell. Returns a message naming the column, stat,
+    and both values on the first disagreement against `{prefix}_dstec_rmse_*_of_arcs`
+    in the two summary.csv files, or `None` if every value agrees."""
+    _, own_cell, madrigal_cell = cells
+    try:
+        own_stats = _parse_median_iqr_cell(own_cell)
+        madrigal_stats = _parse_median_iqr_cell(madrigal_cell)
+    except ValueError as exc:
+        return f"manuscript Table 5 row '{row_label}': {exc}"
+
+    for column_label, values, manuscript_stats, source in (
+        ("Own test set", own_values, own_stats, DSTEC_EVALUATION_DIR / "summary.csv"),
+        (
+            "Madrigal",
+            madrigal_values,
+            madrigal_stats,
+            DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv",
+        ),
+    ):
+        for stat_name, suffix, manuscript_value in zip(
+            ("median", "q1", "q3"),
+            ("median_of_arcs", "q1_of_arcs", "q3_of_arcs"),
+            manuscript_stats,
+        ):
+            csv_key = f"{prefix}_dstec_rmse_{suffix}"
+            csv_value = round(float(values[csv_key]), 2)
+            if csv_value != manuscript_value:
+                return (
+                    f"manuscript Table 5 row '{row_label}' column {column_label} "
+                    f"{stat_name}: manuscript prints {manuscript_value} but {csv_key} "
+                    f"in {source} rounds to {csv_value}"
+                )
+    return None
+
+
+def dstec_manuscript_table_matches_csv(outputs: dict) -> str | None:
+    """Every cell of the manuscript's Table 5 (`tab:dstec`) must round-trip against the
+    two dSTEC stages' `summary.csv` at the manuscript's own 2 dp precision, the same
+    value-agreement gap `daily_metrics_manuscript_tables_match_csv` closes for Tables
+    3/4. Table 5 needs both dSTEC columns (own test set, Madrigal) judged together per
+    row, so this check reads both stages' output rather than being split across them -
+    attached only to `dstec_evaluation_madrigal` (the later of the two in run order)
+    since the registry's one-owner-per-output rule means a `Check` still belongs to a
+    single stage.
+
+    `dstec_evaluation`'s `summary.csv` is read directly off disk, not gated by
+    `outputs`, because it is a different, earlier stage's output - this stage cannot
+    declare ownership of it. Only `dstec_evaluation_madrigal`'s own `summary.csv` is
+    gated that way, the same self-consistency check every other check function in this
+    file performs for its own stage's declared outputs.
+    """
+    madrigal_path = DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv"
+    if str(madrigal_path) not in outputs:
+        return f"{madrigal_path} is not a declared output of this stage"
+    own_path = DSTEC_EVALUATION_DIR / "summary.csv"
+    if not own_path.exists():
+        return f"{own_path} is not present - run the dstec_evaluation stage first"
+
+    own_values = _read_kv_csv(own_path)
+    madrigal_values = _read_kv_csv(madrigal_path)
+
+    tex_path = paths.REPO_ROOT / "STEC_Modelling" / "PNN_main_revised.tex"
+    if not tex_path.exists():
+        return f"manuscript not found at {tex_path}"
+
+    printed_rows = _extract_tex_table_full_rows(tex_path, "tab:dstec")
+    unrecognised = [
+        cells[0]
+        for cells in printed_rows
+        if _unwrap_braced_macro(cells[0], r"\revised")
+        not in MANUSCRIPT_DSTEC_ROW_BACKING
+    ]
+    if unrecognised:
+        return (
+            f"manuscript Table 5 prints row(s) {unrecognised} that "
+            "MANUSCRIPT_DSTEC_ROW_BACKING does not know about - triage them there "
+            "before trusting this check again"
+        )
+
+    mismatches = []
+    for cells in printed_rows:
+        row_label = _unwrap_braced_macro(cells[0], r"\revised")
+        prefix = MANUSCRIPT_DSTEC_ROW_BACKING[row_label]
+        mismatch = _dstec_row_mismatch(
+            row_label, prefix, own_values, madrigal_values, cells
+        )
+        if mismatch:
+            mismatches.append(mismatch)
+    if mismatches:
+        return "; ".join(mismatches)
     return None
 
 
@@ -1248,6 +1584,7 @@ STAGES: list[Stage] = [
         checks=[
             daily_metrics_summary_has_all_methods_and_datasets,
             daily_metrics_summary_has_consistent_day_counts,
+            daily_metrics_manuscript_tables_match_csv,
         ],
         canonical_for="Tables 3 and 4",
         caveats=[
@@ -2694,6 +3031,7 @@ STAGES: list[Stage] = [
             str(DSTEC_EVALUATION_MADRIGAL_DIR / "pass_statistics.csv"): 700_000,
             str(DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv"): 20,
         },
+        checks=[dstec_manuscript_table_matches_csv],
         supersedes=[str(DSTEC_EVALUATION_DIR / "finetuned_stec_madrigal")],
         canonical_for="Madrigal dSTEC panel (Table 4 companion)",
         caveats=[
