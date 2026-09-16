@@ -6,13 +6,13 @@
     "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
   ],
   "code": {
-    "commit": "b79e1c79f98b5a1e432d03673037ea6578992081",
+    "commit": "813867b848cd3b97e0f80bdf278999f0247fd308",
     "dirty": true
   },
   "command": "-m stec.viz.revision_figures",
   "description": "one PNG per revision figure, plus the _notitle manuscript variants",
-  "duration_s": 22.5,
-  "fingerprint": "f8198d718db203e00a525f64625c0b0b7ac92e2f73da6f80965b82c126eda460",
+  "duration_s": 21.8,
+  "fingerprint": "db88bae9e3352278311f52266168a1e54ed2f582456d9faa0ad34b8a97c0c4e1",
   "inputs": {
     "multiday_results/analyses/activity_stratification/rebuilt": {
       "files": 3,
@@ -45,10 +45,10 @@
       "size": 7282
     },
     "multiday_results/analyses/oracle_benchmark/rebuilt": {
-      "files": 3,
+      "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789370610353350952,
-      "size": 274443
+      "mtime_ns": 1789548802157474206,
+      "size": 273685
     },
     "multiday_results/analyses/positioning_robustness/rebuilt": {
       "files": 3,
@@ -114,7 +114,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T16:11:40.905684+00:00",
+  "recorded_at": "2026-09-16T08:53:45.304750+00:00",
   "stage": "figures",
   "supersedes": []
 }

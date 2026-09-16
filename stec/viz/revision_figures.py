@@ -438,9 +438,14 @@ def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
         ORACLE_COLOR if m.startswith("Reference STEC") else APPROACH_COLORS[m]
         for m in d.index
     ]
-    ax.bar(np.arange(len(d)), d["mean"], 0.62, color=colors, zorder=3)
+    # Median, not mean. Once oracle_benchmark dropped the 10 m outcome exclusion
+    # (2026-09-16), one genuine PPPx solve failure - URUM DOY 365, ~5,989 m - lands in
+    # the oracle arm and inflates its *mean* floor tenfold, 0.125 m to 1.255 m, while the
+    # median floor is unchanged to three figures. Plotting the mean would draw a floor
+    # seventeen times too high and collapse every bar toward it.
+    ax.bar(np.arange(len(d)), d["median"], 0.62, color=colors, zorder=3)
     ax.axhline(
-        d["mean"].iloc[0], color=ORACLE_COLOR, linewidth=1.5, linestyle="--", zorder=4
+        d["median"].iloc[0], color=ORACLE_COLOR, linewidth=1.5, linestyle="--", zorder=4
     )
     ax.set_xticks(np.arange(len(d)))
     ax.set_xticklabels(
@@ -465,8 +470,10 @@ def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
                     "median",
                     "p95",
                     "station_days",
-                    "above_oracle_m",
-                    "ratio_to_oracle",
+                    "above_oracle_median_m",
+                    "above_oracle_mean_m",
+                    "ratio_to_oracle_median",
+                    "ratio_to_oracle_mean",
                 )
                 if c in d.reset_index().columns
             ]

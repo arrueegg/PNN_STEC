@@ -2381,25 +2381,38 @@ STAGES: list[Stage] = [
         # directly as the correction, as an observation-derived upper bound.
         canonical_for="R1.8 observation-derived oracle PPP benchmark",
         caveats=[
-            "NOT comparable with the positioning-distribution table, by design and permanently. It uses elev "
-            "weighting - the reference STEC carries only a placeholder sigma, so iono "
-            "would weight by a constant - and is restricted to station-days solved by all "
-            "four methods.",
-            "Read ratios to the floor within this table. Take absolute positioning numbers "
-            "from the positioning-distribution table.",
-            "Deliberately still uses the 10 m outcome-based exclusion and reports a mean "
-            "headline (paired_station_days.csv/summary.csv), unlike the positioning tables and the "
-            "other two R2.7 stages (storm_stratification, positioning_robustness), which "
-            "moved to the common-set population, no outlier filter and a median headline "
-            "2026-09-15. This is not an unfixed instance of that same change, and should "
-            "not be tracked as one: this stage answers a self-contained question (what "
-            "floor the reference STEC implies, as a ratio against the same four baselines "
-            "restricted to the all-four-method set its own methodology already imposes), "
-            "and every number in it is read as a ratio within this table - never against "
-            "the positioning-distribution table's population or absolute numbers, per the two caveats above. Matching "
-            "the positioning tables' median/no-filter/common-set methodology here would change what "
-            "this table's own internal ratios look like without changing what they are "
-            "compared against, so it is left as is on purpose.",
+            "NOT comparable with the positioning-distribution table, by design and "
+            "permanently. It uses elev weighting - the reference STEC carries only a "
+            "placeholder sigma, so iono would weight by a constant - and (since "
+            "2026-09-16) is restricted to the same four-method/both-weighting common set "
+            "the positioning tables use, intersected with station-days solved by all "
+            "four methods here (N=5,442 after that intersection).",
+            "Read ratios to the floor within this table. Take absolute positioning "
+            "numbers from the positioning-distribution table.",
+            "Matched to the positioning tables' methodology 2026-09-16 (owner "
+            "instruction, reversing the earlier 'permanently incomparable' position): "
+            "common-set population, the 10 m outcome-based exclusion dropped, and the "
+            "headline is ratio_to_oracle_median/above_oracle_median_m rather than the "
+            "mean-based columns, which are kept only for sensitivity. Dropping the 10 m "
+            "filter lets one genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under "
+            "elev weighting - the same station-day weighting_ablation.py documents) into "
+            "the oracle arm itself, inflating the mean floor roughly tenfold (0.125 m to "
+            "1.255 m) while the median floor is unchanged to three figures (0.0721 m to "
+            "0.0720 m). That is why the median headline had to land with the filter "
+            "removal, not after it. Ranking and order of magnitude are unchanged: "
+            "median-based ratios move from 11.5x/14.1x/15.8x to 11.6x/14.2x/15.9x "
+            "(Direct STEC/IGS GIM/VTEC + Mapping).",
+            "Station coverage in the oracle experiment is uneven and is NOT a balanced "
+            "sample of the network: 52 of the common set's 55 stations appear (DUMG, "
+            "HRAO, PARC missing entirely), and within those, 15 stations contribute "
+            "3,279 of 5,442 paired station-days (60%) while 22 contribute 114 between "
+            "them. The imbalance predates the common-set restriction and is unaffected "
+            "by it. station_coverage.csv records the per-station counts; "
+            "station_median_check.csv compares the pooled median against the "
+            "median-of-per-station-medians and finds them within 5-8% for all four "
+            "methods, so the headline is not solely an artifact of the well-covered "
+            "minority - but the floor is still set predominantly by those 15 stations. "
+            "Not fixable without new PPPx runs on the under-covered stations.",
         ],
     ),
     Stage(
