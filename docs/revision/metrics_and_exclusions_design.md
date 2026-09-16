@@ -36,6 +36,31 @@ with difficulty. Every candidate we tested failed that second test:
 **Consequence**: nothing is excluded. Where a population is genuinely not comparable, it is
 **stratified and reported**, never dropped.
 
+**The concrete case that makes this rule non-negotiable: URUM, DOY 365.** A single PPPx solve
+failure, verified 2026-09-16 in `positioning_coverage/rebuilt/multiday_summary_all_weightings.csv`:
+it reads 5,940-5,989 m of 3D RMS under **all eight arms** (four corrections x two weightings),
+and it is the largest value in the entire 89,771-row population - one of only 8 rows above
+1 km, which are that same station-day seen through the different arms.
+
+It has now demonstrably distorted three separate analyses whenever a mean was the headline:
+
+- `weighting_ablation`: removing it moves Direct STEC's elevation-weighted mean from 2.283 m
+  to 1.706 m, a 25% swing, while the median does not move. This is why that table reports
+  `gain_median_%`.
+- `oracle_benchmark`: reported by `pnn-stec-c4` and not independently verified here, because
+  it is downstream of a module change still uncommitted at the time of writing - dropping the
+  10 m exclusion admits this row into the **oracle arm itself**, moving the mean floor from
+  0.125 m to 1.255 m, a tenfold inflation, while the median floor moves 0.0721 -> 0.0720 m.
+- the positioning tables generally, which is what the no-outcome-exclusion measurement in this
+  section is about.
+
+**The trap worth stating for anyone repeating this work:** dropping an outcome-based exclusion
+and switching to a median are not independent changes and must land together. Doing the first
+without the second publishes a floor an order of magnitude too high on the strength of one
+station-day, and every ratio taken against that floor collapses toward 1 - the model would
+appear *close to optimal* for entirely spurious reasons. A two-step migration hits this; a
+one-step migration does not.
+
 ## 2. Decisions per result family
 
 ### 2.1 Tables 3 and 4 - STEC accuracy
