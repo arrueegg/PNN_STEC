@@ -3,7 +3,7 @@
   "canonical_for": "provenance index",
   "caveats": [],
   "code": {
-    "commit": "71843944b99c7459eb9ed8b473f5f6f5aa2c75eb",
+    "commit": "7c1b2ff52a152a8ad47899ee0e7b38898d514312",
     "dirty": true
   },
   "command": "-m stec.analysis.results_manifest",
@@ -18,13 +18,13 @@
     },
     "multiday_results/analyses/results_manifest/rebuilt/manifest.csv": {
       "present": true,
-      "rows": 44,
-      "sha256": "ce25b783bd7913abf92e1c257bc54b1c0cc5222da88625057d9c51b122e6f131",
-      "size": 61255
+      "rows": 48,
+      "sha256": "47a319389ce7d4ed049483fb919d2ac83db9878e551cafa556f278a6a8007a2a",
+      "size": 70511
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T07:31:37.978739+00:00",
+  "recorded_at": "2026-09-16T07:47:51.245993+00:00",
   "stage": "results_manifest",
   "supersedes": []
 }

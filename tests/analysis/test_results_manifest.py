@@ -106,9 +106,13 @@ def test_every_paper_deliverable_has_exactly_one_owner_in_the_manifest():
     assert len(owners) == len(set(owners)), (
         "a deliverable with two owners has no answer"
     )
-    for expected in ("Tables 1 and 2", "Tables 3 and 4", "Tables 5 and 6", "Table 7"):
+    # Numbers checked against PNN_main_revised.aux, not against prose: inserting the
+    # dSTEC table as Table 5 (tab:dstec) pushed every positioning table down by one, so
+    # positioning_distributions owns Tables 6-7 (tab:pos_summary, tab:pos_components)
+    # and weighting_ablation owns Table 8 (tab:weighting_ablation).
+    for expected in ("Tables 1 and 2", "Tables 3 and 4", "Tables 6 and 7", "Table 8"):
         assert expected in owners
-    # "Table A1" does not exist in the manuscript (5 tables, no lettered appendix) -
+    # "Table A1" does not exist in the manuscript (8 tables, no lettered appendix) -
     # common_set_positioning backs the R1.5 reviewer-response numbers instead and
     # correctly claims no deliverable, so it must never appear here.
     assert "Table A1" not in owners

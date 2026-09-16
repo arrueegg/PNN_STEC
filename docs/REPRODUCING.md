@@ -26,7 +26,7 @@ a provenance record for each one.
 | Space-weather indices (`omni_hourly_2010-2025.h5`) | `stec.config.paths.OMNI_INDICES` (under `REPO_DATA`) | Source values (Kp, Dst, AE, ap, F10.7, sunspot number) are public via [NASA OMNIWeb](https://omniweb.gsfc.nasa.gov/); this project's specific hourly-indexed HDF5 repackaging is not distributed separately. | small (tens of MB) |
 | Madrigal reference STEC (`Madrigal_STEC`) | `stec.config.paths.MADRIGAL_ROOT`, `STEC_DATA_ROOT` | Source line-of-sight TEC is public via the [Madrigal distributed database](http://cedar.openmadrigal.org/); the per-day HDF5 extraction this pipeline reads is a local reformatting, not distributed. | 740 GB |
 | IGS/CODE Global Ionospheric Maps (IONEX) | `stec.config.paths.GIM_IONEX_ROOT`, `STEC_DATA_ROOT` | Public. IGS combined GIMs and CODE's own product are served from CDDIS and `ftp.aiub.unibe.ch`; CDDIS requires a free Earthdata login, and AIUB's FTP is firewalled from some hosts (see the Gotchas in the project `CLAUDE.md`). | tens of GB across the test period |
-| Station/date split lists | `stec.config.paths.SPLIT_LISTS` (`src/data_processing/*.list`) | **Included in this repository** — small text files, not part of the 640 GB tree, and not overridable by an environment variable (they are resolved relative to the repo root on purpose: they are code, not data). | KB |
+| Station/date split lists | `stec.config.paths.SPLIT_LISTS` (`stec/data/splits/*.list`) | **Included in this repository** — small text files, not part of the 640 GB tree, and not overridable by an environment variable (they are resolved relative to the repo root on purpose: they are code, not data). | KB |
 | Trained checkpoints (pretrained + 258 daily fine-tunes) | `experiments/` under `STEC_LEGACY_ROOT` | Produced by training runs against the data above. Not included. The pretrained run's own `config.yaml` is the one exception — a frozen copy is checked in at `config/paper/pretrain_stec_config.yaml` (see Tables 1-2, below) precisely so describing the model does not require the checkpoints beside it. | not disclosed here; not distributed |
 
 ## Environment variables
@@ -134,7 +134,7 @@ they need to survive being read out of context:
 
 - **Caveat sidecars** — `<output>.caveats.json` for a file, `CAVEATS.json` inside a
   directory — carry the conditions under which that specific output must not be read
-  standalone. `oracle_benchmark`'s says it is not comparable with Table 5; the Madrigal
+  standalone. `oracle_benchmark`'s says it is not comparable with the positioning-distribution table; the Madrigal
   outputs' say to read them alongside `madrigal_reference_offset`. These travel with the
   CSV so a caveat isn't lost the moment someone copies the file out of `multiday_results/`.
 - **Superseded markers** — `<name>.superseded.json` — stamp an older artifact as replaced
@@ -187,10 +187,21 @@ start.
   the very 640 GB tree this section says is not needed — freezing a copy is what closes
   that gap.)
 
+The stage list is read from the code, never from this document: run
+`python -c "from stec.pipeline import stages; print(len(stages.STAGES))"` for the count and
+`python -m stec.pipeline status` for what is current. The 2026-09 reporting-methodology pass
+(`docs/revision/metrics_and_exclusions_design.md`) added four deliverables worth knowing
+about when reading the tables: `dstec_evaluation` and `dstec_evaluation_madrigal` (the
+differential-STEC panel, which cancels per-arc offsets by construction and is the comparison
+the Madrigal reference offset cannot affect), `positioning_activity` (positioning stratified
+by local ionospheric activity, which replaced an earlier recovered/original population
+split), and `constellation_coverage` (how many satellites each correction source actually
+lets PPPx use, and what a single-constellation station-day costs).
+
 **Reproducible given the real data and checkpoints** (obtainable only by request from the
 authors; not distributed with this release):
 
-- Tables 3–5 and every revision-response figure, exactly, with the accompanying
+- Tables 3-8 and every revision-response figure, exactly, with the accompanying
   `.pipeline/*.json` record naming the commit and inputs that produced each one;
 - retraining, given the raw STEC database and OMNI indices (the pretrained model: 150
   epochs on the full multi-year set; each daily fine-tune: 258 separate runs) — **but not
