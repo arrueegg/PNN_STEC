@@ -2361,7 +2361,7 @@ STAGES: list[Stage] = [
     Stage(
         "oracle_benchmark",
         f"-m stec.analysis.oracle_benchmark --output-dir {ORACLE_BENCHMARK_DIR}",
-        "R2.8",
+        "R1.8",
         "positioning floor from reference STEC, on its own restricted set",
         # Not POSITIONING: oracle_benchmark.py never opens that file. It reads the
         # oracle experiment tree directly (ORACLE_EXPERIMENT_DIR, see that constant's
@@ -2375,6 +2375,11 @@ STAGES: list[Stage] = [
         # see positioning/geometry/recover_day.py's run_models for the fix).
         inputs=[ORACLE_EXPERIMENT_DIR, WEIGHTING_RUN],
         outputs=[str(ORACLE_BENCHMARK_DIR)],
+        # Declared 2026-09-16: nothing in the registry recorded that this stage
+        # answers a reviewer comment at all, which is the drift canonical_for
+        # exists to catch. R1.8 asks for exactly this - the reference STEC applied
+        # directly as the correction, as an observation-derived upper bound.
+        canonical_for="R1.8 observation-derived oracle PPP benchmark",
         caveats=[
             "NOT comparable with the positioning-distribution table, by design and permanently. It uses elev "
             "weighting - the reference STEC carries only a placeholder sigma, so iono "

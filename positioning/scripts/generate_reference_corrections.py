@@ -1,6 +1,6 @@
 """Write the GNSS-derived reference STEC as a PPPx ionospheric correction file.
 
-Evidence for reviewer comment R2.8:
+Evidence for reviewer comment R1.8:
 
     "The positioning experiment should include a benchmark in which the
      GNSS-derived reference STEC used for model training/evaluation is directly
