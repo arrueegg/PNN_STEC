@@ -1,0 +1,53 @@
+{
+  "answers": "R1.6, R2.6",
+  "canonical_for": null,
+  "caveats": [
+    "Population: pretrained model, own test set (predictions/pretrained_stec/own) - a fixed random subset of the test split, 10,000,000 observations spanning 2014-2024 (see stec.analysis.pretrained_test_diagnostics's docstring), the same population Figure 9 (fig_uncertainty) is drawn from. Not the 2024-only daily fine-tuned test set uncertainty_error_relation itself reports on.",
+    "Bins are fixed TECU intervals (0-1-2-3-4-5-7-10-15-20-30-inf), not sigma deciles - see uncertainty_error_relation's own caveat for why a decile-based partition was rejected.",
+    "calibrating_factor.csv states the single scalar that would calibrate the predicted uncertainty AND its spread across elevation bands. The spread is the load-bearing number: a uniform factor is a scale error, a varying one would be a broken uncertainty model, and only the former is safe to report as a post-hoc recalibration."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.uncertainty_error_relation --model-variant pretrained_stec --dataset own --output-dir multiday_results/analyses/uncertainty_error_relation_pretrained/rebuilt",
+  "description": "predicted uncertainty against realised error, pretrained model, same population as Figure 9 (fig_uncertainty)",
+  "duration_s": 12.5,
+  "fingerprint": "4192e4163e01e576fce8aa35a3575e2dd88bf101984f595a548444a8c84e1ec5",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/uncertainty_error_relation_pretrained/rebuilt": {
+      "present": true,
+      "size": 326
+    },
+    "multiday_results/analyses/uncertainty_error_relation_pretrained/rebuilt/by_elevation.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "9f44ed1749d056471fbc122ceff2d79255984f7d761bb67811cb74cda0649bba",
+      "size": 1791
+    },
+    "multiday_results/analyses/uncertainty_error_relation_pretrained/rebuilt/by_uncertainty.csv": {
+      "present": true,
+      "rows": 10,
+      "sha256": "2322cfa966d0bf0f5b1eed6effca9fafd823264a61dfe519283a1dc3ae07d9bc",
+      "size": 1565
+    },
+    "multiday_results/analyses/uncertainty_error_relation_pretrained/rebuilt/calibrating_factor.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "98ce247fa6026e1323fceb2ef91a4460b16f2370a5fe0d6b6cf5d25fced79c5d",
+      "size": 310
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T07:50:24.450423+00:00",
+  "stage": "uncertainty_error_relation_pretrained",
+  "supersedes": []
+}

@@ -2,19 +2,19 @@
   "answers": "-",
   "canonical_for": null,
   "caveats": [
-    "Diagnostic output, not a manuscript or Table 5 source: built to look at the coverage-recovery result before deciding whether/how it becomes part of Table 5 or a new appendix. Does not supersede positioning_summary (Table 5) or common_set_positioning, and nothing here should be quoted in their place.",
+    "Diagnostic output, not a manuscript or positioning-table source: built to look at the coverage-recovery result before deciding whether/how it becomes part of the positioning-summary table (tab:pos_summary) or a new appendix. Does not supersede positioning_summary (that table) or common_set_positioning, and nothing here should be quoted in their place.",
     "Deliberately reports four outlier-exclusion thresholds (5/10/20/50 m) plus 'no exclusion at all' side by side rather than picking one - outlier_headline_sensitivity.csv shows the project's own 10 m rule (stec.positioning.metrics.OUTLIER_3D_RMS_M) sits on a curve where the Direct-STEC-vs-GIM mean improvement ranges from about -1% (no exclusion) to +16% (5 m threshold), not a validated single choice.",
     "The recovered-vs-original population split (population_split_by_method.csv, population_split_stec_vs_gim.csv) depends on data/recovered_stec_db/ membership: a station-day counts as 'recovered' only if that exact (doy, station) pair has a geometry-only file under that tree (build_recovered_day.py's output). If the tree is absent, load_recovered_station_days logs a warning and returns an empty frame, and every station-day then silently reads as 'original' rather than the stage failing - a run with zero 'recovered' rows must be checked against whether data/recovered_stec_db/ was actually present, not read as 'nothing was recovered'.",
-    "Restricted to the four iono-weighted PAPER_METHODS (positioning_summary.py's labels), the same population Table 5 uses - elev weighting is out of scope here, same as positioning_summary itself."
+    "Restricted to the four iono-weighted PAPER_METHODS (positioning_summary.py's labels), the same population the positioning-distribution table uses - elev weighting is out of scope here, same as positioning_summary itself."
   ],
   "code": {
-    "commit": "77d5a85e738ba576cf55e66d403f3842de2c689d",
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_diagnostics --output-dir multiday_results/analyses/positioning_diagnostics/rebuilt",
   "description": "outlier-threshold sensitivity, per-station losses and a recovered-vs-original population split for the post-recovery-sweep positioning result",
-  "duration_s": 14.9,
-  "fingerprint": "11998949efc3ae3195fd1729554ec2b3a22cde7047089eddcb2e8f65ae44917c",
+  "duration_s": 15.5,
+  "fingerprint": "94b37e65e887f5185a3bc98402153d6ebb932eb0fa668af7026c72c9c14256b7",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -29,8 +29,8 @@
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
-      "size": 13972373
+      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
+      "size": 13940046
     }
   },
   "outputs": {
@@ -40,74 +40,74 @@
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/FINDINGS.md": {
       "present": true,
-      "sha256": "f9f51f0e1375bf451a115174e10af417a3136bd5bec73ced02b273bc9d69635e",
-      "size": 11053
+      "sha256": "8b88aa47c053f13b58631efcadb4b99175964339c3ffca7a94e67b6ddc80d911",
+      "size": 10797
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/daily_timeseries.csv": {
       "present": true,
       "rows": 968,
-      "sha256": "4569189e2451f3d003422db6ed6fa3e00d3a40a13a42325ed2b415542c9f33da",
-      "size": 54642
+      "sha256": "a6af029cc63b79621eafa504636d600e922ed7073dcc1dd30a9293f67a8e50e9",
+      "size": 54676
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_by_day.csv": {
       "present": true,
-      "rows": 207,
-      "sha256": "89bb335ab009866af60ffe6ea276f6ccac916efd638cffce41108034a0dbd23c",
-      "size": 4797
+      "rows": 204,
+      "sha256": "767f3980d991e64563a75f877eadb1d0bfb30e1f712f5deb97b51225f11cd8cc",
+      "size": 4717
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_by_station.csv": {
       "present": true,
-      "rows": 72,
-      "sha256": "95fad4a27535a4ba9d07b2fa5ee5d5095175e250b1be6fb70ee262b2e54c55b9",
-      "size": 1788
+      "rows": 67,
+      "sha256": "aeb1a701f16ae1699d0f86174343a9258a5a93b61e2dad4492d7eef6c9cda1dd",
+      "size": 1667
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_concentration_summary.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "94a618561da37ee966213dee0cb11b72f03b14c917bb9438b6b44408fa6fc3a2",
-      "size": 219
+      "sha256": "73af0063e21eaf5819a4ca7306df53bf083b4c1b37a5d27adf873e7e2cf92d9f",
+      "size": 229
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_counts_by_population.csv": {
       "present": true,
       "rows": 32,
-      "sha256": "0511c9022697cae8a08230960f0d4ad6c19accc7d4e2486b5fced11acf95820a",
-      "size": 2449
+      "sha256": "c81c1ef3af31150eba464883147b8943736eafb853171bb5ec5e5350feb69beb",
+      "size": 2418
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_headline_sensitivity.csv": {
       "present": true,
       "rows": 5,
-      "sha256": "a2069f680aa15fb23663c61eec14152312875d91b1bc8d7bbdc7dac2afac0b66",
-      "size": 695
+      "sha256": "205f372173d2e0af4792a2ad842badc4eee4f650317513d722558137391a7500",
+      "size": 697
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_threshold_counts.csv": {
       "present": true,
       "rows": 16,
-      "sha256": "5c8934f3081a0597b9e4af2f744e642d12064083c86d801ca5f7d066317bd9da",
-      "size": 1198
+      "sha256": "24e2b110bdce06d6fe1f07a8ac79a367ac85b33383634bed883902a66e3ae7f7",
+      "size": 1200
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/overall_summary.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "5e5b89ac72f2bc1be11ae6d6810f24905d3e83cd1c14d5423f6f919b4b9b87ee",
-      "size": 299
+      "sha256": "65ec2ea5f98fbc05569aa1b0dabc96d630067514f5471ed2d11d3eb59b2db8ce",
+      "size": 300
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/per_station_summary.csv": {
       "present": true,
-      "rows": 57,
-      "sha256": "5bbe464a89259f1119dc3295c3b9704400fab856898b1e989afce26efe23fd3b",
-      "size": 5956
+      "rows": 55,
+      "sha256": "1bf3402e107d067d6c45bd48a978ab97ff8d3b2c30c6f2ca62a372faacfde711",
+      "size": 5880
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/population_split_by_method.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "28195cd514bac3364f014653f1b7916bd25ba87b5dbb5d8180e1e542672bc6eb",
-      "size": 504
+      "sha256": "33607d6c200021304f804ded9989dc03ca9c7d5a6cf5e64208774fc0fb789797",
+      "size": 505
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/population_split_stec_vs_gim.csv": {
       "present": true,
       "rows": 2,
-      "sha256": "2d90a77b7cb8ef6a75a4abf7f833a3a27cbf4439cb139c40546c7f73626c741e",
-      "size": 335
+      "sha256": "188e1de02d1e21c0ffab5aa2f7440a0250d9db67c949d42ebcb6b40cbeef0142",
+      "size": 336
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/recovered_station_days.csv": {
       "present": true,
@@ -117,7 +117,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T09:38:13.732437+00:00",
+  "recorded_at": "2026-09-18T07:13:28.260377+00:00",
   "stage": "positioning_diagnostics",
   "supersedes": []
 }

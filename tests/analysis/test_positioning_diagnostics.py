@@ -450,6 +450,59 @@ def test_format_findings_markdown_handles_an_empty_recovered_population():
     assert "No station has a recovered day in this run" in markdown
 
 
+def test_format_findings_markdown_denominator_counts_all_test_stations_not_just_survivors():
+    """The '<N> of <M> test stations have at least one recovered day' sentence's
+    denominator must be every station in the analysis's population (`frame`), not just
+    the ones that survive `per_station_summary`'s 10 m outlier exclusion. A station
+    whose every Direct STEC/GIM row exceeds 10 m vanishes from `per_station` entirely
+    (both methods excluded), but it is still a real test station - undercounting the
+    denominator there is exactly the '57 of 55 test stations' bug this pins."""
+    frame = _four_method_frame(
+        [(s, STEC, 100, v) for s, v in zip("ABCD", [1.0, 2.0, 3.0, 4.0])]
+        + [(s, GIM, 100, v) for s, v in zip("ABCD", [2.0, 4.0, 6.0, 8.0])]
+        + [(s, VTEC, 100, v) for s, v in zip("ABCD", [3.0, 3.0, 3.0, 3.0])]
+        + [(s, PRETRAINED, 100, v) for s, v in zip("ABCD", [5.0, 5.0, 5.0, 5.0])]
+        # EEEE: both STEC and GIM exceed the 10 m rule on its only day, so it is
+        # dropped by per_station_summary's exclude_outlier_station_days entirely -
+        # yet it is a real station in `frame` and has a recovered day.
+        + [("EEEE", STEC, 102, 50.0), ("EEEE", GIM, 102, 60.0)]
+    )
+    recovered = pd.DataFrame([{"year": 2024, "doy": 102, "station": "EEEE"}])
+    inputs = _build_findings_inputs(frame, recovered)
+    assert "EEEE" not in set(inputs["per_station"]["station"])  # sanity: excluded
+
+    markdown = pd_diag._format_findings_markdown(**inputs)
+
+    assert "1 of 5 test stations have at least one recovered day" in markdown
+    assert "of 4 test stations" not in markdown
+
+
+def test_format_findings_markdown_denominator_counts_a_station_absent_from_frame_entirely():
+    """Real-world recurrence of the same bug, one level up: after the 2026-09-17
+    ref_source mean->ground_truth fix, a station can have *zero* surviving rows in
+    `frame` at all (every one of its rows was ref_source='mean' and could not be
+    repaired), while it still has a recovered-geometry day - `frame['station'].nunique()`
+    alone reproduces '57 of 55' again, just for a different reason than the outlier
+    exclusion above. The denominator must be the union of `frame`'s and `recovered`'s
+    stations, which can never be smaller than `recovered`'s own count by construction."""
+    frame = _four_method_frame(
+        [(s, STEC, 100, v) for s, v in zip("ABCD", [1.0, 2.0, 3.0, 4.0])]
+        + [(s, GIM, 100, v) for s, v in zip("ABCD", [2.0, 4.0, 6.0, 8.0])]
+        + [(s, VTEC, 100, v) for s, v in zip("ABCD", [3.0, 3.0, 3.0, 3.0])]
+        + [(s, PRETRAINED, 100, v) for s, v in zip("ABCD", [5.0, 5.0, 5.0, 5.0])]
+    )
+    # GGGG never appears in frame at all (no method has a valid row for it), but it has
+    # a recovered day - the same shape as BRMG/LICC after the ref_source fix.
+    recovered = pd.DataFrame([{"year": 2024, "doy": 103, "station": "GGGG"}])
+    inputs = _build_findings_inputs(frame, recovered)
+    assert "GGGG" not in set(frame["station"])  # sanity: absent from frame entirely
+
+    markdown = pd_diag._format_findings_markdown(**inputs)
+
+    assert "1 of 5 test stations have at least one recovered day" in markdown
+    assert "of 4 test stations" not in markdown
+
+
 def test_format_findings_markdown_reports_population_split_direction():
     """AAAA (recovered) is where Direct STEC loses to GIM; BBBB (original) is where it
     wins - the recommendation section must reflect the direction actually computed, not

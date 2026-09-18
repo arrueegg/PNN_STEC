@@ -69,6 +69,11 @@ import pandas as pd
 
 from ..config import paths
 from ..positioning import metrics as pm
+from .positioning_coverage import DEFAULT_OUTPUT_DIR as POSITIONING_COVERAGE_DIR
+from .positioning_coverage import (
+    EXCLUDED_SOLVER_FAILURES_FILENAME,
+    solver_failure_station_day_set,
+)
 from .positioning_summary import (
     DEFAULT_WEIGHTING_SUMMARY,
     canonical_positioning_summary,
@@ -128,14 +133,33 @@ def coverage_common_station_days(
     weighting-scheme table) to put both manuscript tables on one shared population,
     removing the need to explain a different N per table in the text.
 
-    Reconciled against `build()`'s N (measured 2026-09-14): this function returns
-    N=10,387; `build()` returns N=10,186 over the same eight arms. The entire 201-row
-    gap is station-days where at least one arm exceeds the 10 m outlier threshold
-    (`stec.positioning.metrics.OUTLIER_3D_RMS_M`) that `build()` still excludes and this
-    function does not - verified directly, not merely asserted: intersecting `build()`'s
-    dates and this function's coverage set changes nothing (both already cover the same
-    242 dates), and applying `pm.exclude_outlier_station_days` on top of this function's
-    result reproduces `build()`'s 10,186 exactly. No 10 m filter is applied here, for the
+    Reconciled against `build()`'s N across four successive fixes, all landed
+    2026-09-17/18: pre-fix this function returned N=10,387 against `build()`'s 10,186;
+    after the `positioning_coverage` GIM-arm fix (`daily_summary_iono.csv`'s
+    elevation-weighted `gim` fallback rows no longer folded into the iono GIM arm, see
+    that module's `GENUINE_GIM_METHOD`) N=10,674 against `build()`'s 10,468; after the
+    same day's later `verification.repair_overwritten_summaries` ref_source
+    mean->ground_truth fix's *first* pass (whole-file granularity - one unrelated
+    genuine missing-SINEX station STOPped the whole file, so `collect()`'s matching
+    defensive filter had to drop every contaminated row in it, not just that station's)
+    this function briefly returned an over-conservative **N=9,606** against `build()`'s
+    9,417 - gutting DOY 122-151 down to single digits on many days and removing the
+    10-11 May 2024 superstorm (DOY 131-132) from the population entirely. The
+    2026-09-18 follow-up made the same repair handle missing SINEX **per station**
+    (`find_missing_sinex_drops`): a station with SINEX is rebuilt against ground truth,
+    one without it is dropped from only its own row, so it no longer blocks every other
+    station in the file. This restored the population to **N=10,674** against
+    `build()`'s **N=10,467** - essentially the GIM-arm-fix level, not identical to it
+    row-for-row but the same order of population. The entire 207-row gap (was 206, a
+    low of 189 during the over-conservative intermediate state, 201 before the GIM-arm
+    fix) is station-days where at least one arm exceeds the
+    10 m outlier threshold (`stec.positioning.metrics.OUTLIER_3D_RMS_M`) that `build()`
+    still excludes and this function does not - intersecting `build()`'s dates and this
+    function's coverage set changes nothing (both already cover the same 242 dates),
+    and `build()`'s own reported N (`table5_common_set.csv`'s `station_days` column)
+    confirms the 207-row gap arithmetically; not re-verified this pass by re-running
+    `pm.exclude_outlier_station_days` directly against this function's live output. No
+    10 m filter is applied here, for the
     same reason `positioning_distributions.py` applies none for Table 5 (owner decision,
     docs/revision/positioning_reporting.md): an outcome-based filter is not neutral
     between methods.
@@ -196,6 +220,21 @@ def build(three_way: Path, ablation: Path, experiment: Path) -> dict:
         ignore_index=True,
     )
     runs = runs[runs["doy"].isin(dates)]
+
+    # `paper`/`load_tree(ablation)` already exclude solver-failure station-days
+    # (SOLVER_FAILURE_THRESHOLD_M, positioning_coverage.py) because they are read from
+    # that stage's own rebuilt summaries. `load_pretrained_elev` is not - it globs a
+    # live experiment tree's per-day `daily_summary.csv` files directly - so it needs
+    # the same exclusion applied explicitly here, or a station-day like URUM/365 would
+    # re-enter this arm's own before-intersection count even though it can never reach
+    # `common` (missing from the other seven arms already).
+    solver_failures = solver_failure_station_day_set(
+        POSITIONING_COVERAGE_DIR / EXCLUDED_SOLVER_FAILURES_FILENAME
+    )
+    if solver_failures:
+        keys = list(zip(runs["station"].astype(str).str.upper(), runs["doy"]))
+        runs = runs[[key not in solver_failures for key in keys]]
+
     runs = pm.exclude_outlier_station_days(runs)
     runs = runs.drop_duplicates(subset=["station", "doy", "method"])
 

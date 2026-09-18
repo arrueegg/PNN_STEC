@@ -8,18 +8,18 @@
     "within_station_penalty's median is threshold-dependent on min_days_each, the per-station qualifying day count: x1.40 (26 stations, 24/26 significant) at 15, x1.41 (23 stations, 21/23 significant) at the coded default of 20, x1.48 (22 stations, 20/22 significant) at 22 and 25, and x1.55 (19 stations, 17/19 significant) at 30. It drifts upward with the threshold because a stricter cut keeps only the stations with the most of both kinds of day, which are the heavily-affected ones - so the population shifts as the threshold moves, not just its size. The manuscript must quote the range and name the threshold, never a bare point estimate. An earlier exploratory script in this work reported x1.48 from a >=25-day threshold; that figure is superseded by this stage, which is the authority now."
   ],
   "code": {
-    "commit": "060d656db7a95296f0d14df49180c9090b5854ca",
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
     "dirty": true
   },
   "command": "-m stec.analysis.constellation_coverage --output-dir multiday_results/analyses/constellation_coverage/rebuilt",
   "description": "how many satellites each correction source lets PPPx use, and the within-station cost of a station-day where only one constellation could be corrected",
   "duration_s": 0.6,
-  "fingerprint": "02094363143b654b540bd1656d31e5913598b8a0325b2aacf09a2b04c14ef88c",
+  "fingerprint": "ff8c4262202bb18dc6f0a9a5dafed61a3d7d0e155c5344168c22ff09f759bca7",
   "inputs": {
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
-      "size": 13972373
+      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
+      "size": 13940046
     }
   },
   "outputs": {
@@ -30,24 +30,24 @@
     "multiday_results/analyses/constellation_coverage/rebuilt/per_station.csv": {
       "present": true,
       "rows": 55,
-      "sha256": "8c76609b26934716f3c78c6cc3d462b51e61be55734e99c7bf2c61c7da256ef3",
-      "size": 2785
+      "sha256": "14dd09b916c610c2c719d9b8670255fba20760455877a6ece13bd669d32501cc",
+      "size": 2778
     },
     "multiday_results/analyses/constellation_coverage/rebuilt/population_summary.csv": {
       "present": true,
       "rows": 3,
-      "sha256": "dedc1176754581ef69bf337d62676e72b410743bbf60857964e5319c76cd319d",
-      "size": 510
+      "sha256": "de4eacd956b9bf0daac79163d9b64c63dda7b9e788a6d4a407ac78bd3d29acc7",
+      "size": 488
     },
     "multiday_results/analyses/constellation_coverage/rebuilt/within_station_penalty.csv": {
       "present": true,
       "rows": 23,
-      "sha256": "1fe17f0ceeb732e226093dbf470551a838464ff90cd0190308ac2b196c2dcd0c",
-      "size": 2152
+      "sha256": "fb84fd43c481467ba747c2e1e8be892411a375c3c544ed6202bd00c81b5bff42",
+      "size": 2151
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T14:48:45.429571+00:00",
+  "recorded_at": "2026-09-18T07:11:21.483523+00:00",
   "stage": "constellation_coverage",
   "supersedes": []
 }

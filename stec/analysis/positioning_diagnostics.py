@@ -871,7 +871,21 @@ def _format_findings_markdown(
             "comparison above is skipped.",
         ]
 
-    n_stations_total = int(per_station["station"].nunique())
+    # Denominator is the union of every station in `frame` and every station in
+    # `recovered`, not `per_station["station"]` or `frame["station"]` alone - both of
+    # those undercounted it, for two different reasons, and each produced the same
+    # nonsensical "57 of 55 test stations" symptom. First (2026-09-17): a station whose
+    # every Direct STEC/GIM row exceeds the 10 m outlier rule is dropped from
+    # `per_station` entirely (both methods excluded), but it is still a real test
+    # station. Then, the same day, a second cause surfaced once the ref_source
+    # mean->ground_truth fix landed: a station can lose *every* row in `frame` itself
+    # (all of them were ref_source="mean" and could not be repaired at the source),
+    # while still having a recovered-geometry day - `frame["station"].nunique()` alone
+    # reproduces the same bug for a different reason. The union is the only version of
+    # this denominator that cannot be smaller than `recovered`'s own station count by
+    # construction, so it closes the whole class rather than the specific cause found
+    # first.
+    n_stations_total = len(set(frame["station"]) | set(recovered["station"]))
     n_stations_recovered = (
         int(recovered["station"].nunique()) if not recovered.empty else 0
     )

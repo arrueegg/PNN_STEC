@@ -158,6 +158,69 @@ def test_load_pretrained_elev_returns_empty_frame_when_experiment_has_no_summari
 
 
 # ---------------------------------------------------------------------------
+# build(): the solver-failure exclusion (owner decision 2026-09-18) must reach the
+# Pretrained_STEC_elev arm too, even though load_pretrained_elev reads a live
+# experiment tree's raw per-day files rather than positioning_coverage's own already-
+# filtered rebuilt summaries.
+# ---------------------------------------------------------------------------
+
+
+def test_build_drops_a_solver_failure_station_day_from_the_pretrained_elev_arm(
+    tmp_path, monkeypatch
+):
+    three_way = tmp_path / "three_way.csv"
+    write_csv(
+        three_way,
+        [row("AMC4", 132, "STEC_iono", 2.0), row("AMC4", 132, "gim_iono", 4.0)],
+    )
+    ablation = tmp_path / "ablation.csv"
+    write_csv(ablation, [])
+    experiment = tmp_path / "Pretrain_STEC_example"
+    day_dir = experiment / "positioning" / "results" / "2024132"
+    day_dir.mkdir(parents=True)
+    write_csv(day_dir / "daily_summary.csv", [row("URUM", 132, "model", 5900.0)])
+
+    coverage_dir = tmp_path / "positioning_coverage"
+    coverage_dir.mkdir()
+    pd.DataFrame([{"station": "URUM", "doy": 132}]).to_csv(
+        coverage_dir / csp.EXCLUDED_SOLVER_FAILURES_FILENAME, index=False
+    )
+    monkeypatch.setattr(csp, "POSITIONING_COVERAGE_DIR", coverage_dir)
+
+    result = csp.build(three_way, ablation, experiment)
+
+    # Without the fix, URUM/132 would surface as a one-station-day
+    # "Pretrained Direct STEC / elevation" arm even though it can never reach the
+    # actual common set (missing from every other arm already).
+    assert "Pretrained Direct STEC / elevation" not in result["summary"].index
+
+
+def test_build_keeps_pretrained_elev_rows_not_in_the_exclusion_file(
+    tmp_path, monkeypatch
+):
+    three_way = tmp_path / "three_way.csv"
+    write_csv(
+        three_way,
+        [row("AMC4", 132, "STEC_iono", 2.0), row("AMC4", 132, "gim_iono", 4.0)],
+    )
+    ablation = tmp_path / "ablation.csv"
+    write_csv(ablation, [])
+    experiment = tmp_path / "Pretrain_STEC_example"
+    day_dir = experiment / "positioning" / "results" / "2024132"
+    day_dir.mkdir(parents=True)
+    write_csv(day_dir / "daily_summary.csv", [row("AMC4", 132, "model", 3.0)])
+
+    # No excluded_solver_failures.csv under this tmp_path - solver_failure_station_day_
+    # set() must tolerate that (see its own docstring) rather than erroring or, worse,
+    # falling back to the real checkout's exclusion file.
+    monkeypatch.setattr(csp, "POSITIONING_COVERAGE_DIR", tmp_path / "no_such_dir")
+
+    result = csp.build(three_way, ablation, experiment)
+
+    assert "Pretrained Direct STEC / elevation" in result["summary"].index
+
+
+# ---------------------------------------------------------------------------
 # coverage_common_station_days: the shared Table 5 / weighting-ablation population
 # (owner instruction, 2026-09-14) - coverage-only, no 10 m outlier exclusion, unlike
 # build()'s own common set above.

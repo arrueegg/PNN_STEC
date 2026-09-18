@@ -25,10 +25,13 @@ from stec.pipeline.stages import (
     ACTIVITY_STRATIFICATION_DIR,
     DAILY_METRICS_DIR,
     DSTEC_EVALUATION_DIR,
+    DSTEC_EVALUATION_MADRIGAL_DIR,
     ELEVATION_METRICS_FINETUNED_DIR,
     HYPERPARAMETER_SEARCH_DIR,
     IONEX_RMS_BENCHMARK_DIR,
     MADRIGAL_REFERENCE_OFFSET_DIR,
+    MANUSCRIPT_DAILY_METRICS_ROW_BACKING,
+    MANUSCRIPT_DSTEC_ROW_BACKING,
     MANUSCRIPT_TABLE2_ROW_BACKING,
     ORACLE_BENCHMARK_DIR,
     ORACLE_EXPERIMENT_DIR,
@@ -58,11 +61,17 @@ from stec.pipeline.stages import (
     UNCERTAINTY_ERROR_RELATION_DIR,
     WEIGHTING_ABLATION_DIR,
     WEIGHTING_RUN,
+    _extract_tex_table_full_rows,
     _extract_tex_table_rows,
+    _parse_median_iqr_cell,
+    _parse_plain_number_cell,
     _rel,
+    _strip_tex_number_markup,
     _unwrap_braced_macro,
+    daily_metrics_manuscript_tables_match_csv,
     daily_metrics_summary_has_all_methods_and_datasets,
     daily_metrics_summary_has_consistent_day_counts,
+    dstec_manuscript_table_matches_csv,
     paper_tables_manuscript_rows_are_backed,
     positioning_distributions_overall_has_all_four_methods,
     positioning_summary_overall_has_all_four_methods,
@@ -102,13 +111,13 @@ def test_paper_deliverables_have_exactly_one_owner():
     # (docs/revision/positioning_reporting.md): Table 5 reports distributions/medians
     # with no outcome-based filter, which positioning_distributions.py implements and
     # positioning_summary.py (the mean/10 m-exclusion methodology) does not.
-    # Widened to "Tables 5 and 6" 2026-09-15: common_set_component_medians.csv (Table 6,
+    # Widened to two tables 2026-09-15: common_set_component_medians.csv (tab:pos_components,
     # tab:pos_components) is written by this same stage and had no owner of its own -
     # results_register.md Consistency item C.
-    assert owners["Tables 5 and 6"] == "positioning_distributions"
+    assert owners["Tables 6 and 7"] == "positioning_distributions"
     # Declared 2026-09-15 for the same reason as Table 6 above: weighting_ablation's
     # common_set.csv is Table 7 (tab:weighting_ablation) and previously had no owner.
-    assert owners["Table 7"] == "weighting_ablation"
+    assert owners["Table 8"] == "weighting_ablation"
     # "Table A1" does not exist in either manuscript copy (5 tables, no lettered
     # appendix - Figures 14/15 are the only appendix content, numbered continuously).
     # Locking in its absence so a future edit cannot silently reintroduce the label.
@@ -119,9 +128,9 @@ def test_common_set_positioning_backs_no_manuscript_table():
     """It recomputes Table 5's methods on a different, smaller station-day population -
     the one solved under both weightings - to answer R1.5's reviewer-response comparison,
     not a printed manuscript table. Unlike positioning_distributions, it correctly claims
-    no `canonical_for`, so it can never collide with that stage's "Tables 5 and 6"."""
+    no `canonical_for`, so it can never collide with that stage's "Tables 6 and 7"."""
     assert stage("common_set_positioning").canonical_for is None
-    assert stage("positioning_distributions").canonical_for == "Tables 5 and 6"
+    assert stage("positioning_distributions").canonical_for == "Tables 6 and 7"
 
 
 def test_positioning_summary_no_longer_owns_table_5():
@@ -294,7 +303,7 @@ def test_manuscript_figures_positioning_figures_read_the_common_set():
 
 def test_oracle_benchmark_states_it_is_not_comparable_with_table_5():
     caveats = " ".join(stage("oracle_benchmark").caveats).lower()
-    assert "not comparable with table 5" in caveats
+    assert "not comparable with the positioning-distribution table" in caveats
     assert "elev weighting" in caveats
 
 
@@ -933,7 +942,7 @@ def test_positioning_diagnostics_figures_reads_only_its_own_analysis_directory()
 def test_positioning_diagnostics_states_it_is_diagnostic_not_a_table_5_source():
     caveats = " ".join(stage("positioning_diagnostics").caveats).lower()
     assert "diagnostic" in caveats
-    assert "table 5" in caveats
+    assert "positioning-distribution table" in caveats
 
 
 def test_positioning_diagnostics_states_it_reports_several_outlier_thresholds():
@@ -1160,9 +1169,9 @@ _POSITIONING_GEOGRAPHY_CSVS = [
 def test_positioning_distributions_owns_table_5_exactly_once():
     matches = [s for s in STAGES if s.name == "positioning_distributions"]
     assert len(matches) == 1
-    # Widened to "Tables 5 and 6" 2026-09-15 - see test_paper_deliverables_have_
+    # Widened to two tables 2026-09-15 - see test_paper_deliverables_have_
     # exactly_one_owner's comment for why.
-    assert matches[0].canonical_for == "Tables 5 and 6"
+    assert matches[0].canonical_for == "Tables 6 and 7"
 
     figure_matches = [
         s for s in STAGES if s.name == "positioning_distributions_figures"
@@ -1530,3 +1539,379 @@ def test_paper_tables_manuscript_rows_are_backed_flags_an_unmapped_printed_row(
     violation = paper_tables_manuscript_rows_are_backed(outputs)
     assert violation is not None
     assert "A Brand New Row" in violation
+
+
+# --- daily_metrics / dstec_evaluation_madrigal: manuscript table *values* must match --
+#
+# paper_tables_manuscript_rows_are_backed's own docstring names the gap these two checks
+# close: a row present and correctly named on both sides can still carry two different
+# numbers. Both compare the manuscript's printed cells against the CSV at the
+# manuscript's own 2 dp rounding, over a small synthetic fixture rather than the real,
+# gitignored multi-hundred-GB-backed CSVs - _passes_for_real below is the one test that
+# reads those, and is skipped when they are not present on this host.
+
+
+def test_strip_tex_number_markup_handles_the_real_cell_shape():
+    """`\\revised{$\\mathbf{6.87}$ [6.09--7.66]}` is a real Table 3 cell - the shape
+    this helper exists to unwrap without dropping a digit."""
+    assert (
+        _strip_tex_number_markup(r"\revised{$\mathbf{6.87}$ [6.09--7.66]}")
+        == "6.87 [6.09--7.66]"
+    )
+
+
+def test_strip_tex_number_markup_handles_an_unrevised_plain_cell():
+    """Table 5 cells carry no `\\revised{...}` wrapper at all."""
+    assert _strip_tex_number_markup(r"$4.10$ [2.53--6.71]") == "4.10 [2.53--6.71]"
+
+
+def test_strip_tex_number_markup_handles_a_plain_r2_cell():
+    assert _strip_tex_number_markup(r"\revised{$\mathbf{0.97}$}") == "0.97"
+
+
+def test_parse_median_iqr_cell_parses_the_real_shape():
+    assert _parse_median_iqr_cell(r"\revised{$\mathbf{6.87}$ [6.09--7.66]}") == (
+        6.87,
+        6.09,
+        7.66,
+    )
+
+
+def test_parse_median_iqr_cell_rejects_an_unshaped_cell():
+    with pytest.raises(ValueError, match="not shaped"):
+        _parse_median_iqr_cell(r"\revised{$\mathbf{6.87}$}")
+
+
+def test_parse_plain_number_cell_parses_the_real_shape():
+    assert _parse_plain_number_cell(r"\revised{$\mathbf{0.97}$}") == 0.97
+
+
+def test_parse_plain_number_cell_rejects_an_unshaped_cell():
+    with pytest.raises(ValueError, match="not a plain number"):
+        _parse_plain_number_cell(r"\revised{$\mathbf{6.87}$ [6.09--7.66]}")
+
+
+_FIXTURE_DAILY_METRICS_TEX = r"""
+\begin{table}[t]
+\caption{fixture}
+\label{testset_performance}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Model & RMSE [TECU] & MAE [TECU] & $R^2$ & P95 $|$error$|$ [TECU] \\
+\midrule
+Direct STEC model & \revised{$\mathbf{1.00}$ [0.50--1.50]} & \revised{$\mathbf{2.00}$ [1.00--3.00]} & \revised{$\mathbf{0.90}$} & \revised{$\mathbf{5.00}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\caption{fixture}
+\label{tab:testset_performance_madrigal}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Model & RMSE [TECU] & MAE [TECU] & $R^2$ & P95 $|$error$|$ [TECU] \\
+\midrule
+Direct STEC model & \revised{$4.00$ [3.50--4.50]} & \revised{$5.00$ [4.00--6.00]} & \revised{$0.70$} & \revised{$8.00$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+"""
+
+_FIXTURE_DAILY_METRICS_CSV_HEADER = (
+    "dataset,Model,RMSE_median,RMSE_q1,RMSE_q3,MAE_median,MAE_q1,MAE_q3,"
+    "R2_median,AbsErr_p95_median\n"
+)
+# Matches _FIXTURE_DAILY_METRICS_TEX's one printed row on each of Tables 3 and 4 -
+# own_vtec_gim's cells round to the manuscript's 1.00/2.00/0.90/5.00,
+# madrigal_vtec_gim's to 4.00/5.00/0.70/8.00.
+_FIXTURE_DAILY_METRICS_CSV_ROWS = (
+    "own_vtec_gim,Direct STEC Model,1.00,0.50,1.50,2.00,1.00,3.00,0.90,5.00\n"
+    "madrigal_vtec_gim,Direct STEC Model,4.00,3.50,4.50,5.00,4.00,6.00,0.70,8.00\n"
+)
+
+
+def _write_manuscript_fixture(tmp_path: Path, monkeypatch, tex: str) -> None:
+    """Points both halves of a manuscript-vs-CSV check at a scratch tree: relative CSV
+    reads resolve against cwd (chdir), and `paths.REPO_ROOT / "STEC_Modelling" / ...`
+    resolves via the monkeypatched constant - the same combination
+    test_paper_tables_manuscript_rows_are_backed_flags_an_unmapped_printed_row uses."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+    tex_dir = tmp_path / "STEC_Modelling"
+    tex_dir.mkdir(parents=True, exist_ok=True)
+    (tex_dir / "PNN_main_revised.tex").write_text(tex)
+
+
+def test_extract_tex_table_full_rows_reads_every_column(tmp_path):
+    tex_path = tmp_path / "fixture.tex"
+    tex_path.write_text(_FIXTURE_DAILY_METRICS_TEX)
+    rows = _extract_tex_table_full_rows(tex_path, "testset_performance")
+    assert len(rows) == 1
+    assert rows[0][0] == "Direct STEC model"
+    assert len(rows[0]) == 5
+
+
+def test_manuscript_daily_metrics_row_backing_resolves_against_real_csv_values():
+    """Every mapped CSV Model name must be a real daily_metrics MODELS value -
+    otherwise the mapping itself would be the thing silently drifting, defeating the
+    check that reads it (same reasoning as
+    test_manuscript_table2_row_backing_resolves_against_the_real_csv_columns)."""
+    for printed_row, csv_model in MANUSCRIPT_DAILY_METRICS_ROW_BACKING.items():
+        assert csv_model in MODELS.values(), (printed_row, csv_model)
+
+
+def test_daily_metrics_manuscript_check_is_declared():
+    assert daily_metrics_manuscript_tables_match_csv in stage("daily_metrics").checks
+
+
+def test_daily_metrics_manuscript_tables_match_csv_reports_undeclared_output(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert daily_metrics_manuscript_tables_match_csv({}) == (
+        f"{DAILY_METRICS_DIR / 'summary.csv'} is not a declared output of this stage"
+    )
+
+
+def test_daily_metrics_manuscript_tables_match_csv_passes_when_cells_agree(
+    tmp_path, monkeypatch
+):
+    _write_manuscript_fixture(tmp_path, monkeypatch, _FIXTURE_DAILY_METRICS_TEX)
+    csv_path = DAILY_METRICS_DIR / "summary.csv"
+    _write_relative(
+        tmp_path,
+        monkeypatch,
+        csv_path,
+        _FIXTURE_DAILY_METRICS_CSV_HEADER + _FIXTURE_DAILY_METRICS_CSV_ROWS,
+    )
+    outputs = {str(csv_path): {"present": True}}
+    assert daily_metrics_manuscript_tables_match_csv(outputs) is None
+
+
+def test_daily_metrics_manuscript_tables_match_csv_catches_a_value_mismatch(
+    tmp_path, monkeypatch
+):
+    """A row present and correctly named but carrying a different number on each side -
+    the exact gap paper_tables_manuscript_rows_are_backed's own docstring names as
+    unchecked. Perturbs the CSV's RMSE_median for the row the manuscript prints 1.00
+    for; the violation must name the table, row, column and both values."""
+    _write_manuscript_fixture(tmp_path, monkeypatch, _FIXTURE_DAILY_METRICS_TEX)
+    csv_path = DAILY_METRICS_DIR / "summary.csv"
+    perturbed_rows = _FIXTURE_DAILY_METRICS_CSV_ROWS.replace(
+        "own_vtec_gim,Direct STEC Model,1.00,", "own_vtec_gim,Direct STEC Model,9.99,"
+    )
+    _write_relative(
+        tmp_path,
+        monkeypatch,
+        csv_path,
+        _FIXTURE_DAILY_METRICS_CSV_HEADER + perturbed_rows,
+    )
+    outputs = {str(csv_path): {"present": True}}
+    violation = daily_metrics_manuscript_tables_match_csv(outputs)
+    assert violation is not None
+    assert "Table 3" in violation
+    assert "Direct STEC model" in violation
+    assert "RMSE" in violation and "median" in violation
+    assert "1.0" in violation
+    assert "9.99" in violation
+
+
+def test_daily_metrics_manuscript_tables_match_csv_flags_an_unmapped_row(
+    tmp_path, monkeypatch
+):
+    """A newly added or renamed manuscript row must be triaged into
+    MANUSCRIPT_DAILY_METRICS_ROW_BACKING before it can be trusted, the same
+    triage-before-trust rule paper_tables_manuscript_rows_are_backed enforces."""
+    _write_manuscript_fixture(
+        tmp_path,
+        monkeypatch,
+        _FIXTURE_DAILY_METRICS_TEX.replace(
+            "Direct STEC model &", "Brand New Model &", 1
+        ),
+    )
+    csv_path = DAILY_METRICS_DIR / "summary.csv"
+    _write_relative(
+        tmp_path,
+        monkeypatch,
+        csv_path,
+        _FIXTURE_DAILY_METRICS_CSV_HEADER + _FIXTURE_DAILY_METRICS_CSV_ROWS,
+    )
+    outputs = {str(csv_path): {"present": True}}
+    violation = daily_metrics_manuscript_tables_match_csv(outputs)
+    assert violation is not None
+    assert "Brand New Model" in violation
+
+
+_DAILY_METRICS_REAL_CSV = DAILY_METRICS_DIR / "summary.csv"
+
+
+@pytest.mark.skipif(
+    not _DAILY_METRICS_REAL_CSV.exists(),
+    reason="live daily_metrics/rebuilt/summary.csv not present on this host",
+)
+def test_daily_metrics_manuscript_tables_match_csv_against_real_data():
+    """Runs the check against the real manuscript and the real, already-computed
+    summary.csv, exactly what the pipeline does - not a substitute for the synthetic
+    fixture tests above, which pin the mechanics independently of today's numbers."""
+    outputs = {str(_DAILY_METRICS_REAL_CSV): {"present": True}}
+    violation = daily_metrics_manuscript_tables_match_csv(outputs)
+    if violation is not None:
+        pytest.fail(
+            "manuscript Table 3/4 values disagree with "
+            f"{_DAILY_METRICS_REAL_CSV}: {violation}"
+        )
+
+
+_FIXTURE_DSTEC_TEX = r"""
+\begin{table}[t]
+\caption{fixture}
+\label{tab:dstec}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & \multicolumn{2}{c}{dSTEC RMSE [TECU]} \\
+\cmidrule(l){2-3}
+Model & Own test set & Madrigal \\
+\midrule
+Direct STEC model & $\mathbf{2.52}$ [1.50--4.48] & $\mathbf{3.90}$ [2.18--7.46] \\
+\bottomrule
+\end{tabular}
+\end{table}
+"""
+
+_FIXTURE_DSTEC_OWN_CSV = (
+    ",value\n"
+    "model_dstec_rmse_median_of_arcs,2.52\n"
+    "model_dstec_rmse_q1_of_arcs,1.50\n"
+    "model_dstec_rmse_q3_of_arcs,4.48\n"
+)
+_FIXTURE_DSTEC_MADRIGAL_CSV = (
+    ",value\n"
+    "model_dstec_rmse_median_of_arcs,3.90\n"
+    "model_dstec_rmse_q1_of_arcs,2.18\n"
+    "model_dstec_rmse_q3_of_arcs,7.46\n"
+)
+
+
+def _write_dstec_fixture_csvs(
+    tmp_path: Path, monkeypatch, own_csv: str, madrigal_csv: str
+) -> tuple[Path, Path]:
+    own_path = DSTEC_EVALUATION_DIR / "summary.csv"
+    madrigal_path = DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv"
+    _write_relative(tmp_path, monkeypatch, own_path, own_csv)
+    _write_relative(tmp_path, monkeypatch, madrigal_path, madrigal_csv)
+    return own_path, madrigal_path
+
+
+def test_manuscript_dstec_row_backing_uses_real_comparison_prefixes():
+    """Every mapped prefix must be a real dstec_evaluation COMPARISON_METHODS prefix,
+    or "model" for the Direct STEC model itself - kept outside that dict on purpose
+    (stec.analysis.dstec_evaluation's own COMPARISON_METHODS comment: stec_pred is
+    required rather than optional, so it keeps the original model_* names)."""
+    from stec.analysis.dstec_evaluation import COMPARISON_METHODS
+
+    valid_prefixes = set(COMPARISON_METHODS) | {"model"}
+    for printed_row, prefix in MANUSCRIPT_DSTEC_ROW_BACKING.items():
+        assert prefix in valid_prefixes, (printed_row, prefix)
+
+
+def test_dstec_manuscript_check_is_declared():
+    assert (
+        dstec_manuscript_table_matches_csv in stage("dstec_evaluation_madrigal").checks
+    )
+
+
+def test_dstec_manuscript_table_matches_csv_reports_undeclared_output(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert dstec_manuscript_table_matches_csv({}) == (
+        f"{DSTEC_EVALUATION_MADRIGAL_DIR / 'summary.csv'} is not a declared output of "
+        "this stage"
+    )
+
+
+def test_dstec_manuscript_table_matches_csv_reports_missing_own_csv(
+    tmp_path, monkeypatch
+):
+    """dstec_evaluation's own summary.csv is read directly off disk, not gated by
+    `outputs` - it belongs to a different, earlier stage. If it is simply absent (e.g.
+    dstec_evaluation has not run yet), this must fail with a named reason rather than
+    an uncaught FileNotFoundError."""
+    _write_manuscript_fixture(tmp_path, monkeypatch, _FIXTURE_DSTEC_TEX)
+    madrigal_path = DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv"
+    _write_relative(tmp_path, monkeypatch, madrigal_path, _FIXTURE_DSTEC_MADRIGAL_CSV)
+    outputs = {str(madrigal_path): {"present": True}}
+    violation = dstec_manuscript_table_matches_csv(outputs)
+    assert violation == (
+        f"{DSTEC_EVALUATION_DIR / 'summary.csv'} is not present - run the "
+        "dstec_evaluation stage first"
+    )
+
+
+def test_dstec_manuscript_table_matches_csv_passes_when_cells_agree(
+    tmp_path, monkeypatch
+):
+    _write_manuscript_fixture(tmp_path, monkeypatch, _FIXTURE_DSTEC_TEX)
+    _own_path, madrigal_path = _write_dstec_fixture_csvs(
+        tmp_path, monkeypatch, _FIXTURE_DSTEC_OWN_CSV, _FIXTURE_DSTEC_MADRIGAL_CSV
+    )
+    outputs = {str(madrigal_path): {"present": True}}
+    assert dstec_manuscript_table_matches_csv(outputs) is None
+
+
+def test_dstec_manuscript_table_matches_csv_catches_a_value_mismatch(
+    tmp_path, monkeypatch
+):
+    _write_manuscript_fixture(tmp_path, monkeypatch, _FIXTURE_DSTEC_TEX)
+    perturbed_own = _FIXTURE_DSTEC_OWN_CSV.replace(
+        "model_dstec_rmse_median_of_arcs,2.52", "model_dstec_rmse_median_of_arcs,9.99"
+    )
+    _own_path, madrigal_path = _write_dstec_fixture_csvs(
+        tmp_path, monkeypatch, perturbed_own, _FIXTURE_DSTEC_MADRIGAL_CSV
+    )
+    outputs = {str(madrigal_path): {"present": True}}
+    violation = dstec_manuscript_table_matches_csv(outputs)
+    assert violation is not None
+    assert "Table 5" in violation
+    assert "Direct STEC model" in violation
+    assert "Own test set" in violation and "median" in violation
+    assert "2.52" in violation
+    assert "9.99" in violation
+
+
+def test_dstec_manuscript_table_matches_csv_flags_an_unmapped_row(
+    tmp_path, monkeypatch
+):
+    _write_manuscript_fixture(
+        tmp_path,
+        monkeypatch,
+        _FIXTURE_DSTEC_TEX.replace("Direct STEC model &", "Brand New Model &", 1),
+    )
+    _own_path, madrigal_path = _write_dstec_fixture_csvs(
+        tmp_path, monkeypatch, _FIXTURE_DSTEC_OWN_CSV, _FIXTURE_DSTEC_MADRIGAL_CSV
+    )
+    outputs = {str(madrigal_path): {"present": True}}
+    violation = dstec_manuscript_table_matches_csv(outputs)
+    assert violation is not None
+    assert "Brand New Model" in violation
+
+
+_DSTEC_OWN_REAL_CSV = DSTEC_EVALUATION_DIR / "summary.csv"
+_DSTEC_MADRIGAL_REAL_CSV = DSTEC_EVALUATION_MADRIGAL_DIR / "summary.csv"
+
+
+@pytest.mark.skipif(
+    not (_DSTEC_OWN_REAL_CSV.exists() and _DSTEC_MADRIGAL_REAL_CSV.exists()),
+    reason="live dstec_evaluation(_madrigal)/rebuilt/summary.csv not present on this "
+    "host",
+)
+def test_dstec_manuscript_table_matches_csv_against_real_data():
+    """Runs the check against the real manuscript and the real, already-computed
+    summary.csv files, exactly what the pipeline does."""
+    outputs = {str(_DSTEC_MADRIGAL_REAL_CSV): {"present": True}}
+    violation = dstec_manuscript_table_matches_csv(outputs)
+    if violation is not None:
+        pytest.fail(
+            "manuscript Table 5 values disagree with "
+            f"{_DSTEC_OWN_REAL_CSV} / {_DSTEC_MADRIGAL_REAL_CSV}: {violation}"
+        )

@@ -58,19 +58,19 @@ def build_fixture(root: Path) -> None:
         root / STEC_DIR / day_dir,
         [
             {"station": "AMC4", "method": "model", "e_rms": 1.0},
-            {"station": "AMC4", "method": "gim", "e_rms": 4.0},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 4.0},
             {"station": "ZIMM", "method": "model", "e_rms": 2.0},
-            {"station": "ZIMM", "method": "gim", "e_rms": 5.0},
-            {"station": "WARK", "method": "gim", "e_rms": 7.0},
+            {"station": "ZIMM", "method": "gim_iono", "e_rms": 5.0},
+            {"station": "WARK", "method": "gim_iono", "e_rms": 7.0},
         ],
     )
     write_daily_summary(
         root / VTEC_DIR / day_dir,
         [
             {"station": "AMC4", "method": "model", "e_rms": 1.1},
-            {"station": "AMC4", "method": "gim", "e_rms": 4.0},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 4.0},
             {"station": "ZIMM", "method": "model", "e_rms": 2.1},
-            {"station": "ZIMM", "method": "gim", "e_rms": 5.0},
+            {"station": "ZIMM", "method": "gim_iono", "e_rms": 5.0},
             {"station": "NANO", "method": "model", "e_rms": 3.0},
         ],
     )
@@ -78,7 +78,7 @@ def build_fixture(root: Path) -> None:
         root / PRETRAINED_DIR / day_dir,
         [
             {"station": "AMC4", "method": "model", "e_rms": 1.2},
-            {"station": "AMC4", "method": "gim", "e_rms": 4.0},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 4.0},
             # ZIMM deliberately absent: the "510" class - some ML methods missing.
         ],
     )
@@ -131,7 +131,7 @@ def test_canonical_only_selection_ignores_a_non_canonical_sibling(tmp_path):
         / "positioning/results/2024150/daily_summary_iono.csv",
         [
             {"station": "AMC4", "method": "model", "e_rms": 99.0},
-            {"station": "AMC4", "method": "gim", "e_rms": 4.0},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 4.0},
         ],
     )
 
@@ -161,7 +161,7 @@ def test_canonical_selection_does_not_depend_on_sort_order(tmp_path):
         / "positioning/results/2024150/daily_summary_iono.csv",
         [
             {"station": "AMC4", "method": "model", "e_rms": 99.0},
-            {"station": "AMC4", "method": "gim", "e_rms": 4.0},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 4.0},
         ],
     )
 
@@ -184,7 +184,7 @@ def test_all_variants_finds_both_directories(tmp_path):
         / "positioning/results/2024150/daily_summary_iono.csv",
         [
             {"station": "AMC4", "method": "model", "e_rms": 99.0},
-            {"station": "AMC4", "method": "gim", "e_rms": 4.0},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 4.0},
         ],
     )
 
@@ -218,7 +218,7 @@ def test_canonical_gaps_report_doys_with_only_a_non_canonical_variant(tmp_path):
         / "positioning/results/2024200/daily_summary_iono.csv",
         [
             {"station": "AMC4", "method": "model", "e_rms": 5.0},
-            {"station": "AMC4", "method": "gim", "e_rms": 4.5},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 4.5},
         ],
     )
 
@@ -252,7 +252,7 @@ def test_foreign_doy_results_directory_is_excluded_not_merged(tmp_path):
         tmp_path / STEC_DIR / "positioning/results/2024199/daily_summary_iono.csv",
         [
             {"station": "FOREIGN", "method": "model", "e_rms": 42.0},
-            {"station": "FOREIGN", "method": "gim", "e_rms": 42.0},
+            {"station": "FOREIGN", "method": "gim_iono", "e_rms": 42.0},
         ],
     )
 
@@ -357,3 +357,283 @@ def test_elev_weighting_reads_daily_summary_without_iono_suffix(tmp_path):
 
     combined, _, _ = pc.collect("elev", tmp_path)
     assert set(combined["method"]) == {"STEC_elev", "VTEC_elev", "gim_elev"}
+
+
+# ---------------------------------------------------------------------------
+# The GENUINE_GIM_METHOD fix (2026-09-17): an iono summary can carry elevation-weighted
+# `gim` rows as a per-station fallback wherever no `gim_iono` solution exists (a real
+# artifact of how the summaries are produced, not a test fixture invention - see
+# verification.repair_overwritten_summaries's IONO_METHODS comment for the same finding
+# on the repair side). Those rows must be dropped, never relabelled into gim_iono.
+# ---------------------------------------------------------------------------
+
+
+def test_collect_drops_a_foreign_gim_row_in_an_iono_summary_rather_than_relabelling_it(
+    tmp_path,
+):
+    write_daily_summary(
+        tmp_path / STEC_DIR / "positioning/results/2024150/daily_summary_iono.csv",
+        [
+            {"station": "AMC4", "method": "model", "e_rms": 1.0},
+            # A per-station elevation-weighted fallback, not this arm's own value.
+            {"station": "AMC4", "method": "gim", "e_rms": 99.0},
+        ],
+    )
+
+    combined, _, _ = pc.collect("iono", tmp_path)
+
+    assert "gim_iono" not in set(combined["method"])
+    assert not ((combined["method"] == "STEC_iono") & (combined["e_rms"] == 99.0)).any()
+
+
+def test_collect_drops_a_non_ground_truth_ref_source_row(tmp_path):
+    """A row written with the day-mean fallback (`ref_source="mean"`, no SINEX
+    available when the summary was first produced) is not a true positioning error
+    against ground truth - it must never enter the common-set population `collect()`
+    feeds to Tables 6/7/8, the same way a foreign-weighting GIM row never does. This is
+    the defensive filter `verification.repair_overwritten_summaries`'s narrow
+    mean->ground_truth upgrade cannot fully replace: a station-day whose rebuild also
+    can't get a genuine SINEX row stays `mean` on disk, and must not silently count as
+    solved."""
+    path = tmp_path / STEC_DIR / "positioning/results/2024150/daily_summary_iono.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "station": "AMC4",
+                "method": "model_iono",
+                "e_rms": 1.0,
+                "ref_source": "ground_truth",
+            },
+            {
+                "station": "ZIMM",
+                "method": "model_iono",
+                "e_rms": 99.0,
+                "ref_source": "mean",
+            },
+        ]
+    ).to_csv(path, index=False)
+
+    combined, _, _ = pc.collect("iono", tmp_path)
+
+    assert "ZIMM" not in set(combined["station"])
+    assert set(combined["ref_source"]) == {"ground_truth"}
+
+
+def test_collect_drops_a_foreign_gim_iono_row_in_an_elev_summary(tmp_path):
+    """Symmetric case: an elev summary carrying a `gim_iono` row (never observed live,
+    but the same generic rule applies) must be dropped, not folded into gim_elev."""
+    write_daily_summary(
+        tmp_path / STEC_DIR / "positioning/results/2024150/daily_summary.csv",
+        [
+            {"station": "AMC4", "method": "model", "e_rms": 1.0},
+            {"station": "AMC4", "method": "gim", "e_rms": 4.0},
+            {"station": "AMC4", "method": "gim_iono", "e_rms": 99.0},
+        ],
+    )
+
+    combined, _, _ = pc.collect("elev", tmp_path)
+
+    gim_row = combined[combined["method"] == "gim_elev"]
+    assert len(gim_row) == 1
+    assert gim_row["e_rms"].iloc[0] == pytest.approx(4.0)
+
+
+# ---------------------------------------------------------------------------
+# find_gim_disagreements(): cross-tree GIM rows are supposed to be interchangeable -
+# this is what verifies that rather than assuming it.
+# ---------------------------------------------------------------------------
+
+
+def test_find_gim_disagreements_empty_when_trees_agree(tmp_path):
+    build_fixture(tmp_path)  # AMC4's gim_iono row is 4.0 in every tree that has one
+
+    disagreements = pc.find_gim_disagreements("iono", tmp_path)
+
+    assert disagreements.empty
+
+
+def test_find_gim_disagreements_reports_a_real_cross_tree_difference(tmp_path):
+    write_daily_summary(
+        tmp_path / STEC_DIR / "positioning/results/2024150/daily_summary_iono.csv",
+        [{"station": "AMC4", "method": "gim_iono", "e_rms": 0.8314}],
+    )
+    write_daily_summary(
+        tmp_path / VTEC_DIR / "positioning/results/2024150/daily_summary_iono.csv",
+        [{"station": "AMC4", "method": "gim_iono", "e_rms": 0.7787}],
+    )
+
+    disagreements = pc.find_gim_disagreements("iono", tmp_path)
+
+    assert len(disagreements) == 1
+    row = disagreements.iloc[0]
+    assert row["doy"] == 150
+    assert row["station"] == "AMC4"
+    assert row["max_abs_diff"] == pytest.approx(0.8314 - 0.7787)
+    assert set(row["trees"].split(",")) == {"STEC", "VTEC"}
+
+
+def test_find_gim_disagreements_ignores_a_single_tree_offering(tmp_path):
+    """Nothing to compare when only one tree has a genuine row for this station-day -
+    not a disagreement, just an unpaired observation."""
+    write_daily_summary(
+        tmp_path / STEC_DIR / "positioning/results/2024150/daily_summary_iono.csv",
+        [{"station": "AMC4", "method": "gim_iono", "e_rms": 5.0}],
+    )
+
+    disagreements = pc.find_gim_disagreements("iono", tmp_path)
+
+    assert disagreements.empty
+
+
+def test_find_gim_disagreements_excludes_a_known_foreign_doy_contaminated_row(tmp_path):
+    """Reproduces the real 2026-09-17 finding: 50 of 51 reported elev-weighting
+    cross-tree GIM disagreements were not genuine solver differences at all - they were
+    `Finetune_STEC_2024_170_..._SWI`'s stray `results/2024122/` subdirectory (a foreign
+    DOY's rows filed under the wrong experiment) being read as if it were a second,
+    disagreeing STEC-tree offering for DOY 122. `collect()` already excludes exactly
+    this via `find_foreign_doy_rows` - `find_gim_disagreements` must apply the same
+    exclusion, or it manufactures disagreements out of contamination it already knows
+    how to name.
+
+    Fixture: `build_fixture` gives every tree an agreeing AMC4/150 gim_iono=4.0. A
+    second STEC-tree directory whose own DOY is 199 additionally contains a stray
+    `results/2024150/` subdirectory with a wildly different AMC4 gim_iono value - the
+    same shape as the real anomaly, own_doy != foreign_results_doy. Without the fix,
+    that stray row reads as a second "STEC" offering and manufactures a disagreement
+    against the genuine 4.0 rows every tree actually agrees on.
+    """
+    build_fixture(tmp_path)
+    foreign_owner_dir = f"Finetune_STEC_2024_199_{pc.CANONICAL_STEC_SUFFIX}"
+    write_daily_summary(
+        tmp_path
+        / foreign_owner_dir
+        / "positioning/results/2024150/daily_summary_iono.csv",
+        [{"station": "AMC4", "method": "gim_iono", "e_rms": 9.0}],
+    )
+
+    disagreements = pc.find_gim_disagreements("iono", tmp_path)
+
+    assert disagreements.empty, (
+        "a foreign-DOY contaminated row must not manufacture a cross-tree "
+        f"disagreement:\n{disagreements}"
+    )
+
+
+def test_find_gim_disagreements_ignores_rounding_sized_differences(tmp_path):
+    write_daily_summary(
+        tmp_path / STEC_DIR / "positioning/results/2024150/daily_summary_iono.csv",
+        [{"station": "AMC4", "method": "gim_iono", "e_rms": 0.83140}],
+    )
+    write_daily_summary(
+        tmp_path / VTEC_DIR / "positioning/results/2024150/daily_summary_iono.csv",
+        [{"station": "AMC4", "method": "gim_iono", "e_rms": 0.83149}],
+    )
+
+    disagreements = pc.find_gim_disagreements("iono", tmp_path)
+
+    assert disagreements.empty
+
+
+# ---------------------------------------------------------------------------
+# find_solver_failure_station_days(): the solver/geometry-failure exclusion
+# (owner decision 2026-09-18, docs/revision/positioning_reporting.md) - a
+# station-day drops out only when *every one* of the eight arms (all four
+# methods, both weightings) reports error_3d_rms above SOLVER_FAILURE_THRESHOLD_M.
+# This is independent of which method produced the number, unlike the outcome-based
+# filters the owner has separately and permanently rejected - so a station-day where
+# only some arms are bad (CHPG/248, POVE/124 in the live data) must stay in.
+# ---------------------------------------------------------------------------
+
+
+def all_weightings_row(
+    station: str, doy: int, method: str, error_3d_rms: float
+) -> dict:
+    return {
+        "station": station,
+        "doy": doy,
+        "method": method,
+        "error_3d_rms": error_3d_rms,
+    }
+
+
+def eight_arm_rows(station: str, doy: int, error_3d_rms: float) -> list[dict]:
+    """One row per arm in `pc.SOLVER_FAILURE_ARMS`, all at the same error value -
+    the shape a genuine all-methods, all-weightings solver failure takes."""
+    return [
+        all_weightings_row(station, doy, arm, error_3d_rms)
+        for arm in pc.SOLVER_FAILURE_ARMS
+    ]
+
+
+def test_find_solver_failure_station_days_excludes_when_every_arm_exceeds_threshold():
+    """URUM/DOY 365 in the live data: all eight solutions between 5,880 and 5,990 m."""
+    frame = pd.DataFrame(eight_arm_rows("URUM", 365, 5900.0))
+
+    failures = pc.find_solver_failure_station_days(frame)
+
+    assert list(zip(failures["station"], failures["doy"])) == [("URUM", 365)]
+
+
+def test_find_solver_failure_station_days_keeps_station_day_with_some_good_arms():
+    """CHPG/DOY 248 in the live data: some arms exceed 100 m, others (e.g. the GIM
+    arms) are single digits - a per-method problem, not a solver/geometry failure,
+    and must not be excluded."""
+    rows = eight_arm_rows("CHPG", 248, 150.0)
+    for row in rows:
+        if row["method"] in ("gim_iono", "gim_elev"):
+            row["error_3d_rms"] = 8.0
+    frame = pd.DataFrame(rows)
+
+    failures = pc.find_solver_failure_station_days(frame)
+
+    assert failures.empty
+
+
+def test_find_solver_failure_station_days_keeps_station_day_missing_an_arm():
+    """A station-day short of one of the eight arms is not "every solution exceeds
+    the threshold" - it is already outside the common set for a different reason
+    (missing coverage), so this exclusion must not also claim it."""
+    rows = [
+        row for row in eight_arm_rows("ZIMM", 133, 500.0) if row["method"] != "gim_elev"
+    ]
+    frame = pd.DataFrame(rows)
+
+    failures = pc.find_solver_failure_station_days(frame)
+
+    assert failures.empty
+
+
+def test_find_solver_failure_station_days_boundary_at_exactly_threshold_is_kept():
+    """ "Exceeds" means strictly greater than - a station-day sitting exactly at
+    100 m on every arm must not be excluded."""
+    frame = pd.DataFrame(eight_arm_rows("AMC4", 132, pc.SOLVER_FAILURE_THRESHOLD_M))
+
+    failures = pc.find_solver_failure_station_days(frame)
+
+    assert failures.empty
+
+
+def test_find_solver_failure_station_days_reports_each_arms_error(tmp_path):
+    frame = pd.DataFrame(eight_arm_rows("URUM", 365, 5900.0))
+
+    failures = pc.find_solver_failure_station_days(frame)
+
+    row = failures.iloc[0]
+    for arm in pc.SOLVER_FAILURE_ARMS:
+        assert row[arm] == pytest.approx(5900.0)
+
+
+def test_solver_failure_station_day_set_reads_back_a_written_exclusion_csv(tmp_path):
+    frame = pd.DataFrame(eight_arm_rows("URUM", 365, 5900.0))
+    failures = pc.find_solver_failure_station_days(frame)
+    csv_path = tmp_path / pc.EXCLUDED_SOLVER_FAILURES_FILENAME
+    failures.to_csv(csv_path, index=False)
+
+    excluded = pc.solver_failure_station_day_set(csv_path)
+
+    assert excluded == {("URUM", 365)}
+
+
+def test_solver_failure_station_day_set_empty_when_file_does_not_exist(tmp_path):
+    assert pc.solver_failure_station_day_set(tmp_path / "does_not_exist.csv") == set()

@@ -62,6 +62,28 @@ anything that would change which population the manuscript should prefer - the c
 choice was made for the reason above (one N shared across Tables 5-7), not because it changes
 the answer.
 
+**Updated 2026-09-18 (a data-quality exclusion, not a methodology change).** Owner decision:
+a station-day is now dropped from the positioning evaluation entirely when *every one* of the
+eight arms (all four methods - Direct STEC, Pretrained Direct STEC, VTEC + Mapping, IGS GIM +
+Mapping - under both weightings) reports a 3D RMS position error above
+`stec.analysis.positioning_coverage.SOLVER_FAILURE_THRESHOLD_M` (100 m). The rationale is that
+when every arm agrees a solution failed, the failure is a station/solver or geometry problem
+independent of which correction method was used, not evidence about any one method - so this
+is a data-quality rule about the input population, not the outcome-based, between-methods
+filter §1 and §5 above reject (a station-day where only *some* arms exceed 100 m, e.g.
+CHPG/248 or POVE/124, says something about one method and stays in). On the data as of
+2026-09-18 this removes exactly **one** station-day, **URUM/DOY 365** (all eight solutions
+5,880-5,990 m) - the same genuine PPPx failure §5's "Clip plot views, never data" bullet and
+several `stages.py` caveats describe as a flier worth keeping visible; it is now excluded from
+the source files (`positioning_coverage`'s `multiday_summary*.csv`,
+`multiday_summary_all_weightings.csv`) rather than surviving as an extreme point in the
+unfiltered distributions, so every population in this document - full per-method and
+common-set alike - loses this one row, and every number in §§1-7 that predates 2026-09-18
+should be re-read against the regenerated CSVs rather than assumed unchanged. Implementation:
+`positioning_coverage.find_solver_failure_station_days` and
+`excluded_solver_failures.csv` (`multiday_results/analyses/positioning_coverage/rebuilt/`);
+see that stage's own caveats in `stec/pipeline/stages.py` for the full rule statement.
+
 All numbers in this document are **iono weighting** unless stated otherwise. See §6.
 
 Source modules: `stec/analysis/positioning_distributions.py` and `positioning_geography.py` are

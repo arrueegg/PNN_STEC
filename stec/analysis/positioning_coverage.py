@@ -104,6 +104,25 @@ METHOD_TREES = {
 SUMMARY_FILE = {"iono": "daily_summary_iono.csv", "elev": "daily_summary.csv"}
 DOY_PATTERN = re.compile(r"results/(\d{4})(\d{3})/")
 
+# Corrected 2026-09-17: a daily summary's raw `method` column is not purely this
+# weighting's own arm. An iono summary can carry elevation-weighted `gim` rows as a
+# per-station fallback wherever no `gim_iono` solution exists (a genuine artifact of
+# how the summaries are produced, not a `collect()`-only defect - see
+# `verification.repair_overwritten_summaries`'s `IONO_METHODS` for the same finding on
+# the repair side). `collect()` used to relabel *any* row containing "gim" to
+# `gim_{weighting}`, so those fallback rows silently became the iono GIM arm's value
+# wherever no genuine `gim_iono` row competed - this maps each weighting to the one
+# raw method value that is genuinely its own; anything else containing "gim" is
+# dropped, never relabelled into this arm.
+GENUINE_GIM_METHOD = {"iono": "gim_iono", "elev": "gim"}
+
+# Fixed priority for cross-tree GIM dedup, not the alphabetical accident of directory
+# names `source_dir` sorting used to provide. The three canonical trees are supposed to
+# run byte-identical PPPx GIM solutions, so this only decides which row's floating-point
+# noise "wins" once `find_gim_disagreements` has confirmed they actually agree - it must
+# not itself depend on a canonical directory name changing.
+GIM_SOURCE_PRIORITY = {"STEC": 0, "VTEC": 1, "Pretrained_STEC": 2}
+
 # The causes classify() assigns. Named as constants so main() and the tests compare
 # against the same strings rather than retyping them.
 SOLVED_BY_ALL = "solved by all methods"
@@ -112,6 +131,84 @@ ALL_ML_MISSING = "all ML methods missing (station absent from STEC DB)"
 UNCLASSIFIED = "unclassified"
 
 DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("positioning_coverage", rebuilt=True)
+
+# Owner decision 2026-09-18 (docs/revision/positioning_reporting.md): a station-day is a
+# solver/geometry failure - independent of which correction method produced the number -
+# when *every one* of the eight arms (all four methods, both weightings) reports a 3D RMS
+# position error above this threshold. This is a data-quality rule about station/solver
+# failures, not the outcome-based, between-methods filter the owner has separately and
+# permanently rejected (docs/revision/positioning_reporting.md): a station-day where only
+# *some* arms exceed the threshold (e.g. CHPG/248, VTEC_iono 139.8 m against gim_iono
+# 8.5 m; POVE/124, VTEC_iono 142.0 m against gim_iono 2.0 m) says something about one
+# method, not about the station-day itself, and must stay in. On the data as of
+# 2026-09-18 this removes exactly one station-day: URUM/DOY 365, all eight solutions
+# between 5,880 and 5,990 m.
+SOLVER_FAILURE_THRESHOLD_M = 100.0
+
+# The eight arms a station-day needs *all* of, at a value above the threshold, to count
+# as a solver failure - the same four methods x two weightings
+# `common_set_positioning.COVERAGE_COMMON_SET_METHODS` requires present for the common
+# set. Built from this module's own `METHOD_TREES` rather than imported from
+# `common_set_positioning`, which is a downstream consumer of this module's output, not
+# a dependency of it.
+SOLVER_FAILURE_ARMS: tuple[str, ...] = tuple(
+    f"{model}_{weighting}"
+    for model in (*METHOD_TREES.keys(), "gim")
+    for weighting in ("iono", "elev")
+)
+
+EXCLUDED_SOLVER_FAILURES_FILENAME = "excluded_solver_failures.csv"
+
+
+def find_solver_failure_station_days(
+    all_weightings: pd.DataFrame, threshold_m: float = SOLVER_FAILURE_THRESHOLD_M
+) -> pd.DataFrame:
+    """(station, doy) pairs where every one of `SOLVER_FAILURE_ARMS` is present and
+    exceeds `threshold_m`.
+
+    Takes the same shape as `multiday_summary_all_weightings.csv` (one row per
+    station/doy/method with an `error_3d_rms` column, both weightings concatenated).
+    Requires all eight arms present - a station-day missing one is already outside the
+    common set for a coverage reason (see `common_set_positioning.
+    coverage_common_station_days`), so it needs no separate exclusion here, and a
+    station-day where the arms that *are* present all exceed the threshold but others
+    are simply absent is not "every solution exceeds the threshold" in the sense this
+    rule means.
+
+    Returns one row per excluded station-day with every arm's `error_3d_rms`, so a
+    caller (and `excluded_solver_failures.csv`) can show which values triggered it
+    rather than only the fact of exclusion.
+    """
+    wide = all_weightings.pivot_table(
+        index=["station", "doy"],
+        columns="method",
+        values="error_3d_rms",
+        aggfunc="first",
+    )
+    for arm in SOLVER_FAILURE_ARMS:
+        if arm not in wide.columns:
+            wide[arm] = pd.NA
+    arms = wide[list(SOLVER_FAILURE_ARMS)]
+    is_solver_failure = arms.notna().all(axis=1) & (arms > threshold_m).all(axis=1)
+    return arms[is_solver_failure].reset_index()
+
+
+def solver_failure_station_day_set(csv_path: Path) -> set[tuple[str, int]]:
+    """Read an `excluded_solver_failures.csv` back into a `{(station, doy)}` lookup set.
+
+    For callers that build a population from raw per-day files rather than reading
+    `positioning_coverage`'s own rebuilt summaries directly - e.g.
+    `common_set_positioning.load_pretrained_elev`, which globs a live experiment tree's
+    `daily_summary.csv` files and so would not otherwise inherit an exclusion applied to
+    this module's own CSVs. Returns an empty set (not an error) when the file does not
+    exist yet, matching this module's own tolerance for a stage that has not produced it
+    (e.g. a `--weighting elev`-only invocation, which never writes this file - see
+    `main()`).
+    """
+    if not csv_path.exists():
+        return set()
+    frame = pd.read_csv(csv_path, usecols=["station", "doy"])
+    return set(zip(frame["station"].astype(str).str.upper(), frame["doy"].astype(int)))
 
 
 def find_collisions(combined: pd.DataFrame) -> pd.DataFrame:
@@ -228,6 +325,120 @@ def _doys_of(paths_iter) -> set[int]:
     return doys
 
 
+# "Beyond rounding" = beyond the CSV's own `%.4f` write precision, the same threshold
+# `verification.repair_overwritten_summaries.find_value_mismatches` uses for the
+# equivalent question on a single tree's own history.
+GIM_DISAGREEMENT_ATOL = 1e-3
+
+
+def find_gim_disagreements(
+    weighting: str,
+    experiments_root: Path,
+    *,
+    all_variants: bool = False,
+    atol: float = GIM_DISAGREEMENT_ATOL,
+) -> pd.DataFrame:
+    """(doy, station) keys where more than one canonical tree's genuine GIM row
+    disagrees by more than rounding noise.
+
+    The three canonical trees are supposed to run byte-identical PPPx GIM solutions for
+    a given station-day, so `collect()`'s cross-tree dedup (`GIM_SOURCE_PRIORITY`)
+    assumes any surviving row is interchangeable with the ones it drops. This is the
+    check that verifies that assumption instead of taking it on faith: re-reads each
+    tree's genuine GIM rows independently (never the relabelled/deduplicated frame
+    `collect()` returns, since the duplicates are exactly what has already been
+    resolved away there) and reports any station-day where two trees' values differ by
+    more than `atol`.
+
+    **Excludes the same foreign-DOY contamination `collect()` already drops**
+    (`find_foreign_doy_rows` - e.g. `Finetune_STEC_2024_170_..._SWI`'s stray
+    `results/2024122/` subdirectory). Verified 2026-09-17: without this exclusion, that
+    one known-contaminated directory alone produced 50 of 51 reported elev-weighting
+    "cross-tree disagreements" - every one of them was the stray directory's foreign row
+    being read as a second, disagreeing offering from the same tree that already had a
+    genuine one, not an actual disagreement between two trees' PPPx runs.
+    """
+    genuine_gim_method = GENUINE_GIM_METHOD[weighting]
+    summary_name = SUMMARY_FILE[weighting]
+    rows = []
+    source_dirs: set[str] = set()
+    for model, patterns in METHOD_TREES.items():
+        pattern = patterns["all_variants"] if all_variants else patterns["canonical"]
+        for path in sorted(
+            experiments_root.glob(f"{pattern}/positioning/results/2024*/{summary_name}")
+        ):
+            match = DOY_PATTERN.search(str(path))
+            if match is None:
+                continue
+            doy = int(match.group(2))
+            try:
+                frame = pd.read_csv(path)
+            except (pd.errors.EmptyDataError, pd.errors.ParserError):
+                continue
+            if frame.empty or "method" not in frame.columns:
+                continue
+            source_dir = path.relative_to(experiments_root).parts[0]
+            source_dirs.add(source_dir)
+            method = frame["method"].astype(str).str.lower()
+            gim_rows = frame[method == genuine_gim_method]
+            for _, row in gim_rows.iterrows():
+                rows.append(
+                    {
+                        "doy": doy,
+                        "station": str(row["station"]).upper(),
+                        "tree": model,
+                        "e_rms": float(row["e_rms"]),
+                        "source_dir": source_dir,
+                    }
+                )
+
+    columns = ["doy", "station", "min_e_rms", "max_e_rms", "max_abs_diff", "trees"]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+
+    gim_frame = pd.DataFrame(rows)
+    foreign_doy_rows = find_foreign_doy_rows(experiments_root, source_dirs)
+    if not foreign_doy_rows.empty:
+        contaminated = foreign_doy_rows[["source_dir", "foreign_results_doy"]].rename(
+            columns={"foreign_results_doy": "doy"}
+        )
+        gim_frame = gim_frame.merge(
+            contaminated.assign(_contaminated=True),
+            on=["source_dir", "doy"],
+            how="left",
+        )
+        gim_frame = gim_frame[gim_frame["_contaminated"].isna()].drop(
+            columns="_contaminated"
+        )
+    gim_frame = gim_frame.drop(columns="source_dir")
+    if gim_frame.empty:
+        return pd.DataFrame(columns=columns)
+
+    disagreements = []
+    for (doy, station), group in gim_frame.groupby(["doy", "station"]):
+        if group["tree"].nunique() < 2:
+            continue  # only one tree offered this station-day - nothing to compare
+        spread = group["e_rms"].max() - group["e_rms"].min()
+        if spread > atol:
+            disagreements.append(
+                {
+                    "doy": doy,
+                    "station": station,
+                    "min_e_rms": group["e_rms"].min(),
+                    "max_e_rms": group["e_rms"].max(),
+                    "max_abs_diff": spread,
+                    "trees": ",".join(sorted(group["tree"].unique())),
+                }
+            )
+    if not disagreements:
+        return pd.DataFrame(columns=columns)
+    return (
+        pd.DataFrame(disagreements, columns=columns)
+        .sort_values("max_abs_diff", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
 def collect(
     weighting: str, experiments_root: Path, *, all_variants: bool = False
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -240,8 +451,11 @@ def collect(
     lists every key that deduplication still had to resolve, so an ambiguity is always
     visible to the caller rather than only reflected in which row happened to survive.
     """
+    genuine_gim_method = GENUINE_GIM_METHOD[weighting]
     source_dirs: set[str] = set()
     frames = []
+    foreign_gim_dropped = 0
+    non_ground_truth_dropped = 0
     for model, patterns in METHOD_TREES.items():
         pattern = patterns["all_variants"] if all_variants else patterns["canonical"]
         label = f"{model}_{weighting}"
@@ -269,11 +483,51 @@ def collect(
             )
             source_dir = path.relative_to(experiments_root).parts[0]
             frame["source_dir"] = source_dir
+            frame["_tree"] = model
             source_dirs.add(source_dir)
             method = frame["method"].astype(str).str.lower()
+
+            # Drop the other weighting's GIM rows rather than relabelling them into
+            # this arm - see GENUINE_GIM_METHOD's comment for why a "gim"-containing
+            # value is not automatically this weighting's own.
+            is_foreign_gim = method.str.contains("gim") & (method != genuine_gim_method)
+            if is_foreign_gim.any():
+                foreign_gim_dropped += int(is_foreign_gim.sum())
+                frame = frame[~is_foreign_gim].reset_index(drop=True)
+                method = method[~is_foreign_gim].reset_index(drop=True)
+
+            # A `ref_source != "ground_truth"` row (typically "mean": no SINEX was
+            # available for that day when the summary was first written) measures
+            # internal repeatability around the day's own mean position, not a true
+            # error against ground truth - it must never enter the common-set
+            # population Tables 6/7/8 are built from. `verification.
+            # repair_overwritten_summaries`'s mean->ground_truth upgrade fixes this at
+            # the source for most rows once SINEX becomes available; this is the
+            # defensive backstop for whatever it can't (no SINEX for the day at all, or
+            # a summary this repair pass has not touched).
+            if "ref_source" in frame.columns:
+                non_ground_truth = frame["ref_source"] != "ground_truth"
+                if non_ground_truth.any():
+                    non_ground_truth_dropped += int(non_ground_truth.sum())
+                    frame = frame[~non_ground_truth].reset_index(drop=True)
+                    method = method[~non_ground_truth].reset_index(drop=True)
+
             frame.loc[method.str.startswith("model"), "method"] = label
-            frame.loc[method.str.contains("gim"), "method"] = f"gim_{weighting}"
+            frame.loc[method == genuine_gim_method, "method"] = f"gim_{weighting}"
             frames.append(frame)
+
+    if foreign_gim_dropped:
+        logger.warning(
+            f"{foreign_gim_dropped} row(s) labelled with a different weighting's GIM "
+            f"method were dropped rather than folded into gim_{weighting} (e.g. "
+            "elevation-weighted 'gim' rows found inside an iono summary)"
+        )
+    if non_ground_truth_dropped:
+        logger.warning(
+            f"{non_ground_truth_dropped} row(s) with ref_source != 'ground_truth' "
+            "(day-mean fallback, no SINEX for that day) were dropped rather than "
+            "counted as solved station-days"
+        )
 
     if not frames:
         raise SystemExit(
@@ -316,10 +570,18 @@ def collect(
         )
 
     before = len(combined)
-    combined = combined.sort_values(["doy", "station", "method", "source_dir"])
+    # Tie-break by GIM_SOURCE_PRIORITY before source_dir, so which tree's row survives
+    # a cross-tree GIM duplicate is a declared rule rather than an accident of
+    # `source_dir`'s alphabetical sort - see that constant's own comment.
+    # `find_gim_disagreements` is what actually verifies the two rows agree.
+    combined["_tree_priority"] = combined["_tree"].map(GIM_SOURCE_PRIORITY)
+    combined = combined.sort_values(
+        ["doy", "station", "method", "_tree_priority", "source_dir"]
+    )
     combined = combined.drop_duplicates(
         subset=["date", "method", "station"], keep="first"
     )
+    combined = combined.drop(columns=["_tree", "_tree_priority"])
     logger.info(
         f"{before} rows -> {len(combined)} after de-duplicating the shared GIM arm "
         f"and {len(collisions)} reported collision(s)"
@@ -395,15 +657,53 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     weightings = ["iono", "elev"] if args.weighting == "both" else [args.weighting]
-    combined_by_weighting: dict[str, pd.DataFrame] = {}
-    for weighting in weightings:
-        combined, collisions, foreign_doy_rows = collect(
+    collected = {
+        weighting: collect(
             weighting, args.experiments_root, all_variants=args.all_variants
         )
+        for weighting in weightings
+    }
+    combined_by_weighting: dict[str, pd.DataFrame] = {
+        weighting: combined for weighting, (combined, _, _) in collected.items()
+    }
+
+    # The solver-failure exclusion (SOLVER_FAILURE_THRESHOLD_M) needs all eight arms -
+    # both weightings - to decide whether a station-day's *every* solution failed, so it
+    # can only run once every weighting in this invocation has been collected. Same
+    # restriction the multiday_summary_all_weightings.csv concatenation below already
+    # has: a --weighting elev/iono partial run has nothing correct to decide from.
+    if set(weightings) == {"iono", "elev"}:
+        solver_failures = find_solver_failure_station_days(
+            pd.concat(combined_by_weighting.values(), ignore_index=True)
+        )
+        failures_path = args.output_dir / EXCLUDED_SOLVER_FAILURES_FILENAME
+        solver_failures.to_csv(failures_path, index=False, float_format="%.4f")
+        print(
+            f"\n=== solver-failure exclusion (all {len(SOLVER_FAILURE_ARMS)} arms > "
+            f"{SOLVER_FAILURE_THRESHOLD_M:.0f} m) ==="
+        )
+        if solver_failures.empty:
+            print("  none")
+        else:
+            for _, failure in solver_failures.iterrows():
+                print(f"  {failure['station']}/{int(failure['doy'])}")
+        logger.info(
+            f"💾 {failures_path} ({len(solver_failures)} station-day(s) excluded)"
+        )
+
+        if not solver_failures.empty:
+            failed_keys = set(zip(solver_failures["station"], solver_failures["doy"]))
+            for weighting, combined in combined_by_weighting.items():
+                keys = list(zip(combined["station"], combined["doy"]))
+                keep = [key not in failed_keys for key in keys]
+                combined_by_weighting[weighting] = combined[keep].reset_index(drop=True)
+
+    for weighting in weightings:
+        combined = combined_by_weighting[weighting]
+        _, collisions, foreign_doy_rows = collected[weighting]
         suffix = "" if weighting == "iono" else f"_{weighting}"
         path = args.output_dir / f"multiday_summary{suffix}.csv"
         combined.to_csv(path, index=False, float_format="%.4f")
-        combined_by_weighting[weighting] = combined
 
         collisions_path = args.output_dir / f"collisions{suffix}.csv"
         collisions.to_csv(collisions_path, index=False)
@@ -444,6 +744,21 @@ def main() -> None:
                 for model, doys in gaps.groupby("model")["doy"]:
                     print(f"  {model}: {sorted(doys.tolist())}")
                 logger.info(f"💾 {gaps_path}")
+
+        gim_disagreements = find_gim_disagreements(
+            weighting, args.experiments_root, all_variants=args.all_variants
+        )
+        print(f"\n--- cross-tree GIM disagreements beyond rounding ({weighting}) ---")
+        if gim_disagreements.empty:
+            print("  none - every station-day two or more trees offered agrees")
+        else:
+            gim_disagreements_path = args.output_dir / f"gim_disagreements{suffix}.csv"
+            gim_disagreements.to_csv(gim_disagreements_path, index=False)
+            print(
+                f"  {len(gim_disagreements)} station-day(s) disagree by more than "
+                f"{GIM_DISAGREEMENT_ATOL} m across trees - see {gim_disagreements_path}"
+            )
+            logger.info(f"💾 {gim_disagreements_path}")
 
         coverage = classify(combined, weighting)
         coverage_path = args.output_dir / f"coverage{suffix}.csv"

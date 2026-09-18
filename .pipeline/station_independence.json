@@ -2,16 +2,16 @@
   "answers": "R2.3",
   "canonical_for": null,
   "caveats": [
-    "Limited by n = 55 test stations, not by observation count. Adding days sharpens each point but does not sharpen the Spearman coefficient.",
+    "Limited by n = 58 test stations (per_station.csv's own row count - 55 was stale), not by observation count. Adding days sharpens each point but does not sharpen the Spearman coefficient.",
     "Strengthening this result needs a region-held-out retrain, not more data."
   ],
   "code": {
-    "commit": "d7d741bdb44af769df65593904a87bd80f13e9e1",
-    "dirty": false
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
   },
   "command": "-m stec.analysis.station_independence --output-dir multiday_results/analyses/station_independence/rebuilt",
   "description": "test-station error against distance to the nearest training station",
-  "duration_s": 38.5,
+  "duration_s": 28.9,
   "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
   "inputs": {
     "predictions/finetuned_stec/own": {
@@ -28,7 +28,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-08-26T10:32:53.026370+00:00",
+  "recorded_at": "2026-09-17T12:06:17.914985+00:00",
   "stage": "station_independence",
   "supersedes": []
 }

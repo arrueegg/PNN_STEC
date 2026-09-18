@@ -7,19 +7,19 @@
     "The box plot's outlier points are drawn (unlike Figure 13's, which are omitted on its linear axis) - see stec/viz/oracle_benchmark.py's module docstring for why a log axis changes that trade-off, and why Figure 13 itself must not be changed to match. The y-axis is cropped to [BOXPLOT_Y_MIN_M, BOXPLOT_Y_MAX_M] = [1e-2, 1e2] m (owner review, 2026-09-16) so the boxes are not squeezed by the shared ~6,000 m PPPx solve-failure cluster; every point above the cap is still a real row and is still counted, per method, in the title and in boxplot_oracle_benchmark.csv's n_above_axis_cap rows - never silently dropped."
   ],
   "code": {
-    "commit": "5670da54ec6db85bdc6051ca68c85d9b37ab6f5f",
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
     "dirty": true
   },
   "command": "-m stec.viz.oracle_benchmark --output_dir plots/oracle_benchmark",
   "description": "log-scale box plot, paired-difference scatter, station-coverage bar chart and a generated table for oracle_benchmark's CSVs",
-  "duration_s": 4.1,
-  "fingerprint": "6f6425b4831ca4c462fae995e890901f87272edfd6c71b61f235d084923107cb",
+  "duration_s": 4.2,
+  "fingerprint": "bb25fb46c21aadc7e65fc3e3a72b96b8fe3ad1f3390122d8f0d09226754ea201",
   "inputs": {
     "multiday_results/analyses/oracle_benchmark/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789557914976543491,
-      "size": 412206
+      "mtime_ns": 1789718483501475349,
+      "size": 426818
     }
   },
   "outputs": {
@@ -29,30 +29,30 @@
     },
     "plots/oracle_benchmark/boxplot_oracle_benchmark.csv": {
       "present": true,
-      "rows": 2831,
-      "sha256": "698ad5617d227b8151abfdde505468f80afb29170e8458c766e360f42a6b40a3",
-      "size": 99557
+      "rows": 2950,
+      "sha256": "4a31ff5c253865058b0adfe61069dcadd9d96043e1fb5e88fb88116c7c752685",
+      "size": 103723
     },
     "plots/oracle_benchmark/oracle_table.md": {
       "present": true,
-      "sha256": "ed7a640c7703f6aebf4c5118efb053f3c80db8ae9433078d49068376a0ac5081",
+      "sha256": "b16243600a3d57750b69ca76d51842064b26e2e7fc3b6cc6a4f6a598c9063ba0",
       "size": 951
     },
     "plots/oracle_benchmark/paired_difference.csv": {
       "present": true,
-      "rows": 16446,
-      "sha256": "e15d991727e48505c4ab426bde6932377cf9524a339cd7e757676d9a6ff1677d",
-      "size": 731483
+      "rows": 17018,
+      "sha256": "338037ca0316ab636eb3265e4c2836b47f1d2229860699c42464e601f1fd9f38",
+      "size": 756915
     },
     "plots/oracle_benchmark/station_coverage.csv": {
       "present": true,
       "rows": 54,
-      "sha256": "8d2c515eef311b5feea96add8cf59756ed8c7e4f4d283b8603a554cda16290a4",
-      "size": 491
+      "sha256": "80f15b467a972aa74934d52eb681da52d0a37b428b219f72f040c88da6e4b075",
+      "size": 493
     }
   },
   "params": {},
-  "recorded_at": "2026-09-16T12:06:48.718425+00:00",
+  "recorded_at": "2026-09-18T08:30:49.570740+00:00",
   "stage": "oracle_benchmark_figures",
   "supersedes": []
 }

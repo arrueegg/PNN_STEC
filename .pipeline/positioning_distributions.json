@@ -1,22 +1,22 @@
 {
-  "answers": "Tables 5 and 6",
-  "canonical_for": "Tables 5 and 6",
+  "answers": "Tables 6 and 7",
+  "canonical_for": "Tables 6 and 7",
   "caveats": [
     "The overall/regime/population sections (Figures 12-15) are iono weighting only, read from POSITIONING alone. The common_set_* sections and TABLE5_COMMON_SET_NUMBERS.md additionally read WEIGHTING_RUN (both weightings) to define the population restriction, but still report iono weighting values within it - every output states 'iono' explicitly rather than leaving the weighting implicit.",
     "No outcome-based filter anywhere in this stage: every station-day in the coverage-repaired population counts. Where a figure needs a bounded axis to stay readable (stec.viz.positioning_distributions), only the *view* is clipped, never the data - the CSVs here always carry the true fliers.",
     "Reporting only the median would hide that Direct STEC produces more large errors than GIM does - a real, operationally important property of the method. Every percentile table here is paired with an exceedance table for exactly that reason; do not quote the median alone.",
-    "common_set_* and TABLE5_COMMON_SET_NUMBERS.md (2026-09-14, owner instruction) restrict Table 5 and the new per-component table to the station-days solved by all four methods under both weighting schemes (coverage_common_station_days, N=10,387) - a coverage-only intersection, no 10 m outlier exclusion. weighting_ablation.py's common_set.csv shares this exact population so the two manuscript tables report one N. Larger than common_set_positioning's own N=10,186 (same eight arms) because that stage still applies the 10 m outlier rule; the 201-row gap is exactly the station-days where at least one arm exceeds it - see coverage_common_station_days's own docstring for the verification.",
-    "common_set_boxplot_stats.csv/common_set_boxplot_fliers.csv/common_set_cdf_points.csv/common_set_regime_boxplot_stats.csv/common_set_daily_rows.csv (2026-09-15, results_register.md consistency item A) extend the same common-set restriction to Figures 12-15 and the standalone storm/quiet figure, which used to read the full per-method population (10,717-10,853) while Tables 5-7 already used the N=10,387 common set - the same positioning chapter reporting two N's. fig_population_split_boxplot is deliberately not moved: see this stage's module docstring section 6.",
+    "common_set_* and TABLE5_COMMON_SET_NUMBERS.md (2026-09-14, owner instruction) restrict the positioning-distribution table and the new per-component table to the station-days solved by all four methods under both weighting schemes (coverage_common_station_days, N=10,674 - moved 10,387 -> 10,674 (GIM-arm fix) -> briefly 9,606 (ref_source fix's first, whole-file-granularity pass, over-conservative) -> back to 10,674 (that fix's per-station follow-up) - a coverage-only intersection, no 10 m outlier exclusion. weighting_ablation.py's common_set.csv shares this exact population so the two manuscript tables report one N. Larger than common_set_positioning's own N=10,467 (moved 10,186 -> 10,468 -> briefly 9,417 -> 10,467 the same way; same eight arms) because that stage still applies the 10 m outlier rule; the 207-row gap (was 206, 189 at the low point, 201 before the GIM-arm fix) is exactly the station-days where at least one arm exceeds it - see coverage_common_station_days's own docstring for the verification.",
+    "common_set_boxplot_stats.csv/common_set_boxplot_fliers.csv/common_set_cdf_points.csv/common_set_regime_boxplot_stats.csv/common_set_daily_rows.csv (2026-09-15, results_register.md consistency item A) extend the same common-set restriction to Figures 12-15 and the standalone storm/quiet figure, which used to read the full per-method population (10,717-10,853 pre-2026-09-17, 10,803-10,912 after the GIM-arm fix, briefly 9,802-10,836 after the ref_source fix's whole-file pass, now 10,803-10,837 after that fix's per-station follow-up restored VTEC/Pretrained_STEC's own per-method row counts; see overall_percentile_summary.csv) while the other positioning tables already used the N=10,674 common set - the same positioning chapter reporting two N's. fig_population_split_boxplot is deliberately not moved: see this stage's module docstring section 6.",
     "The mean is preserved for comparison (percentile_summary's mean_m column, and positioning_summary's own superseded overall.csv) but is not the reported statistic: it is non-monotonic in the outlier-exclusion threshold and swings from negative to strongly positive depending on a threshold with no principled value - see docs/revision/positioning_reporting.md Sec 1."
   ],
   "code": {
-    "commit": "2f57a6c2a2f1089d29d46d9dfd63e16a6b269687",
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_distributions --output-dir multiday_results/analyses/positioning_distributions/rebuilt",
   "description": "positioning error as distributions - median/IQR/p95/p99/exceedance, no outcome-based outlier filter, per method and by storm/quiet and original/recovered population",
   "duration_s": 0.7,
-  "fingerprint": "a0a92aaf62e0327f2ee6f0be75d23943da6861a25a4ef1e9741cce7bfa5e5a1f",
+  "fingerprint": "82397e8f1954597fd297a6ba46270db14a635ec28a1d7c0082e228832fb3df8f",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -25,165 +25,165 @@
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "f8d927911754784e334e423bd73ff366f6427b597dd29be6a2899cb50a8eaf25",
-      "size": 13972373
+      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
+      "size": 13940046
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
       "kind": "file",
-      "sha256": "430e110bc2c7bbc57290b1c493b982494c6478663e6fdee12009550d6d4e85b7",
-      "size": 29032811
+      "sha256": "51234d43dde2c13fe23bca535bda751ad8fab9c817a390380062a45fc0072500",
+      "size": 29262814
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt": {
       "files": 27,
       "kind": "tree",
-      "mtime_ns": 1789378693690048898,
-      "size": 140753
+      "mtime_ns": 1789715608219629633,
+      "size": 141360
     }
   },
   "outputs": {
     "multiday_results/analyses/positioning_distributions/rebuilt": {
       "present": true,
-      "size": 2672
+      "size": 3086
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_COMMON_SET_NUMBERS.md": {
       "present": true,
-      "sha256": "a3c59a3741f13931cd72a47d6cbf23e5b2ac3b36bb0100cb38f531653b2c1c4a",
-      "size": 1663
+      "sha256": "ad535d715af00d593c5052408fdde1ce72b5ae0991322a02c1300edd371d5f0e",
+      "size": 1662
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/TABLE5_NUMBERS.md": {
       "present": true,
-      "sha256": "4ba737a4397d6f8a23215565f8a5f707b33f2964e55715c0c0db28b4ebb3897f",
+      "sha256": "bb2d85902b921c243ce0d5855001c513b042d930170a2d4dd48f42c6aee90a33",
       "size": 1512
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_boxplot_fliers.csv": {
       "present": true,
-      "rows": 3076,
-      "sha256": "33da098b582c07659302b1fe549505fc235f65d9aba50e80582014f13e7c0e8f",
-      "size": 71726
+      "rows": 3213,
+      "sha256": "a5f8e28c99da9952b416fe49924e26ab7408a789e4778d6d70e73985b0ce86fd",
+      "size": 74962
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_boxplot_stats.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "695fd394a3016a2c6c099bd3408aaacbc5f714968577c301dcdb6b147d894bb1",
-      "size": 420
+      "sha256": "124b8ba9dbbef10a3c27a14869bb57d4d3b1f7d67374764ece4619564c6be6cf",
+      "size": 411
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_cdf_points.csv": {
       "present": true,
-      "rows": 41548,
-      "sha256": "a156e765b7f5a7db6e3b25a718eff3a95466ef04e09f6f5d79908323daf471b1",
-      "size": 1748193
+      "rows": 42692,
+      "sha256": "0d364f6a8cea0c66fe8d60126975f004b37a65030095166d682c9124fe31b85d",
+      "size": 1795334
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_component_medians.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "7c4dc114b3f775f90542a5e29021bf896bc409e3b0004152fff7808fd26472c8",
-      "size": 219
+      "sha256": "c9abf9829f402fe2e23cb851f6fa0e6bb71f3d8d367f71421678714fa5900b40",
+      "size": 217
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_daily_rows.csv": {
       "present": true,
-      "rows": 41548,
-      "sha256": "a1aed0f57a30ee83f4d4757f2abe495be22647e4af43a2c6a4e726fba7986303",
-      "size": 1636801
+      "rows": 42692,
+      "sha256": "b2197f2b40ecff45d5b6dde4787a7a92ca3fc2944387615042c6bf991aa70998",
+      "size": 1681878
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_exceedance.csv": {
       "present": true,
       "rows": 16,
-      "sha256": "6b82a478559481ee0fbd8d023b7c95a994fa42de5fbb80560d958568999c02bb",
-      "size": 1199
+      "sha256": "c950c8afba99e226df776301eb4cfdc40cc44fba24a52ca5b04b9f90272dc2f0",
+      "size": 1181
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_percentile_summary.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "4b80875e0168f16fc5190f1c155ecada4eaa6f9a04387aecc45f0c3498981296",
-      "size": 338
+      "sha256": "665f6535dbd1f2c604c9c60b5871fb6f1b2adb7a0b662702f17fa4cadc342116",
+      "size": 337
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/common_set_regime_boxplot_stats.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "be8daa1819c872880fa065af3cd638b0c38e55348601375bd6cf89e6b0067736",
-      "size": 797
+      "sha256": "bed74d0ffc58bece40f5cdde9c439379b9a98b8f587db2a78a1d6b70d90b694d",
+      "size": 790
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/overall_boxplot_fliers.csv": {
       "present": true,
-      "rows": 3243,
-      "sha256": "e95691e14950b9fa3bc677809c056c062475d6fa1611eb8cd96c6e623e451dba",
-      "size": 75750
+      "rows": 3259,
+      "sha256": "f1d337ccdd1158f573b2885d933b6c27b8ec2816f8e0d03890a4c049ffd67b24",
+      "size": 76158
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/overall_boxplot_stats.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "103001b043d6a6514914f584883a62b3e4e455f4aff04338fd855c4366f1db95",
-      "size": 422
+      "sha256": "16eb2ae69557c7d6327370ed6a7f944545cb6ad31f8378e1184b817fadaffc99",
+      "size": 412
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/overall_cdf_points.csv": {
       "present": true,
-      "rows": 43215,
-      "sha256": "30590b3e56f0617633e43e2a67ed5f5f688059dac2a8ed645acb9373292e8bb1",
-      "size": 1818973
+      "rows": 43287,
+      "sha256": "e8bd5aa429db15bcf9c6ec87e5fd144a848f07ae1dbe145a489ed5ff3ead66ad",
+      "size": 1821548
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/overall_exceedance.csv": {
       "present": true,
       "rows": 16,
-      "sha256": "5c8934f3081a0597b9e4af2f744e642d12064083c86d801ca5f7d066317bd9da",
-      "size": 1198
+      "sha256": "24e2b110bdce06d6fe1f07a8ac79a367ac85b33383634bed883902a66e3ae7f7",
+      "size": 1200
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/overall_percentile_summary.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "ea686cb72dfd6f5ffe03ced67b1b46c8d9554753a1605a6b531de03c2ffb2fe4",
-      "size": 339
+      "sha256": "8c06fb29cd30a16a59909c467c5ac8b252c0fe8d3629f319e52ac7551ba9f89f",
+      "size": 342
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/population_boxplot_fliers.csv": {
       "present": true,
-      "rows": 2537,
-      "sha256": "7881b3fd503356768290b1fecb8e7b1e5502eaf878c55c65b547781d0b49b3f1",
-      "size": 81490
+      "rows": 2516,
+      "sha256": "e5d1fb0efc7e99a4ad93e42c2e8264393abb011f4f2df0269697baefc2b83275",
+      "size": 80672
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/population_boxplot_stats.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "e5de20f0790751df6b1343e5470c2a4fb035680e5f7089f7ba34a20ad2593f6c",
-      "size": 827
+      "sha256": "375efcca59624a72a7b9774be95f841881a2c4c25d9a4e09c5b68789bf4b4336",
+      "size": 818
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/population_exceedance.csv": {
       "present": true,
       "rows": 32,
-      "sha256": "28f836795c461958c68415ba570984b6c93f64db0c87e44f17778f4c9cfd1bbb",
-      "size": 2449
+      "sha256": "71d8a061db36321a88d9a589cc1aab107c797c8c8ef49cdd3f4874a28f4a9c27",
+      "size": 2418
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/population_percentile_summary.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "93465700721c485383dbf4020d3777f86f5ab04b556bc7105c084c461dd13410",
-      "size": 701
+      "sha256": "7b7f5644b660a6262f3778a190365dda98f8d22913b92ac1e113f4bfa00e6957",
+      "size": 702
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/regime_boxplot_fliers.csv": {
       "present": true,
-      "rows": 3204,
-      "sha256": "c25679963d0d64ba8fef2e05a19433a65d88a0dd2bc4535b3287b67eb64df336",
-      "size": 93806
+      "rows": 3223,
+      "sha256": "305cca80bf4b15d7ff5e716823adc670bf992be4cd00b16ecfe3092948262485",
+      "size": 94360
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/regime_boxplot_stats.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "e066df0840139e3c87aee1f2d97ce1976e5aaffb73f954330df2829142a2b6e3",
-      "size": 794
+      "sha256": "b2d2a507e9f47d8f46c3cb5f0f0e80487a5744f70785a049fcb818d6b2576066",
+      "size": 787
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/regime_exceedance.csv": {
       "present": true,
       "rows": 32,
-      "sha256": "39e5db5ef4dba75b0a57dada22b74ab7a3928fb360d3fe01ffae1ec391c7c9a2",
-      "size": 2392
+      "sha256": "e953082db4999d4e95148a9eed21307b3f26c379c73e4c0fc9845c45cc3c15e0",
+      "size": 2387
     },
     "multiday_results/analyses/positioning_distributions/rebuilt/regime_percentile_summary.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "3e722f3880be44820a76c913a1ef8a53895f95e645c0a392e741c2c0fa31797f",
-      "size": 666
+      "sha256": "5ffa7f6046817b701d8056ed9fb60c15a483ae7926fe3e7f76b8ced15fd9a005",
+      "size": 673
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T08:19:18.669301+00:00",
+  "recorded_at": "2026-09-18T07:13:35.468461+00:00",
   "stage": "positioning_distributions",
   "supersedes": []
 }

@@ -6,19 +6,19 @@
     "Reads positioning_diagnostics's CSVs, not the per-station-day table directly - must run after that stage, and is only as current as its output."
   ],
   "code": {
-    "commit": "77d5a85e738ba576cf55e66d403f3842de2c689d",
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
     "dirty": true
   },
   "command": "-m stec.viz.positioning_diagnostics",
   "description": "daily-timeseries, per-station-diff, outlier-sensitivity and population-split figures for positioning_diagnostics's CSVs",
-  "duration_s": 4.6,
-  "fingerprint": "8e089f7e8b74d433acb81e8530477ab902e42135f379a61828de2d6508439850",
+  "duration_s": 4.5,
+  "fingerprint": "b84e23e5d29910fb634df93fa7536d11a4271638da41392fad65a1ccb2449428",
   "inputs": {
     "multiday_results/analyses/positioning_diagnostics/rebuilt": {
       "files": 27,
       "kind": "tree",
-      "mtime_ns": 1789378693690048898,
-      "size": 140753
+      "mtime_ns": 1789715608219629633,
+      "size": 141360
     }
   },
   "outputs": {
@@ -29,36 +29,36 @@
     "plots/positioning_diagnostics/positioning_2024/daily_timeseries.csv": {
       "present": true,
       "rows": 968,
-      "sha256": "a3a79850e239fd27d566a6ca241fbf8482dad542ed7b4e60e6321e0068d305df",
-      "size": 53520
+      "sha256": "8e666ec94c766fe10d442fb166208f5fee61a71cea8081ba85b1549da6e8b5f1",
+      "size": 53653
     },
     "plots/positioning_diagnostics/positioning_2024/outlier_pct_by_threshold.csv": {
       "present": true,
       "rows": 16,
-      "sha256": "76c8836101414f52201d31745b4173d84babfae5f0b207ebf17999d012e2c1f2",
-      "size": 665
+      "sha256": "5d481347abedc31a45c9f668a728bbb2a20db11b1ae844f243205fff91d141d7",
+      "size": 666
     },
     "plots/positioning_diagnostics/positioning_2024/outlier_threshold_sensitivity.csv": {
       "present": true,
       "rows": 5,
-      "sha256": "fa46044a0af3e4475aef7a6ea67f7107aadf3368e927b471b6d603edaa10d976",
-      "size": 377
+      "sha256": "eec806da306342fe4132880b7a9b33cf99af40fd65c50632e8a24738cfd2eeee",
+      "size": 375
     },
     "plots/positioning_diagnostics/positioning_2024/per_station_diff.csv": {
       "present": true,
-      "rows": 57,
-      "sha256": "761e2fec13c909f9e203ec8715e32588c4deb868487edde1fb84901d0cfc1fe9",
-      "size": 4701
+      "rows": 55,
+      "sha256": "0d6236c0c1c805f24e716b160b8dca0c60f00210f6d67b0c1b597ccb92f4d647",
+      "size": 4626
     },
     "plots/positioning_diagnostics/positioning_2024/population_split.csv": {
       "present": true,
       "rows": 16,
-      "sha256": "6e217db2a618d01e5e491b182b7adb4dd24c237b56a2d4fd646baef19b0d9177",
-      "size": 1034
+      "sha256": "b1cf3acb29ecb2349f0b37298cd134b186a38acc2fdadc15bc03fff7f0df2267",
+      "size": 1031
     }
   },
   "params": {},
-  "recorded_at": "2026-09-14T09:38:29.874935+00:00",
+  "recorded_at": "2026-09-18T07:13:33.760071+00:00",
   "stage": "positioning_diagnostics_figures",
   "supersedes": []
 }

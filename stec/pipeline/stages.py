@@ -37,6 +37,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ..analysis.daily_metrics import DATASET_LABELS, MODELS
+from ..analysis.positioning_coverage import EXCLUDED_SOLVER_FAILURES_FILENAME
 from ..analysis.positioning_summary import METHOD_ORDER, SUPERSEDED_FOR_TABLE5_NOTE
 from ..config import paths
 from .stage import Stage
@@ -156,6 +157,11 @@ TEMPORAL_REGIME_ACTIVITY_MATCHED_DIR = _analysis_dir(
 )
 HYPERPARAMETER_SEARCH_DIR = _analysis_dir("hyperparameter_search", rebuilt=False)
 STATION_INDEPENDENCE_DIR = _analysis_dir("station_independence", rebuilt=True)
+# Own output dir - see the Stage's own comment for why this is a separate stage rather
+# than a second population read into station_independence's directory.
+STATION_INDEPENDENCE_PRETRAINED_DIR = _analysis_dir(
+    "station_independence_pretrained", rebuilt=True
+)
 COMPUTATIONAL_COST_DIR = _analysis_dir("computational_cost", rebuilt=True)
 # "repair_gim_baseline" is the stage name; "gim_baseline_repair" is the directory name
 # the frozen script has always written - the one irregular case `paths.py`'s docstring
@@ -164,6 +170,14 @@ GIM_BASELINE_REPAIR_DIR = _analysis_dir("repair_gim_baseline", rebuilt=False)
 DAILY_METRICS_DIR = _analysis_dir("daily_metrics", rebuilt=True)
 UNCERTAINTY_ERROR_RELATION_DIR = _analysis_dir(
     "uncertainty_error_relation", rebuilt=True
+)
+# Own output dir, not a second population written into uncertainty_error_relation's -
+# one owner per output (registry.validate()). The module's output filename suffix keys
+# only on --dataset, not --model-variant, so `--model-variant pretrained_stec --dataset
+# own` would otherwise collide with the finetuned-model stage's own by_uncertainty.csv/
+# by_elevation.csv/calibrating_factor.csv.
+UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR = _analysis_dir(
+    "uncertainty_error_relation_pretrained", rebuilt=True
 )
 STRATIFIED_COMPARISON_DIR = _analysis_dir("stratified_comparison", rebuilt=True)
 ACTIVITY_STRATIFICATION_DIR = _analysis_dir("activity_stratification", rebuilt=True)
@@ -1136,6 +1150,67 @@ def paper_tables_manuscript_rows_are_backed(outputs: dict) -> str | None:
     return None
 
 
+STORM_STRATIFICATION_STEC_DIR = _analysis_dir("storm_stratification_stec", rebuilt=True)
+
+
+def storm_stratification_stec_by_regime_has_all_methods(outputs: dict) -> str | None:
+    """by_regime.csv (the STEC-domain storm/quiet split) must report all four methods
+    for the own test set, not merely clear a row-count floor - the same marginal-
+    coverage check `daily_metrics_summary_has_all_methods_and_datasets` performs for
+    Tables 3/4, reused here because this stage reads the same per_day.csv MODELS
+    vocabulary. Not enforced for Madrigal: `daily_metrics`'s own check already
+    documents that a (model, dataset) cell can be legitimately absent there."""
+    path = STORM_STRATIFICATION_STEC_DIR / "by_regime.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(path, ["dataset", "method", "regime"])
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = _read_csv_rows(path)
+    own_rows = [row for row in rows if row["dataset"] == DATASET_LABELS["own"]]
+    missing_methods = set(MODELS.values()) - {row["method"] for row in own_rows}
+    if missing_methods:
+        return (
+            f"{path} is missing method(s) {sorted(missing_methods)} for dataset "
+            f"{DATASET_LABELS['own']!r}"
+        )
+    seen_regimes = {row["regime"] for row in own_rows}
+    if seen_regimes != {"quiet", "storm"}:
+        return (
+            f"{path} does not have both 'quiet' and 'storm' regimes for dataset "
+            f"{DATASET_LABELS['own']!r}: {sorted(seen_regimes)}"
+        )
+    return None
+
+
+def storm_stratification_stec_by_regime_has_consistent_day_counts(
+    outputs: dict,
+) -> str | None:
+    """Every method within the same (dataset, regime) must cover the same `n_days` as
+    its siblings there - `stratify()` inner-joins every method against the identical
+    `per_day.csv`, so a mismatch means one method silently dropped a day, the STEC-
+    domain analogue of `daily_metrics_summary_has_consistent_day_counts` above."""
+    path = STORM_STRATIFICATION_STEC_DIR / "by_regime.csv"
+    if str(path) not in outputs:
+        return f"{path} is not a declared output of this stage"
+    missing_columns = _missing_csv_columns(
+        path, ["dataset", "method", "regime", "n_days"]
+    )
+    if missing_columns:
+        return f"{path} is missing column(s) {sorted(missing_columns)}"
+    rows = _read_csv_rows(path)
+    by_group: dict[tuple[str, str], set[str]] = {}
+    for row in rows:
+        by_group.setdefault((row["dataset"], row["regime"]), set()).add(row["n_days"])
+    mismatches = {key: counts for key, counts in by_group.items() if len(counts) > 1}
+    if mismatches:
+        return (
+            f"{path} has methods with differing n_days within the same "
+            f"(dataset, regime): {mismatches}"
+        )
+    return None
+
+
 STAGES: list[Stage] = [
     Stage(
         "training_smoke",
@@ -1505,6 +1580,34 @@ STAGES: list[Stage] = [
         ],
     ),
     Stage(
+        # Own directory, not a second population written into station_independence's -
+        # one owner per output (registry.validate()). Same module, same CLI, just
+        # --model-variant/--dataset/--years pointed at the pretrained model's own store
+        # partition instead of the daily fine-tuned models' - see the module's
+        # per_station_error() for why --years is mandatory here (pretrained_stec/own
+        # spans 2014-2024, and a bare doy would otherwise silently pool other years in).
+        "station_independence_pretrained",
+        f"-m stec.analysis.station_independence --model-variant pretrained_stec "
+        f"--years 2024 --output-dir {STATION_INDEPENDENCE_PRETRAINED_DIR}",
+        "R2.3",
+        "test-station error against distance to the nearest training station, for the "
+        "pretrained model on the same 2024 population as station_independence",
+        inputs=[STORE_PRETRAINED],
+        outputs=[str(STATION_INDEPENDENCE_PRETRAINED_DIR)],
+        canonical_for=None,
+        caveats=[
+            "Population: pretrained model, own test set, 2024 only (DOY 122-366) - "
+            "predictions/pretrained_stec/own holds a fixed random subset of the test "
+            "split (10,000,000 observations spanning 2014-2024, all 242 days of 2024 "
+            "among them - see stec.analysis.pretrained_test_diagnostics's docstring), "
+            "not the full test set the daily fine-tuned model is scored against.",
+            "Limited by n = 58 test stations (this stage's own per_station.csv row "
+            "count), not by observation count. Adding days sharpens each point but "
+            "does not sharpen the Spearman coefficient.",
+            "Strengthening this result needs a region-held-out retrain, not more data.",
+        ],
+    ),
+    Stage(
         "computational_cost",
         f"-m stec.analysis.computational_cost --output-dir {COMPUTATIONAL_COST_DIR}",
         "R2.8h",
@@ -1628,6 +1731,51 @@ STAGES: list[Stage] = [
             "other 241 days, so a bin labelled 'top decile' held 6.88%-18.80% of the "
             "full-year population rather than 10% - a 'decile' meant something "
             "different on every day but the first.",
+            "calibrating_factor.csv states the single scalar that would calibrate the "
+            "predicted uncertainty AND its spread across elevation bands. The spread is "
+            "the load-bearing number: a uniform factor is a scale error, a varying one "
+            "would be a broken uncertainty model, and only the former is safe to report "
+            "as a post-hoc recalibration.",
+        ],
+    ),
+    Stage(
+        # Own directory, not a second population written into uncertainty_error_relation's
+        # - one owner per output (registry.validate()). Same module, same CLI, just
+        # --model-variant/--dataset pointed at the pretrained model's own store partition;
+        # the module's output filename suffix keys only on --dataset (empty for "own"),
+        # so without a separate directory this would silently overwrite the finetuned
+        # model's by_uncertainty.csv/by_elevation.csv/calibrating_factor.csv.
+        "uncertainty_error_relation_pretrained",
+        f"-m stec.analysis.uncertainty_error_relation --model-variant pretrained_stec "
+        f"--dataset own --output-dir {UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR}",
+        "R1.6, R2.6",
+        "predicted uncertainty against realised error, pretrained model, same "
+        "population as Figure 9 (fig_uncertainty)",
+        inputs=[STORE_PRETRAINED],
+        outputs=[
+            str(UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR),
+            str(UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR / "by_uncertainty.csv"),
+            str(UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR / "by_elevation.csv"),
+            str(UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR / "calibrating_factor.csv"),
+        ],
+        min_rows={
+            str(UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR / "by_uncertainty.csv"): 5,
+            str(UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR / "by_elevation.csv"): 5,
+            str(
+                UNCERTAINTY_ERROR_RELATION_PRETRAINED_DIR / "calibrating_factor.csv"
+            ): 5,
+        },
+        canonical_for=None,
+        caveats=[
+            "Population: pretrained model, own test set (predictions/pretrained_stec/"
+            "own) - a fixed random subset of the test split, 10,000,000 observations "
+            "spanning 2014-2024 (see stec.analysis.pretrained_test_diagnostics's "
+            "docstring), the same population Figure 9 (fig_uncertainty) is drawn from. "
+            "Not the 2024-only daily fine-tuned test set uncertainty_error_relation "
+            "itself reports on.",
+            "Bins are fixed TECU intervals (0-1-2-3-4-5-7-10-15-20-30-inf), not sigma "
+            "deciles - see uncertainty_error_relation's own caveat for why a "
+            "decile-based partition was rejected.",
             "calibrating_factor.csv states the single scalar that would calibrate the "
             "predicted uncertainty AND its spread across elevation bands. The spread is "
             "the load-bearing number: a uniform factor is a scale error, a varying one "
@@ -1789,9 +1937,10 @@ STAGES: list[Stage] = [
         "uncertainty_calibration_pretrained",
         f"-m stec.analysis.uncertainty_calibration "
         f"--output-dir {UNCERTAINTY_CALIBRATION_DIR} "
-        "--model-variant pretrained_stec --dataset own",
+        "--model-variant pretrained_stec --dataset own --period-split",
         "R1.6, R2.6",
-        "coverage, PIT and CRPS for the pretrained variant, same likelihoods and regimes",
+        "coverage, PIT and CRPS for the pretrained variant, same likelihoods and regimes, "
+        "plus a 2014-2023 vs 2024 period split",
         inputs=[STORE_PRETRAINED, SWI],
         outputs=[str(UNCERTAINTY_CALIBRATION_DIR / "pretrained_stec_own")],
         caveats=[
@@ -1811,6 +1960,16 @@ STAGES: list[Stage] = [
             "Scores a different model from uncertainty_calibration's Direct STEC - the "
             "pretrained checkpoint before daily fine-tuning, not a second reading of the "
             "same predictions.",
+            "--period-split adds period_2014_2023 (the multi-year interpolation-era "
+            "test months) and period_2024 (the DOY 122-366 extrapolation year "
+            "finetuned_stec/own also covers) as regimes in coverage.csv/scores.csv, on "
+            "top of the existing all/quiet/storm rows, which are unchanged. period_2024 "
+            "is further split into period_2024_quiet/period_2024_storm by the same "
+            "daily-Dst rule as quiet/storm - there is no period_2014_2023_quiet/_storm, "
+            "since only the 2024 population has ever needed an activity split. These "
+            "rows replace what used to be an ad-hoc, undeclared computation of the same "
+            "period split; read the numbers from the CSV, not from any figure typed "
+            "into this file.",
         ],
     ),
     Stage(
@@ -2047,6 +2206,14 @@ STAGES: list[Stage] = [
             # oracle_benchmark now read as WEIGHTING_RUN instead of the frozen
             # 20260216_2052 snapshot (2026-08-28).
             WEIGHTING_RUN,
+            # The solver-failure exclusion (owner decision 2026-09-18, see this
+            # stage's own caveats and docs/revision/positioning_reporting.md) - the
+            # station-days dropped from every file above because every one of the
+            # eight arms exceeded SOLVER_FAILURE_THRESHOLD_M. No min_rows floor: the
+            # correct count on a clean day is 0, so a row-count floor would be
+            # meaningless (existence, not size, is what a truncated write would break
+            # here, and this file is never large enough for that failure mode anyway).
+            str(POSITIONING_COVERAGE_DIR / EXCLUDED_SOLVER_FAILURES_FILENAME),
         ],
         # A header-only or drastically truncated multiday_summary.csv is exactly the
         # failure this catches - see the 2026-08-24 finding below: three individual
@@ -2079,13 +2246,34 @@ STAGES: list[Stage] = [
             "Finetune_STEC_2024_<DOY>_* matches by sort order. Sort-order dedup let "
             "lr1e-4_bs2048/lr1e-4_bs10000 win over the paper's lr2e-4_bs512 for 31 DOYs "
             "once the station-recovery sweep created a second directory per day.",
-            "Coverage as of the last regenerated coverage.csv (2026-09-14, this "
-            "stage's own .pipeline record), iono weighting: 10,712 / 26 / 115 of "
-            "10,853 station-days solved by all methods / all ML methods missing "
+            "Coverage as of the last regenerated coverage.csv (2026-09-18, this "
+            "stage's own .pipeline record), iono weighting: 10,792 / 9 / 35 of "
+            "10,836 station-days solved by all methods / all ML methods missing "
             "(station absent from STEC DB) / some ML methods missing (per-method "
-            "PPPx failure). Quoted here as a read of coverage.csv's own 'cause' "
-            "column counts, not re-derived from first principles. This has moved "
-            "three times since the number this caveat originally quoted: pre-sweep "
+            "PPPx failure) - moved from 10,793/9/35 of 10,837 the same day, by the "
+            "solver-failure exclusion below (URUM/365 was 'solved by all methods'), "
+            "not a coverage-recovery move like the ones narrated next. **Moved twice "
+            "more the same day before that, both by the same "
+            "underlying fix landing in two steps**: the ref_source mean->ground_truth "
+            "repair first operated at whole-file granularity, so any file with even one "
+            "unrelated genuine missing-SINEX station (LICC/MAR7/UCLU/KIR8/BRMG/NAUS) "
+            "STOPped entirely and left 1,928 contaminated model_iono rows on disk for "
+            "`collect()`'s new ref_source filter to exclude - moving 'solved by all' to "
+            "9,715 and 'some ML missing' to 1,111, a correct but overly conservative "
+            "intermediate state (see the 2026-09-18 coordinator follow-up). "
+            "`verification/repair_overwritten_summaries.py` was then extended to handle "
+            "missing SINEX per station rather than per file (`find_missing_sinex_drops`): "
+            "a station with SINEX is rebuilt against ground truth, a station without it "
+            "is dropped from just its own row rather than blocking the whole file. "
+            "Applied: 1,765 more rows upgraded to ground_truth and 163 correctly dropped "
+            "for missing SINEX (1,765+163, plus the 66 already fixed earlier the same "
+            "day = 1,994 - the original contaminated-row count, exactly), restoring "
+            "coverage to essentially the same level as the earlier GIM-arm fix "
+            "(10,793/9/34 of 10,836) rather than leaving the population artificially "
+            "gutted - this is what pulled the 10-11 May 2024 superstorm (DOY 131-132) "
+            "back into the common set. Quoted here as a read of coverage.csv's own "
+            "'cause' column counts, not re-derived from first principles. This has moved "
+            "four times since the number this caveat originally quoted: pre-sweep "
             "8,003 / 2,311 / 510 of 10,824, then post-station-recovery-sweep "
             "(2026-08-24) 8,195 / 1,591 / 1,067 of 10,853, then the second recovery "
             "sweep (2026-08-27) 10,598 / 26 / 229 of 10,853 - the 'all ML missing' "
@@ -2098,31 +2286,42 @@ STAGES: list[Stage] = [
             "sweep's own output) for DOY 122-153, even though VTEC/Pretrained_STEC "
             "already read it there - generating STEC corrections against that root "
             "and re-solving PPPx for the dozen affected DOYs closed 114 station-days "
-            "with no new geometry work at all. The 115 still 'some ML missing' split "
-            "two ways, both confirmed rather than assumed: ~101 station-days (a "
-            "recurring handful of stations - BRMG, LICC, KIR8, MAR7, UCLU, NAUS, "
-            "NKLG, WUH2, UNSA, YKRO) have a .pos file but no daily_summary_iono.csv "
-            "row for any method, model or GIM alike, because the day's own SINEX "
-            "ground truth genuinely has no entry for that station (confirmed by "
-            "grepping the SINEX file directly, e.g. DOY 122's has zero LICC "
-            "occurrences) - re-aggregation was attempted and recovers exactly 0 rows "
-            "for all of them, so this is not the pure aggregation bug it looks like "
-            "from the .pos file's existence alone. A second finding worth flagging: "
-            "the 'GIM solved this station-day' signal that puts these into 'some ML "
-            "missing' rather than 'all ML missing' traces, for at least LICC/DOY122, "
-            "to a stale pre-iono/elev-split 'gim' row inside the non-per-DOY "
-            "Pretrained_STEC tree's daily_summary_iono.csv, relabelled to gim_iono by "
-            "collect()'s substring match and surviving dedup only because no other "
-            "tree offers a competing row - not a live comparison against the "
-            "station's current, SINEX-gated ground truth. The other 24 station-days "
-            "(6 DOYs: 130, 143, 144, 148, 150, 151) have no correction because the "
-            "underlying station observations are absent from both the primary STEC "
-            "database and data/recovered_stec_db - a fresh RINEX/geometry recovery "
-            "pass would be needed, not attempted here. State which vintage backs a "
-            "given number, and treat the common-set population "
-            "(common_set_positioning) as still meaningfully smaller than the "
-            "full-recovered-set population (positioning_summary) unless re-checked "
-            "against the current coverage.csv.",
+            "with no new geometry work at all. **The 2026-09-17 move (10,712->10,793 "
+            "solved, 115->34 some-missing, 26->9 all-missing) is a different fix, not "
+            "another round of the same recovery work**: `daily_summary_iono.csv` had "
+            "been carrying elevation-weighted 'gim' rows as a per-station fallback "
+            "wherever no genuine 'gim_iono' solution existed, and both "
+            "`verification/repair_overwritten_summaries.py` (the rebuild) and this "
+            "module's own `collect()` (`GENUINE_GIM_METHOD`) now drop those rows "
+            "instead of folding them into the iono GIM arm - see this module's own "
+            "top-of-file comment. That changed which station-days count as GIM-solved "
+            "at all for this weighting (10,853 -> 10,836 total), not only the "
+            "solved/missing split within them, so the station-list breakdown below "
+            "(the specific ~101/24 counts and the named stations) is keyed to the "
+            "pre-2026-09-17 115-row 'some ML missing' population and has not been "
+            "re-derived against the new 34-row one - treat the named stations as a "
+            "pre-fix sample of the mechanism, not a current enumeration. The pre-fix "
+            "115 split two ways, both confirmed rather than assumed at the time: "
+            "~101 station-days (a recurring handful of stations - BRMG, LICC, KIR8, "
+            "MAR7, UCLU, NAUS, NKLG, WUH2, UNSA, YKRO) had a .pos file but no "
+            "daily_summary_iono.csv row for any method, model or GIM alike, because "
+            "the day's own SINEX ground truth genuinely has no entry for that station "
+            "(confirmed by grepping the SINEX file directly, e.g. DOY 122's has zero "
+            "LICC occurrences); the other ~14 had no correction because the "
+            "underlying station observations were absent from both the primary STEC "
+            "database and data/recovered_stec_db. **The 'second finding' this caveat "
+            "used to flag here is now the 2026-09-17 fix, not an open item**: for at "
+            "least LICC/DOY122, the 'GIM solved this station-day' signal that put it "
+            "into 'some ML missing' rather than 'all ML missing' traced to exactly the "
+            "stale, pre-iono/elev-split 'gim' row inside the non-per-DOY "
+            "Pretrained_STEC tree's daily_summary_iono.csv that GENUINE_GIM_METHOD now "
+            "drops - dropping it removes LICC/DOY122 (and the rest of that mechanism's "
+            "station-days) from the GIM-solved population entirely, which is the "
+            "10,853->10,836 total drop noted above, rather than reclassifying them "
+            "into a different 'missing' bucket. State which vintage backs a given "
+            "number, and treat the common-set population (common_set_positioning) as "
+            "still meaningfully smaller than the full-recovered-set population "
+            "(positioning_summary) unless re-checked against the current coverage.csv.",
             "Three individual per-day source files were found truncated on disk, all "
             "with recovery-sweep mtimes (2026-08-23/24), independent of this stage: "
             "DOY 166 and 176 dropped from ~43 stations to 2 in all three ML methods' "
@@ -2136,6 +2335,26 @@ STAGES: list[Stage] = [
             "are 3 of 242 days and do not materially move the per-station-day-mean "
             "tables, but a per-day breakdown that weights days unevenly should exclude "
             "or flag them.",
+            "Solver-failure exclusion, owner decision 2026-09-18 "
+            "(docs/revision/positioning_reporting.md): a station-day is dropped from "
+            "every output of this stage - and so from every downstream population that "
+            "reads them (weighting_ablation, storm_stratification, positioning_summary, "
+            "oracle_benchmark, positioning_diagnostics, positioning_activity, "
+            "constellation_coverage, positioning_robustness, positioning_geography, "
+            "common_set_positioning) - when *every one* of the eight arms (all four "
+            "methods, both weightings) reports a 3D RMS position error above "
+            "`positioning_coverage.SOLVER_FAILURE_THRESHOLD_M` (100 m). This is a "
+            "data-quality rule about station/solver failures independent of which "
+            "correction method was used, not an outcome-based filter between methods - "
+            "the owner's standing rule against those stays in force, so a station-day "
+            "where only *some* arms exceed 100 m (e.g. CHPG/248, POVE/124) is left in "
+            "untouched. On the data as of 2026-09-18 this removes exactly one "
+            "station-day, URUM/DOY 365 (all eight solutions 5,880-5,990 m), recorded "
+            "with every arm's error in this stage's own "
+            "`excluded_solver_failures.csv`. `common_set_positioning.build()`'s "
+            "`load_pretrained_elev` arm is read from a live experiment tree's raw "
+            "per-day files rather than this stage's rebuilt summaries, so it applies "
+            "this same exclusion list explicitly rather than inheriting it for free.",
         ],
         supersedes=[
             str(paths.positioning_result_dir("full_coverage")),
@@ -2170,17 +2389,34 @@ STAGES: list[Stage] = [
         caveats=[
             "common_set.csv (2026-09-14, owner instruction) restricts the "
             "elev-vs-iono comparison to positioning_distributions's own common set "
-            "(coverage_common_station_days, N=10,387 - see that stage's caveats) "
-            "instead of paired.csv's per-correction pairing (10,366/10,640/10,733), "
+            "(coverage_common_station_days, N=10,674 - see that stage's caveats for "
+            "the full history: N=10,387 pre-fix, N=10,674 after the GIM-arm fix, an "
+            "overly conservative N=9,606 for a few hours after the ref_source fix's "
+            "first, whole-file-granularity pass, restored to N=10,674 once that fix's "
+            "per-station follow-up landed) instead "
+            "of paired.csv's per-correction pairing (10,366/10,640/"
+            "10,733 as of 2026-09-14, not re-derived here), "
             "so the manuscript's weighting-ablation table and the positioning-distribution table share one N. No "
-            "10 m outlier exclusion is applied there, unlike paired.csv, which leaves "
-            "in one genuine PPPx solve failure (~5,988 m under Direct STEC, both "
-            "weightings).",
+            "10 m outlier exclusion is applied there, unlike paired.csv - but as of "
+            "2026-09-18 common_set.csv no longer carries the one genuine PPPx solve "
+            "failure this used to leave in regardless (URUM, DOY 365, ~5,988 m under "
+            "Direct STEC, both weightings): that row is now excluded upstream, by "
+            "positioning_coverage's solver-failure rule, independent of this stage's "
+            "own outlier-filtering choice.",
             "common_set.csv's headline is gain_median_%, not gain_mean_% (2026-09-15, "
             "owner instruction - docs/revision/positioning_reporting.md's median-not-"
-            "mean decision, 2026-08-28, had missed this table). The single PPPx solve "
-            "failure above moves the Direct STEC elevation-weighted mean by 25% on its "
-            "own (2.283 m with it, 1.706 m without) while leaving the median unmoved. "
+            "mean decision, 2026-08-28, had missed this table). Before 2026-09-18, the "
+            "single PPPx solve failure above (URUM, DOY 365) moved the Direct STEC "
+            "elevation-weighted mean by 25% on its own across three successive "
+            "population sizes (2.283 m with it / 1.706 m without, as of 2026-09-14; "
+            "then 2.249 m over N=10,674 after the GIM-arm fix; briefly 2.355 m over an "
+            "artificially smaller N=9,606 mid-ref_source-fix). **2026-09-18: that row "
+            "is now excluded upstream** by positioning_coverage's solver-failure rule, "
+            "so it is gone from the population entirely rather than merely "
+            "present-with-caveats - the current common set (N=10,673) reads a Direct "
+            "STEC elevation-weighted mean of 1.688 m against a median of 0.913 m "
+            "(common_set.csv). The mean remains the more outlier-sensitive statistic on "
+            "whatever tail is left, which is why the median stays the headline. "
             "elev_mean/iono_mean/gain_mean_% are still written to the CSV, but only for "
             "the mean-vs-median sensitivity comparison that document argues from - they "
             "are not a second number for the manuscript to quote. common_set.csv also "
@@ -2209,13 +2445,59 @@ STAGES: list[Stage] = [
             "positioning test period against 102 under the per-observation rule applied "
             "at the day level. Do not port one rule's day count into the other's table.",
             "Headline changed from mean to median and restricted to the same 4-method "
-            "x 2-weighting common set the positioning tables use (N=10,387, owner decision applied "
-            "2026-09-15 - see the module docstring). improvement_over_gim.csv's "
+            "x 2-weighting common set the positioning tables use (N=10,674 - see "
+            "positioning_coverage's caveats for the full 10,387 -> 10,674 -> briefly "
+            "9,606 -> 10,674 history; owner decision "
+            "applied 2026-09-15 - see the module docstring). improvement_over_gim.csv's "
             "headline columns are now _median_% (matching the other positioning tables); the previous "
             "mean-only, per-method-population version is what response_to_reviewers.md "
             "and evidence_summary.md quoted as +25.4%/+19.6% (itself already a stale "
             "restatement of the published +31.9%/+26.3%) - all three numbers are "
             "superseded by this stage's current output, not by each other.",
+        ],
+    ),
+    Stage(
+        "storm_stratification_stec",
+        "-m stec.analysis.storm_stratification_stec --output-dir "
+        f"{STORM_STRATIFICATION_STEC_DIR}",
+        "R1.4/R1.7",
+        "STEC prediction accuracy on storm against quiet days - the STEC-domain "
+        "counterpart to storm_stratification.py's positioning-domain split",
+        inputs=[str(DAILY_METRICS_DIR), SWI],
+        outputs=[
+            str(STORM_STRATIFICATION_STEC_DIR),
+            str(STORM_STRATIFICATION_STEC_DIR / "day_classification.csv"),
+            str(STORM_STRATIFICATION_STEC_DIR / "by_regime.csv"),
+            str(STORM_STRATIFICATION_STEC_DIR / "strongest_storm_days.csv"),
+        ],
+        min_rows={
+            str(STORM_STRATIFICATION_STEC_DIR / "day_classification.csv"): 1,
+            str(STORM_STRATIFICATION_STEC_DIR / "by_regime.csv"): 8,
+        },
+        checks=[
+            storm_stratification_stec_by_regime_has_all_methods,
+            storm_stratification_stec_by_regime_has_consistent_day_counts,
+        ],
+        canonical_for=None,
+        caveats=[
+            "Classifies a day as storm when its daily minimum Dst reaches -50 nT "
+            "(STORM_DST_THRESHOLD_NT, imported from storm_stratification.py, not "
+            "duplicated). This is a different, deliberately kept-separate threshold "
+            "from the per-observation Kp>=37/Dst<=-33 rule in "
+            "src/analysis/scenario_evaluation.py, which classifies individual hours "
+            "rather than days and is dormant (evaluation.enable_scenarios defaults "
+            "False). Do not port one rule's day count into the other's table.",
+            "Every method within a dataset is stratified over the same day set (inner "
+            "join on doy against the shared per_day.csv), so the four methods are "
+            "compared over identical populations, not each method's own count.",
+            "STEC-domain per-observation prediction accuracy, not positioning error - "
+            "see storm_stratification.py (R2.7) for the positioning-domain "
+            "counterpart, which uses the same daily Dst rule and threshold but a "
+            "disjoint population (PPPx station-days, not test-set observations).",
+            "strongest_storm_days.csv uses a separate, fixed -300 nT threshold "
+            "(EXTREME_STORM_DST_THRESHOLD_NT) to surface the two great storms of the "
+            "2024 test period individually, rather than folding them into the same "
+            "storm bucket as a day that only just crossed -50 nT.",
         ],
     ),
     Stage(
@@ -2310,7 +2592,9 @@ STAGES: list[Stage] = [
         outputs=[str(POSITIONING_ROBUSTNESS_DIR)],
         caveats=[
             "Restricted to the same 4-method x 2-weighting common set the positioning tables use "
-            "(N=10,387) and the 10 m outcome-based outlier exclusion dropped, matching "
+            "(N=10,674 - see positioning_coverage's caveats for the full "
+            "10,387 -> 10,674 -> briefly 9,606 -> 10,674 history) and the 10 m "
+            "outcome-based outlier exclusion dropped, matching "
             "the other positioning tables (owner decision applied 2026-09-15 - see the module docstring). "
             "tail_distribution.csv reports median first (headline); "
             "error_components.csv gained _median_m columns as the headline, alongside "
@@ -2397,17 +2681,24 @@ STAGES: list[Stage] = [
             "numbers from the positioning-distribution table.",
             "Methodology matched to the positioning tables 2026-09-16 (owner "
             "instruction, reversing the earlier 'permanently incomparable' position). "
-            "Dropping the 10 m filter lets one genuine PPPx solve failure (URUM, DOY 365, "
-            "~5,989 m under elev weighting) into the oracle arm, inflating the MEAN floor "
-            "roughly tenfold while the median floor is unchanged to three figures - which "
-            "is why the median is the headline and ratio_to_oracle_mean must not be "
-            "quoted. The conclusion has survived every methodology change so far: "
+            "Dropping the 10 m filter used to let one genuine PPPx solve failure (URUM, "
+            "DOY 365, ~5,989 m under elev weighting) into the oracle arm, inflating the "
+            "MEAN floor roughly tenfold while the median floor stayed unchanged to three "
+            "figures - which is why the median is the headline and ratio_to_oracle_mean "
+            "must not be quoted. **2026-09-18: that row is now excluded upstream** by "
+            "positioning_coverage's solver-failure rule (docs/revision/"
+            "positioning_reporting.md), independent of this stage's own dropped 10 m "
+            "filter, so it no longer reaches the oracle arm at all - the median stays "
+            "the headline regardless, because the mean remains the more "
+            "outlier-sensitive statistic on whatever heavy tail is left (current oracle "
+            "floor: mean 0.142 m against median 0.070 m over N=8,509, summary.csv). "
+            "The conclusion has survived every methodology change so far: "
             "median-based ratios for Direct STEC / IGS GIM / VTEC + Mapping read "
             "11.5x/14.1x/15.8x on the original 5,514-station-day population, "
             "11.6x/14.2x/15.9x after the common-set and filter fixes (N=5,442), and "
             "11.4x/14.7x/16.3x after the 2026-09-16 coverage recovery (N=8,223). Read the "
-            "current values from summary.csv; the three above are dated snapshots kept to "
-            "show the finding is robust, not numbers to quote.",
+            "current values from summary.csv; the numbers above are dated snapshots kept "
+            "to show the finding is robust, not numbers to quote.",
             "Station coverage: 54 of the common set's 55 stations appear. PARC is absent "
             "because it has no reference-STEC corrections generated at all - an upstream "
             "data-generation gap, not a solving gap. The 2026-09-16 recovery solved 4,354 "
@@ -2457,8 +2748,17 @@ STAGES: list[Stage] = [
             # 2 baselines (GIM, VTEC) x N station-days, one row per pairing - exact, not a
             # floor with headroom, because paired_station_days.csv carries no NaNs (every
             # row already has all four methods by construction) - measured 16,446 = 2 x
-            # 8,223.
-            f"{ORACLE_BENCHMARK_FIGURES_DIR}/paired_difference.csv": 16_000,
+            # 8,223 pre-2026-09-17, then 17,020 = 2 x 8,510 after that session's
+            # positioning_coverage GIM-arm fix. The 2026-09-17 ref_source mean ->
+            # ground_truth repair (verification/repair_overwritten_summaries.py) then
+            # correctly *dropped* the ~1,928 station-days across VTEC_iono/
+            # Pretrained_STEC_iono that could not be repaired at the source (blocked by
+            # an unrelated, genuine per-station missing-SINEX row in the same summary
+            # file - see positioning_coverage's own caveat) from the common set
+            # entirely, rather than leaving them in with a wrong (too-small) error - the
+            # paired population shrank to 14,908 = 2 x 7,454 as a direct, expected
+            # consequence, not a regression. Floored below that with headroom.
+            f"{ORACLE_BENCHMARK_FIGURES_DIR}/paired_difference.csv": 14_000,
             # One row per station in the paired population - measured 54.
             f"{ORACLE_BENCHMARK_FIGURES_DIR}/station_coverage.csv": 40,
         },
@@ -2697,20 +2997,33 @@ STAGES: list[Stage] = [
             "common_set_* and TABLE5_COMMON_SET_NUMBERS.md (2026-09-14, owner "
             "instruction) restrict the positioning-distribution table and the new per-component table to the "
             "station-days solved by all four methods under both weighting schemes "
-            "(coverage_common_station_days, N=10,387) - a coverage-only intersection, "
-            "no 10 m outlier exclusion. weighting_ablation.py's common_set.csv shares "
-            "this exact population so the two manuscript tables report one N. Larger "
-            "than common_set_positioning's own N=10,186 (same eight arms) because that "
-            "stage still applies the 10 m outlier rule; the 201-row gap is exactly the "
-            "station-days where at least one arm exceeds it - see "
-            "coverage_common_station_days's own docstring for the verification.",
+            "(coverage_common_station_days, N=10,674 - moved 10,387 -> 10,674 (GIM-arm "
+            "fix) -> briefly 9,606 (ref_source fix's first, whole-file-granularity "
+            "pass, over-conservative) -> back to 10,674 (that fix's per-station "
+            "follow-up) - a coverage-only "
+            "intersection, no 10 m outlier exclusion. weighting_ablation.py's "
+            "common_set.csv shares this exact population so the two manuscript "
+            "tables report one N. Larger than common_set_positioning's own N=10,467 "
+            "(moved 10,186 -> 10,468 -> briefly 9,417 -> 10,467 the same way; same "
+            "eight arms) because "
+            "that stage still applies the 10 m outlier rule; the 207-row gap (was "
+            "206, 189 at the low point, 201 before the GIM-arm fix) is exactly the "
+            "station-days where at "
+            "least one arm exceeds it - see coverage_common_station_days's own "
+            "docstring for the verification.",
             "common_set_boxplot_stats.csv/common_set_boxplot_fliers.csv/"
             "common_set_cdf_points.csv/common_set_regime_boxplot_stats.csv/"
             "common_set_daily_rows.csv (2026-09-15, results_register.md consistency "
             "item A) extend the same common-set restriction to Figures 12-15 and the "
             "standalone storm/quiet figure, which used to read the full per-method "
-            "population (10,717-10,853) while the other positioning tables already used the N=10,387 "
-            "common set - the same positioning chapter reporting two N's. "
+            "population (10,717-10,853 pre-2026-09-17, 10,803-10,912 after the GIM-arm "
+            "fix, briefly 9,802-10,836 after the ref_source fix's whole-file pass, now "
+            "10,803-10,837 after that fix's per-station follow-up restored "
+            "VTEC/Pretrained_STEC's own per-method row counts; see "
+            "overall_percentile_summary.csv) while "
+            "the other positioning tables already used the N=10,674 common set - the "
+            "same positioning chapter reporting "
+            "two N's. "
             "fig_population_split_boxplot is deliberately not moved: see this stage's "
             "module docstring section 6.",
             "The mean is preserved for comparison (percentile_summary's mean_m column, "
@@ -3169,6 +3482,7 @@ STAGES: list[Stage] = [
             str(DSTEC_EVALUATION_DIR),
             str(UNCERTAINTY_CALIBRATION_DIR),
             str(STATION_INDEPENDENCE_DIR),
+            str(STATION_INDEPENDENCE_PRETRAINED_DIR),
             str(POSITIONING_ROBUSTNESS_DIR),
         ],
         outputs=["plots/revision"],
@@ -3191,7 +3505,11 @@ STAGES: list[Stage] = [
     # common_set_daily_rows.csv and common_set_*.csv (not positioning_coverage's
     # multiday_summary.csv - that was true before the 2026-09-15 common-set restriction
     # this file's own caveats below already describe, but this comment had not been
-    # updated to match).
+    # updated to match). Figure 13's second, elevation-weighted oracle variant
+    # (2026-09-17) is the one exception: it reads oracle_benchmark's own paired
+    # population directly, plus positioning_coverage's multiday_summary_all_weightings.csv
+    # for the Pretrained_STEC_elev arm that oracle_benchmark does not itself carry - see
+    # `_build_positioning_oracle_figure`'s docstring.
     Stage(
         "manuscript_figures",
         "-m stec.viz.manuscript_figures",
@@ -3203,6 +3521,8 @@ STAGES: list[Stage] = [
             str(DAILY_METRICS_DIR),
             str(ELEVATION_METRICS_FINETUNED_DIR),
             str(POSITIONING_DISTRIBUTIONS_DIR),
+            str(ORACLE_BENCHMARK_DIR),
+            str(POSITIONING_COVERAGE_DIR),
         ],
         outputs=[
             "plots/manuscript",
@@ -3227,6 +3547,13 @@ STAGES: list[Stage] = [
             "(Figures 12-15, common-set restricted since 2026-09-15 - see that stage's "
             "module docstring section 6) - a partial multiday_results tree produces a "
             "partial figure set with a logged warning per missing input, not a crash.",
+            "Figure 13's oracle variant (boxplot_3d_error_with_oracle, added "
+            "2026-09-17) additionally depends on oracle_benchmark and "
+            "positioning_coverage - elevation weighting throughout, a different "
+            "population from every other positioning figure in this stage (see "
+            "stec.analysis.oracle_benchmark's module docstring for why) - and skips "
+            "with a logged warning, not this stage's other figures, if either is "
+            "missing.",
         ],
     ),
     Stage(
