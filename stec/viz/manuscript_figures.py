@@ -80,10 +80,13 @@ metrics from. No aggregate CSV anywhere carries per-observation residuals, so ea
 *before* concatenating, which is what keeps the result (measured 10 M rows, ~450 MB) two
 orders of magnitude below the 580 M-row whole-store read that OOM-killed the original
 analysis driver. `fig_pred_density` (Figure 4) is the one hexbin/scatter figure in the
-group; the other five are boxplots that need every row to compute exact quantiles, so
-only Figure 4's builder additionally subsamples (2,000,000 points, seed 42 - see
-`_PRED_DENSITY_SAMPLE_CAP`) purely to bound the render, not because the cache itself is
-too large to hold. Each `fig_*` function is still tested against synthetic
+group; the other five are boxplots that need every row to compute exact quantiles.
+**Figure 4 also reads every row of the cache** (10,000,000 observations as of this
+writing) - a 2026-09-17 change (owner review) dropped the earlier 2,000,000-point,
+seed-42 subsample that used to bound only the hexbin render: a hexbin bins by count
+regardless of how many points feed it, so the subsample never changed what the figure
+showed, only made its reported Pearson r and R² approximate rather than exact over the
+full test set. Each `fig_*` function is still tested against synthetic
 per-observation frames only (`tests/viz/test_manuscript_figures.py`); the streaming and
 column-narrowing behaviour is tested separately, against a synthetic on-disk store, in
 `tests/analysis/test_pretrained_test_diagnostics.py`.
@@ -151,11 +154,17 @@ from pathlib import Path
 import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
 import matplotlib.patches as mpatches
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ..config import paths
-from .positioning_distributions import fig_boxplot_3d_error, fig_cdf_unfiltered
+from .positioning_distributions import (
+    fig_boxplot_3d_error,
+    fig_boxplot_3d_error_with_oracle,
+    fig_cdf_unfiltered,
+)
 from .revision_figures import analysis_dir
 from .style import (
     APPROACH_COLORS,
@@ -164,10 +173,18 @@ from .style import (
     FIGSIZE_POSITIONING_TREND,
     FIGSIZE_SQUARE,
     FIGSIZE_WIDE,
+    NON_APPROACH_COLORS,
     configure_plotting,
 )
 
 import matplotlib.pyplot as plt  # noqa: E402  (style.py sets the Agg backend on import)
+
+# Figure 9's added RMSE-per-bin curve (see fig_uncertainty): brown, a NON_APPROACH_COLORS
+# entry (style.DATASET_COLORS["madrigal_corrected"]) - distinct from that figure's other
+# four curves (orange MAE, red mean predicted uncertainty, black epistemic, blue
+# aleatoric) and from every APPROACH_COLORS hue.
+_UNCERTAINTY_RMSE_COLOR = "#8c564b"
+assert _UNCERTAINTY_RMSE_COLOR in NON_APPROACH_COLORS
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +203,8 @@ def _save(
     output_dir: Path,
     provenance: str,
     data: pd.DataFrame | None = None,
+    *,
+    strip_legend_for_notitle: bool = False,
 ) -> None:
     """Write the working copy (title + provenance), the manuscript copy, and the numbers.
 
@@ -193,6 +212,12 @@ def _save(
     CSV) - duplicated rather than imported because the two modules cover disjoint figure
     sets and `SOURCE_DIRS` differs between them; sharing the function would mean sharing
     that dict too, coupling two things that change independently.
+
+    `strip_legend_for_notitle` is off everywhere except `fig_pred_density` (Figure 4):
+    its legend only repeats the perfect-prediction line plus the Pearson r/R2 the caption
+    already states, and the owner wants the manuscript copy without it while the titled
+    working copy keeps it - a single flag rather than a second `_save`-like function, so
+    every other figure's behaviour here is unchanged.
     """
     target = output_dir / SOURCE_DIRS[source]
     target.mkdir(parents=True, exist_ok=True)
@@ -210,6 +235,11 @@ def _save(
             ax.set_title("", loc=loc)
     if fig._suptitle is not None:
         fig._suptitle.set_text("")
+    if strip_legend_for_notitle:
+        for ax in fig.axes:
+            legend = ax.get_legend()
+            if legend is not None:
+                legend.remove()
     fig.savefig(target / f"{name}_notitle.png", bbox_inches="tight")
     plt.close(fig)
     logger.info(f"wrote {target / name}.png (+ _notitle)")
@@ -259,7 +289,9 @@ def fig_temporal_split(
                     }
                 )
 
-    fig, ax = plt.subplots(figsize=(7, 5))
+    # figsize enlarged (author feedback: figure too small relative to its text) - font
+    # sizes are untouched, so the larger canvas makes the text read smaller in the figure.
+    fig, ax = plt.subplots(figsize=(12, 7))
     cmap = mcolors.ListedColormap(_SPLIT_COLORS)
     ax.imshow(matrix, cmap=cmap, aspect="auto", vmin=0, vmax=3)
     ax.set_xticks(range(12))
@@ -268,9 +300,14 @@ def fig_temporal_split(
     ax.set_yticklabels(years)
     ax.set_xlabel("Month")
     ax.set_ylabel("Year")
+    # Author feedback: bring the grid back, but only along cell borders - no line through
+    # a cell's centre. `PLOT_CONFIG` sets `axes.grid: True` globally, which draws major grid
+    # lines at the integer tick positions (the cell centres), so the major grid is switched
+    # off and a minor grid is placed at the half-integer cell boundaries instead.
     ax.set_xticks(np.arange(-0.5, 12, 1), minor=True)
     ax.set_yticks(np.arange(-0.5, len(years), 1), minor=True)
     ax.grid(which="minor", color="gray", linestyle="-", linewidth=0.8, alpha=0.8)
+    ax.grid(False, which="major")
     ax.tick_params(which="minor", length=0)
 
     total = int((matrix > 0).sum())
@@ -434,7 +471,20 @@ def fig_pred_density(
     both statistics are a few lines of arithmetic (matching how `daily_metrics.day_
     metrics` already computes R2 elsewhere in this package). `max_limit` reproduces the
     source's optional 300 TECU zoomed variant; `None` uses the data's own maximum, as it
-    does.
+    does. `df` is expected to be the full cache (no subsample) since 2026-09-17 - see the
+    module docstring - so r and R2 are exact over the whole test set, not an estimate.
+
+    The colorbar is built via `make_axes_locatable` rather than a plain
+    `fig.colorbar(..., ax=ax)`: the axes use `set_aspect("equal")`, which shrinks the plot
+    box to a square inside its allotted rectangle, and a plain colorbar is sized off that
+    unshrunk rectangle - visibly taller than the square it sits beside. Appending the
+    colorbar's own axes to the divider ties its height to the actual (post-aspect) plot
+    box instead.
+
+    The legend (perfect-prediction line, Pearson r, R2) is dropped from the `_notitle`
+    manuscript copy only (`_save(..., strip_legend_for_notitle=True)` below) - the working
+    copy keeps it, and the r/R2 values are also folded into the provenance footnote so
+    they remain available for the caption even where the legend is gone.
     """
     true_stec = df["true_stec"].to_numpy(dtype=float)
     pred_stec = df["stec_pred"].to_numpy(dtype=float)
@@ -466,7 +516,10 @@ def fig_pred_density(
     ax.set_aspect("equal")
     ax.set_xlabel("True STEC [TECU]")
     ax.set_ylabel("Predicted STEC [TECU]")
-    fig.colorbar(hexbin, ax=ax, label="Count")
+    # See the docstring: `append_axes` ties the colorbar's height to the post-`set_aspect`
+    # plot box, which a plain `fig.colorbar(..., ax=ax)` does not.
+    cax = make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1)
+    fig.colorbar(hexbin, cax=cax, label="Count")
     ax.legend(
         handles=[
             plt.Line2D([0], [0], color="red", linewidth=3, label="Perfect prediction"),
@@ -479,13 +532,17 @@ def fig_pred_density(
     ax.grid(True, alpha=0.3)
     ax.set_title("Prediction density: predicted vs. observed STEC")
     name = "pred_density" if max_limit is None else "pred_density_limited"
+    footnote_provenance = (
+        f"{provenance} (Pearson r = {correlation:.4f}, R2 = {r_squared:.4f})"
+    )
     _save(
         fig,
         name,
         "pretrained",
         output_dir,
-        provenance,
+        footnote_provenance,
         pd.DataFrame({"true_stec": true_stec, "stec_pred": pred_stec}),
+        strip_legend_for_notitle=True,
     )
 
 
@@ -807,10 +864,16 @@ def fig_residuals_year_month(
 # Figure 9 - absolute error vs. predicted uncertainty, binned
 # --------------------------------------------------------------------------
 
+# Owner review, 2026-09-17: a tick at every 1 TECU bin centre (1.5, 2.5, ...) overlapped.
+# Ticking every other whole-TECU bin edge instead reads as plain integers with no
+# overlap; the smaller label size keeps them from crowding the (unchanged) axis label.
+_UNCERTAINTY_XTICK_STEP = 2
+_UNCERTAINTY_XTICK_LABELSIZE = 12
+
 
 def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None:
     """Absolute error vs. predicted-uncertainty bin: boxplots plus MAE, mean predicted
-    sigma, mean epistemic and mean aleatoric curves.
+    sigma, mean epistemic, mean aleatoric and RMSE curves.
 
     Ported from `src/viz/uncertainty.py::plot_binned_uncertainty_error_analysis`
     (`show_components=True` branch only - the manuscript figure has all four curves).
@@ -818,6 +881,20 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
     `pred_aleatoric_unc` are optional and each only drawn if present with a positive
     maximum. Fixed 1 TECU bin width from 0 up to the 95th percentile of predicted
     uncertainty, matching the source; a bin needs at least 5 observations to be plotted.
+
+    2026-09-18: added a fifth curve, RMSE of (predicted - true STEC) per bin, alongside
+    the source's original mean-absolute-error curve - MAE alone cannot show whether a
+    bin's errors are dominated by a few large outliers, which RMSE (via its square
+    penalty) surfaces. Always drawn, unlike the epistemic/aleatoric curves, since it
+    needs only the same `true_stec`/`stec_pred` columns the rest of the figure already
+    requires.
+
+    2026-09-18: the plotted CSV also gains `n` (bin count), `rms_sigma` (sqrt(mean(sigma
+    squared)) over the bin, distinct from the already-plotted `mean_total_unc`), and two
+    calibration ratios, `rmse_over_mean_sigma` and `rmse_over_rms_sigma` - so a reader can
+    cite a per-bin sharpness-vs-error number straight from the pipeline output rather than
+    recomputing it from the figure. None of the four are drawn; the figure itself is
+    unchanged.
     """
     if "pred_total_unc" not in df.columns:
         logger.warning("no pred_total_unc column - skipping fig_uncertainty")
@@ -847,7 +924,8 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
     )
 
     positions, box_data, mean_abs_error, mean_total_unc = [], [], [], []
-    mean_epistemic, mean_aleatoric = [], []
+    mean_epistemic, mean_aleatoric, rmse = [], [], []
+    bin_n, rms_sigma = [], []
     for bin_index in range(len(bin_edges) - 1):
         in_bin = unc_bin == bin_index
         if in_bin.sum() < 5:
@@ -859,10 +937,22 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
         mean_total_unc.append(total_unc[in_bin].mean())
         mean_epistemic.append(epistemic[in_bin].mean() if has_epistemic else np.nan)
         mean_aleatoric.append(aleatoric[in_bin].mean() if has_aleatoric else np.nan)
+        # RMSE of (predicted - true STEC) over the bin's observations - squaring makes
+        # the sign convention irrelevant, so the already-computed abs_error is reused
+        # rather than recomputing a signed error.
+        rmse.append(np.sqrt(np.mean(np.square(abs_error[in_bin]))))
+        bin_n.append(int(in_bin.sum()))
+        rms_sigma.append(np.sqrt(np.mean(np.square(total_unc[in_bin]))))
 
     if not positions:
         logger.warning("no bin has >= 5 observations - skipping fig_uncertainty")
         return
+
+    # Sharpness-vs-calibration ratios for the plotted CSV only - not drawn, and computed
+    # from the same per-bin `rmse`/`mean_total_unc`/`rms_sigma` values already derived
+    # above from exactly the rows each bin's curves use.
+    rmse_over_mean_sigma = [r / s for r, s in zip(rmse, mean_total_unc)]
+    rmse_over_rms_sigma = [r / s for r, s in zip(rmse, rms_sigma)]
 
     fig, ax = plt.subplots(figsize=(12, 8))
     ax.boxplot(
@@ -881,7 +971,7 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
         mean_abs_error,
         color="orange",
         marker="o",
-        label="Mean absolute error",
+        label="MAE",
         linewidth=2,
         markersize=6,
         zorder=20,
@@ -918,10 +1008,42 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
             markersize=6,
             zorder=20,
         )
+    ax.plot(
+        positions,
+        rmse,
+        color=_UNCERTAINTY_RMSE_COLOR,
+        marker="D",
+        label="RMSE",
+        linewidth=2,
+        markersize=6,
+        zorder=20,
+    )
+
+    # showfliers=False and whiskerprops linewidth=0 make the whiskers invisible, but
+    # matplotlib still folds their computed extent into the axes' autoscaled data limits -
+    # the y-axis was autoscaling to ~0-50 TECU while nothing actually drawn (boxes, curves)
+    # reached past ~24, squashing all visible content into the lower half. Set the limit
+    # explicitly from what is actually drawn: the box tops (Q3) and the five curve maxima.
+    box_q3 = [float(np.percentile(values, 75)) for values in box_data]
+    curve_maxima = [max(mean_abs_error), max(mean_total_unc), max(rmse)]
+    if has_epistemic and max(mean_epistemic) > 0:
+        curve_maxima.append(max(mean_epistemic))
+    if has_aleatoric and max(mean_aleatoric) > 0:
+        curve_maxima.append(max(mean_aleatoric))
+    visible_max = max(box_q3 + curve_maxima)
 
     ax.set_xlabel("Predicted uncertainty [TECU]")
     ax.set_ylabel("Absolute error [TECU]")
     ax.set_xlim(0, max(positions) + bin_width)
+    ax.set_ylim(0, visible_max * 1.08)
+    # Bin centres (1.5, 2.5, ...) is where the boxes actually sit, but a tick label at
+    # every one of them overlaps at this figure's width. `bin_edges` are whole TECU by
+    # construction (bin_width=1.0 from 0), so ticking every _UNCERTAINTY_XTICK_STEP-th
+    # edge gives unambiguous, non-overlapping integer labels instead.
+    xtick_edges = np.arange(0, np.floor(ax.get_xlim()[1]) + 1, _UNCERTAINTY_XTICK_STEP)
+    ax.set_xticks(xtick_edges)
+    ax.set_xticklabels([f"{int(edge)}" for edge in xtick_edges])
+    ax.tick_params(axis="x", labelsize=_UNCERTAINTY_XTICK_LABELSIZE)
     ax.legend(framealpha=0.9, loc="upper left")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
     ax.set_title("Error analysis vs. predicted uncertainty (binned)")
@@ -934,10 +1056,15 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
         pd.DataFrame(
             {
                 "unc_bin_center": positions,
+                "n": bin_n,
                 "mean_abs_error": mean_abs_error,
                 "mean_total_unc": mean_total_unc,
                 "mean_epistemic_unc": mean_epistemic,
                 "mean_aleatoric_unc": mean_aleatoric,
+                "rmse": rmse,
+                "rms_sigma": rms_sigma,
+                "rmse_over_mean_sigma": rmse_over_mean_sigma,
+                "rmse_over_rms_sigma": rmse_over_rms_sigma,
             }
         ),
     )
@@ -946,17 +1073,6 @@ def fig_uncertainty(df: pd.DataFrame, output_dir: Path, provenance: str) -> None
 # --------------------------------------------------------------------------
 # Figures 4-9 wiring - one shared per-observation cache, six figures
 # --------------------------------------------------------------------------
-
-# Cap and seed for fig_pred_density's hexbin. The cache holds the model's whole 2014-2024
-# test set (10,000,000 rows as of this writing - see
-# stec.analysis.pretrained_test_diagnostics), and a hexbin rendered at gridsize=100 does
-# not resolve any finer past a couple of million points, so beyond this cap only render
-# cost grows, not the pattern the figure shows. This subsample is specific to
-# fig_pred_density: the other five figures in this group are boxplots computed from every
-# row in the cache (see that module's docstring for why a boxplot needs the full data
-# where a hexbin does not).
-_PRED_DENSITY_SAMPLE_CAP = 2_000_000
-_PRED_DENSITY_SAMPLE_SEED = 42
 
 
 def _build_pretrained_diagnostics_figures(
@@ -996,20 +1112,10 @@ def _build_pretrained_diagnostics_figures(
     fig_residuals_year_month(observations, output_dir, prov)
     fig_uncertainty(observations, output_dir, prov)
 
-    # fig_pred_density alone needs a bounded input - see _PRED_DENSITY_SAMPLE_CAP above.
-    if len(observations) > _PRED_DENSITY_SAMPLE_CAP:
-        density_sample = observations.sample(
-            n=_PRED_DENSITY_SAMPLE_CAP, random_state=_PRED_DENSITY_SAMPLE_SEED
-        )
-        density_prov = (
-            f"{prov}, subsampled to {_PRED_DENSITY_SAMPLE_CAP:,} points "
-            f"(seed {_PRED_DENSITY_SAMPLE_SEED}) for the hexbin render"
-        )
-    else:
-        density_sample = observations
-        density_prov = prov
-    fig_pred_density(density_sample, output_dir, density_prov)
-    fig_pred_density(density_sample, output_dir, density_prov, max_limit=300)
+    # No subsample (2026-09-17, owner review - see the module docstring): every row of
+    # the cache feeds the hexbin, so Pearson r and R2 are exact over the full test set.
+    fig_pred_density(observations, output_dir, prov)
+    fig_pred_density(observations, output_dir, prov, max_limit=300)
 
 
 # --------------------------------------------------------------------------
@@ -1090,8 +1196,13 @@ def fig_improvement_by_date(
     ax.axhline(0, color="black", linewidth=1.0, alpha=0.5)
     ax.set_ylabel(f"{metric} improvement [%]")
     ax.set_xlabel("Date")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+    # Same locator/formatter/rotation as Figure 12 (fig_positioning_trend) - owner
+    # review, 2026-09-17: two positioning-adjacent daily-trend figures with different
+    # date-axis conventions read as an inconsistency, and the day-of-month adds nothing
+    # once ticks land on month boundaries.
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.setp(ax.get_xticklabels(), rotation=45)
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(title="Baseline", loc="upper center", bbox_to_anchor=(0.5, -0.25), ncol=2)
     ax.set_title(f"Direct STEC {metric} improvement over baselines")
@@ -1164,6 +1275,43 @@ _ELEVATION_JITTER_OFFSETS = {
 }
 _ELEVATION_JITTER_STEP = 0.8
 
+# Owner review, 2026-09-17: Pretrained Direct STEC's error bars are large enough at low
+# elevation to visually cover the other three curves. Fading only the caps/whiskers (not
+# the mean line or its markers) keeps its own mean legible while letting the others show
+# through where its bars would otherwise sit on top of them.
+_PRETRAINED_ERRORBAR_ALPHA = 0.35
+
+# A little above the highest mean line (Pretrained Direct STEC's lowest-elevation bin, in
+# practice - roughly 22 TECU for RMSE, 16 for MAE as of this writing), rounded up to a
+# round tick rather than hardcoded, so the large Pretrained error bars are clipped at the
+# top of the axis without guessing at whatever the current numbers happen to be. Owner
+# review, 2026-09-17 (second pass): a 10%/nearest-5 cap overshot ("a little above" was
+# meant to read as 22/16, not 25/20) - 5%/nearest-2 lands on the approved values.
+_ELEVATION_YLIM_MARGIN_FRACTION = 0.05
+_ELEVATION_YLIM_TICK = 2.0
+
+
+def _fade_pretrained_errorbar(container, method: str) -> None:
+    """`ax.errorbar`'s returned `ErrorbarContainer.lines` is `(line, caplines, barlinecols)`
+    - fade the last two only, for Pretrained Direct STEC only, leaving its mean line and
+    markers (and every other method's error bars) exactly as before."""
+    if method != "Pretrained Direct STEC":
+        return
+    _, caps, bars = container.lines
+    for cap in caps:
+        cap.set_alpha(_PRETRAINED_ERRORBAR_ALPHA)
+    for bar in bars:
+        bar.set_alpha(_PRETRAINED_ERRORBAR_ALPHA)
+
+
+def _elevation_ylim_cap(agg: pd.DataFrame, mean_col: str) -> float:
+    """Small margin above the highest mean line in `mean_col`, rounded up to
+    `_ELEVATION_YLIM_TICK` - data-driven so this does not need updating by hand if the
+    underlying metrics move."""
+    peak_mean = float(agg[mean_col].max())
+    with_margin = peak_mean * (1 + _ELEVATION_YLIM_MARGIN_FRACTION)
+    return float(np.ceil(with_margin / _ELEVATION_YLIM_TICK) * _ELEVATION_YLIM_TICK)
+
 
 def fig_mae_rmse_finetuned(
     daily_by_elevation: pd.DataFrame, output_dir: Path, provenance: str
@@ -1202,7 +1350,7 @@ def fig_mae_rmse_finetuned(
         x = subset["x"] + _ELEVATION_JITTER_OFFSETS[method] * _ELEVATION_JITTER_STEP
         color = APPROACH_COLORS[method]
         marker = _ELEVATION_METRIC_MARKERS[method]
-        ax_rmse.errorbar(
+        rmse_container = ax_rmse.errorbar(
             x,
             subset["RMSE_mean"],
             yerr=subset["RMSE_std"],
@@ -1213,7 +1361,8 @@ def fig_mae_rmse_finetuned(
             markersize=6,
             alpha=0.9,
         )
-        ax_mae.errorbar(
+        _fade_pretrained_errorbar(rmse_container, method)
+        mae_container = ax_mae.errorbar(
             x,
             subset["MAE_mean"],
             yerr=subset["MAE_std"],
@@ -1224,12 +1373,15 @@ def fig_mae_rmse_finetuned(
             markersize=6,
             alpha=0.9,
         )
+        _fade_pretrained_errorbar(mae_container, method)
 
     ax_rmse.set_ylabel("RMSE [TECU]")
     ax_rmse.grid(True, linestyle="--", alpha=0.5)
+    ax_rmse.set_ylim(0, _elevation_ylim_cap(agg, "RMSE_mean"))
     ax_mae.set_ylabel("MAE [TECU]")
     ax_mae.set_xlabel("Elevation angle [degrees]")
     ax_mae.grid(True, linestyle="--", alpha=0.5)
+    ax_mae.set_ylim(0, _elevation_ylim_cap(agg, "MAE_mean"))
     ax_mae.set_xlim(0, 90)
     ax_mae.legend(
         loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=len(order), frameon=True
@@ -1342,6 +1494,50 @@ _POSITIONING_TREND_LEGEND_FONTSIZE = 12
 # Only every Nth day gets a marker symbol; the line itself still connects every raw
 # daily value, so no data point's shape is hidden, only the marker clutter is reduced.
 
+# Figure 14's y-limit rounding step and margin - see _positioning_improvement_ylim.
+# Owner review, 2026-09-17 (second pass): a range-based margin (5% of max-min, shared by
+# both sides) plus a magnitude-gated 25-vs-50 tick left an empty band above the data
+# (upper rounded to 100 while the real max is +45.6) - each side's margin is now 5% of
+# that side's own magnitude, and the tick is a fixed 50, which on the real data gives
+# (-300, 50): the top of the axis sits just above the true maximum instead of far above it.
+#
+# Owner review, 2026-09-18 (third pass): the data-driven lower bound made the readable
+# upper half (where every method's actual improvement lives) small and hard to read,
+# because the Pretrained Direct STEC series' dips to -290% dictated the whole axis
+# height. The lower limit is now a fixed clip - the axis no longer follows the data
+# down - and every value below it simply runs off the bottom of the axis, so the clip
+# is visible rather than silent.
+#
+# Owner review, 2026-09-18 (fourth pass): the triangle markers that used to flag each
+# below-clip value were removed - with several series and many flagged days they were
+# too occluded to help. A clipped line running off the axis already shows the excursion
+# continues below the frame; the written CSV still carries every value in full.
+_POSITIONING_IMPROVEMENT_YLIM_LOWER = -150.0
+_POSITIONING_IMPROVEMENT_YLIM_MARGIN_FRACTION = 0.05
+_POSITIONING_IMPROVEMENT_YLIM_TICK = 50.0
+
+# Below-axes legend vertical offset for Figure 14, matching the sibling daily-trend
+# figure that shares the same MonthLocator/DateFormatter("%Y-%m")/rotation=45 x-axis
+# (`fig_improvement_by_date`'s `loc="upper center", bbox_to_anchor=(0.5, -0.25)`) -
+# large enough that the legend band clears the rotated date tick labels.
+_POSITIONING_IMPROVEMENT_LEGEND_BBOX_Y = -0.25
+
+
+def _positioning_improvement_ylim(improvement_pct: pd.Series) -> float:
+    """Data-driven upper y-limit for Figure 14, rounded outward to the nearest 50 (5%
+    margin above the data's own maximum, matching `_POSITIONING_IMPROVEMENT_YLIM_TICK`).
+
+    The lower limit is no longer derived from the data at all (owner review,
+    2026-09-18) - it is fixed at `_POSITIONING_IMPROVEMENT_YLIM_LOWER` so the axis stays
+    readable regardless of how far a single series dips, and every value below that clip
+    simply runs off the bottom of the visible axis rather than being included in the view
+    (see `fig_positioning_improvement_timeseries`'s docstring for why a fixed
+    +/-220%-ish symmetric view, and later a fully data-driven one, both proved wrong)."""
+    data_max = float(improvement_pct.max())
+    upper_raw = data_max + _POSITIONING_IMPROVEMENT_YLIM_MARGIN_FRACTION * abs(data_max)
+    tick = _POSITIONING_IMPROVEMENT_YLIM_TICK
+    return float(tick * np.ceil(upper_raw / tick))
+
 
 def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -> None:
     """Daily 3D RMS positioning error, 4 methods, median line (no band).
@@ -1407,7 +1603,7 @@ def fig_positioning_trend(df: pd.DataFrame, output_dir: Path, provenance: str) -
             label=method,
             zorder=len(order) - i,
         )
-    ax.set_ylabel("3D RMS error [m]")
+    ax.set_ylabel("3D RMSE [m]")
     ax.set_xlabel("Date")
     # Ticks land on month boundaries, so the day adds nothing and "%Y-%m-%d" cost two
     # pages of the manuscript: the longer rotated labels make the figure taller, and at
@@ -1450,6 +1646,56 @@ def fig_positioning_improvement_timeseries(
 
     2026-09-15 (owner instruction, results_register.md consistency item A): `df` is now
     the common set, same population and same reasoning as `fig_positioning_trend` above.
+
+    2026-09-17 (owner review): the y-axis is no longer a fixed symmetric clip. A
+    symmetric +/-1.2x-p99 view (which happened to sit near +/-220%) wasted its entire
+    upper half - the data's own maximum never approaches the data's own minimum in
+    magnitude - and, worse, clipped the Pretrained Direct STEC minimum the manuscript
+    text discusses (the negative excursions around DOY 132-133 and 282-285). The new
+    limits are asymmetric, taken from the data's own min/max with a small margin and
+    rounded outward to a round tick (see `_positioning_improvement_ylim`), so nothing is
+    clipped by construction. Markers now match Figure 12's (same `marker="o"`,
+    `markersize`/`linewidth` constants) rather than a bare line.
+
+    2026-09-17 (owner review, second round): the legend moved back inside the axes,
+    lower left (`loc="lower left"`, matching Figure 12's in-plot legend style rather
+    than the below-axes band this docstring previously described) - the lower-left
+    corner of this plot is empty at every date, so an in-plot legend costs no data
+    visibility and reads better than a caption-like band underneath.
+
+    2026-09-17 (owner review, third round): correcting the previous entry - the y-axis
+    is a fixed clip again, not fully data-driven, but for the opposite reason the old
+    fixed +/-220%-ish view was wrong. The lower limit is pinned at
+    `_POSITIONING_IMPROVEMENT_YLIM_LOWER` (-150%) so the Pretrained Direct STEC series'
+    dips to -290% (around DOY 132-134 and 282-290, see below) do not compress the
+    readable upper half where every method's actual improvement lives; the upper limit
+    stays data-driven, unchanged from the previous review. Every daily value below the
+    clip simply runs off the bottom of the visible axis - the written CSV already
+    carries every value in full, clipped or not. On the real common-set data (checked
+    2026-09-18) only Pretrained Direct STEC ever drops below -150%, at 11 of 245 days:
+    2024-05-11/13 (DOY 132/134), 2024-09-17/20 (DOY 261/264), and 2024-10-08/09/11/12/
+    13/14/16 (DOY 282/283/285/286/287/288/290) - matching the manuscript text's "DOY
+    132-133 and 282-285" description of where these dips cluster, not each below-clip
+    day individually. Direct STEC and VTEC + Mapping never cross -150% in this
+    population.
+
+    2026-09-18 (owner review, fourth round): the legend moved back out from lower-left
+    to below the axes, one row (`ncol=len(model_cols)`), at the normal legend font size -
+    the shrunk-and-relocated in-plot legend above still covered real points no matter
+    which corner it tried (see the previous entry), which a below-axes band never risks
+    since it shares no space with the data. `loc="upper center"` with
+    `bbox_to_anchor=(0.5, _POSITIONING_IMPROVEMENT_LEGEND_BBOX_Y)` matches
+    `fig_improvement_by_date`'s legend, the sibling daily-trend figure with the same
+    MonthLocator/DateFormatter("%Y-%m")/rotation=45 x-axis, so the same vertical offset
+    already known to clear that figure's rotated date tick labels clears this one's too.
+
+    2026-09-18 (owner review, fifth round): the below-clip triangle markers introduced
+    in the third round are gone. With several series and many flagged days across the
+    year they were too occluded to read - clusters of triangles stacked at the same
+    lower-edge date told the reader less than the line simply running off the axis
+    already did. The lower limit stays the fixed -150% clip from the third round; only
+    the flag marker is removed. The written CSV is unaffected - it never dropped the
+    below-clip values, only the plot did.
     """
     daily_median = df.groupby(["date", "method"])["error_3d_rms"].median()
     pivot = daily_median.unstack("method").sort_index()
@@ -1472,37 +1718,61 @@ def fig_positioning_improvement_timeseries(
             )
         )
     plotted = pd.concat(rows, ignore_index=True)
-    view_limit = float(1.2 * plotted["improvement_pct"].abs().quantile(0.99))
-    beyond_view = int((plotted["improvement_pct"].abs() > view_limit).sum())
+    y_lower = _POSITIONING_IMPROVEMENT_YLIM_LOWER
+    y_upper = _positioning_improvement_ylim(plotted["improvement_pct"])
 
     fig, ax = plt.subplots(figsize=FIGSIZE_POSITIONING_TREND)
+    n_below_by_method: dict[str, int] = {}
     for method in model_cols[::-1]:
         subset = plotted[plotted.method == method].sort_values("date")
+        color = APPROACH_COLORS[method]
         ax.plot(
             subset["date"],
             subset["improvement_pct"],
-            color=APPROACH_COLORS[method],
+            color=color,
             linewidth=_POSITIONING_TREND_LINEWIDTH,
-            label=f"Imp. by {method}",
+            marker="o",
+            markersize=_POSITIONING_TREND_MARKERSIZE,
+            label=method,
+        )
+        below = subset[subset["improvement_pct"] < y_lower]
+        n_below_by_method[method] = len(below)
+    if any(n_below_by_method.values()):
+        logger.info(
+            "values below -150%% clipped off the visible axis: %s",
+            {m: n for m, n in n_below_by_method.items() if n},
         )
     ax.axhline(0, color="black", linestyle="--", alpha=0.5)
-    ax.set_ylim(-view_limit, view_limit)
-    ax.set_ylabel("Improvement over IGS GIM + Mapping [%]")
+    ax.set_ylim(y_lower, y_upper)
+    ax.set_ylabel("Improvement over GIM [%]")
     ax.set_xlabel("Date")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+    # Same locator/formatter/rotation as Figure 12 (fig_positioning_trend).
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     plt.setp(ax.get_xticklabels(), rotation=45)
+    ax.yaxis.set_major_locator(
+        mticker.MultipleLocator(_POSITIONING_IMPROVEMENT_YLIM_TICK)
+    )
     ax.grid(True, linestyle="--", alpha=0.3)
-    ax.legend()
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, _POSITIONING_IMPROVEMENT_LEGEND_BBOX_Y),
+        ncol=len(model_cols),
+    )
     ax.set_title(
         "Daily relative improvement over IGS GIM + Mapping (median), common set, "
-        f"unfiltered\n{beyond_view} day(s) beyond the clipped view"
+        "unfiltered"
+    )
+    footnote_provenance = (
+        f"{provenance} Values below {y_lower:.0f}% are clipped by the fixed lower "
+        "y-limit (no triangle markers)."
     )
     _save(
         fig,
         "pos_improvement_timeseries",
         "positioning",
         output_dir,
-        provenance,
+        footnote_provenance,
         plotted,
     )
 
@@ -1577,6 +1847,74 @@ def _build_positioning_figures(args: argparse.Namespace, output_dir: Path) -> No
         )
 
 
+def _build_positioning_oracle_figure(
+    args: argparse.Namespace, output_dir: Path
+) -> None:
+    """Figure 13, second version - the four approaches plus the observation-derived
+    oracle floor, elevation weighting throughout.
+
+    Deliberately a separate builder from `_build_positioning_figures` above: that one
+    reads `positioning_distributions`'s common-set, iono-weighted population (Tables
+    6-7's own); this reads `stec.analysis.oracle_benchmark`'s own paired population
+    directly, since the oracle only exists under elevation weighting (see that module's
+    docstring). `paired_station_days.csv` already carries the oracle, Direct STEC, VTEC
+    + Mapping and IGS GIM + Mapping columns, all elevation-weighted; the
+    Pretrained Direct STEC arm is not part of `oracle_benchmark`'s own output, so it is
+    read here from `positioning_coverage`'s `multiday_summary_all_weightings.csv`
+    (`Pretrained_STEC_elev`) for the same station-days. Verified directly (not merely
+    assumed) that this arm covers every one of `oracle_benchmark`'s paired station-days
+    with zero missing, and that the oracle/Direct STEC/VTEC/GIM medians computed from the
+    five-way merge match `oracle_benchmark`'s own `summary.csv` medians exactly.
+    """
+    oracle_dir = analysis_dir(args.results_dir, "oracle_benchmark")
+    paired_path = oracle_dir / "paired_station_days.csv"
+    coverage_dir = analysis_dir(args.results_dir, "positioning_coverage")
+    all_weightings_path = coverage_dir / "multiday_summary_all_weightings.csv"
+    if not paired_path.exists() or not all_weightings_path.exists():
+        logger.warning(
+            f"{paired_path} or {all_weightings_path} not found - run "
+            "stec/analysis/oracle_benchmark.py and "
+            "stec/analysis/positioning_coverage.py"
+        )
+        return
+
+    paired = pd.read_csv(paired_path)
+    pretrained_elev = pd.read_csv(
+        all_weightings_path, usecols=["station", "method", "doy", "error_3d_rms"]
+    )
+    pretrained_elev = pretrained_elev[
+        pretrained_elev["method"] == "Pretrained_STEC_elev"
+    ][["station", "doy", "error_3d_rms"]].rename(
+        columns={"error_3d_rms": "Pretrained Direct STEC"}
+    )
+
+    merged = paired.merge(pretrained_elev, on=["station", "doy"], how="left")
+    n_missing = int(merged["Pretrained Direct STEC"].isna().sum())
+    if n_missing:
+        logger.warning(
+            f"{n_missing} of {len(merged)} oracle_benchmark station-days have no "
+            "Pretrained_STEC_elev arm in positioning_coverage - dropped from Figure "
+            "13's oracle variant rather than plotted as a partial box"
+        )
+    merged = merged.dropna(subset=["Pretrained Direct STEC"])
+    n_station_days = len(merged)
+
+    value_cols = [c for c in merged.columns if c not in ("station", "doy")]
+    frame = merged.melt(
+        id_vars=["station", "doy"],
+        value_vars=value_cols,
+        var_name="Method",
+        value_name="error_3d_rms",
+    )
+    prov = (
+        f"{paired_path} (stec.analysis.oracle_benchmark) + {all_weightings_path} "
+        "(stec.analysis.positioning_coverage, Pretrained_STEC_elev arm) - SF-PPP 2024 "
+        "test period, elevation weighting throughout, oracle_benchmark paired "
+        f"population (N={n_station_days:,} station-days)"
+    )
+    fig_boxplot_3d_error_with_oracle(frame, output_dir, prov, n_station_days)
+
+
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
@@ -1588,6 +1926,7 @@ FIGURE_BUILDERS = (
     _build_improvement_by_date_figures,
     _build_mae_rmse_finetuned_figure,
     _build_positioning_figures,
+    _build_positioning_oracle_figure,
 )
 
 

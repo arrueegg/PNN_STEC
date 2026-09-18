@@ -254,7 +254,7 @@ def fig_boxplot(paired: pd.DataFrame, output_dir: Path, provenance: str) -> None
     ax.set_xticklabels(
         [m.replace(" (oracle)", "\n(oracle)").replace(" + ", "\n+ ") for m in order]
     )
-    ax.set_ylabel("3D RMS positioning error [m], log scale")
+    ax.set_ylabel("3D positioning RMSE [m], log scale")
     ax.grid(True, axis="y", which="major", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
 
@@ -307,8 +307,8 @@ def fig_paired_difference(
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_aspect("equal")
-        ax.set_xlabel("Direct STEC 3D RMS error [m]")
-        ax.set_ylabel(f"{baseline} 3D RMS error [m]")
+        ax.set_xlabel("Direct STEC 3D RMSE [m]")
+        ax.set_ylabel(f"{baseline} 3D RMSE [m]")
         win_pct = (direct < other).mean() * 100
         ax.set_title(
             f"vs {baseline}\nDirect STEC lower on {win_pct:.1f}% of station-days"

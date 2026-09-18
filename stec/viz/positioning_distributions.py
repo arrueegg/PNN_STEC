@@ -54,9 +54,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ..analysis.oracle_benchmark import ORACLE_LABEL
+from ..analysis.positioning_distributions import boxplot_stats
 from ..config import paths
 from .revision_figures import analysis_dir
-from .style import APPROACH_COLORS, CONDITION_COLORS, FIGSIZE_WIDE, configure_plotting
+from .style import (
+    APPROACH_COLORS,
+    CONDITION_COLORS,
+    FIGSIZE_WIDE,
+    ORACLE_COLOR,
+    configure_plotting,
+)
 
 import matplotlib.pyplot as plt  # noqa: E402  (style.py sets the Agg backend on import)
 
@@ -305,7 +313,7 @@ def fig_boxplot_3d_error(
         showfliers=False,
     )
     ax.set_ylim(bottom=0)
-    ax.set_ylabel("3D positioning error [m]")
+    ax.set_ylabel("3D positioning RMSE [m]")
     ax.grid(True, axis="y", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     n_fliers = {m: int(stats.set_index("Method").loc[m, "n_fliers"]) for m in order}
@@ -334,6 +342,81 @@ def fig_boxplot_3d_error(
             exceedance=exceedance,
             exceedance_threshold_m=BOXPLOT_EXCEEDANCE_THRESHOLD_M,
         ),
+    )
+
+
+# --------------------------------------------------------------------------
+# 1b. The same box plot with the observation-derived oracle floor added - a second,
+# elevation-weighted version of Figure 13 on the oracle_benchmark population.
+# --------------------------------------------------------------------------
+
+# Oracle first/leftmost, then the usual approach order.
+DISPLAY_ORDER_WITH_ORACLE = [ORACLE_LABEL, *METHOD_ORDER]
+
+
+def fig_boxplot_3d_error_with_oracle(
+    frame: pd.DataFrame, output_dir: Path, provenance: str, n_station_days: int
+) -> None:
+    """Figure 13, second version: the four approaches plus the observation-derived
+    oracle floor, one Tukey box each - same styling as `fig_boxplot_3d_error` (linear
+    axis, no fliers drawn, same box/whisker geometry, same approach colours), with the
+    oracle box in `style.ORACLE_COLOR` (neutral grey, outside the approach palette)
+    rather than a fifth approach hue.
+
+    Not merged into `fig_boxplot_3d_error` itself: the two figures draw from disjoint
+    populations and method sets. That one is iono-weighted, common-set (Tables 6-7's
+    population); this one is elevation-weighted, `stec.analysis.oracle_benchmark`'s own
+    paired population - elevation weighting throughout is the only physically possible
+    choice here, since the oracle's reference STEC carries only a placeholder sigma and
+    `iono` weighting would weight every observation by the same constant (see that
+    module's docstring). `frame` is long-format (`Method`, `error_3d_rms`), one row per
+    station-day per method, assembled by the caller
+    (`manuscript_figures._build_positioning_figures`) from `oracle_benchmark`'s
+    `paired_station_days.csv` (oracle, Direct STEC, VTEC + Mapping, IGS GIM + Mapping)
+    plus `positioning_coverage`'s `Pretrained_STEC_elev` arm for the same station-days -
+    see that caller for how the merge is verified to drop no rows.
+
+    **Display, not data**, exactly like `fig_boxplot_3d_error`: `showfliers=False` only
+    changes what is drawn - box/whisker geometry is `boxplot_stats`'s own Tukey
+    computation (1.5xIQR) over every row of `frame`, and every flier value is still
+    written to this figure's CSV sidecar by `_tidy_box_data`.
+    """
+    stats, fliers = boxplot_stats(frame, ["Method"])
+    order = [m for m in DISPLAY_ORDER_WITH_ORACLE if m in stats["Method"].unique()]
+    colors = {
+        m: (ORACLE_COLOR if m == ORACLE_LABEL else APPROACH_COLORS[m]) for m in order
+    }
+
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    _draw_boxplot(
+        ax, stats, fliers, "Method", order, colors, widths=0.55, showfliers=False
+    )
+    # Owner review, 2026-09-17: "Reference STEC (oracle)" and "Pretrained Direct STEC"
+    # nearly touched as single-line tick labels at this figure's width. Two lines for
+    # the oracle only - Figure 13 itself never carries this label, so `fig_boxplot_3d_
+    # error` (and its own xticklabels, set by `_draw_boxplot` above) are untouched.
+    ax.set_xticklabels(
+        ["Reference STEC\n(oracle)" if m == ORACLE_LABEL else m for m in order]
+    )
+    ax.set_ylim(bottom=0)
+    ax.set_ylabel("3D positioning RMSE [m]")
+    ax.grid(True, axis="y", linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    n_fliers = {m: int(stats.set_index("Method").loc[m, "n_fliers"]) for m in order}
+    ax.set_title(
+        "Positioning 3D error including the observation-derived oracle floor\n"
+        f"Elevation weighting, oracle_benchmark paired population "
+        f"(N={n_station_days:,} station-days) - Tukey whiskers (1.5×IQR); outlier "
+        "points not drawn, none excluded from the statistics - "
+        + ", ".join(f"{m}: {n_fliers[m]} beyond whiskers" for m in order)
+    )
+    _save(
+        fig,
+        "boxplot_3d_error_with_oracle",
+        "positioning",
+        output_dir,
+        provenance,
+        _tidy_box_data(stats, fliers, ["Method"]),
     )
 
 
@@ -381,14 +464,15 @@ def fig_cdf_unfiltered(
     ax.axhline(95, color="#999999", linestyle=":", linewidth=1, zorder=1)
     ax.set_xlim(0, view_limit)
     ax.set_ylim(0, 101)
-    ax.set_xlabel(f"3D positioning error [m] (view clipped at {view_limit:.1f} m)")
+    ax.set_xlabel("3D positioning RMSE [m]")
     ax.set_ylabel("Cumulative probability [%]")
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.legend(loc="lower right")
     beyond_note = "; ".join(f"{m}: {beyond_view[m]} beyond view" for m in order)
     ax.set_title(
-        "Positioning error CDF, common set, unfiltered (iono weighting)\n"
-        f"circle = median, triangle = p95 - {beyond_note}"
+        "Positioning RMSE CDF, common set, unfiltered (iono weighting)\n"
+        f"circle = median, triangle = p95 - view clipped at {view_limit:.1f} m; "
+        f"{beyond_note}"
     )
     _save(
         fig,
@@ -461,9 +545,9 @@ def fig_storm_quiet_boxplot(
     # already means the two rows are on one scale, and two independent `ax.set_ylabel`
     # calls in a tall 2x2 grid visually collide with each other once `constrained_layout`
     # tightens the row spacing.
-    fig.supylabel("3D positioning error [m] (log scale)")
+    fig.supylabel("3D positioning RMSE [m] (log scale)")
     fig.suptitle(
-        "Storm vs quiet 3D positioning error by method, common set, unfiltered\n"
+        "Storm vs quiet 3D positioning RMSE by method, common set, unfiltered\n"
         f"storm = daily min Dst ≤ -50 nT (Tukey box, {int(stats['n'].sum()):,} station-days total)"
     )
     plotted = stats[
@@ -539,7 +623,7 @@ def fig_percentile_exceedance_table(
         row_label_cell.set_color(color)
         row_label_cell.set_fontweight("bold")
     ax.set_title(
-        "Positioning error summary, common set, unfiltered (iono weighting) - "
+        "Positioning RMSE summary, common set, unfiltered (iono weighting) - "
         "the Table 5 replacement"
     )
     long = pd.concat(
@@ -611,7 +695,7 @@ def fig_population_split_boxplot(
 
     # See fig_storm_quiet_boxplot for why this is one figure-level label rather than one
     # per left-column axes.
-    fig.supylabel("3D positioning error [m] (log scale)")
+    fig.supylabel("3D positioning RMSE [m] (log scale)")
     fig.suptitle(
         "Original vs geometry-only recovered station-days, by method, unfiltered\n"
         f"recovered = no real STEC-database entry that day ({int(stats['n'].sum()):,} station-days total)"

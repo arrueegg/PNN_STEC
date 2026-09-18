@@ -13,7 +13,11 @@ from __future__ import annotations
 import argparse
 import logging
 
+import matplotlib.colors as mcolors
+import matplotlib.dates as mdates
+import matplotlib.legend as mlegend
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,6 +25,7 @@ import pytest
 from stec.analysis import positioning_distributions as pdist
 from stec.config import paths
 from stec.viz import manuscript_figures as mf
+from stec.viz import positioning_distributions as pdist_viz
 from stec.viz import style
 
 
@@ -44,6 +49,30 @@ def test_save_requires_a_known_source_key(tmp_path):
     with pytest.raises(KeyError):
         mf._save(fig, "demo", "not_a_real_source", tmp_path, "prov")
     plt.close(fig)
+
+
+def test_save_strips_legend_for_notitle_when_flagged(tmp_path):
+    """`strip_legend_for_notitle` is Figure 4's own flag (see `fig_pred_density`) - the
+    figure object itself must lose its legend once the notitle copy is written."""
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="line")
+    ax.legend()
+
+    mf._save(
+        fig, "demo", "positioning", tmp_path, "prov", strip_legend_for_notitle=True
+    )
+
+    assert ax.get_legend() is None
+
+
+def test_save_keeps_legend_for_notitle_by_default(tmp_path):
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="line")
+    ax.legend()
+
+    mf._save(fig, "demo", "positioning", tmp_path, "prov")
+
+    assert ax.get_legend() is not None
 
 
 # --------------------------------------------------------------------------
@@ -173,6 +202,61 @@ def test_fig_pred_density_max_limit_uses_a_distinct_filename(tmp_path):
     assert (target / "pred_density_limited.png").exists()
 
 
+def test_fig_pred_density_colorbar_uses_the_axes_divider(tmp_path, monkeypatch):
+    """The colorbar must be exactly as tall as the plot box, which `set_aspect("equal")`
+    shrinks - `make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1)` ties the
+    colorbar's own axes to that shrunk box, unlike a plain `fig.colorbar(..., ax=ax)`."""
+    calls = []
+    original_locatable = mf.make_axes_locatable
+
+    def spy_locatable(ax):
+        divider = original_locatable(ax)
+        original_append = divider.append_axes
+
+        def spy_append(*args, **kwargs):
+            calls.append((args, kwargs))
+            return original_append(*args, **kwargs)
+
+        divider.append_axes = spy_append
+        return divider
+
+    monkeypatch.setattr(mf, "make_axes_locatable", spy_locatable)
+    style.configure_plotting()
+    df = _synthetic_observation_frame()
+    mf.fig_pred_density(df, tmp_path, "synthetic")
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == ("right",)
+    assert kwargs == {"size": "5%", "pad": 0.1}
+
+
+def test_fig_pred_density_notitle_has_no_legend_and_titled_keeps_it(tmp_path):
+    """Owner review, 2026-09-17: the manuscript (`_notitle`) copy drops the legend
+    (perfect-prediction line, Pearson r, R2) - the working copy keeps it."""
+    style.configure_plotting()
+    df = _synthetic_observation_frame()
+
+    captured = {}
+    original_save = mf._save
+
+    def spy_save(fig, name, source, output_dir, provenance, data=None, **kwargs):
+        captured["strip_legend_for_notitle"] = kwargs.get(
+            "strip_legend_for_notitle", False
+        )
+        captured["provenance"] = provenance
+        return original_save(fig, name, source, output_dir, provenance, data, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(mf, "_save", spy_save)
+        mf.fig_pred_density(df, tmp_path, "synthetic")
+
+    assert captured["strip_legend_for_notitle"] is True
+    # The r/R2 values must still be recoverable even though the legend is gone.
+    assert "Pearson r" in captured["provenance"]
+    assert "R2" in captured["provenance"]
+
+
 def test_fig_residuals_elev_reports_the_exact_constant_offset(tmp_path):
     style.configure_plotting()
     df = _synthetic_observation_frame(offset=3.0)
@@ -264,6 +348,114 @@ def test_fig_uncertainty_builds_with_all_four_curves(tmp_path):
     assert plotted["mean_aleatoric_unc"].notna().all()
 
 
+def test_fig_uncertainty_rmse_per_bin_computed_correctly(tmp_path):
+    """A single bin with a non-constant error: RMSE must differ from MAE and match
+    sqrt(mean(error**2)) exactly, not merely be present in the output."""
+    style.configure_plotting()
+    true_stec = np.zeros(5)
+    stec_pred = np.array([1.0, 1.0, 1.0, 1.0, 5.0])
+    df = pd.DataFrame(
+        {
+            "true_stec": true_stec,
+            "stec_pred": stec_pred,
+            "pred_total_unc": np.full(5, 2.5),
+        }
+    )
+
+    mf.fig_uncertainty(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    plotted = pd.read_csv(target / "uncertainty.csv")
+    assert len(plotted) == 1
+    expected_rmse = np.sqrt(np.mean(np.square(stec_pred - true_stec)))
+    expected_mae = np.mean(np.abs(stec_pred - true_stec))
+    assert expected_rmse != pytest.approx(
+        expected_mae
+    )  # the test is only meaningful if they differ
+    assert plotted["rmse"].iloc[0] == pytest.approx(expected_rmse)
+    assert plotted["mean_abs_error"].iloc[0] == pytest.approx(expected_mae)
+
+
+def test_fig_uncertainty_sigma_columns_computed_correctly(tmp_path):
+    """A single bin with non-constant sigma: `n`, `rms_sigma`,
+    `rmse_over_mean_sigma` and `rmse_over_rms_sigma` must match hand-computed values
+    from exactly the same rows `mean_total_unc`/`rmse` are computed from - mean and RMS
+    of sigma must differ, or the test cannot tell them apart."""
+    style.configure_plotting()
+    true_stec = np.zeros(5)
+    stec_pred = np.array([1.0, 1.0, 1.0, 1.0, 5.0])
+    total_unc = np.array([1.2, 1.4, 1.6, 1.8, 1.9])  # all in the same (1, 2] bin
+    df = pd.DataFrame(
+        {
+            "true_stec": true_stec,
+            "stec_pred": stec_pred,
+            "pred_total_unc": total_unc,
+        }
+    )
+
+    mf.fig_uncertainty(df, tmp_path, "synthetic")
+
+    target = tmp_path / mf.SOURCE_DIRS["pretrained"]
+    plotted = pd.read_csv(target / "uncertainty.csv")
+    assert len(plotted) == 1
+
+    expected_rmse = np.sqrt(np.mean(np.square(stec_pred - true_stec)))
+    expected_mean_sigma = total_unc.mean()
+    expected_rms_sigma = np.sqrt(np.mean(np.square(total_unc)))
+    assert expected_rms_sigma != pytest.approx(
+        expected_mean_sigma
+    )  # the test is only meaningful if they differ
+
+    assert plotted["n"].iloc[0] == 5
+    assert plotted["rms_sigma"].iloc[0] == pytest.approx(expected_rms_sigma)
+    assert plotted["rmse_over_mean_sigma"].iloc[0] == pytest.approx(
+        expected_rmse / expected_mean_sigma
+    )
+    assert plotted["rmse_over_rms_sigma"].iloc[0] == pytest.approx(
+        expected_rmse / expected_rms_sigma
+    )
+
+
+def test_fig_uncertainty_rmse_line_present_with_distinct_style(tmp_path, monkeypatch):
+    """The RMSE curve is a NON_APPROACH_COLORS colour, distinct from this figure's other
+    four curves and from every APPROACH_COLORS hue, with its own marker and "RMSE" label."""
+    captured_axes = []
+    original_subplots = mf.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        fig, ax = original_subplots(*args, **kwargs)
+        captured_axes.append(ax)
+        return fig, ax
+
+    monkeypatch.setattr(mf.plt, "subplots", spy_subplots)
+    style.configure_plotting()
+    df = _synthetic_observation_frame(rows=3400, offset=2.0)
+    mf.fig_uncertainty(df, tmp_path, "synthetic")
+
+    ax = captured_axes[0]
+    curve_lines = {
+        line.get_label(): line
+        for line in ax.get_lines()
+        if line.get_label() and not line.get_label().startswith("_")
+    }
+    assert "RMSE" in curve_lines
+    rmse_line = curve_lines["RMSE"]
+    assert mcolors.to_hex(rmse_line.get_color()) == mf._UNCERTAINTY_RMSE_COLOR
+    assert mf._UNCERTAINTY_RMSE_COLOR in style.NON_APPROACH_COLORS
+    assert mf._UNCERTAINTY_RMSE_COLOR not in style.APPROACH_COLORS.values()
+
+    other_colors = {
+        mcolors.to_hex(line.get_color())
+        for label, line in curve_lines.items()
+        if label != "RMSE"
+    }
+    assert mf._UNCERTAINTY_RMSE_COLOR not in other_colors
+    other_markers = {
+        line.get_marker() for label, line in curve_lines.items() if label != "RMSE"
+    }
+    assert rmse_line.get_marker() not in other_markers
+
+
 def test_fig_uncertainty_skips_without_pred_total_unc(tmp_path, caplog):
     style.configure_plotting()
     df = _synthetic_observation_frame().drop(columns=["pred_total_unc"])
@@ -285,6 +477,32 @@ def test_fig_uncertainty_skips_when_uncertainty_is_degenerate(tmp_path, caplog):
 
     assert not (tmp_path / mf.SOURCE_DIRS["pretrained"]).exists()
     assert "too small to bin" in caplog.text
+
+
+def test_fig_uncertainty_xticks_are_integers_at_bin_edges(tmp_path, monkeypatch):
+    """Owner review, 2026-09-17: a label at every 1 TECU bin centre (1.5, 2.5, ...)
+    overlapped - ticks now land on whole-TECU bin edges, spaced apart, with no ".0"."""
+    captured_axes = []
+    original_subplots = mf.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        fig, ax = original_subplots(*args, **kwargs)
+        captured_axes.append(ax)
+        return fig, ax
+
+    monkeypatch.setattr(mf.plt, "subplots", spy_subplots)
+    style.configure_plotting()
+    df = _synthetic_observation_frame(rows=3400, offset=2.0)
+    mf.fig_uncertainty(df, tmp_path, "synthetic")
+
+    ax = captured_axes[0]
+    xticks = ax.get_xticks()
+    labels = [t.get_text() for t in ax.get_xticklabels()]
+    assert all(float(tick).is_integer() for tick in xticks)
+    assert all("." not in label for label in labels)
+    diffs = np.diff(sorted(xticks))
+    assert all(d == pytest.approx(mf._UNCERTAINTY_XTICK_STEP) for d in diffs)
+    assert ax.xaxis.get_tick_params()["labelsize"] == mf._UNCERTAINTY_XTICK_LABELSIZE
 
 
 def _write_synthetic_diagnostics_cache(results_dir, rows: int = 3400) -> None:
@@ -343,13 +561,13 @@ def test_build_pretrained_diagnostics_figures_skips_without_raising_when_cache_a
     assert "pretrained_test_diagnostics" in caplog.text
 
 
-def test_build_pretrained_diagnostics_figures_subsamples_pred_density_above_the_cap(
-    tmp_path, monkeypatch
+def test_build_pretrained_diagnostics_figures_uses_every_row_for_pred_density(
+    tmp_path,
 ):
-    """The five boxplot figures must see every row; only fig_pred_density's hexbin is
-    bounded - pinned by checking the *other* figures' reported observation counts against
-    the full cache while pred_density's own CSV is capped."""
-    monkeypatch.setattr(mf, "_PRED_DENSITY_SAMPLE_CAP", 50)
+    """2026-09-17 (owner review): the old 2,000,000-point, seed-42 hexbin subsample is
+    gone - `fig_pred_density` must see every row of the cache, exactly like the five
+    boxplot figures, so Pearson r and R2 are exact rather than approximate."""
+    assert not hasattr(mf, "_PRED_DENSITY_SAMPLE_CAP")
     results_dir = tmp_path / "results"
     _write_synthetic_diagnostics_cache(results_dir, rows=200)
 
@@ -360,10 +578,8 @@ def test_build_pretrained_diagnostics_figures_subsamples_pred_density_above_the_
 
     target = output_dir / mf.SOURCE_DIRS["pretrained"]
     density = pd.read_csv(target / "pred_density.csv")
-    assert len(density) == 50
+    assert len(density) == 200
 
-    # residuals_elev has no sampling cap of its own, so its per-bin observation count
-    # must still sum to the full 200-row cache, not the 50-row density subsample.
     elev = pd.read_csv(target / "residuals_elev.csv")
     assert elev["n"].sum() == 200
 
@@ -491,6 +707,38 @@ def test_build_improvement_by_date_figures_keeps_own_and_madrigal_distinct(tmp_p
     assert madrigal.loc["2024-05-01"] == pytest.approx(25.0)
 
 
+def test_fig_improvement_by_date_uses_the_same_date_axis_as_figure_12(
+    tmp_path, monkeypatch
+):
+    """Owner review, 2026-09-17: Figure 10's date axis must match Figure 12's
+    (`fig_positioning_trend`) locator/formatter/rotation - month-day used to be shown,
+    which reads as an inconsistency between the two daily-trend figures."""
+    captured_axes = []
+    original_subplots = mf.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        fig, ax = original_subplots(*args, **kwargs)
+        captured_axes.append(ax)
+        return fig, ax
+
+    monkeypatch.setattr(mf.plt, "subplots", spy_subplots)
+    style.configure_plotting()
+    daily = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-05-01", "2024-05-01"]),
+            "Model": ["Direct STEC", "VTEC + Mapping"],
+            "RMSE": [5.0, 10.0],
+        }
+    )
+    mf.fig_improvement_by_date(daily, "RMSE", tmp_path, "synthetic")
+
+    ax = captured_axes[0]
+    assert isinstance(ax.xaxis.get_major_locator(), mdates.MonthLocator)
+    formatter = ax.xaxis.get_major_formatter()
+    assert isinstance(formatter, mdates.DateFormatter)
+    assert formatter.fmt == "%Y-%m"
+
+
 # --------------------------------------------------------------------------
 # Figure 11 - RMSE/MAE vs. elevation, mean +/- across-day std
 # --------------------------------------------------------------------------
@@ -577,6 +825,79 @@ def test_build_mae_rmse_finetuned_figure_is_scoped_to_the_own_dataset(tmp_path):
     # own's Direct STEC RMSE is 2.0 everywhere; madrigal's would be 20.0 - a mixed read
     # would show it in the mean.
     assert plotted.loc[(20.0, "Direct STEC"), "RMSE_mean"] == pytest.approx(2.0)
+
+
+def _synthetic_daily_by_elevation_with_pretrained() -> pd.DataFrame:
+    """Direct STEC fixed at 2.0 RMSE / 1.5 MAE; Pretrained Direct STEC fixed at 20.0
+    RMSE / 14.0 MAE - deliberately the highest mean line, matching the real data's shape
+    (roughly 20/14 TECU at the lowest elevation bin) - so the y-limit cap and the
+    Pretrained-only error-bar fade are both checkable exactly."""
+    rows = []
+    for doy in (130, 131, 132):
+        for elevation_bin in (5.0, 10.0):
+            rows.append(
+                {
+                    "doy": doy,
+                    "elevation_bin": elevation_bin,
+                    "Method": "Direct STEC",
+                    "n": 500,
+                    "RMSE": 2.0,
+                    "MAE": 1.5,
+                }
+            )
+            rows.append(
+                {
+                    "doy": doy,
+                    "elevation_bin": elevation_bin,
+                    "Method": "Pretrained Direct STEC",
+                    "n": 500,
+                    "RMSE": 20.0,
+                    "MAE": 14.0,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_fig_mae_rmse_finetuned_caps_ylim_and_fades_pretrained_errorbars(
+    tmp_path, monkeypatch
+):
+    """Owner review, 2026-09-17 (second pass, 5%/nearest-2): the y-axis is capped a
+    little above the highest mean line (data-driven, not hardcoded - see
+    `_elevation_ylim_cap`) so Pretrained Direct STEC's large error bars are clipped at
+    the top, and those bars (caps + whiskers, not the mean line/markers) are drawn
+    semi-transparent so they stop covering the other curves."""
+    captured_axes = []
+    original_subplots = mf.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        fig, axes = original_subplots(*args, **kwargs)
+        captured_axes.append(axes)
+        return fig, axes
+
+    monkeypatch.setattr(mf.plt, "subplots", spy_subplots)
+    style.configure_plotting()
+    daily = _synthetic_daily_by_elevation_with_pretrained()
+    mf.fig_mae_rmse_finetuned(daily, tmp_path, "synthetic")
+
+    ax_rmse, ax_mae = captured_axes[0]
+    # peak RMSE mean 20.0 -> +5% margin = 21.0 -> rounded up to the nearest 2 = 22.0
+    assert ax_rmse.get_ylim()[1] == pytest.approx(22.0)
+    # peak MAE mean 14.0 -> +5% margin = 14.7 -> rounded up to the nearest 2 = 16.0
+    assert ax_mae.get_ylim()[1] == pytest.approx(16.0)
+
+    containers = {c.get_label(): c for c in ax_rmse.containers}
+    _, direct_caps, direct_bars = containers["Direct STEC"].lines
+    _, pretrained_caps, pretrained_bars = containers["Pretrained Direct STEC"].lines
+    assert all(cap.get_alpha() == pytest.approx(0.9) for cap in direct_caps)
+    assert all(bar.get_alpha() == pytest.approx(0.9) for bar in direct_bars)
+    assert all(
+        cap.get_alpha() == pytest.approx(mf._PRETRAINED_ERRORBAR_ALPHA)
+        for cap in pretrained_caps
+    )
+    assert all(
+        bar.get_alpha() == pytest.approx(mf._PRETRAINED_ERRORBAR_ALPHA)
+        for bar in pretrained_bars
+    )
 
 
 # --------------------------------------------------------------------------
@@ -705,6 +1026,235 @@ def test_build_positioning_figures_end_to_end_from_synthetic_multiday_summary(tm
         assert notitle.exists() and notitle.stat().st_size > 0
 
 
+def test_positioning_improvement_ylim_is_data_driven_upper_only():
+    """Owner review, 2026-09-18 (third pass): the lower limit is no longer derived from
+    the data at all - `_positioning_improvement_ylim` now returns only the upper bound,
+    and the caller pairs it with the fixed `_POSITIONING_IMPROVEMENT_YLIM_LOWER` (-150).
+    A prior data-driven lower bound let a single series' -290%-ish excursions dictate the
+    whole axis height, squashing the readable upper half where every method's actual
+    improvement lives - the fixed clip below trades "nothing is ever clipped" for "a
+    below-clip value simply runs off the bottom of the visible axis" (see
+    `fig_positioning_improvement_timeseries`). The upper-bound math itself (5% margin,
+    round up to the nearest 50) is unchanged from
+    the previous pass, so it still gives 50 on data topping out at +45.6."""
+    values = pd.Series([-258.275654, -221.253584, 45.578029, 9.084547, -76.126536])
+
+    upper = mf._positioning_improvement_ylim(values)
+
+    assert upper > values.max()
+    assert upper % 50 == 0
+    assert upper == 50.0
+
+
+def _draw_positioning_improvement_and_capture(monkeypatch, frame, tmp_path):
+    """Runs `fig_positioning_improvement_timeseries` and hands back its axes before
+    `_save` closes the figure, by intercepting `_save` itself rather than `plt.subplots`
+    - the axes object is needed after the function returns to inspect markers/legend."""
+    captured = {}
+    original_save = mf._save
+
+    def spy_save(fig, name, source, output_dir, provenance, data=None, **kwargs):
+        captured["fig"] = fig
+        captured["ax"] = fig.axes[0]
+        captured["provenance"] = provenance
+        return original_save(fig, name, source, output_dir, provenance, data, **kwargs)
+
+    monkeypatch.setattr(mf, "_save", spy_save)
+    mf.fig_positioning_improvement_timeseries(frame, tmp_path, "synthetic")
+    return captured
+
+
+def test_positioning_improvement_timeseries_no_triangle_markers_below_clip(
+    tmp_path, monkeypatch
+):
+    """Owner review, 2026-09-18 (fifth round): below-clip values used to get a
+    downward-pointing triangle flag; those were removed as too occluded to help, so a
+    below-clip day now draws nothing but the ordinary line/marker running off the axis.
+    This frame drives two methods past the -150% clip on different days - the same data
+    that used to produce two triangle markers - and asserts none are drawn."""
+    frame = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                [
+                    "2024-05-01",
+                    "2024-05-02",
+                    "2024-05-03",
+                    "2024-05-01",
+                    "2024-05-02",
+                    "2024-05-03",
+                    "2024-05-01",
+                    "2024-05-02",
+                    "2024-05-03",
+                ]
+            ),
+            "method": ["IGS GIM + Mapping"] * 3
+            + ["Direct STEC"] * 3
+            + ["Pretrained Direct STEC"] * 3,
+            "error_3d_rms": [
+                1.0,
+                1.0,
+                1.0,  # IGS GIM + Mapping (baseline)
+                0.8,
+                0.9,
+                4.0,  # Direct STEC: 2024-05-03 -> -300%, below clip
+                3.5,
+                0.6,
+                0.7,  # Pretrained Direct STEC: 2024-05-01 -> -250%, below clip
+            ],
+        }
+    )
+    style.configure_plotting()
+
+    captured = _draw_positioning_improvement_and_capture(monkeypatch, frame, tmp_path)
+    ax = captured["ax"]
+
+    marker_shapes = {line.get_marker() for line in ax.get_lines()}
+    assert "v" not in marker_shapes
+
+
+def test_positioning_improvement_timeseries_ylim_and_ticks_fixed_lower(
+    tmp_path, monkeypatch
+):
+    """The axis bottom is pinned at -150 regardless of how far the data dips, the top
+    stays data-driven, and major ticks land every 50 with plain numeric labels (no "%" -
+    the axis label already carries the unit)."""
+    frame = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-05-01", "2024-05-02"] * 2),
+            "method": ["IGS GIM + Mapping"] * 2 + ["Pretrained Direct STEC"] * 2,
+            "error_3d_rms": [1.0, 1.0, 6.0, 0.5],
+        }
+    )
+    style.configure_plotting()
+
+    captured = _draw_positioning_improvement_and_capture(monkeypatch, frame, tmp_path)
+    ax = captured["ax"]
+
+    assert ax.get_ylim()[0] == mf._POSITIONING_IMPROVEMENT_YLIM_LOWER
+    assert ax.get_ylim()[0] == -150.0
+    locator = ax.yaxis.get_major_locator()
+    assert isinstance(locator, mticker.MultipleLocator)
+    ticks = ax.get_yticks()
+    assert all(tick % 50 == 0 for tick in ticks)
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    assert all("%" not in label for label in labels)
+
+
+def test_positioning_improvement_timeseries_footnote_mentions_clip_only_in_titled(
+    tmp_path, monkeypatch
+):
+    """The working copy's provenance footnote must say values below -150% are clipped
+    (the removed triangle flag is called out by name - "no triangle markers" - so a
+    reader of an old copy of this figure knows the marker is gone by design, not
+    missing by accident); `_save` already strips all footnote text from the `_notitle`
+    copy for every figure, so that half of the requirement is inherited, not re-tested
+    here - this test pins the sentence actually reaching `_save` for the titled copy."""
+    frame = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-05-01", "2024-05-02"] * 2),
+            "method": ["IGS GIM + Mapping"] * 2 + ["Direct STEC"] * 2,
+            "error_3d_rms": [1.0, 1.0, 0.8, 0.9],
+        }
+    )
+    style.configure_plotting()
+
+    captured = _draw_positioning_improvement_and_capture(monkeypatch, frame, tmp_path)
+
+    assert "synthetic" in captured["provenance"]
+    assert "-150" in captured["provenance"]
+    assert "clip" in captured["provenance"].lower()
+
+    # `_save` unconditionally clears all footnote text (`footnote.set_text("")`) before
+    # writing the `_notitle` copy, regardless of which figure calls it - that behaviour
+    # is generic to `_save` and not re-verified per figure here, so this test only needs
+    # to confirm the sentence actually reaches `_save` for the titled copy above, and
+    # that both files get written.
+    target = tmp_path / mf.SOURCE_DIRS["positioning"]
+    assert (target / "pos_improvement_timeseries.png").exists()
+    assert (target / "pos_improvement_timeseries_notitle.png").exists()
+
+
+def test_positioning_improvement_timeseries_legend_placement_and_size(
+    tmp_path, monkeypatch
+):
+    """Owner review, 2026-09-18 (fourth round): the legend moved out of the axes to a
+    single row below them (`loc="upper center"`, negative `bbox_to_anchor` y, `ncol`
+    one per series) - an in-plot legend covered real points in every corner tried (see
+    the function's docstring) - at the normal (rcParams-default) legend font size, not
+    the shrunk-for-in-plot-placement size that only made sense while the legend shared
+    the axes with the data."""
+    frame = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-05-01", "2024-05-02"] * 2),
+            "method": ["IGS GIM + Mapping"] * 2 + ["Direct STEC"] * 2,
+            "error_3d_rms": [1.0, 1.0, 0.8, 0.9],
+        }
+    )
+    style.configure_plotting()
+
+    captured = _draw_positioning_improvement_and_capture(monkeypatch, frame, tmp_path)
+    ax = captured["ax"]
+
+    legend = ax.get_legend()
+    assert legend is not None
+    assert legend._get_loc() == mlegend.Legend.codes["upper center"]
+    # `_bbox_to_anchor._bbox` holds the raw (x, y) passed to `bbox_to_anchor`, in axes
+    # fraction coordinates, before the transform chain that resolves it to a pixel
+    # position at draw time - this is what to compare against, not a resolved position.
+    assert legend._bbox_to_anchor._bbox.x0 == pytest.approx(0.5)
+    assert legend._bbox_to_anchor._bbox.y0 == pytest.approx(
+        mf._POSITIONING_IMPROVEMENT_LEGEND_BBOX_Y
+    )
+    assert legend._ncols == 1  # single series ("Direct STEC") in this synthetic frame
+    assert legend.get_texts()[0].get_fontsize() == pytest.approx(
+        plt.rcParams["legend.fontsize"]
+    )
+
+
+def test_fig_positioning_improvement_timeseries_matches_figure_12_style(
+    tmp_path, monkeypatch
+):
+    """Owner review, 2026-09-17: markers reuse Figure 12's own size/linewidth constants,
+    the y-label is exactly "Improvement over GIM [%]", and the date axis matches
+    Figure 12. Legend placement itself (below the axes, as of the 2026-09-18 fourth
+    round) is pinned by
+    `test_positioning_improvement_timeseries_legend_placement_and_size` instead of
+    here."""
+    captured_axes = []
+    original_subplots = mf.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        fig, ax = original_subplots(*args, **kwargs)
+        captured_axes.append(ax)
+        return fig, ax
+
+    monkeypatch.setattr(mf.plt, "subplots", spy_subplots)
+    style.configure_plotting()
+    frame = _synthetic_positioning_frame()
+    frame["method"] = frame["method"].map(mf._POSITIONING_METHOD_MAP)
+    frame = frame.dropna(subset=["method"])
+    frame["date"] = pd.to_datetime(frame["date"])
+
+    mf.fig_positioning_improvement_timeseries(frame, tmp_path, "synthetic")
+
+    ax = captured_axes[0]
+    assert ax.get_ylabel() == "Improvement over GIM [%]"
+    assert isinstance(ax.xaxis.get_major_locator(), mdates.MonthLocator)
+    assert ax.xaxis.get_major_formatter().fmt == "%Y-%m"
+    method_lines = [
+        line for line in ax.get_lines() if line.get_label() in mf.APPROACH_COLORS
+    ]
+    assert method_lines
+    assert not any(line.get_label().startswith("Imp. by") for line in ax.get_lines())
+    for line in method_lines:
+        assert line.get_marker() == "o"
+        assert line.get_markersize() == pytest.approx(mf._POSITIONING_TREND_MARKERSIZE)
+        assert line.get_linewidth() == pytest.approx(mf._POSITIONING_TREND_LINEWIDTH)
+    legend = ax.get_legend()
+    assert legend is not None
+    assert legend.get_frame_on()
+
+
 def test_positioning_figures_are_drawn_at_the_pinned_geometry_not_figsize_wide(
     tmp_path, monkeypatch
 ):
@@ -770,6 +1320,125 @@ def test_fig_improvement_by_date_is_drawn_at_the_pinned_geometry(tmp_path, monke
     mf.fig_improvement_by_date(daily, "RMSE", tmp_path, "synthetic")
 
     assert seen_figsizes == [style.FIGSIZE_DAILY_IMPROVEMENT]
+
+
+# --------------------------------------------------------------------------
+# Figure 13, second version - approaches + the observation-derived oracle floor
+# --------------------------------------------------------------------------
+
+
+def test_fig_boxplot_3d_error_with_oracle_places_oracle_first_in_neutral_color(
+    tmp_path, monkeypatch
+):
+    """Five boxes, oracle leftmost in `style.ORACLE_COLOR` (not an approach hue), the
+    rest in their usual approach colours and order."""
+    captured_axes = []
+    original_subplots = pdist_viz.plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        fig, ax = original_subplots(*args, **kwargs)
+        captured_axes.append(ax)
+        return fig, ax
+
+    monkeypatch.setattr(pdist_viz.plt, "subplots", spy_subplots)
+    style.configure_plotting()
+
+    rng = np.random.default_rng(0)
+    methods = [
+        pdist_viz.ORACLE_LABEL,
+        "Direct STEC",
+        "Pretrained Direct STEC",
+        "VTEC + Mapping",
+        "IGS GIM + Mapping",
+    ]
+    frame = pd.DataFrame(
+        {
+            "Method": np.repeat(methods, 30),
+            "error_3d_rms": rng.uniform(0.1, 5.0, 30 * len(methods)),
+        }
+    )
+
+    pdist_viz.fig_boxplot_3d_error_with_oracle(frame, tmp_path, "synthetic", 30)
+
+    target = tmp_path / pdist_viz.SOURCE_DIRS["positioning"]
+    assert (target / "boxplot_3d_error_with_oracle.png").exists()
+    assert (target / "boxplot_3d_error_with_oracle_notitle.png").exists()
+    plotted = pd.read_csv(target / "boxplot_3d_error_with_oracle.csv")
+    assert set(plotted["Method"]) == set(methods)
+
+    ax = captured_axes[0]
+    labels = [t.get_text() for t in ax.get_xticklabels()]
+    # Owner review, 2026-09-17: the oracle tick label is two lines ("Reference STEC" /
+    # "(oracle)") so it stops nearly touching "Pretrained Direct STEC" - Figure 13
+    # itself never carries this method, so its own single-line labels are unaffected.
+    expected_labels = [
+        "Reference STEC\n(oracle)" if m == pdist_viz.ORACLE_LABEL else m
+        for m in methods
+    ]
+    assert labels == expected_labels
+    boxes = ax.patches
+    assert mcolors.to_rgb(boxes[0].get_facecolor()[:3]) == mcolors.to_rgb(
+        style.ORACLE_COLOR
+    )
+    assert mcolors.to_rgb(boxes[1].get_facecolor()[:3]) == mcolors.to_rgb(
+        style.APPROACH_COLORS["Direct STEC"]
+    )
+
+
+def _write_synthetic_oracle_benchmark_and_coverage(results_dir) -> None:
+    """`oracle_benchmark`'s paired population (4 methods, elevation weighting) plus
+    `positioning_coverage`'s all-weightings table the builder pulls the
+    `Pretrained_STEC_elev` arm from. BBBB/123 is deliberately absent from the coverage
+    table - the Pretrained arm need not cover every oracle_benchmark station-day, and the
+    builder must drop that row rather than crash or plot a partial box."""
+    oracle_dir = mf.analysis_dir(results_dir, "oracle_benchmark")
+    oracle_dir.mkdir(parents=True)
+    paired = pd.DataFrame(
+        {
+            "station": ["AAAA", "AAAA", "BBBB", "BBBB"],
+            "doy": [122, 123, 122, 123],
+            "Reference STEC (oracle)": [0.10, 0.20, 0.15, 0.25],
+            "Direct STEC": [1.0, 1.1, 1.2, 1.3],
+            "VTEC + Mapping": [1.5, 1.6, 1.7, 1.8],
+            "IGS GIM + Mapping": [1.3, 1.4, 1.5, 1.6],
+        }
+    )
+    paired.to_csv(oracle_dir / "paired_station_days.csv", index=False)
+
+    coverage_dir = mf.analysis_dir(results_dir, "positioning_coverage")
+    coverage_dir.mkdir(parents=True)
+    all_weightings = pd.DataFrame(
+        {
+            "station": ["AAAA", "AAAA", "BBBB", "CCCC"],
+            "method": ["Pretrained_STEC_elev"] * 4,
+            "doy": [122, 123, 122, 999],
+            "error_3d_rms": [2.0, 2.1, 2.2, 9.9],
+        }
+    )
+    all_weightings.to_csv(
+        coverage_dir / "multiday_summary_all_weightings.csv", index=False
+    )
+
+
+def test_build_positioning_oracle_figure_drops_station_days_missing_the_pretrained_arm(
+    tmp_path, caplog
+):
+    results_dir = tmp_path / "results"
+    _write_synthetic_oracle_benchmark_and_coverage(results_dir)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    with caplog.at_level(logging.WARNING):
+        mf._build_positioning_oracle_figure(args, output_dir)
+
+    target = output_dir / mf.SOURCE_DIRS["positioning"]
+    assert (target / "boxplot_3d_error_with_oracle.png").exists()
+    plotted = pd.read_csv(target / "boxplot_3d_error_with_oracle.csv")
+    # BBBB/123 has no Pretrained_STEC_elev row, so 3 of the 4 paired station-days survive.
+    n_rows = plotted[plotted["stat"] == "n"]
+    assert (n_rows["value"] == 3).all()
+    assert "1 of 4" in caplog.text
 
 
 # --------------------------------------------------------------------------
