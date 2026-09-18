@@ -224,6 +224,21 @@ def per_station_error(
     )
 
 
+def assign_distance_bin(distance_km: pd.Series) -> pd.Series:
+    """Bin distance-to-nearest-training-station into `DISTANCE_LABELS`.
+
+    `include_lowest=True`: pd.cut's intervals are left-open by default, so a
+    distance of exactly 0.0 km (a training station at identical coordinates -
+    true for WTZZ, ZIMM, WUH2) fell outside every bin and came back NaN.
+    """
+    return pd.cut(
+        distance_km,
+        bins=DISTANCE_BINS_KM,
+        labels=DISTANCE_LABELS,
+        include_lowest=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store-root", type=Path, default=DEFAULT_STORE_ROOT)
@@ -265,9 +280,7 @@ def main() -> None:
     merged = distances.join(errors, how="inner").dropna(subset=["RMSE"])
     logger.info(f"{len(merged)} test stations with both coordinates and predictions")
 
-    merged["distance_bin"] = pd.cut(
-        merged["distance_km"], bins=DISTANCE_BINS_KM, labels=DISTANCE_LABELS
-    )
+    merged["distance_bin"] = assign_distance_bin(merged["distance_km"])
     # Normalised error too: a far-flung station is often also a high-TEC one, so
     # the raw RMSE would confound distance with ionospheric amplitude.
     merged["nRMSE_%"] = 100 * merged["RMSE"] / merged["mean_true_stec"]

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from unittest import mock
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -715,3 +716,338 @@ def test_uncertainty_vs_error_figure_reads_the_current_by_uncertainty_filename(
         "RMSE",
         "rmse_over_mean_pred_unc",
     ]
+
+
+# --------------------------------------------------------------------------
+# R2.3 - station_independence: two panels (RMSE, nRMSE), zero-km stations at 1 m,
+# shared y-limits between the fine-tuned and pretrained figures
+# --------------------------------------------------------------------------
+
+
+def _station_independence_frames(rmse_values, nrmse_values, distance_values):
+    """Three synthetic test stations, one of them co-located with a training station
+    (0 km) - the case that used to fall off the log x-axis entirely."""
+    per_station = pd.DataFrame(
+        {
+            "station": ["AAAA", "BBBB", "CCCC"],
+            "distance_km": distance_values,
+            "RMSE": rmse_values,
+            "nRMSE_%": nrmse_values,
+        }
+    ).set_index("station")
+    binned = pd.DataFrame(
+        {
+            "distance_bin": ["<100", ">1000"],
+            "median_distance_km": [distance_values[1], distance_values[2]],
+            "RMSE": [rmse_values[1], rmse_values[2]],
+            "nRMSE_pct": [nrmse_values[1], nrmse_values[2]],
+        }
+    )
+    return per_station, binned
+
+
+def test_fig_station_independence_shares_y_limits_and_draws_zero_km_at_one_metre(
+    monkeypatch,
+):
+    """Pins three things the owner asked for directly against the drawn Axes (the CSV
+    `_save` writes cannot show y-limits or legend text):
+
+    1. a station at exactly 0 km is drawn at `ZERO_DISTANCE_PLOT_KM` (1 m), not
+       dropped off the left edge of the log axis, and every station is still present;
+    2. the two models' figures are handed the same `y_limits`, so their panels end up
+       on identical axes and can be compared directly;
+    3. the bin line is labelled by how by_distance_bin.csv actually aggregates
+       (mean of the per-station RMSE/nRMSE values already in that bin), not "pooled".
+    """
+    per_station_a, binned_a = _station_independence_frames(
+        rmse_values=[3.0, 5.0, 9.0],
+        nrmse_values=[10.0, 15.0, 25.0],
+        distance_values=[0.0, 50.0, 900.0],
+    )
+    per_station_b, binned_b = _station_independence_frames(
+        # Deliberately larger than model A, so the shared limit must stretch to fit
+        # model B's data rather than each figure autoscaling to its own.
+        rmse_values=[8.0, 20.0, 30.0],
+        nrmse_values=[20.0, 40.0, 60.0],
+        distance_values=[0.0, 10.0, 2000.0],
+    )
+    y_limits = {
+        "RMSE": (0.0, 30.0 * 1.08),
+        "nRMSE_%": (0.0, 60.0 * 1.08),
+    }
+
+    captured: dict[str, dict] = {}
+
+    def spy_save(fig, name, source, output_dir, provenance, data=None):
+        captured[name] = {
+            "rmse_ylim": fig.axes[0].get_ylim(),
+            "nrmse_ylim": fig.axes[1].get_ylim(),
+            "rmse_offsets": fig.axes[0].collections[0].get_offsets(),
+            "rmse_legend": fig.axes[0].get_legend().get_texts()[0].get_text(),
+            "nrmse_legend": fig.axes[1].get_legend().get_texts()[0].get_text(),
+        }
+        plt.close(fig)
+
+    monkeypatch.setattr(rf, "_save", spy_save)
+    style.configure_plotting()
+
+    rf.fig_station_independence(
+        per_station_a,
+        binned_a,
+        Path("unused"),
+        "prov-a",
+        name="a",
+        source="stec_finetuned",
+        title="model a",
+        y_limits=y_limits,
+    )
+    rf.fig_station_independence(
+        per_station_b,
+        binned_b,
+        Path("unused"),
+        "prov-b",
+        name="b",
+        source="pretrained",
+        title="model b",
+        y_limits=y_limits,
+    )
+
+    assert captured["a"]["rmse_ylim"] == captured["b"]["rmse_ylim"]
+    assert captured["a"]["nrmse_ylim"] == captured["b"]["nrmse_ylim"]
+
+    offsets = captured["a"]["rmse_offsets"]
+    assert len(offsets) == 3  # all three stations visible, including the 0 km one
+    assert min(offsets[:, 0]) == pytest.approx(rf.ZERO_DISTANCE_PLOT_KM)
+
+    assert captured["a"]["rmse_legend"] == "Distance-bin RMSE (mean of stations)"
+    assert captured["a"]["nrmse_legend"] == "Distance-bin nRMSE (mean of stations)"
+    assert "pooled" not in captured["a"]["rmse_legend"]
+
+
+def test_build_station_independence_figure_writes_both_models_separately(tmp_path):
+    """End-to-end: two independent analysis directories (finetuned, pretrained) each
+    produce their own two-panel figure at the paths CLAUDE.md/the task specify, and the
+    plotted CSV keeps the 1 m substitution separate from the real `distance_km` column
+    (only where a point is drawn moves, not the underlying data)."""
+    results_dir = tmp_path / "results"
+    finetuned_per_station, finetuned_binned = _station_independence_frames(
+        rmse_values=[2.0, 4.0, 6.0],
+        nrmse_values=[5.0, 8.0, 12.0],
+        distance_values=[0.0, 40.0, 800.0],
+    )
+    pretrained_per_station, pretrained_binned = _station_independence_frames(
+        rmse_values=[10.0, 12.0, 15.0],
+        nrmse_values=[20.0, 24.0, 30.0],
+        distance_values=[0.0, 40.0, 800.0],
+    )
+    for analysis_name, per_station, binned in (
+        ("station_independence", finetuned_per_station, finetuned_binned),
+        ("station_independence_pretrained", pretrained_per_station, pretrained_binned),
+    ):
+        d = rf.analysis_dir(results_dir, analysis_name)
+        d.mkdir(parents=True)
+        per_station.reset_index().to_csv(d / "per_station.csv", index=False)
+        binned.to_csv(d / "by_distance_bin.csv", index=False)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+    rf._build_station_independence_figure(args, output_dir)
+
+    finetuned_target = output_dir / rf.SOURCE_DIRS["stec_finetuned"]
+    pretrained_target = output_dir / rf.SOURCE_DIRS["pretrained"]
+    assert (finetuned_target / "station_independence.png").exists()
+    assert (finetuned_target / "station_independence_notitle.png").exists()
+    assert (pretrained_target / "station_independence_pretrained_2024.png").exists()
+    assert (
+        pretrained_target / "station_independence_pretrained_2024_notitle.png"
+    ).exists()
+
+    plotted = pd.read_csv(finetuned_target / "station_independence.csv")
+    station_rows = plotted[plotted["series"] == "station"]
+    assert len(station_rows) == 3  # none of the 3 input stations were dropped
+    zero_km_row = station_rows[station_rows["station"] == "AAAA"].iloc[0]
+    assert zero_km_row["distance_km"] == 0.0  # real distance untouched
+    assert zero_km_row["plot_distance_km"] == pytest.approx(rf.ZERO_DISTANCE_PLOT_KM)
+
+
+# --------------------------------------------------------------------------
+# R2.3 - station_distance_rmse / station_distance_nrmse: both models overlaid on
+# one raw-point distance axis, no bin means or trend lines
+# --------------------------------------------------------------------------
+
+
+def _write_station_distance_csvs(results_dir: Path) -> None:
+    """58 + 58 synthetic per-station rows for the two `station_independence*`
+    analyses, one station per model co-located with a training station (0 km) -
+    the case that must plot at `ZERO_DISTANCE_PLOT_KM`, not fall off the axis."""
+    rng = np.random.default_rng(3)
+    stations = [f"S{i:03d}" for i in range(58)]
+    distance_km = np.concatenate([[0.0], rng.uniform(1.0, 1500.0, 57)])
+    for analysis_name, rmse_scale in (
+        ("station_independence", 1.0),
+        ("station_independence_pretrained", 2.0),
+    ):
+        d = rf.analysis_dir(results_dir, analysis_name)
+        d.mkdir(parents=True)
+        rmse = rmse_scale * rng.uniform(2.0, 10.0, 58)
+        pd.DataFrame(
+            {
+                "station": stations,
+                "distance_km": distance_km,
+                "RMSE": rmse,
+                "nRMSE_%": rmse * 2.5,
+            }
+        ).to_csv(d / "per_station.csv", index=False)
+
+
+def test_station_distance_figures_overlay_both_models_with_58_points_each(tmp_path):
+    """End-to-end CSV -> PNG for both figures: 58 + 58 points, the co-located
+    station drawn at `ZERO_DISTANCE_PLOT_KM`, its `"0"` tick label present on the
+    x-axis, and no `Line2D` in the plot - a bin-mean or trend line would show up as
+    one, unlike the `PathCollection` scatter series this figure is limited to."""
+    results_dir = tmp_path / "results"
+    _write_station_distance_csvs(results_dir)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+
+    captured: dict[str, object] = {}
+    original_save = rf._save
+
+    def spy_save(fig, name, source, out_dir, provenance, data=None):
+        captured[name] = {
+            "fig": fig,
+            "provenance": provenance,
+            "xlim": fig.axes[0].get_xlim(),
+        }
+        return original_save(fig, name, source, out_dir, provenance, data)
+
+    monkeypatch_targets = ("station_distance_rmse", "station_distance_nrmse")
+
+    with mock.patch.object(rf, "_save", side_effect=spy_save):
+        rf._build_station_distance_figures(args, output_dir)
+
+    assert set(monkeypatch_targets) <= captured.keys()
+
+    target = output_dir / rf.SOURCE_DIRS["stec_finetuned"]
+    for name in monkeypatch_targets:
+        assert (target / f"{name}.png").stat().st_size > 0
+        assert (target / f"{name}_notitle.png").stat().st_size > 0
+
+        plotted = pd.read_csv(target / f"{name}.csv")
+        assert len(plotted) == 116  # 58 stations x 2 models
+        assert set(plotted["model"]) == {"Direct STEC", "Pretrained Direct STEC"}
+        zero_rows = plotted[plotted["distance_km"] == 0.0]
+        assert len(zero_rows) == 2  # one per model
+        assert (zero_rows["plot_distance_km"] == rf.ZERO_DISTANCE_PLOT_KM).all()
+
+        prov = captured[name]["provenance"]
+        for phrase in (
+            "both models",
+            "own test set",
+            "2024 DOY 122-366",
+            "58 test stations",
+            "per-station RMSE pooled over all observations",
+            "Co-located stations are drawn at 0 km on a log axis",
+        ):
+            assert phrase in prov
+
+        ax = captured[name]["fig"].axes[0]
+        assert [t.get_text() for t in ax.get_xticklabels()] == [
+            "0",
+            "0.1",
+            "1",
+            "10",
+            "100",
+            "1000",
+        ]
+        # Raw points only: a bin mean or fitted/trend line would add a Line2D to the
+        # axes, on top of the two scatter PathCollections.
+        assert len(ax.lines) == 0
+        assert len(ax.collections) == 2
+        plt.close(captured[name]["fig"])
+
+    # Same x-limits in both figures - the owner's spec, and the reason xlim is
+    # computed once in _build_station_distance_figures and threaded through both
+    # fig_station_distance_* calls rather than each autoscaling independently.
+    assert captured["station_distance_rmse"]["xlim"] == pytest.approx(
+        captured["station_distance_nrmse"]["xlim"]
+    )
+
+
+def test_station_distance_rmse_linear_uses_real_unclipped_distances(tmp_path):
+    """The linear companion to `station_distance_rmse`: same 58 + 58 points, but on a
+    linear x-axis where the co-located station plots at its real 0 km rather than the
+    log axis's `ZERO_DISTANCE_PLOT_KM` (1 m) stand-in, and with no bin-mean or trend
+    line - raw points only, same as the log figure."""
+    results_dir = tmp_path / "results"
+    _write_station_distance_csvs(results_dir)
+
+    output_dir = tmp_path / "plots"
+    args = argparse.Namespace(results_dir=results_dir, output_dir=output_dir)
+    style.configure_plotting()
+
+    captured: dict[str, object] = {}
+    original_save = rf._save
+
+    def spy_save(fig, name, source, out_dir, provenance, data=None):
+        captured[name] = {"fig": fig, "provenance": provenance}
+        return original_save(fig, name, source, out_dir, provenance, data)
+
+    with mock.patch.object(rf, "_save", side_effect=spy_save):
+        rf._build_station_distance_figures(args, output_dir)
+
+    name = "station_distance_rmse_linear"
+    assert name in captured
+
+    target = output_dir / rf.SOURCE_DIRS["stec_finetuned"]
+    assert (target / f"{name}.png").stat().st_size > 0
+    assert (target / f"{name}_notitle.png").stat().st_size > 0
+
+    plotted = pd.read_csv(target / f"{name}.csv")
+    assert len(plotted) == 116  # 58 stations x 2 models
+    assert set(plotted["model"]) == {"Direct STEC", "Pretrained Direct STEC"}
+    zero_rows = plotted[plotted["distance_km"] == 0.0]
+    assert len(zero_rows) == 2  # one per model
+    # Unclipped: the linear plot draws the real 0 km, not the log axis's 1 m stand-in.
+    assert (zero_rows["plot_distance_km"] == 0.0).all()
+
+    prov = captured[name]["provenance"]
+    for phrase in (
+        "both models",
+        "own test set",
+        "2024 DOY 122-366",
+        "58 test stations",
+        "per-station RMSE pooled over all observations",
+        "Co-located stations sit at their true 0 km on a linear axis",
+    ):
+        assert phrase in prov
+
+    ax = captured[name]["fig"].axes[0]
+    assert ax.get_xscale() == "linear"
+    xlim = ax.get_xlim()
+    # A small negative left margin (2% of the range) so the 0 km points aren't sliced
+    # in half by the y-axis spine, while the "0" tick label is still the first tick.
+    assert xlim[0] < 0.0
+    assert xlim[0] == pytest.approx(-0.02 * xlim[1])
+    assert xlim[1] > 1500  # a little beyond the ~1500 km max synthetic distance
+
+    xticks = ax.get_xticks()
+    assert xticks[0] == 0.0
+    assert np.allclose(np.diff(xticks), rf._STATION_DISTANCE_LINEAR_TICK_STEP_KM)
+
+    # The linear version's legend moves to the upper right (the log/default figures
+    # keep upper left) - real data has a high-RMSE, near-zero-distance point the
+    # default corner would sit on top of; upper right is empty at high distance.
+    fig = captured[name]["fig"]
+    fig.canvas.draw()
+    legend_bbox = ax.get_legend().get_window_extent()
+    axes_bbox = ax.get_window_extent()
+    assert legend_bbox.x0 > axes_bbox.x0 + 0.5 * axes_bbox.width
+
+    # Raw points only, same as the log figure: no bin-mean or fitted/trend Line2D.
+    assert len(ax.lines) == 0
+    assert len(ax.collections) == 2
+    plt.close(fig)

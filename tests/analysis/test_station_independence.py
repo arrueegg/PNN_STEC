@@ -10,6 +10,7 @@ format, not an in-memory shortcut.
 from __future__ import annotations
 
 import re
+import sys
 
 import numpy as np
 import pandas as pd
@@ -96,6 +97,67 @@ def test_per_station_error_does_not_silently_pool_years(tmp_path):
     assert only_2024.loc["AAAA", "RMSE"] == pytest.approx(8.0, rel=1e-5)
 
 
+def test_main_runs_against_a_different_model_variant_and_year_filter(
+    tmp_path, monkeypatch
+):
+    """`station_independence_pretrained` (stec/pipeline/stages.py) is `main()` invoked
+    with `--model-variant pretrained_stec --years 2024` and its own `--output-dir` -
+    nothing else about the CLI changes. This pins that exact invocation end-to-end,
+    including that a second year present in the store (which would corrupt the result
+    if pooled in, see the silent-pooling test above) is excluded by `--years`."""
+    network_csv = tmp_path / "IGSNetwork.csv"
+    network_csv.write_text(
+        "StationName,Latitude,Longitude\n"
+        "AAAA00XXX,10.0,10.0\n"
+        "BBBB00XXX,20.0,20.0\n"
+        "TRAN00XXX,10.1,10.1\n"
+    )
+    split_dir = tmp_path / "splits"
+    split_dir.mkdir()
+    (split_dir / "train_station.list").write_text("TRAN\n")
+    (split_dir / "test_station.list").write_text("AAAA\nBBBB\n")
+
+    store_root = tmp_path / "store"
+    frame_2024 = day_frame(200, {"AAAA": 2.0, "BBBB": 5.0}, seed=7)
+    # A different year with wildly different errors - if --years were ignored (or not
+    # passed through to per_station_error) this would either raise (the multi-year
+    # guard) or, worse, silently change the reported RMSE.
+    frame_2020 = day_frame(200, {"AAAA": 50.0, "BBBB": 50.0}, seed=9)
+    ps.write_predictions(
+        frame_2024, "pretrained_stec", "own", 2024, 132, root=store_root
+    )
+    ps.write_predictions(
+        frame_2020, "pretrained_stec", "own", 2020, 132, root=store_root
+    )
+
+    output_dir = tmp_path / "output"
+    argv = [
+        "station_independence",
+        "--store-root",
+        str(store_root),
+        "--model-variant",
+        "pretrained_stec",
+        "--years",
+        "2024",
+        "--split-dir",
+        str(split_dir),
+        "--network-csv",
+        str(network_csv),
+        "--output-dir",
+        str(output_dir),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    si.main()
+
+    per_station = pd.read_csv(output_dir / "per_station.csv", index_col="station")
+    assert set(per_station.index) == {"AAAA", "BBBB"}
+    assert per_station.loc["AAAA", "RMSE"] == pytest.approx(2.0, rel=1e-5)
+    assert per_station.loc["BBBB", "RMSE"] == pytest.approx(5.0, rel=1e-5)
+    assert per_station.loc["AAAA", "observations"] == 100
+    assert (output_dir / "by_distance_bin.csv").exists()
+
+
 def test_per_station_error_returns_empty_frame_when_store_is_absent(tmp_path):
     """No store on disk must not raise - main() joins this against the distance
     table with `how="inner"`, so an empty frame is the correct, quiet result."""
@@ -151,6 +213,39 @@ def test_nearest_training_distance_uses_great_circle(tmp_path):
 
     assert distances.loc["TEST", "nearest_train_station"] == "NEAR"
     assert distances.loc["TEST", "distance_km"] == pytest.approx(157.2, abs=5.0)
+
+
+def test_assign_distance_bin_includes_zero_distance_in_first_bin():
+    """pd.cut's intervals are left-open by default, so a distance of exactly 0.0 km
+    (a training station at identical coordinates - true for WTZZ, ZIMM, WUH2) falls
+    outside every bin and comes back NaN. `include_lowest=True` closes the left edge
+    of the first bin so 0.0 lands in "<100" like any other short distance."""
+    distances = pd.Series([0.0, 50.0, 300.0, 5000.0], index=["ZERO", "B", "C", "D"])
+
+    bins = si.assign_distance_bin(distances)
+
+    assert bins.loc["ZERO"] == "<100"
+    assert not bins.isna().any()
+
+
+def test_distance_bin_table_station_counts_sum_to_all_stations():
+    """The bug's visible symptom: `by_distance_bin.csv`'s `stations` column summed to
+    55 against `per_station.csv`'s 58 rows, because the groupby silently drops NaN
+    bins. Once every station gets a real bin label, the aggregated counts must sum
+    back to the number of stations that went in."""
+    merged = pd.DataFrame(
+        {
+            "distance_km": [0.0, 50.0, 300.0, 5000.0],
+            "RMSE": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    merged["distance_bin"] = si.assign_distance_bin(merged["distance_km"])
+
+    binned = merged.groupby("distance_bin", observed=True).agg(
+        stations=("RMSE", "size")
+    )
+
+    assert binned["stations"].sum() == len(merged)
 
 
 def test_spearman_correlation_matches_hand_computed_value():

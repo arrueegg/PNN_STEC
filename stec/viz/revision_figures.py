@@ -21,7 +21,8 @@ Reviewer mapping
   R1.3  madrigal_reference_offset, reference_precision, dstec_absolute_comparison,
         dstec_win_rate
   R1.6  calibration_coverage, calibration_pit, ionex_rms_*
-  R2.3  station_independence
+  R2.3  station_independence, station_distance_rmse, station_distance_rmse_linear,
+        station_distance_nrmse
   R2.6  uncertainty_vs_error
 
 Style
@@ -80,6 +81,7 @@ from .style import (
     CODE_GIM_COLOR,
     CONDITION_COLORS,
     DATASET_COLORS,
+    FIGSIZE_DOUBLE_WIDE,
     FIGSIZE_WIDE,
     METHOD_ORDER,
     ORACLE_COLOR,
@@ -320,7 +322,7 @@ def fig_storm_positioning_absolute(
         ["quiet", "storm"],
         {"quiet": d["quiet_median"].values, "storm": d["storm_median"].values},
         [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
-        "Median 3D RMS positioning error [m]",
+        "Median 3D positioning RMSE [m]",
     )
     ax.legend(title="Geomagnetic conditions")
     ax.set_title("Positioning error by geomagnetic regime")
@@ -407,7 +409,7 @@ def fig_weighting_ablation(d: pd.DataFrame, output_dir: Path, provenance: str) -
             "Predicted-uncertainty weighting": d["iono_mean"].values,
         },
         [CONDITION_COLORS["baseline"], CONDITION_COLORS["contrast"]],
-        "3D RMS positioning error [m]",
+        "3D positioning RMSE [m]",
     )
     ax.legend(loc="upper left")
     ax.set_title("Observation weighting scheme")
@@ -451,7 +453,7 @@ def fig_oracle_benchmark(d: pd.DataFrame, output_dir: Path, provenance: str) -> 
     ax.set_xticklabels(
         [m.replace(" (oracle)", "\n(oracle)").replace(" + ", "\n+ ") for m in d.index]
     )
-    ax.set_ylabel("3D RMS positioning error [m]")
+    ax.set_ylabel("3D positioning RMSE [m]")
     ax.grid(True, axis="y", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     ax.set_title("Positioning against the observation-derived bound")
@@ -1591,75 +1593,421 @@ def _build_calibration_figures(args: argparse.Namespace, output_dir: Path) -> No
 # --------------------------------------------------------------------------
 
 
+# A distance of exactly 0 km (a training station at identical coordinates - WTZZ, ZIMM,
+# WUH2) cannot be placed on a log axis, which previously just dropped those points -
+# only 55 of 58 stations were visible while the footnote still said 58. The owner's
+# decision: draw them at 1 m instead of 0, close enough to the axis origin to read as
+# "co-located" without needing a broken axis or a second linear inset.
+ZERO_DISTANCE_PLOT_KM = 0.001
+
+# station_independence.py's by_distance_bin.csv aggregates with `.agg(RMSE=("RMSE",
+# "mean"), nRMSE_pct=("nRMSE_%", "mean"))` over the per-station rows already in that
+# bin - the mean of each station's own RMSE/nRMSE, not a value pooled over every
+# observation in the bin. The line label says so, rather than "pooled".
+_BIN_LINE_LABELS = {
+    "RMSE": "Distance-bin RMSE (mean of stations)",
+    "nRMSE_%": "Distance-bin nRMSE (mean of stations)",
+}
+
+
 def fig_station_independence(
-    per_station: pd.DataFrame, binned: pd.DataFrame, output_dir: Path, provenance: str
+    per_station: pd.DataFrame,
+    binned: pd.DataFrame,
+    output_dir: Path,
+    provenance: str,
+    *,
+    name: str,
+    source: str,
+    title: str,
+    y_limits: dict[str, tuple[float, float]] | None = None,
 ) -> None:
-    """Does error grow with distance from the nearest training station?"""
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    ax.scatter(
-        per_station["distance_km"],
-        per_station["nRMSE_%"],
-        s=70,
-        color=CONDITION_COLORS["baseline"],
-        alpha=0.65,
-        edgecolors="white",
-        linewidths=0.6,
-        zorder=3,
-    )
-    ax.plot(
-        binned["median_distance_km"],
-        binned["nRMSE_pct"],
-        marker="o",
-        markersize=11,
-        linewidth=2.5,
-        color=CONDITION_COLORS["contrast"],
-        zorder=4,
-        label="Distance-bin mean",
-    )
-    ax.set_xscale("log")
-    ax.set_xlabel("Distance to nearest training station [km]")
-    ax.set_ylabel("Normalised RMSE [%]")
-    ax.grid(True, linestyle="--", alpha=0.3)
-    ax.set_axisbelow(True)
-    ax.legend()
-    ax.set_title("Test-station error against separation from the training network")
-    _save(
-        fig,
-        "station_independence",
-        "stec_finetuned",
-        output_dir,
-        provenance,
-        pd.concat(
-            [
-                per_station.reset_index()[["station", "distance_km", "nRMSE_%"]].assign(
-                    series="station"
-                ),
-                binned.rename(
-                    columns={
-                        "median_distance_km": "distance_km",
-                        "nRMSE_pct": "nRMSE_%",
-                    }
-                )[["distance_km", "nRMSE_%"]].assign(series="distance-bin mean"),
-            ],
-            ignore_index=True,
+    """Does error grow with distance from the nearest training station?
+
+    Two panels, absolute RMSE and TEC-normalised RMSE, so a reader sees both the raw
+    error and whether it tracks distance once ionospheric amplitude is divided out -
+    same reasoning as the raw-vs-normalised split everywhere else in this module.
+    """
+    station_distance_km = per_station["distance_km"].clip(lower=ZERO_DISTANCE_PLOT_KM)
+    bin_distance_km = binned["median_distance_km"].clip(lower=ZERO_DISTANCE_PLOT_KM)
+
+    fig, (ax_rmse, ax_nrmse) = plt.subplots(1, 2, figsize=FIGSIZE_DOUBLE_WIDE)
+    panels = (
+        (ax_rmse, "RMSE", per_station["RMSE"], binned["RMSE"], "RMSE [TECU]"),
+        (
+            ax_nrmse,
+            "nRMSE_%",
+            per_station["nRMSE_%"],
+            binned["nRMSE_pct"],
+            "Normalised RMSE [%]",
         ),
     )
+    for ax, key, station_values, bin_values, ylabel in panels:
+        ax.scatter(
+            station_distance_km,
+            station_values,
+            s=70,
+            color=CONDITION_COLORS["baseline"],
+            alpha=0.65,
+            edgecolors="white",
+            linewidths=0.6,
+            zorder=3,
+        )
+        ax.plot(
+            bin_distance_km,
+            bin_values,
+            marker="o",
+            markersize=11,
+            linewidth=2.5,
+            color=CONDITION_COLORS["contrast"],
+            zorder=4,
+            label=_BIN_LINE_LABELS[key],
+        )
+        ax.set_xscale("log")
+        # Left edge below ZERO_DISTANCE_PLOT_KM so the 1 m points sit inside the axes
+        # rather than on its border.
+        ax.set_xlim(left=ZERO_DISTANCE_PLOT_KM * 0.7)
+        if y_limits is not None:
+            ax.set_ylim(*y_limits[key])
+        ax.set_xlabel("Distance to nearest training station [km]")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, linestyle="--", alpha=0.3)
+        ax.set_axisbelow(True)
+        ax.legend()
+    fig.suptitle(title)
+
+    plotted = pd.concat(
+        [
+            per_station.reset_index()[
+                ["station", "distance_km", "RMSE", "nRMSE_%"]
+            ].assign(plot_distance_km=station_distance_km.to_numpy(), series="station"),
+            binned.rename(
+                columns={
+                    "median_distance_km": "distance_km",
+                    "nRMSE_pct": "nRMSE_%",
+                }
+            )[["distance_km", "RMSE", "nRMSE_%"]].assign(
+                plot_distance_km=bin_distance_km.to_numpy(), series="distance-bin mean"
+            ),
+        ],
+        ignore_index=True,
+    )
+    _save(fig, name, source, output_dir, provenance, plotted)
+
+
+# (analysis stage name, _save's source-dir key, output PNG base name, population blurb
+# for the provenance footnote, short label for the plot title)
+STATION_INDEPENDENCE_SOURCES = (
+    (
+        "station_independence",
+        "stec_finetuned",
+        "station_independence",
+        "daily fine-tuned models, own test set",
+        "daily fine-tuned model",
+    ),
+    (
+        "station_independence_pretrained",
+        "pretrained",
+        "station_independence_pretrained_2024",
+        "pretrained model, own test set, 2024 only (a fixed random subset of the test "
+        "split, see stec.analysis.pretrained_test_diagnostics)",
+        "pretrained model",
+    ),
+)
 
 
 def _build_station_independence_figure(
     args: argparse.Namespace, output_dir: Path
 ) -> None:
-    station_dir = analysis_dir(args.results_dir, "station_independence")
-    per_station = station_dir / "per_station.csv"
-    binned = station_dir / "by_distance_bin.csv"
-    if not (per_station.exists() and binned.exists()):
-        logger.warning(f"{per_station} not found - run station_independence.py")
+    loaded = []
+    for (
+        analysis_name,
+        source_key,
+        fig_name,
+        population,
+        model_label,
+    ) in STATION_INDEPENDENCE_SOURCES:
+        station_dir = analysis_dir(args.results_dir, analysis_name)
+        per_station_path = station_dir / "per_station.csv"
+        binned_path = station_dir / "by_distance_bin.csv"
+        if not (per_station_path.exists() and binned_path.exists()):
+            logger.warning(f"{per_station_path} not found - run {analysis_name}.py")
+            continue
+        loaded.append(
+            (
+                source_key,
+                fig_name,
+                population,
+                model_label,
+                per_station_path,
+                pd.read_csv(per_station_path),
+                pd.read_csv(binned_path),
+            )
+        )
+
+    if not loaded:
         return
-    d = pd.read_csv(per_station)
-    prov = (
-        f"{per_station} - daily fine-tuned models, own test set, {len(d)} test stations"
+
+    # Shared y-limits per panel across whichever of the two model figures are
+    # available, so the fine-tuned and pretrained panels can be compared directly
+    # rather than each autoscaling to its own data.
+    y_limits = {
+        "RMSE": (0.0, max(entry[5]["RMSE"].max() for entry in loaded) * 1.08),
+        "nRMSE_%": (0.0, max(entry[5]["nRMSE_%"].max() for entry in loaded) * 1.08),
+    }
+
+    for (
+        source_key,
+        fig_name,
+        population,
+        model_label,
+        per_station_path,
+        per_station,
+        binned,
+    ) in loaded:
+        prov = (
+            f"{per_station_path} - {population}, {len(per_station)} test stations. "
+            "Stations co-located with a training station (0 km) are drawn at 1 m."
+        )
+        title = (
+            "Test-station error against separation from the training network "
+            f"({model_label})"
+        )
+        fig_station_independence(
+            per_station,
+            binned,
+            output_dir,
+            prov,
+            name=fig_name,
+            source=source_key,
+            title=title,
+            y_limits=y_limits,
+        )
+
+
+# --------------------------------------------------------------------------
+# R2.3 - both models on one distance axis, raw points only. Companion to
+# fig_station_independence above: that figure adds a distance-bin mean line per
+# model; this pair overlays the two models' *raw* per-station points with no bin
+# means, trend line or fitted curve, for a reviewer-response figure the owner asked
+# to keep to the unprocessed data.
+# --------------------------------------------------------------------------
+
+# Different shapes, not just colours, so the two series still separate in greyscale.
+_STATION_DISTANCE_MARKERS: dict[str, str] = {
+    "Direct STEC": "o",
+    "Pretrained Direct STEC": "D",
+}
+
+# Plain-number tick labels on a log axis, for a non-specialist reader - ZERO_DISTANCE_
+# PLOT_KM (the co-located-station stand-in, see above) reads as "0" rather than "1e-3".
+# 0.001 sits two decades below 0.1, so it already lands with a wide, log-compressed gap
+# before the rest of the axis - no separate gap-widening trick needed.
+_STATION_DISTANCE_XTICKS = [ZERO_DISTANCE_PLOT_KM, 0.1, 1, 10, 100, 1000]
+_STATION_DISTANCE_XTICKLABELS = ["0", "0.1", "1", "10", "100", "1000"]
+
+# Linear companion axis: real distances need no clipping (0 km is already on-axis), so
+# ticks are just an even step from 0 out past the data.
+_STATION_DISTANCE_LINEAR_TICK_STEP_KM = 250
+
+
+def _station_distance_scatter(
+    ax,
+    frames: list[tuple[str, pd.DataFrame]],
+    column: str,
+    xlim: tuple[float, float],
+    ylim: tuple[float, float],
+    *,
+    xscale: str = "log",
+    legend_loc: str = "upper left",
+) -> None:
+    """One raw-point scatter series per model on `ax`, sharing one distance axis.
+
+    `frames` is `[(model_label, per_station_df), ...]`. On the default `xscale="log"`,
+    distance is clipped to `ZERO_DISTANCE_PLOT_KM` the same way `fig_station_independence`
+    clips it, so the three stations co-located with a training station (WTZZ, ZIMM, WUH2)
+    read as "0" instead of falling off the left edge of the log axis. On `xscale="linear"`
+    no clipping is needed - a linear axis already has room for those stations to sit at
+    their true 0 km.
+
+    `legend_loc` defaults to the log version's corner; the linear version passes
+    "upper right" instead, because the near-zero cluster of points there pushes some
+    Pretrained Direct STEC RMSE above 19 TECU, right under the default upper-left spot.
+    """
+    for model_label, per_station in frames:
+        distance = per_station["distance_km"]
+        if xscale == "log":
+            distance = distance.clip(lower=ZERO_DISTANCE_PLOT_KM)
+        ax.scatter(
+            distance,
+            per_station[column],
+            s=120,
+            marker=_STATION_DISTANCE_MARKERS[model_label],
+            color=APPROACH_COLORS[model_label],
+            alpha=0.7,
+            edgecolors="white",
+            linewidths=0.8,
+            label=model_label,
+            zorder=3,
+        )
+    ax.set_xscale(xscale)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    if xscale == "log":
+        ax.set_xticks(_STATION_DISTANCE_XTICKS)
+        ax.set_xticklabels(_STATION_DISTANCE_XTICKLABELS)
+    else:
+        step = _STATION_DISTANCE_LINEAR_TICK_STEP_KM
+        # A tick placed outside the current xlim silently re-expands the axis to fit it
+        # (verified against this matplotlib version), which would push the right edge
+        # past `xlim[1]` and desync it from the left margin computed against that value.
+        # Stopping strictly before `xlim[1]` keeps the axis exactly at the requested xlim.
+        ax.set_xticks(np.arange(0, xlim[1], step))
+    ax.set_xlabel("Distance to nearest training station [km]")
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend(loc=legend_loc)
+
+
+def _station_distance_plotted_csv(
+    frames: list[tuple[str, pd.DataFrame]], column: str, *, xscale: str = "log"
+) -> pd.DataFrame:
+    return pd.concat(
+        [
+            per_station[["station", "distance_km", column]].assign(
+                model=model_label,
+                plot_distance_km=(
+                    per_station["distance_km"].clip(lower=ZERO_DISTANCE_PLOT_KM)
+                    if xscale == "log"
+                    else per_station["distance_km"]
+                ).to_numpy(),
+            )
+            for model_label, per_station in frames
+        ],
+        ignore_index=True,
     )
-    fig_station_independence(d, pd.read_csv(binned), output_dir, prov)
+
+
+def fig_station_distance_rmse(
+    frames: list[tuple[str, pd.DataFrame]],
+    output_dir: Path,
+    provenance: str,
+    xlim: tuple[float, float],
+) -> None:
+    ymax = max(per_station["RMSE"].max() for _, per_station in frames)
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    _station_distance_scatter(ax, frames, "RMSE", xlim, (0.0, ymax * 1.08))
+    ax.set_ylabel("RMSE [TECU]")
+    ax.set_title("STEC error against separation from the training network")
+    _save(
+        fig,
+        "station_distance_rmse",
+        "stec_finetuned",
+        output_dir,
+        provenance,
+        _station_distance_plotted_csv(frames, "RMSE"),
+    )
+
+
+def fig_station_distance_rmse_linear(
+    frames: list[tuple[str, pd.DataFrame]],
+    output_dir: Path,
+    provenance: str,
+    xlim: tuple[float, float],
+) -> None:
+    """Same data and axes limits as `fig_station_distance_rmse`, but on a linear distance
+    axis - real, unclipped distances, so co-located stations plot at their true 0 km
+    instead of the log axis's `ZERO_DISTANCE_PLOT_KM` stand-in."""
+    ymax = max(per_station["RMSE"].max() for _, per_station in frames)
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    _station_distance_scatter(
+        ax,
+        frames,
+        "RMSE",
+        xlim,
+        (0.0, ymax * 1.08),
+        xscale="linear",
+        legend_loc="upper right",
+    )
+    ax.set_ylabel("RMSE [TECU]")
+    ax.set_title("STEC error against separation from the training network")
+    _save(
+        fig,
+        "station_distance_rmse_linear",
+        "stec_finetuned",
+        output_dir,
+        provenance,
+        _station_distance_plotted_csv(frames, "RMSE", xscale="linear"),
+    )
+
+
+def fig_station_distance_nrmse(
+    frames: list[tuple[str, pd.DataFrame]],
+    output_dir: Path,
+    provenance: str,
+    xlim: tuple[float, float],
+) -> None:
+    ymax = max(per_station["nRMSE_%"].max() for _, per_station in frames)
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    _station_distance_scatter(ax, frames, "nRMSE_%", xlim, (0.0, ymax * 1.08))
+    ax.set_ylabel("Normalised RMSE [%]")
+    ax.set_title("Normalised STEC error against separation from the training network")
+    _save(
+        fig,
+        "station_distance_nrmse",
+        "stec_finetuned",
+        output_dir,
+        provenance,
+        _station_distance_plotted_csv(frames, "nRMSE_%"),
+    )
+
+
+def _build_station_distance_figures(args: argparse.Namespace, output_dir: Path) -> None:
+    """Both `STATION_INDEPENDENCE_SOURCES` populations, overlaid on one axis instead
+    of the two separate panels `_build_station_independence_figure` writes - needs
+    both models' `per_station.csv` present, since a one-model overlay is just
+    `fig_station_independence`'s left panel again.
+    """
+    frames = []
+    paths_read = []
+    for analysis_name, model_label in (
+        ("station_independence", "Direct STEC"),
+        ("station_independence_pretrained", "Pretrained Direct STEC"),
+    ):
+        path = analysis_dir(args.results_dir, analysis_name) / "per_station.csv"
+        if not path.exists():
+            logger.warning(f"{path} not found - run {analysis_name}.py")
+            continue
+        frames.append((model_label, pd.read_csv(path)))
+        paths_read.append(str(path))
+
+    if len(frames) < 2:
+        logger.info(
+            "station_distance_rmse/nrmse need both models' per_station.csv; skipping"
+        )
+        return
+
+    all_distance = pd.concat([d["distance_km"] for _, d in frames])
+    xlim = (ZERO_DISTANCE_PLOT_KM * 0.5, float(all_distance.max()) * 1.15)
+    # A small negative left margin (2% of the range) keeps the 0 km points from being
+    # sliced in half by the y-axis spine; the "0" tick itself is unaffected since ticks
+    # are still generated starting at 0 in _station_distance_scatter.
+    xlim_linear_right = float(all_distance.max()) * 1.15
+    xlim_linear = (-0.02 * xlim_linear_right, xlim_linear_right)
+
+    n_stations = len(frames[0][1])
+    prov = (
+        f"{', '.join(paths_read)} - both models, own test set, 2024 DOY 122-366, "
+        f"{n_stations} test stations, per-station RMSE pooled over all observations. "
+        "Co-located stations are drawn at 0 km on a log axis."
+    )
+    prov_linear = (
+        f"{', '.join(paths_read)} - both models, own test set, 2024 DOY 122-366, "
+        f"{n_stations} test stations, per-station RMSE pooled over all observations. "
+        "Co-located stations sit at their true 0 km on a linear axis."
+    )
+    fig_station_distance_rmse(frames, output_dir, prov, xlim)
+    fig_station_distance_rmse_linear(frames, output_dir, prov_linear, xlim_linear)
+    fig_station_distance_nrmse(frames, output_dir, prov, xlim)
 
 
 # --------------------------------------------------------------------------
@@ -1687,8 +2035,8 @@ def fig_positioning_tail(
         )
     ax.set_xticks(x)
     ax.set_xticklabels(["Median", "90th", "95th", "99th"])
-    ax.set_xlabel("Percentile of the daily 3D RMS across station-days")
-    ax.set_ylabel("3D RMS positioning error [m]")
+    ax.set_xlabel("Percentile of the daily 3D RMSE across station-days")
+    ax.set_ylabel("3D positioning RMSE [m]")
     ax.grid(True, axis="y", linestyle="--", alpha=0.3)
     ax.set_axisbelow(True)
     ax.legend(ncol=2)
@@ -1743,6 +2091,7 @@ FIGURE_BUILDERS: tuple[Callable[[argparse.Namespace, Path], None], ...] = (
     _build_dstec_evaluation_figures,
     _build_calibration_figures,
     _build_station_independence_figure,
+    _build_station_distance_figures,
     _build_positioning_tail_figure,
 )
 
