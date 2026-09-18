@@ -58,6 +58,21 @@ day-by-day pass rather than re-reading the store, using the daily minimum-Dst ru
 storm here is a storm there too (see that module's docstring for why the unrelated
 per-observation rule in ``scenario_evaluation.py`` is a different test and not used here).
 
+**Period regimes.** ``--period-split`` (``period_split=True`` in `accumulate()`) adds a
+second, independent split on top of the one above: ``pretrained_stec/own`` spans both the
+2014-2023 interpolation-era test months and the 2024 extrapolation year (DOY 122-366) that
+``finetuned_stec/own`` alone covers, and the two populations have never had their own
+scores.csv/coverage.csv rows - only ad-hoc, undeclared computations. ``period_2014_2023``
+and ``period_2024`` classify each day by its store year (`period_regime_for_year`);
+``period_2024_quiet``/``period_2024_storm`` further split ``period_2024`` by the same
+daily-Dst rule as ``quiet``/``storm`` above, re-using the same per-day classification
+rather than a second OMNI read. There is no ``period_2014_2023_quiet``/``_storm`` - the
+ad-hoc computation this ports only ever split 2024 by activity, so that is the only
+2014-2023 x activity cell this stage claims to answer. The flag defaults to `False`
+precisely so the plain ``uncertainty_calibration`` stage's finetuned_stec/own output (2024
+only, where every period row would just duplicate an existing "all"/"quiet"/"storm" one)
+stays byte-for-byte unchanged.
+
 **Coverage default.** ``--year`` restricts the run to one year, but that must never be
 the silent default: ``pretrained_stec/own`` holds 544 day-files spanning 2014-2024, not
 just the 242 days of 2024, and a paper artifact that only ever reports the most recent
@@ -117,6 +132,27 @@ MIN_SCALE_TECU = 1e-3
 # as `stec.analysis.storm_stratification.STORM_DST_THRESHOLD_NT` (not the unrelated
 # per-observation rule in `scenario_evaluation.py`; see the module docstring).
 STORM_DST_THRESHOLD = -50.0
+
+# The pretrained checkpoint's test set boundary: 2014-2023 is the multi-year
+# interpolation-era test period, 2024 (DOY 122-366) is the held-out extrapolation year
+# `finetuned_stec/own` also covers. See the module docstring's "Period regimes" section.
+PERIOD_EARLY_YEARS = range(2014, 2024)  # 2014-2023 inclusive
+PERIOD_LATE_YEAR = 2024
+
+
+def period_regime_for_year(year: int) -> str | None:
+    """Which period regime `year` belongs to, or `None` outside both known periods.
+
+    `None` rather than a guess for a year outside 2014-2024: the store partition this
+    was written against does not hold one, and a third label invented for it would claim
+    a population this stage never checked.
+    """
+    if year == PERIOD_LATE_YEAR:
+        return "period_2024"
+    if year in PERIOD_EARLY_YEARS:
+        return "period_2014_2023"
+    return None
+
 
 TRUTH_COLUMN = "true_stec"
 
@@ -276,6 +312,7 @@ class CalibrationAccumulator:
         self.crps_sum = 0.0
         self.squared_error_sum = 0.0
         self.scale_sum = 0.0
+        self.squared_scale_sum = 0.0
         self.residual_counts = np.zeros(RESIDUAL_BINS, dtype=np.int64)
 
     def update(self, y: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> None:
@@ -301,6 +338,7 @@ class CalibrationAccumulator:
         self.crps_sum += float(crps_values(self.family, y, mu, sigma).sum())
         self.squared_error_sum += float(np.sum((y - mu) ** 2))
         self.scale_sum += float(np.sum(sigma))
+        self.squared_scale_sum += float(np.sum(sigma**2))
         self.residual_counts += np.histogram(
             np.clip(y - mu, -RESIDUAL_RANGE_TECU, RESIDUAL_RANGE_TECU),
             bins=RESIDUAL_BINS,
@@ -387,6 +425,12 @@ class CalibrationAccumulator:
     def scores(self) -> dict[str, float | int]:
         rmse = float(np.sqrt(self.squared_error_sum / self.n))
         mean_scale = self.scale_sum / self.n
+        # RMS(sigma), not mean(sigma): the owner-decided calibration-scale metric is
+        # RMSE / RMS(sigma) = sqrt(mean(e**2) / mean(sigma**2)), computed here from the
+        # same running sums as RMSE itself so it is exact under streaming, not an
+        # approximation recovered from mean_scale (mean(sigma) != sqrt(mean(sigma**2))
+        # whenever sigma varies across observations, which it always does here).
+        rms_scale = float(np.sqrt(self.squared_scale_sum / self.n))
         return {
             "observations": self.n,
             "CRPS": self.crps_sum / self.n,
@@ -394,6 +438,10 @@ class CalibrationAccumulator:
             "RMSE": rmse,
             "mean_scale": mean_scale,
             "scale_to_rmse_ratio": mean_scale / rmse,
+            "rms_sigma": rms_scale,
+            "rmse_over_rms_sigma": float(
+                np.sqrt(self.squared_error_sum / self.squared_scale_sum)
+            ),
             "pit_ks": self.pit_ks_distance(),
         }
 
@@ -423,6 +471,7 @@ def accumulate(
     years: Sequence[int] | None = None,
     storm_doys: dict[int, set[int]] | None = None,
     allow_multi_year: bool = False,
+    period_split: bool = False,
 ) -> RegimeResults:
     """Stream the store day by day, scoring every product in `PRODUCTS` under both
     predictive families, and under every requested geomagnetic regime.
@@ -448,12 +497,22 @@ def accumulate(
     `storm_doys` is keyed by year for the same reason: a "quiet"/"storm" label computed
     for one year is meaningless applied to another, so each day's regime is looked up
     under its own year's entry, never a flat cross-year set.
+
+    `period_split=True` adds `period_2014_2023`/`period_2024` (and, when `storm_doys` is
+    also given, `period_2024_quiet`/`period_2024_storm`) - see the module docstring's
+    "Period regimes" section. Declared regimes with no usable data (e.g.
+    `period_2014_2023` when `years` excludes every year before 2024) are dropped by the
+    same empty-regime filter that already applies to `quiet`/`storm`.
     """
     needed = sorted(
         {TRUTH_COLUMN, *(col for cols in PRODUCTS.values() for col in cols[:2])}
     )
 
     regimes = ("all",) if storm_doys is None else ("all", "quiet", "storm")
+    if period_split:
+        regimes = regimes + ("period_2014_2023", "period_2024")
+        if storm_doys is not None:
+            regimes = regimes + ("period_2024_quiet", "period_2024_storm")
     results: RegimeResults = {
         regime: {
             name: {family: CalibrationAccumulator(family) for family in FAMILIES}
@@ -509,6 +568,17 @@ def accumulate(
                 day_regimes = ("all", "storm")
             else:
                 day_regimes = ("all", "quiet")
+
+        if period_split:
+            period = period_regime_for_year(year)
+            if period == "period_2024":
+                day_regimes = day_regimes + (period,)
+                if "storm" in day_regimes:
+                    day_regimes = day_regimes + ("period_2024_storm",)
+                elif "quiet" in day_regimes:
+                    day_regimes = day_regimes + ("period_2024_quiet",)
+            elif period == "period_2014_2023":
+                day_regimes = day_regimes + (period,)
 
         for name, (mean_col, scale_col, _native) in PRODUCTS.items():
             if mean_col not in frame.columns or scale_col not in frame.columns:
@@ -640,6 +710,16 @@ def main() -> None:
         help="Hourly OMNI archive used for the storm/quiet split.",
     )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--period-split",
+        action="store_true",
+        default=False,
+        help="Add period_2014_2023/period_2024 regimes (plus period_2024_quiet/"
+        "period_2024_storm when the OMNI archive is available) on top of "
+        "all/quiet/storm. Off by default so existing output is unchanged; meant for "
+        "--model-variant pretrained_stec, whose store partition actually spans both "
+        "periods.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -670,6 +750,7 @@ def main() -> None:
         years=years,
         storm_doys=storm_doys,
         allow_multi_year=allow_multi_year,
+        period_split=args.period_split,
     )
 
     out = args.output_dir / f"{args.model_variant}_{args.dataset}"
@@ -720,6 +801,14 @@ def main() -> None:
             index=["model", "nominal"], columns="regime", values="empirical"
         )
         print(regime_pivot.round(4).to_string())
+
+    period_regimes_present = {r for r in results if r.startswith("period_")}
+    if period_regimes_present:
+        print("\n=== Scores by test period (native family) ===")
+        period_scores = scores[
+            scores["native"] & scores["regime"].isin(period_regimes_present)
+        ].drop(columns="native")
+        print(period_scores.round(4).to_string(index=False))
 
     logger.info(
         f"wrote coverage.csv, scores.csv and {pit_file_count} pit_*.csv files to {out}"

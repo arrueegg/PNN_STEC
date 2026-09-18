@@ -154,6 +154,7 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
             "_abs": np.abs(error[error_valid]),
             "_sq": error[error_valid] ** 2,
             "_sigma": total_unc[error_valid],
+            "_sigma_sq": total_unc[error_valid] ** 2,
         }
     )
     error_by_bin = error_part.groupby("bin", observed=True).agg(
@@ -161,6 +162,7 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
         sum_abs=("_abs", "sum"),
         sum_sq=("_sq", "sum"),
         sum_sigma=("_sigma", "sum"),
+        sum_sigma_sq=("_sigma_sq", "sum"),
     )
 
     if EPISTEMIC_UNC_COLUMN in frame.columns:
@@ -187,7 +189,13 @@ def accumulate_day(frame: pd.DataFrame, doy: int) -> list[dict]:
     epistemic_rows = {
         str(label): row.to_dict() for label, row in epistemic_by_bin.iterrows()
     }
-    empty_error = {"n": 0, "sum_abs": 0.0, "sum_sq": 0.0, "sum_sigma": 0.0}
+    empty_error = {
+        "n": 0,
+        "sum_abs": 0.0,
+        "sum_sq": 0.0,
+        "sum_sigma": 0.0,
+        "sum_sigma_sq": 0.0,
+    }
     empty_epistemic = {
         "n_epistemic": 0,
         "sum_epistemic_sq": 0.0,
@@ -224,6 +232,14 @@ def finalise(rows: list[dict]) -> pd.DataFrame:
     pooled["mean_pred_unc"] = np.where(
         pooled.n > 0, pooled.sum_sigma / pooled.n, np.nan
     )
+    # RMS(sigma), not mean(sigma) - the owner-decided calibration-scale metric is
+    # RMSE / RMS(sigma) = sqrt(mean(e**2) / mean(sigma**2)). Computed from the same
+    # per-bin sum of sigma**2 that made mean_pred_unc exact under streaming, so this is
+    # exact too, not an approximation recovered from mean_pred_unc.
+    pooled["rms_sigma"] = np.where(
+        pooled.n > 0, np.sqrt(pooled.sum_sigma_sq / pooled.n), np.nan
+    )
+    pooled["rmse_over_rms_sigma"] = pooled.RMSE / pooled.rms_sigma
     pooled["epistemic_share"] = np.where(
         pooled.sum_total_sq_epistemic > 0,
         pooled.sum_epistemic_sq / pooled.sum_total_sq_epistemic,
@@ -243,6 +259,8 @@ def finalise(rows: list[dict]) -> pd.DataFrame:
             "MAE",
             "RMSE",
             "mean_pred_unc",
+            "rms_sigma",
+            "rmse_over_rms_sigma",
             "observations_epistemic",
             "epistemic_share",
         ]
@@ -271,6 +289,7 @@ def accumulate_day_by_elevation(frame: pd.DataFrame, doy: int) -> list[dict]:
             "_abs": np.abs(error[error_valid]),
             "_sq": error[error_valid] ** 2,
             "_sigma": total_unc[error_valid],
+            "_sigma_sq": total_unc[error_valid] ** 2,
         }
     )
     error_by_bin = error_part.groupby("bin", observed=True).agg(
@@ -278,6 +297,7 @@ def accumulate_day_by_elevation(frame: pd.DataFrame, doy: int) -> list[dict]:
         sum_abs=("_abs", "sum"),
         sum_sq=("_sq", "sum"),
         sum_sigma=("_sigma", "sum"),
+        sum_sigma_sq=("_sigma_sq", "sum"),
     )
 
     has_decomposition = (
@@ -308,7 +328,13 @@ def accumulate_day_by_elevation(frame: pd.DataFrame, doy: int) -> list[dict]:
     decomposition_rows = {
         str(label): row.to_dict() for label, row in decomposition_by_bin.iterrows()
     }
-    empty_error = {"n": 0, "sum_abs": 0.0, "sum_sq": 0.0, "sum_sigma": 0.0}
+    empty_error = {
+        "n": 0,
+        "sum_abs": 0.0,
+        "sum_sq": 0.0,
+        "sum_sigma": 0.0,
+        "sum_sigma_sq": 0.0,
+    }
     empty_decomposition = {
         "n_decomposition": 0,
         "sum_aleatoric": 0.0,
@@ -347,6 +373,13 @@ def finalise_elevation(rows: list[dict]) -> pd.DataFrame:
     pooled["RMSE"] = np.where(pooled.n > 0, np.sqrt(pooled.sum_sq / pooled.n), np.nan)
     pooled["MAE"] = np.where(pooled.n > 0, pooled.sum_abs / pooled.n, np.nan)
     pooled["rmse_over_sigma"] = pooled.RMSE / pooled.mean_sigma
+    # RMS(sigma), not mean(sigma) - the owner-decided calibration-scale metric,
+    # sqrt(mean(e**2) / mean(sigma**2)), exact under streaming from the same per-bin
+    # sum of sigma**2 that already makes mean_sigma exact.
+    pooled["rms_sigma"] = np.where(
+        pooled.n > 0, np.sqrt(pooled.sum_sigma_sq / pooled.n), np.nan
+    )
+    pooled["rmse_over_rms_sigma"] = pooled.RMSE / pooled.rms_sigma
     pooled["mean_aleatoric"] = np.where(
         pooled.n_decomposition > 0,
         pooled.sum_aleatoric / pooled.n_decomposition,
@@ -377,6 +410,8 @@ def finalise_elevation(rows: list[dict]) -> pd.DataFrame:
             "RMSE",
             "MAE",
             "rmse_over_sigma",
+            "rms_sigma",
+            "rmse_over_rms_sigma",
             "mean_aleatoric",
             "mean_epistemic",
             "epistemic_share_%",
@@ -393,6 +428,7 @@ def calibrating_factor(by_elevation: pd.DataFrame) -> pd.Series:
     reported beside the factor rather than left for a reader to compute.
     """
     ratios = by_elevation["rmse_over_sigma"].astype(float)
+    rms_ratios = by_elevation["rmse_over_rms_sigma"].astype(float)
     return pd.Series(
         {
             "factor_median": float(ratios.median()),
@@ -400,6 +436,12 @@ def calibrating_factor(by_elevation: pd.DataFrame) -> pd.Series:
             "factor_max": float(ratios.max()),
             "factor_spread": float(ratios.max() - ratios.min()),
             "n_bins": int(len(ratios)),
+            # Same per-elevation-bin spread, but for the owner-decided RMSE/RMS(sigma)
+            # scale metric, next to the RMSE/mean(sigma) figures above.
+            "factor_median_rms_sigma": float(rms_ratios.median()),
+            "factor_min_rms_sigma": float(rms_ratios.min()),
+            "factor_max_rms_sigma": float(rms_ratios.max()),
+            "factor_spread_rms_sigma": float(rms_ratios.max() - rms_ratios.min()),
         }
     )
 

@@ -681,6 +681,230 @@ def test_per_observation_uncertainty_beats_the_constant_scale_reference(family):
     assert scores["CRPS"] < scores["CRPS_constant_scale"]
 
 
+# --- rmse_over_rms_sigma = sqrt(sum(e**2) / sum(sigma**2)), exact under streaming -----
+
+
+def test_rms_sigma_and_ratio_match_closed_form_on_tiny_synthetic_data():
+    """Four hand-picked observations with heterogeneous sigma: pin rms_sigma and
+    rmse_over_rms_sigma to the exact closed form, and pin that rms_sigma differs from
+    the existing mean_scale column whenever sigma varies (they only coincide for a
+    constant sigma)."""
+    y = np.array([0.0, 0.0, 0.0, 0.0])
+    mu = np.array([1.0, -2.0, 3.0, -1.0])  # errors: -1, 2, -3, 1
+    sigma = np.array([1.0, 2.0, 3.0, 4.0])
+
+    accumulator = uc.CalibrationAccumulator("gaussian")
+    accumulator.update(y, mu, sigma)
+    scores = accumulator.scores()
+
+    expected_rms_sigma = np.sqrt(np.mean(sigma**2))
+    expected_ratio = np.sqrt(np.sum((y - mu) ** 2) / np.sum(sigma**2))
+
+    assert scores["rms_sigma"] == pytest.approx(expected_rms_sigma)
+    assert scores["rmse_over_rms_sigma"] == pytest.approx(expected_ratio)
+    assert scores["rms_sigma"] != pytest.approx(scores["mean_scale"])
+
+
+def test_rms_sigma_equals_mean_scale_when_sigma_is_constant():
+    """RMS(sigma) and mean(sigma) coincide exactly for a constant sigma. In that special
+    case rmse_over_rms_sigma (RMSE / rms_sigma) is the reciprocal of the existing
+    scale_to_rmse_ratio (mean_scale / RMSE), since rms_sigma == mean_scale."""
+    rng = np.random.default_rng(99)
+    n = 5_000
+    y = rng.normal(0.0, 3.0, n)
+    mu = np.zeros(n)
+    sigma = np.full(n, 2.5)
+
+    accumulator = uc.CalibrationAccumulator("gaussian")
+    accumulator.update(y, mu, sigma)
+    scores = accumulator.scores()
+
+    assert scores["rms_sigma"] == pytest.approx(scores["mean_scale"])
+    assert scores["rmse_over_rms_sigma"] == pytest.approx(
+        1.0 / scores["scale_to_rmse_ratio"]
+    )
+
+
+# --- Period regimes (interpolation-era 2014-2023 vs the 2024 extrapolation test year,
+# split further into 2024 quiet/storm) - opt-in via `period_split=True`/`--period-split`,
+# additive on top of "all"/"quiet"/"storm" the same way those are additive on top of no
+# split at all. Off by default so `uncertainty_calibration`'s existing finetuned_stec/own
+# output (2024 only) is byte-for-byte unchanged. ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    "year,expected",
+    [
+        (2014, "period_2014_2023"),
+        (2019, "period_2014_2023"),
+        (2023, "period_2014_2023"),
+        (2024, "period_2024"),
+        (2025, None),
+        (2013, None),
+    ],
+)
+def test_period_regime_for_year(year, expected):
+    assert uc.period_regime_for_year(year) == expected
+
+
+def test_period_split_is_absent_when_flag_not_given(tmp_path):
+    """Default behaviour (no `period_split`) must be exactly the pre-existing one -
+    this is what pins that adding the feature does not change any existing output."""
+    ps.write_predictions(
+        day_frame(500, seed=70), "pretrained_stec", "own", 2016, 130, root=tmp_path
+    )
+    ps.write_predictions(
+        day_frame(500, seed=71), "pretrained_stec", "own", 2024, 130, root=tmp_path
+    )
+
+    results = uc.accumulate(
+        "pretrained_stec", "own", tmp_path, years=None, allow_multi_year=True
+    )
+
+    assert set(results.keys()) == {"all"}
+
+
+def test_period_split_adds_period_regimes_on_top_of_all(tmp_path):
+    old_frame = day_frame(500, seed=72)
+    new_frame = day_frame(700, seed=73)
+    ps.write_predictions(old_frame, "pretrained_stec", "own", 2016, 130, root=tmp_path)
+    ps.write_predictions(new_frame, "pretrained_stec", "own", 2024, 130, root=tmp_path)
+
+    results = uc.accumulate(
+        "pretrained_stec",
+        "own",
+        tmp_path,
+        years=None,
+        allow_multi_year=True,
+        period_split=True,
+    )
+
+    assert {"all", "period_2014_2023", "period_2024"} <= set(results.keys())
+    assert "quiet" not in results and "storm" not in results
+
+    early = results["period_2014_2023"]["Direct STEC"]["gaussian"]
+    late = results["period_2024"]["Direct STEC"]["gaussian"]
+    all_acc = results["all"]["Direct STEC"]["gaussian"]
+    assert early.n == len(old_frame)
+    assert late.n == len(new_frame)
+    assert all_acc.n == early.n + late.n
+
+
+def test_period_split_adds_2024_quiet_storm_when_storm_doys_given(tmp_path):
+    """The 2024 quiet/storm period split must partition period_2024 exactly, and must
+    not spill over into a "period_2014_2023_quiet"/"_storm" that was never asked for -
+    the ad-hoc computation this ports only ever split the 2024 period by activity."""
+    old_frame = regime_day_frame(400, seed=1)  # 2016, never classified below
+    quiet_2024 = regime_day_frame(600, seed=2)
+    storm_2024 = regime_day_frame(300, seed=3)
+    ps.write_predictions(old_frame, "pretrained_stec", "own", 2016, 130, root=tmp_path)
+    ps.write_predictions(quiet_2024, "pretrained_stec", "own", 2024, 130, root=tmp_path)
+    ps.write_predictions(storm_2024, "pretrained_stec", "own", 2024, 131, root=tmp_path)
+
+    results = uc.accumulate(
+        "pretrained_stec",
+        "own",
+        tmp_path,
+        years=None,
+        allow_multi_year=True,
+        period_split=True,
+        storm_doys={2024: {131}},
+    )
+
+    assert "period_2024_quiet" in results
+    assert "period_2024_storm" in results
+    assert not any(regime.startswith("period_2014_2023_") for regime in results)
+
+    quiet_acc = results["period_2024_quiet"]["Direct STEC"]["gaussian"]
+    storm_acc = results["period_2024_storm"]["Direct STEC"]["gaussian"]
+    period_2024_acc = results["period_2024"]["Direct STEC"]["gaussian"]
+    assert quiet_acc.n == len(quiet_2024)
+    assert storm_acc.n == len(storm_2024)
+    assert period_2024_acc.n == quiet_acc.n + storm_acc.n
+
+    # 2016 is unclassified (no storm_doys entry for it) and outside the 2024 split, so
+    # it must land in period_2014_2023 only, never in a quiet/storm period bucket.
+    early_acc = results["period_2014_2023"]["Direct STEC"]["gaussian"]
+    assert early_acc.n == len(old_frame)
+
+
+def test_period_split_main_end_to_end(tmp_path, monkeypatch):
+    """`--period-split` through `main()`: scores.csv/coverage.csv must carry the new
+    regime rows with the right population, and every other existing regime/row must be
+    untouched by the flag."""
+    old_frame = day_frame(1_000, seed=80)
+    new_frame = day_frame(1_400, seed=81)
+    ps.write_predictions(old_frame, "pretrained_stec", "own", 2016, 130, root=tmp_path)
+    ps.write_predictions(new_frame, "pretrained_stec", "own", 2024, 130, root=tmp_path)
+    output_dir = tmp_path / "output"
+
+    _run_main(
+        monkeypatch,
+        [
+            "--store-root",
+            str(tmp_path),
+            "--model-variant",
+            "pretrained_stec",
+            "--dataset",
+            "own",
+            "--swi-path",
+            str(tmp_path / "no_such_omni.h5"),
+            "--output-dir",
+            str(output_dir),
+            "--period-split",
+        ],
+    )
+
+    scores = pd.read_csv(output_dir / "pretrained_stec_own" / "scores.csv")
+    assert {"all", "period_2014_2023", "period_2024"} <= set(scores["regime"])
+
+    period_row = scores[
+        (scores["regime"] == "period_2024")
+        & (scores["model"] == "Direct STEC")
+        & (scores["family"] == "gaussian")
+    ]
+    assert len(period_row) == 1
+    assert int(period_row["observations"].iloc[0]) == len(new_frame)
+
+    early_row = scores[
+        (scores["regime"] == "period_2014_2023")
+        & (scores["model"] == "Direct STEC")
+        & (scores["family"] == "gaussian")
+    ]
+    assert int(early_row["observations"].iloc[0]) == len(old_frame)
+
+    coverage = pd.read_csv(output_dir / "pretrained_stec_own" / "coverage.csv")
+    assert {"all", "period_2014_2023", "period_2024"} <= set(coverage["regime"])
+
+
+def test_period_split_flag_defaults_to_false_in_main(tmp_path, monkeypatch):
+    """Without `--period-split`, `main()` must produce exactly the pre-existing output
+    - no period_* rows anywhere - which is the regression this pins for the plain
+    `uncertainty_calibration` stage command that never passes the new flag."""
+    frame = day_frame(1_000, seed=82)
+    ps.write_predictions(frame, "pretrained_stec", "own", 2024, 130, root=tmp_path)
+    output_dir = tmp_path / "output"
+
+    _run_main(
+        monkeypatch,
+        [
+            "--store-root",
+            str(tmp_path),
+            "--model-variant",
+            "pretrained_stec",
+            "--dataset",
+            "own",
+            "--swi-path",
+            str(tmp_path / "no_such_omni.h5"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    scores = pd.read_csv(output_dir / "pretrained_stec_own" / "scores.csv")
+    assert not any(regime.startswith("period_") for regime in scores["regime"])
+
+
 @pytest.mark.parametrize("family", ["gaussian", "laplace"])
 def test_a_constant_scale_predictor_scores_its_own_reference(family):
     """A model emitting one scale everywhere *is* the reference, so the two must agree.

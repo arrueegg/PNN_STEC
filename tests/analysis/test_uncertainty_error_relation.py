@@ -9,6 +9,8 @@ since they need exact, noise-free placement into every fixed bin.
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -160,6 +162,8 @@ def test_elevation_view_has_expected_bins_and_columns():
         "RMSE",
         "MAE",
         "rmse_over_sigma",
+        "rms_sigma",
+        "rmse_over_rms_sigma",
         "mean_aleatoric",
         "mean_epistemic",
         "epistemic_share_%",
@@ -256,12 +260,48 @@ def test_missing_aleatoric_column_is_skipped_not_errored():
     assert table["epistemic_share_%"].isna().all()
 
 
+def test_main_pretrained_variant_writes_to_its_own_output_dir(tmp_path, monkeypatch):
+    """`uncertainty_error_relation_pretrained` (stec/pipeline/stages.py) invokes `main()`
+    with `--model-variant pretrained_stec --dataset own` and its own `--output-dir`. The
+    module's output filename suffix keys only on `--dataset` (empty for "own"), so
+    `by_uncertainty.csv`/`by_elevation.csv`/`calibrating_factor.csv` would collide with
+    the default finetuned_stec/own invocation's files if both stages wrote to the same
+    directory - this pins that the pretrained variant's own `--output-dir` is what keeps
+    them apart, not a filename difference."""
+    store_root = tmp_path / "store"
+    frame = day_frame(rows=300, seed=5)
+    ps.write_predictions(frame, "pretrained_stec", "own", 2024, 132, root=store_root)
+
+    output_dir = tmp_path / "uncertainty_error_relation_pretrained"
+    argv = [
+        "uncertainty_error_relation.py",
+        "--store-root",
+        str(store_root),
+        "--model-variant",
+        "pretrained_stec",
+        "--dataset",
+        "own",
+        "--output-dir",
+        str(output_dir),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    uer.main()
+
+    assert (output_dir / "by_uncertainty.csv").exists()
+    assert (output_dir / "by_elevation.csv").exists()
+    assert (output_dir / "calibrating_factor.csv").exists()
+    by_uncertainty = pd.read_csv(output_dir / "by_uncertainty.csv")
+    assert (by_uncertainty["observations"] > 0).any()
+
+
 def test_calibrating_factor_reports_spread_across_elevation_bands():
     by_elevation = pd.DataFrame(
         {
             "bin": ["(0, 10]", "(10, 20]", "(20, 30]"],
             "n": [100, 200, 300],
             "rmse_over_sigma": [1.60, 1.65, 1.70],
+            "rmse_over_rms_sigma": [1.50, 1.55, 1.58],
         }
     )
     factor = uer.calibrating_factor(by_elevation)
@@ -269,3 +309,66 @@ def test_calibrating_factor_reports_spread_across_elevation_bands():
     assert factor["factor_min"] == pytest.approx(1.60)
     assert factor["factor_max"] == pytest.approx(1.70)
     assert factor["factor_spread"] == pytest.approx(0.10)
+    # Same spread statistics, computed for the owner-decided RMSE/RMS(sigma) ratio
+    # alongside the existing RMSE/mean(sigma) ones above.
+    assert factor["factor_median_rms_sigma"] == pytest.approx(1.55)
+    assert factor["factor_min_rms_sigma"] == pytest.approx(1.50)
+    assert factor["factor_max_rms_sigma"] == pytest.approx(1.58)
+    assert factor["factor_spread_rms_sigma"] == pytest.approx(0.08)
+
+
+# --- rmse_over_rms_sigma = sqrt(sum(e**2) / sum(sigma**2)), exact under streaming -------
+
+
+def test_by_uncertainty_rms_sigma_equals_sqrt_ratio_of_sums():
+    """Tiny synthetic single-bin frame: pin rms_sigma and rmse_over_rms_sigma to the
+    exact closed form, not just to a value read back from the same code."""
+    truth = np.array([0.0, 0.0, 0.0, 0.0])
+    pred = np.array([1.0, -2.0, 3.0, -1.0])  # errors: 1, -2, 3, -1
+    sigma = np.array([2.0, 2.0, 2.0, 2.0])  # all in the (1.0, 2.0] bin
+    frame = pd.DataFrame(
+        {"true_stec": truth, "stec_pred": pred, "pred_total_unc": sigma}
+    )
+
+    table = uer.finalise(uer.accumulate_day(frame, doy=100)).set_index("bin")
+    row = table.loc["(1.0, 2.0]"]
+
+    sum_sq_error = float(np.sum((pred - truth) ** 2))
+    sum_sq_sigma = float(np.sum(sigma**2))
+    expected_rms_sigma = np.sqrt(sum_sq_sigma / 4)
+    expected_ratio = np.sqrt(sum_sq_error / sum_sq_sigma)
+
+    assert row["rms_sigma"] == pytest.approx(expected_rms_sigma)
+    assert row["rmse_over_rms_sigma"] == pytest.approx(expected_ratio)
+    # rms_sigma != mean_pred_unc here only because sigma is constant in this fixture -
+    # the two coincide exactly for a constant sigma, so this also pins that rms_sigma
+    # was actually computed from sigma**2, not aliased to the existing mean.
+    assert row["rms_sigma"] == pytest.approx(row["mean_pred_unc"])
+
+
+def test_elevation_view_rms_sigma_equals_sqrt_ratio_of_sums_with_heterogeneous_sigma():
+    """Same closed-form pin as the by-uncertainty test above, but for the by-elevation
+    view's own accumulator, and with sigma genuinely varying within the one bin so
+    RMS(sigma) is pinned to differ from mean(sigma)."""
+    truth = np.zeros(4)
+    pred = np.array([1.0, -2.0, 3.0, -1.0])
+    sigma = np.array([1.0, 2.0, 3.0, 4.0])  # heterogeneous within one elevation bin
+    frame = pd.DataFrame(
+        {
+            "satele": np.full(4, 15.0),  # all in the (10, 20] elevation bin
+            "true_stec": truth,
+            "stec_pred": pred,
+            "pred_total_unc": sigma,
+        }
+    )
+
+    table = uer.finalise_elevation(uer.accumulate_day_by_elevation(frame, doy=100))
+    row = table.set_index("bin").loc["(10, 20]"]
+
+    expected_rms_sigma = np.sqrt(np.mean(sigma**2))
+    expected_ratio = np.sqrt(np.sum((pred - truth) ** 2) / np.sum(sigma**2))
+
+    assert row["rms_sigma"] == pytest.approx(expected_rms_sigma)
+    assert row["rmse_over_rms_sigma"] == pytest.approx(expected_ratio)
+    # Pins that RMS(sigma) is not just an alias for the existing mean(sigma) column.
+    assert row["rms_sigma"] != pytest.approx(row["mean_sigma"])

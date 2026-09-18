@@ -186,6 +186,50 @@ def test_pooled_diagnostics_match_direct_whole_frame_computation():
     assert pooled["scale_95"] == pytest.approx(whole["scale_95"], rel=0.05)
 
 
+def test_diagnostics_rms_sigma_matches_closed_form_on_tiny_synthetic_data():
+    """Four hand-picked observations with heterogeneous sigma: pin rms_sigma and
+    rmse_over_rms_sigma to sqrt(sum(e**2) / sum(sigma**2)), and pin that rms_sigma
+    differs from the existing mean_sigma column whenever sigma varies."""
+    y = np.array([0.0, 0.0, 0.0, 0.0])
+    mu = np.array([1.0, -2.0, 3.0, -1.0])  # errors: -1, 2, -3, 1
+    sigma = np.array([1.0, 2.0, 3.0, 4.0])
+
+    out = irb.diagnostics(y, mu, sigma, "gaussian")
+
+    expected_rms_sigma = np.sqrt(np.mean(sigma**2))
+    assert out["mean_sigma_sq"] == pytest.approx(np.mean(sigma**2))
+    assert np.sqrt(out["mean_sigma_sq"]) == pytest.approx(expected_rms_sigma)
+    assert np.sqrt(out["mean_sigma_sq"]) != pytest.approx(out["mean_sigma"])
+
+
+def test_pooled_rms_sigma_matches_closed_form_across_days():
+    """`pool()`'s rms_sigma/rmse_over_rms_sigma must reproduce the exact whole-frame
+    sqrt(sum(e**2) / sum(sigma**2)), the same exactness `pool()` already guarantees for
+    RMSE and mean_sigma - pinned here with per-day sigma that varies both within and
+    across days, so a bug that pools mean_sigma_sq as a plain (not count-weighted)
+    average would be caught."""
+    days = [(132, 4000, 2.0), (133, 9000, 5.0), (134, 500, 1.0)]
+    rows = []
+    all_y, all_mu, all_sigma = [], [], []
+    for doy, n, sigma_true in days:
+        y, mu, sigma = _synthetic_day(n, sigma_true, seed=doy)
+        all_y.append(y)
+        all_mu.append(mu)
+        all_sigma.append(sigma)
+        rows.append({"doy": doy, **irb.diagnostics(y, mu, sigma, "gaussian")})
+
+    pooled = irb.pool(pd.DataFrame(rows))
+
+    whole_y = np.concatenate(all_y)
+    whole_mu = np.concatenate(all_mu)
+    whole_sigma = np.concatenate(all_sigma)
+    expected_rms_sigma = np.sqrt(np.mean(whole_sigma**2))
+    expected_ratio = np.sqrt(np.sum((whole_y - whole_mu) ** 2) / np.sum(whole_sigma**2))
+
+    assert pooled["rms_sigma"] == pytest.approx(expected_rms_sigma, rel=1e-9)
+    assert pooled["rmse_over_rms_sigma"] == pytest.approx(expected_ratio, rel=1e-9)
+
+
 def test_pooled_rmse_differs_from_the_unweighted_mean_of_daily_rmse():
     """Regression guard: a sparse, error-prone day must not be weighted the same as a
     dense one - if `pool()` ever regressed to an unweighted mean of `RMSE`, this would
@@ -202,6 +246,7 @@ def test_pooled_rmse_differs_from_the_unweighted_mean_of_daily_rmse():
             "CRPS": 1.0,
             "CRPS_const": 1.0,
             "mean_sigma": 1.0,
+            "mean_sigma_sq": 1.0,
             "scale_95": 1.0,
             "spearman": 0.0,
         },
@@ -216,6 +261,7 @@ def test_pooled_rmse_differs_from_the_unweighted_mean_of_daily_rmse():
             "CRPS": 1.0,
             "CRPS_const": 1.0,
             "mean_sigma": 1.0,
+            "mean_sigma_sq": 1.0,
             "scale_95": 1.0,
             "spearman": 0.0,
         },

@@ -111,7 +111,15 @@ STORM_DST_THRESHOLD = -50.0
 MIN_SIGMA_TECU = 1e-3
 # Rank correlation on a subsample; exact on 2 M rows costs minutes for no gain.
 SPEARMAN_SAMPLE = 200_000
-CALIBRATION_COLUMNS = ["RMSE", "cov_95", "scale_95", "CRPS", "CRPS_skill", "spearman"]
+CALIBRATION_COLUMNS = [
+    "RMSE",
+    "cov_95",
+    "scale_95",
+    "CRPS",
+    "CRPS_skill",
+    "spearman",
+    "rmse_over_rms_sigma",
+]
 # The mapping the stored gim_stec was produced with; SLM instead moves it by 15 TECU.
 MAPPING_TYPE = "MSLM"
 GIM_REPRODUCTION_TOLERANCE = 1e-3
@@ -294,6 +302,10 @@ def diagnostics(
     out["CRPS"] = float(np.mean(crps(y, mu, sigma)))
     out["CRPS_const"] = float(np.mean(crps(y, mu, np.full_like(sigma, constant))))
     out["mean_sigma"] = float(np.mean(sigma))
+    # mean(sigma**2), not mean(sigma) squared - kept as its own per-day sum so `pool()`
+    # can recover RMS(sigma) = sqrt(pooled mean_sigma_sq) exactly, the same way it
+    # already recovers RMSE exactly from per-day mean squared error.
+    out["mean_sigma_sq"] = float(np.mean(sigma**2))
     # Multiplier that would put the 95% interval at its nominal coverage; 1.0 is
     # calibrated, above 1.0 is over-confident.
     out["scale_95"] = float(
@@ -327,10 +339,23 @@ def pool(group: pd.DataFrame) -> pd.Series:
     for level in NOMINAL_LEVELS:
         key = f"cov_{int(level * 100)}"
         out[key] = float((n * group[key]).sum() / n.sum())
-    for key in ("CRPS", "CRPS_const", "mean_sigma", "scale_95", "spearman"):
+    for key in (
+        "CRPS",
+        "CRPS_const",
+        "mean_sigma",
+        "mean_sigma_sq",
+        "scale_95",
+        "spearman",
+    ):
         out[key] = float((n * group[key]).sum() / n.sum())
     out["CRPS_skill"] = 1.0 - out["CRPS"] / out["CRPS_const"]
     out["sigma_over_RMSE"] = out["mean_sigma"] / out["RMSE"]
+    # RMSE / RMS(sigma) = sqrt(mean(e**2) / mean(sigma**2)), the owner-decided
+    # calibration-scale metric, next to sigma_over_RMSE (mean(sigma) / RMSE) above.
+    # mean_sigma_sq pools exactly (n_i * mean_sigma_sq_i is just sum_i sigma**2, the
+    # same linear quantity RMSE itself pools from), so this is exact, not approximated.
+    out["rms_sigma"] = float(np.sqrt(out["mean_sigma_sq"]))
+    out["rmse_over_rms_sigma"] = out["RMSE"] / out["rms_sigma"]
     return pd.Series(out)
 
 
