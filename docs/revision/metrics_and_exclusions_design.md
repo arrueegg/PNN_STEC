@@ -42,15 +42,31 @@ it reads 5,940-5,989 m of 3D RMS under **all eight arms** (four corrections x tw
 and it is the largest value in the entire 89,771-row population - one of only 8 rows above
 1 km, which are that same station-day seen through the different arms.
 
-It has now demonstrably distorted three separate analyses whenever a mean was the headline:
+**2026-09-18 update:** this station-day is now excluded upstream, at the data-quality layer,
+by `positioning_coverage`'s solver-failure rule (a station-day where *every one* of the eight
+method/weighting arms exceeds 100 m 3D RMS - see `docs/revision/positioning_reporting.md`'s
+2026-09-18 entry for the exact criterion and rationale). That rule is deliberately narrower
+than an outcome-based, between-methods filter: it fires only when all four correction methods
+under both weightings agree a solution failed, so it says nothing about which method is better
+and does not reopen this section's rejection of outcome-based exclusion. The distortion below
+is now a historical record of *why* the median-headline decision was made, not a description
+of the current population, which no longer carries this row at all.
 
-- `weighting_ablation`: removing it moves Direct STEC's elevation-weighted mean from 2.283 m
-  to 1.706 m, a 25% swing, while the median does not move. This is why that table reports
-  `gain_median_%`.
+It had demonstrably distorted three separate analyses whenever a mean was the headline:
+
+- `weighting_ablation`: removing it moved Direct STEC's elevation-weighted mean from 2.283 m
+  to 1.706 m (2026-09-16 reading), a 25% swing, while the median did not move. This is why
+  that table reports `gain_median_%`. On the current, already-excluding population
+  (N=10,673), the elev mean/median read 1.688 m / 0.913 m
+  (`weighting_ablation/rebuilt/common_set.csv`).
 - `oracle_benchmark`: reported by `pnn-stec-c4` and not independently verified here, because
   it is downstream of a module change still uncommitted at the time of writing - dropping the
-  10 m exclusion admits this row into the **oracle arm itself**, moving the mean floor from
-  0.125 m to 1.255 m, a tenfold inflation, while the median floor moves 0.0721 -> 0.0720 m.
+  10 m exclusion used to admit this row into the **oracle arm itself**, moving the mean floor
+  from 0.125 m to 1.255 m, a tenfold inflation, while the median floor moved 0.0721 ->
+  0.0720 m. With the row now excluded upstream, the current oracle floor reads mean 0.142 m /
+  median 0.070 m over N=8,509 (`oracle_benchmark/rebuilt/summary.csv`) - the mean is still the
+  more outlier-sensitive statistic on whatever tail remains, which is why the median stays the
+  headline.
 - the positioning tables generally, which is what the no-outcome-exclusion measurement in this
   section is about.
 

@@ -279,10 +279,15 @@ station-day under each weighting (median, not mean, per the Table 6 decision in
 | IGS GIM + Mapping | 1.089 | 1.097 | −0.7% |
 
 Elevation weighting is the operational default, so it is the comparison the figure carries.
-One genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under Direct STEC/elevation) moves that
-row's *mean* by 25% on its own while leaving the median above unmoved — the same non-robustness
-the Table 6 decision was made to avoid; see `stec/analysis/weighting_ablation.py`'s module
-docstring.
+One genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under Direct STEC/elevation) used to
+move that row's *mean* by 25% on its own while leaving the median above unmoved — the same
+non-robustness the Table 6 decision was made to avoid; see `stec/analysis/
+weighting_ablation.py`'s module docstring. **2026-09-18: that station-day is now excluded
+upstream** by `positioning_coverage`'s solver-failure rule (see `docs/revision/
+positioning_reporting.md`). The mean is still less robust than the median on the remaining
+population — elev mean 1.688 m against median 0.913 m over N=10,673
+(`weighting_ablation/rebuilt/common_set.csv`) — just no longer by a 25% swing from this one
+row.
 
 **A third stochastic model was also run, and is reported as a number rather than a figure.**
 Replacing the predicted per-observation sigma with a constant — identical STEC values and the
@@ -430,12 +435,16 @@ station-days** across all 242 test days and 52 stations. Against that floor: Dir
 
 **Read the median, not the mean, and this is not a stylistic preference here.** Since
 2026-09-16 this stage no longer applies the 10 m outcome-based exclusion, which matches it to
-the positioning tables but lets one genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under
-elevation weighting) into the oracle arm itself. That single row of 5,442 inflates the *mean*
-floor roughly tenfold, 0.125 m to 1.255 m, while the median floor moves 0.0721 m to 0.0720 m.
-The mean-based ratios consequently collapse to 1.9x/2.0x/2.3x, which is an artifact of that one
-station-day and must not be quoted. `summary.csv` carries both as
-`ratio_to_oracle_median` (headline) and `ratio_to_oracle_mean` (sensitivity only).
+the positioning tables. Until 2026-09-18 that let one genuine PPPx solve failure (URUM, DOY
+365, ~5,989 m under elevation weighting) into the oracle arm itself, inflating the *mean*
+floor roughly tenfold (0.125 m to 1.255 m on the then-5,442-row population) while the median
+floor moved 0.0721 m to 0.0720 m, and the mean-based ratios collapsed to 1.9x/2.0x/2.3x — an
+artifact of that one station-day, not a result. **That row is now excluded upstream instead**,
+by `positioning_coverage`'s solver-failure rule (`docs/revision/positioning_reporting.md`), so
+it no longer reaches the oracle arm; the mean remains the more outlier-sensitive statistic on
+whatever tail is left (current oracle floor: mean 0.142 m against median 0.070 m over N=8,509,
+`summary.csv`), which is why the median stays the headline regardless. `summary.csv` carries
+both as `ratio_to_oracle_median` (headline) and `ratio_to_oracle_mean` (sensitivity only).
 
 The methodology change did not move the finding: median-based ratios went from 11.5x/14.1x/15.8x
 on the old 5,514-station-day population to 11.6x/14.2x/15.9x on the current one. The conclusion

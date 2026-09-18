@@ -175,9 +175,12 @@ addressed, as ignored rather than merely incomplete.
    strict superset of `pre_rebuild`, identical values on every shared row). The population
    changed once more on 2026-09-16 to match the positioning tables' methodology (now 5,442,
    common-set, no outlier filter, median headline), and the response letter's rewritten R1.8
-   section gives a quotable floor (Direct STEC 11.6× the oracle floor, median — the mean has
-   since become an artifact of one PPPx solve failure and must not be quoted; all other caveats
-   intact). What remains is the same gap as R2.5 and R2.8h below: real, reproducible evidence
+   section gives a quotable floor (Direct STEC 11.6× the oracle floor, median — the mean had
+   become an artifact of one PPPx solve failure and must not be quoted; 2026-09-18: that row,
+   URUM/DOY 365, is now excluded upstream by `positioning_coverage`'s solver-failure rule, so
+   the mean is merely less robust than the median on the remaining population rather than an
+   outright artifact; all other caveats intact). What remains is the same gap as R2.5 and R2.8h
+   below: real, reproducible evidence
    sitting only in the letter.
 2. **R2.1 — temporal-split interpolation/extrapolation confound.** One of Reviewer 2's lead
    concerns, with the most thoroughly developed letter answer in the whole revision (an

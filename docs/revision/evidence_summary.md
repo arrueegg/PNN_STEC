@@ -40,7 +40,7 @@ noted, a figure. Regenerate everything with `python src/analysis/build_all.py --
 | R2.3 station independence | **READY (as a limitation)** | Write as a quantified limitation; it will not improve. |
 | R1.3 Madrigal reference offset | **READY** | 67 stations, 238 possible days. Quote Spearman +0.693 and 95.5% sign agreement, not Pearson +0.925 (leverage). Offsets are 24x the reference's own stated precision. Computed from the corrected (IPP-longitude local-time) Madrigal store; no re-inference caveat remains. |
 | R1.6 calibration | **READY** | Own-test-set coverage is settled; storm/quiet split and Madrigal offset-removed coverage are both final below. |
-| R1.8 oracle bound | **READY** | Methodology changed again 2026-09-16 (commit 66fe4bd): the stage moved to the common-set population, dropped the 10 m outlier filter, and switched to a median headline — the same axes Table 6 uses. Current: `rebuilt` 5,442 paired station-days (242/242 days, 52 stations), oracle floor 0.0720 m median; Direct STEC 11.6x the floor, IGS GIM 14.2x, VTEC + Mapping 15.9x — see below. The earlier 5,514-station-day population and the 9.7x/11.5x-style mean ratios are superseded: dropping the filter let one PPPx solve failure (URUM, DOY 365) into the oracle arm, which inflates the mean floor tenfold and must not be quoted. **elev** weighting is now the only remaining, permanent difference from Table 6. |
+| R1.8 oracle bound | **READY** | Methodology changed again 2026-09-16 (commit 66fe4bd): the stage moved to the common-set population, dropped the 10 m outlier filter, and switched to a median headline — the same axes Table 6 uses. Read the current row count and ratios from `summary.csv`, not the numbers quoted below, which are dated snapshots. The 5,442-station-day, 11.6x/14.2x/15.9x reading below was taken while dropping the filter still let one PPPx solve failure (URUM, DOY 365) into the oracle arm, inflating the mean floor tenfold; **2026-09-18**, that row was excluded upstream by `positioning_coverage`'s solver-failure rule (`docs/revision/positioning_reporting.md`), so it is gone from the population, not merely present-with-caveats — the mean stays the more outlier-sensitive statistic on whatever tail remains regardless, which is why the median stays the headline. **elev** weighting is still the only remaining, permanent difference from Table 6. |
 | R1.5 fixed-variance arm | **READY** | 242 days, N = 6,896 paired (updated 2026-09-15). Constant sigma is 4.6% *better* than elevation weighting; the model's predicted sigma is 1.1% worse than the constant-sigma arm (mean-only figures — see R1.5 below for the current, common-set median table). |
 | R2.6 uncertainty vs error, fine-tuned | **READY, now in the response letter** | Full 242-day store; RMSE/σ 1.30–1.45× (σ bins, 95%+ of obs) to 2.03× at the extremes, 1.54–1.68× (elevation), epistemic share 5.1–6.6%. |
 | R1.2 fully-Bayesian comparison | **READY** | Done — matched-init retrain evaluated. Paper model RMSE 11.67 vs fully-Bayesian 15.54 (1.33×); uncertainty–error correlation marginally favours the fully-Bayesian arm (0.575 vs 0.568); epistemic-scale diagnostic shows the paper model's under-dispersion is scale, not structure. |
@@ -354,8 +354,13 @@ R1.5 section for the fuller account). Restricted to the same 4-method × 2-weigh
 Tables 6-8 use (`common_set_positioning.coverage_common_station_days()`, N = 10,387), **median**
 3D RMS gain, uncertainty vs elevation weighting: Direct STEC **+3.2%**, Pretrained Direct STEC
 **+4.4%**, VTEC + Mapping −6.7%, IGS GIM −0.7%. One genuine PPPx solve failure (URUM, DOY 365)
-moves the Direct STEC/elevation *mean* by 25% while leaving the median unmoved — the median is
-the reported figure for the same reason it is for Table 6.
+used to move the Direct STEC/elevation *mean* by 25% while leaving the median unmoved — the
+median is the reported figure for the same reason it is for Table 6. **2026-09-18: that row is
+now excluded upstream** by `positioning_coverage`'s solver-failure rule
+(`docs/revision/positioning_reporting.md`); the current common set (N=10,673) reads a Direct
+STEC elev mean of 1.688 m against a median of 0.913 m
+(`weighting_ablation/rebuilt/common_set.csv`) — the mean is still the more outlier-sensitive
+statistic on the remaining tail, just no longer by a 25% swing from this one row.
 **Moderate the manuscript claim accordingly**: uncertainty weighting gives a small,
 direction-dependent effect; the bulk of the improvement over GIM comes from the STEC
 correction itself, not the weighting — Direct STEC's median improvement over IGS GIM + Mapping
@@ -444,15 +449,18 @@ significant at the declared `min_days_each=20` default, x1.41). Root cause is up
 STEC **0.837 m** (11.6x), IGS GIM + Mapping **1.021 m** (14.2x), VTEC + Mapping **1.143 m**
 (15.9x), on **5,442 paired station-days spanning all 242 days, 52 stations**.
 
-**Read the median; the mean is now actively misleading, not merely a second statistic.** Since
-2026-09-16 the stage drops the 10 m outcome-based exclusion, which matches it to the positioning
-tables but lets one genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under elevation
-weighting) into the oracle arm itself. That single row of 5,442 inflates the *mean* floor
-roughly tenfold — 0.1254 m to 1.255 m — while the median floor is unchanged to three figures
-(0.0721 m to 0.0720 m). The mean-based ratios consequently collapse to 1.9x/2.0x/2.3x, an
-artifact of that one station-day, and must not be quoted as a result; `summary.csv` keeps them
-as `ratio_to_oracle_mean` for sensitivity only, with `ratio_to_oracle_median` as the headline
-column.
+**Read the median; the mean was actively misleading here, not merely a second statistic.**
+Since 2026-09-16 the stage drops the 10 m outcome-based exclusion, which matches it to the
+positioning tables. Until 2026-09-18 that let one genuine PPPx solve failure (URUM, DOY 365,
+~5,989 m under elevation weighting) into the oracle arm itself: that single row of 5,442
+inflated the *mean* floor roughly tenfold — 0.1254 m to 1.255 m — while the median floor was
+unchanged to three figures (0.0721 m to 0.0720 m), and the mean-based ratios collapsed to
+1.9x/2.0x/2.3x, an artifact of that one station-day. **That row is now excluded upstream
+instead**, by `positioning_coverage`'s solver-failure rule (`docs/revision/
+positioning_reporting.md`), so it no longer reaches the oracle arm; the current oracle floor
+reads mean 0.142 m against median 0.070 m over N=8,509 (`summary.csv`) — the mean remains the
+more outlier-sensitive statistic on whatever tail is left, which is why `ratio_to_oracle_mean`
+stays sensitivity-only and `ratio_to_oracle_median` stays the headline column.
 
 This document previously reported the population as **5,514 station-days**; that number is
 superseded twice over, not once. It first grew from 5,364 (`pre_rebuild`) to 5,514 via the

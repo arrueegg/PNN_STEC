@@ -37,14 +37,21 @@ the one difference that is physical rather than a choice. Three fixes:
    mean-vs-median sensitivity comparison, never as a second number to quote - the same
    split ``weighting_ablation.py`` and ``storm_stratification.py`` already report.
 
-   This one is not cosmetic here the way it can look elsewhere: dropping fix 2 lets a
-   single genuine PPPx solve failure - URUM, DOY 365, ~5,989 m 3D RMS under elevation
-   weighting, the same station-day ``weighting_ablation.py``'s own docstring documents
-   for Direct STEC - into the oracle arm itself. That one row (of 5,442) moves the
-   oracle's *mean* floor from 0.125 m to 1.255 m, a tenfold inflation, while the *median*
-   floor moves from 0.0721 m to 0.0720 m - unchanged to three figures. Reporting the mean
-   as the headline after fix 2 would report a floor an order of magnitude too high
-   because of one row; this is why fix 3 must land together with fix 2, not separately.
+   This one is not cosmetic here the way it can look elsewhere: dropping fix 2 used to
+   let a single genuine PPPx solve failure - URUM, DOY 365, ~5,989 m 3D RMS under
+   elevation weighting, the same station-day ``weighting_ablation.py``'s own docstring
+   documents for Direct STEC - into the oracle arm itself. That one row (of 5,442) moved
+   the oracle's *mean* floor from 0.125 m to 1.255 m, a tenfold inflation, while the
+   *median* floor moved from 0.0721 m to 0.0720 m - unchanged to three figures. Reporting
+   the mean as the headline after fix 2 would have reported a floor an order of magnitude
+   too high because of one row; this is why fix 3 landed together with fix 2, not
+   separately. **2026-09-18 update:** that row is now excluded upstream instead, by
+   ``positioning_coverage``'s solver-failure rule (docs/revision/
+   positioning_reporting.md), independent of fix 2 above - it no longer reaches the
+   oracle arm at all. The fix 3 design decision stands regardless: the mean remains the
+   more outlier-sensitive statistic on whatever heavy tail is left in the paired
+   population, which is why the median stays the headline. Read the current mean/median
+   from ``summary.csv`` rather than the dated numbers above.
 
 **What did not change, and must not**: this stage still uses **elevation** weighting
 throughout - after the fixes above it is the *only* remaining difference from the
@@ -63,9 +70,12 @@ magnitude above it. Median-based ratios move from 11.5x / 14.1x / 15.8x (Direct 
 IGS GIM / VTEC + Mapping, old population, pre-fix) to 11.6x / 14.2x / 15.9x (new
 population, all three fixes applied) - a null result on ranking and on order of magnitude,
 not buried by the mean-based numbers' large swing (9.7x / 11.2x / 12.9x pre-fix to
-1.9x / 2.0x / 2.3x post-fix, entirely an artifact of the URUM/365 row landing in the
-now-unfiltered mean, never a real change in how close the mean-weighted arms are to the
-floor). A per-station robustness check (``station_median_check.csv``,
+1.9x / 2.0x / 2.3x post-fix, dated 2026-09-16 snapshots, entirely an artifact of the
+URUM/365 row landing in the then-unfiltered mean, never a real change in how close the
+mean-weighted arms are to the floor). **2026-09-18:** that row has since been excluded
+upstream by ``positioning_coverage``'s solver-failure rule, so current mean-based ratios
+in ``summary.csv`` no longer carry this artifact - read them there rather than the dated
+snapshot above. A per-station robustness check (``station_median_check.csv``,
 ``station_median_check`` below) compares the pooled median against the median of each
 station's own median and finds them close for all four methods (within roughly 5-8%),
 which is why the median headline is a genuine result and not itself an artifact of which
@@ -353,14 +363,17 @@ def station_median_check(paired: pd.DataFrame) -> pd.DataFrame:
 def summarise(paired: pd.DataFrame) -> pd.DataFrame:
     """Mean/median/p95 per method, plus two explicitly-named ratios to the oracle floor.
 
-    ``ratio_to_oracle_median`` is the headline (module docstring's fix 3): the oracle
-    floor and every baseline's error are dominated, in the *mean*, by a single genuine
-    PPPx solve failure (URUM, DOY 365, ~5,989 m 3D RMS under elevation weighting) now
-    that the 10 m outcome-based exclusion is gone. ``ratio_to_oracle_mean`` and
-    ``above_oracle_mean_m`` are kept only for the mean-vs-median sensitivity comparison
-    that decision is drawn from, never as a second number to report - the same
-    ``_mean``/``_median`` split ``weighting_ablation.py`` and ``storm_stratification.py``
-    already use for their own headlines.
+    ``ratio_to_oracle_median`` is the headline (module docstring's fix 3): the mean
+    remains the more outlier-sensitive statistic on whatever heavy tail is left in the
+    population, which is why it stays a sensitivity comparison rather than the number to
+    report. It used to be dominated by a single genuine PPPx solve failure (URUM, DOY
+    365, ~5,989 m 3D RMS under elevation weighting) once the 10 m outcome-based exclusion
+    was dropped; that row is now excluded upstream instead, by ``positioning_coverage``'s
+    2026-09-18 solver-failure rule (docs/revision/positioning_reporting.md).
+    ``ratio_to_oracle_mean`` and ``above_oracle_mean_m`` are kept only for the
+    mean-vs-median sensitivity comparison that decision is drawn from, never as a second
+    number to report - the same ``_mean``/``_median`` split ``weighting_ablation.py`` and
+    ``storm_stratification.py`` already use for their own headlines.
     """
     summary = pd.DataFrame(
         {

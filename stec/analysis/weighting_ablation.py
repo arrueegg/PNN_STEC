@@ -32,10 +32,16 @@ The 10 m station-day outlier rule (Figure 12 / Table 5) is reused from
 **Common-set headline: median, not mean (owner decision 2026-08-28, applied here
 2026-09-15).** `docs/revision/positioning_reporting.md` decided that positioning results
 are reported as medians and distributions, never means - this table was simply missed
-when that decision was made. The evidence is decisive on the common set itself: one
-station-day (URUM, DOY 365, a genuine PPPx solve failure at ~5,989 m under Direct
-STEC/elev) moves the Direct STEC elevation-weighted mean from 2.283 m to 1.706 m - a 25%
-swing from a single row out of 10,387 - while the median does not move at all.
+when that decision was made. The original evidence for that decision was one station-day
+(URUM, DOY 365, a genuine PPPx solve failure at ~5,989 m under Direct STEC/elev) moving
+the Direct STEC elevation-weighted mean by 25% while the median did not move at all.
+**2026-09-18: that row is now excluded upstream** by `positioning_coverage`'s
+solver-failure rule (a station-day where every one of the eight method/weighting arms
+exceeds 100 m 3D RMS - `docs/revision/positioning_reporting.md`), so it no longer appears
+in this table's population at all. The mean stays the more outlier-sensitive statistic on
+whatever tail remains: on the current common set (N=10,673) Direct STEC's
+elevation-weighted mean is 1.688 m against a median of 0.913 m
+(`weighting_ablation/rebuilt/common_set.csv`).
 `common_set_ablation` now reports `gain_median_%` as the headline figure; `gain_mean_%`
 and the `*_mean` columns are still written to `common_set.csv` for the mean-vs-median
 sensitivity comparison `positioning_reporting.md` argues from, not as a second number for
@@ -212,12 +218,14 @@ def common_set_ablation(
     `paired_ablation` reports (each correction's own elev+iono pairing, no cross-method
     restriction). No 10 m outlier exclusion is applied, for the same reason Table 5
     applies none (`docs/revision/positioning_reporting.md`): unlike `paired_ablation`,
-    which drops it. This leaves one genuine PPPx solve failure in the population
-    (~5,988 m under Direct STEC / elev, ~5,940 m under Direct STEC / iono, the same
-    station-day under both weightings), which inflates the mean substantially - Direct
-    STEC's elev mean moves from `paired_ablation`'s filtered 1.60 m to 2.28 m here, and
-    that single row alone accounts for a 25% swing in the elev mean (2.283 m with it,
-    1.706 m without). The median is unaffected by it either way.
+    which drops it. **2026-09-18:** the one genuine PPPx solve failure this population
+    used to carry regardless of that filter (URUM, DOY 365, ~5,988 m under Direct
+    STEC/elev and ~5,940 m under Direct STEC/iono) is now excluded upstream, by
+    `positioning_coverage`'s solver-failure rule (every one of the eight
+    method/weighting arms over 100 m) - a data-quality exclusion independent of this
+    stage's own outlier-filtering choice. The mean remains the more outlier-sensitive
+    statistic on whatever tail is left: on the current population (N=10,673) Direct
+    STEC's elevation-weighted mean is 1.688 m against a median of 0.913 m.
 
     **`gain_median_%` is the headline (owner decision 2026-08-28, applied 2026-09-15,
     see the module docstring): the mean-based `gain_mean_%` and the `*_mean` columns are
