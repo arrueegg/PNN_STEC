@@ -5,17 +5,17 @@
     "The overall/regime/population sections (Figures 12-15) are iono weighting only, read from POSITIONING alone. The common_set_* sections and TABLE5_COMMON_SET_NUMBERS.md additionally read WEIGHTING_RUN (both weightings) to define the population restriction, but still report iono weighting values within it - every output states 'iono' explicitly rather than leaving the weighting implicit.",
     "No outcome-based filter anywhere in this stage: every station-day in the coverage-repaired population counts. Where a figure needs a bounded axis to stay readable (stec.viz.positioning_distributions), only the *view* is clipped, never the data - the CSVs here always carry the true fliers.",
     "Reporting only the median would hide that Direct STEC produces more large errors than GIM does - a real, operationally important property of the method. Every percentile table here is paired with an exceedance table for exactly that reason; do not quote the median alone.",
-    "common_set_* and TABLE5_COMMON_SET_NUMBERS.md (2026-09-14, owner instruction) restrict the positioning-distribution table and the new per-component table to the station-days solved by all four methods under both weighting schemes (coverage_common_station_days, N=10,674 - moved 10,387 -> 10,674 (GIM-arm fix) -> briefly 9,606 (ref_source fix's first, whole-file-granularity pass, over-conservative) -> back to 10,674 (that fix's per-station follow-up) - a coverage-only intersection, no 10 m outlier exclusion. weighting_ablation.py's common_set.csv shares this exact population so the two manuscript tables report one N. Larger than common_set_positioning's own N=10,467 (moved 10,186 -> 10,468 -> briefly 9,417 -> 10,467 the same way; same eight arms) because that stage still applies the 10 m outlier rule; the 207-row gap (was 206, 189 at the low point, 201 before the GIM-arm fix) is exactly the station-days where at least one arm exceeds it - see coverage_common_station_days's own docstring for the verification.",
+    "common_set_* and TABLE5_COMMON_SET_NUMBERS.md (2026-09-14, owner instruction) restrict the positioning-distribution table and the new per-component table to the station-days solved by all four methods under both weighting schemes (coverage_common_station_days, N=10,673 - moved 10,387 -> 10,674 (GIM-arm fix) -> briefly 9,606 (ref_source fix's first, whole-file-granularity pass, over-conservative) -> back to 10,674 (that fix's per-station follow-up) -> 10,673 (2026-09-18 solver-failure exclusion, URUM DOY 365) - a coverage-only intersection, no 10 m outlier exclusion. weighting_ablation.py's common_set.csv shares this exact population so the two manuscript tables report one N. Larger than common_set_positioning's own N=10,467 (moved 10,186 -> 10,468 -> briefly 9,417 -> 10,467 the same way; same eight arms) because that stage still applies the 10 m outlier rule; the 207-row gap (was 206, 189 at the low point, 201 before the GIM-arm fix) is exactly the station-days where at least one arm exceeds it - see coverage_common_station_days's own docstring for the verification.",
     "common_set_boxplot_stats.csv/common_set_boxplot_fliers.csv/common_set_cdf_points.csv/common_set_regime_boxplot_stats.csv/common_set_daily_rows.csv (2026-09-15, results_register.md consistency item A) extend the same common-set restriction to Figures 12-15 and the standalone storm/quiet figure, which used to read the full per-method population (10,717-10,853 pre-2026-09-17, 10,803-10,912 after the GIM-arm fix, briefly 9,802-10,836 after the ref_source fix's whole-file pass, now 10,803-10,837 after that fix's per-station follow-up restored VTEC/Pretrained_STEC's own per-method row counts; see overall_percentile_summary.csv) while the other positioning tables already used the N=10,674 common set - the same positioning chapter reporting two N's. fig_population_split_boxplot is deliberately not moved: see this stage's module docstring section 6.",
     "The mean is preserved for comparison (percentile_summary's mean_m column, and positioning_summary's own superseded overall.csv) but is not the reported statistic: it is non-monotonic in the outlier-exclusion threshold and swings from negative to strongly positive depending on a threshold with no principled value - see docs/revision/positioning_reporting.md Sec 1."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_distributions --output-dir multiday_results/analyses/positioning_distributions/rebuilt",
   "description": "positioning error as distributions - median/IQR/p95/p99/exceedance, no outcome-based outlier filter, per method and by storm/quiet and original/recovered population",
-  "duration_s": 0.7,
+  "duration_s": 0.8,
   "fingerprint": "82397e8f1954597fd297a6ba46270db14a635ec28a1d7c0082e228832fb3df8f",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
@@ -183,7 +183,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T07:13:35.468461+00:00",
+  "recorded_at": "2026-09-21T12:43:17.167471+00:00",
   "stage": "positioning_distributions",
   "supersedes": []
 }

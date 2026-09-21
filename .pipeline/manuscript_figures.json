@@ -8,13 +8,13 @@
     "Figure 13's oracle variant (boxplot_3d_error_with_oracle, added 2026-09-17) additionally depends on oracle_benchmark and positioning_coverage - elevation weighting throughout, a different population from every other positioning figure in this stage (see stec.analysis.oracle_benchmark's module docstring for why) - and skips with a logged warning, not this stage's other figures, if either is missing."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
     "dirty": true
   },
   "command": "-m stec.viz.manuscript_figures",
   "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
-  "duration_s": 58.0,
-  "fingerprint": "04c33ad60004b4a8444fc2db0975c00482b389b9a65702f8c27220abf3ffe42f",
+  "duration_s": 58.1,
+  "fingerprint": "0784247c8fa17a3f21873588e67df5e411000101b7d08be444e4bcd0db213823",
   "inputs": {
     "multiday_results/analyses/daily_metrics/rebuilt": {
       "files": 5,
@@ -43,8 +43,8 @@
     "multiday_results/analyses/positioning_distributions/rebuilt": {
       "files": 47,
       "kind": "tree",
-      "mtime_ns": 1789715615419663800,
-      "size": 5723720
+      "mtime_ns": 1789994597121022389,
+      "size": 5725208
     },
     "multiday_results/analyses/pretrained_test_diagnostics/rebuilt": {
       "files": 4,
@@ -72,7 +72,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T08:03:14.626194+00:00",
+  "recorded_at": "2026-09-21T12:46:18.766063+00:00",
   "stage": "manuscript_figures",
   "supersedes": []
 }

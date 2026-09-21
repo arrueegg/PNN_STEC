@@ -6,13 +6,13 @@
     "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
     "dirty": true
   },
   "command": "-m stec.viz.revision_figures",
   "description": "one PNG per revision figure, plus the _notitle manuscript variants",
-  "duration_s": 26.1,
-  "fingerprint": "47fa995ddc8adbeba817de837734ada848d88d7d74dca0d5c84d38b9f7a9ae71",
+  "duration_s": 25.6,
+  "fingerprint": "b327dcd40abe0b0c093055b690e27236cd49c093c3854a880354229b88ca439e",
   "inputs": {
     "multiday_results/analyses/activity_stratification/rebuilt": {
       "files": 3,
@@ -53,8 +53,8 @@
     "multiday_results/analyses/positioning_robustness/rebuilt": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1789715482831036828,
-      "size": 2379
+      "mtime_ns": 1789994596325018478,
+      "size": 2416
     },
     "multiday_results/analyses/station_independence/rebuilt": {
       "files": 3,
@@ -71,8 +71,8 @@
     "multiday_results/analyses/storm_stratification/rebuilt": {
       "files": 4,
       "kind": "tree",
-      "mtime_ns": 1789715459038924872,
-      "size": 2779
+      "mtime_ns": 1789994595893016356,
+      "size": 2816
     },
     "multiday_results/analyses/stratified_comparison/rebuilt": {
       "files": 5,
@@ -95,8 +95,8 @@
     "multiday_results/analyses/weighting_ablation/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789718383496990820,
-      "size": 6811
+      "mtime_ns": 1789994595057012250,
+      "size": 6965
     },
     "multiday_results/relative_error_metrics.csv": {
       "kind": "file",
@@ -120,7 +120,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T08:31:21.359266+00:00",
+  "recorded_at": "2026-09-21T12:45:20.615379+00:00",
   "stage": "figures",
   "supersedes": []
 }

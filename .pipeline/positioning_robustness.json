@@ -2,10 +2,10 @@
   "answers": "R2.7b",
   "canonical_for": null,
   "caveats": [
-    "Restricted to the same 4-method x 2-weighting common set the positioning tables use (N=10,674 - see positioning_coverage's caveats for the full 10,387 -> 10,674 -> briefly 9,606 -> 10,674 history) and the 10 m outcome-based outlier exclusion dropped, matching the other positioning tables (owner decision applied 2026-09-15 - see the module docstring). tail_distribution.csv reports median first (headline); error_components.csv gained _median_m columns as the headline, alongside the pre-existing mean-based columns (now suffixed _mean_m) kept only for the sensitivity comparison."
+    "Restricted to the same 4-method x 2-weighting common set the positioning tables use (N=10,673 - see positioning_coverage's caveats for the full 10,387 -> 10,674 -> briefly 9,606 -> 10,674 -> 10,673 (solver-failure exclusion) history) and the 10 m outcome-based outlier exclusion dropped, matching the other positioning tables (owner decision applied 2026-09-15 - see the module docstring). tail_distribution.csv reports median first (headline); error_components.csv gained _median_m columns as the headline, alongside the pre-existing mean-based columns (now suffixed _mean_m) kept only for the sensitivity comparison."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_robustness --output-dir multiday_results/analyses/positioning_robustness/rebuilt",
@@ -31,7 +31,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T07:11:22.864008+00:00",
+  "recorded_at": "2026-09-21T12:43:16.354649+00:00",
   "stage": "positioning_robustness",
   "supersedes": []
 }
