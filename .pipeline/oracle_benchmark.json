@@ -1,0 +1,41 @@
+{
+  "answers": "R1.8",
+  "canonical_for": "R1.8 observation-derived oracle PPP benchmark",
+  "caveats": [
+    "NOT comparable with the positioning-distribution table on absolute values: it uses elev weighting, because the reference STEC carries only a placeholder sigma so iono would weight by a constant. Since 2026-09-16 it is otherwise matched to those tables - same four-method/both-weighting common set, no 10 m exclusion, median headline - so elev weighting is the ONLY remaining difference, which is exactly when it starts looking like a detail worth tidying away. It is permanent and physical.",
+    "Read ratios to the floor within this table. Take absolute positioning numbers from the positioning-distribution table.",
+    "Methodology matched to the positioning tables 2026-09-16 (owner instruction, reversing the earlier 'permanently incomparable' position). Dropping the 10 m filter used to let one genuine PPPx solve failure (URUM, DOY 365, ~5,989 m under elev weighting) into the oracle arm, inflating the MEAN floor roughly tenfold while the median floor stayed unchanged to three figures - which is why the median is the headline and ratio_to_oracle_mean must not be quoted. **2026-09-18: that row is now excluded upstream** by positioning_coverage's solver-failure rule (docs/revision/positioning_reporting.md), independent of this stage's own dropped 10 m filter, so it no longer reaches the oracle arm at all - the median stays the headline regardless, because the mean remains the more outlier-sensitive statistic on whatever heavy tail is left (current oracle floor: mean 0.142 m against median 0.070 m over N=8,509, summary.csv). The conclusion has survived every methodology change so far: median-based ratios for Direct STEC / IGS GIM / VTEC + Mapping read 11.5x/14.1x/15.8x on the original 5,514-station-day population, 11.6x/14.2x/15.9x after the common-set and filter fixes (N=5,442), and 11.4x/14.7x/16.3x after the 2026-09-16 coverage recovery (N=8,223). Read the current values from summary.csv; the numbers above are dated snapshots kept to show the finding is robust, not numbers to quote.",
+    "Station coverage: 54 of the common set's 55 stations appear. PARC is absent because it has no reference-STEC corrections generated at all - an upstream data-generation gap, not a solving gap. The 2026-09-16 recovery solved 4,354 of 4,493 missing station-days (96.9%), taking the paired population from 5,442 to 8,223 and the top-15-station share from 60% to 41%, with per-station coverage median rising from ~113 to 188 days. station_median_check.csv's pooled-versus-per-station-median agreement tightened from 5-8% to 3.6-4.9%, so the headline is not an artifact of the well-covered stations. Eight stations remain under 20 station-days, contributing 0.8% between them, but seven of those are FULLY solved against their available corrections - their thinness comes from the common-set intersection being sparse for them across all four methods, which no further oracle solving can fix. Only GLSV is an oracle-side failure: PPPx SIGSEGVs on it (missing Galileo PRN16 antenna calibration, 'no E16'), costing 95 of the 139 unrecovered station-days."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.oracle_benchmark --output-dir multiday_results/analyses/oracle_benchmark/rebuilt",
+  "description": "positioning floor from reference STEC, on its own restricted set",
+  "duration_s": 99.7,
+  "fingerprint": "b2011eed9795cf0d6d3af3af876a79b7e8e14cda2c3e6b7e4f75973111ca6202",
+  "inputs": {
+    "experiments/Reference_STEC_Oracle": {
+      "files": 58688,
+      "kind": "tree",
+      "mtime_ns": 1789557003511682111,
+      "size": 44705367953
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "kind": "file",
+      "sha256": "51234d43dde2c13fe23bca535bda751ad8fab9c817a390380062a45fc0072500",
+      "size": 29262814
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/oracle_benchmark/rebuilt": {
+      "present": true,
+      "size": 180
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T08:01:24.216052+00:00",
+  "stage": "oracle_benchmark",
+  "supersedes": []
+}

@@ -45,7 +45,7 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function: MSELoss, MAELoss, GaussianNLLLoss
-  loss_weight: 1.0                  # Weight for the loss function
+  loss_weight: 0.1                  # KL weight; must equal kl_annealing.end_weight below
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:

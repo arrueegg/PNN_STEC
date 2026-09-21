@@ -57,7 +57,7 @@ from torch.utils.data import DataLoader
 
 # Reuse the existing GNSS-log inference pipeline by importing its building blocks.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from infer_from_log import (  # noqa: E402  (path setup above)
@@ -68,10 +68,10 @@ from infer_from_log import (  # noqa: E402  (path setup above)
     resolve_finetune_experiment,
     run_inference,
 )
-from utils.config_parser import load_config  # noqa: E402
-from utils.feature_registry import initialize_feature_registry  # noqa: E402
-from data_loader.collation import CollateWithSH  # noqa: E402
-from training.data_transforms import DataTransforms  # noqa: E402
+from stec.config.config_parser import load_config  # noqa: E402
+from stec.data.feature_registry import initialize_feature_registry  # noqa: E402
+from stec.data.collation import CollateWithSH  # noqa: E402
+from stec.training.data_transforms import DataTransforms  # noqa: E402
 
 
 # Physical constants for STEC → group-delay conversion.

@@ -1,0 +1,77 @@
+{
+  "answers": "R1.3",
+  "canonical_for": "Madrigal per-station reference-offset diagnostic (R1.3) - descriptive only, not a manuscript results table",
+  "caveats": [
+    "Read only alongside madrigal_reference_offset, never standalone: 45% of the RMSE variance is a per-station reference offset, not model error.",
+    "Does not support claims about the model's out-of-distribution uncertainty - dataset shift and reference-chain difference are confounded here.",
+    "Removing a per-station offset fitted on the same data can only reduce RMSE/MAE, never increase it - with ~67 station parameters against ~449M observations the resulting optimism is negligible, but it is not exactly zero. Stated in FINDINGS.md, not left for a reader to wonder about.",
+    "The before/after comparison is restricted to the row set all four methods have a finite prediction for, and to stations clearing madrigal_reference_offset.MIN_OBSERVATIONS_PER_STATION - see row_intersection_diagnostics.csv for whether that population differs meaningfully from the full store daily_metrics reports against.",
+    "Owner decision, 2026-09-14: the offset-removed re-scoring in this stage's output (FINDINGS.md's 'SENSITIVITY DIAGNOSTIC' section, pooled_before_after.csv's *_after columns) is fitted on the evaluation data and reverses the method ranking in the paper's favour. It must NOT be quoted in the manuscript or the response letter as a corrected result, and must NOT be used to re-rank the methods. The plain, uncorrected comparison - matching daily_metrics/Table 4, VTEC + Mapping lowest RMSE and MAE and highest R2 on Madrigal - is the result; see docs/revision/manuscript_change_list.md for the decision record."
+  ],
+  "code": {
+    "commit": "b79e1c79f98b5a1e432d03673037ea6578992081",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.madrigal_method_offset_comparison --output-dir multiday_results/analyses/madrigal_method_offset_comparison/rebuilt",
+  "description": "whether VTEC + Mapping's Madrigal win over Direct STEC survives the same per-station reference-offset correction, for all four methods on identical rows",
+  "duration_s": 91.1,
+  "fingerprint": "4217b6be94f04d5ffdd7674ef04bc83129fa0b6915674b812b569aa32aaaa6d9",
+  "inputs": {
+    "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
+      "kind": "file",
+      "sha256": "58527adb6102fc5a873cfadf1322b16fc11be913fa95865851445a692a5374f5",
+      "size": 3106
+    },
+    "predictions/finetuned_stec/madrigal": {
+      "files": 238,
+      "kind": "tree",
+      "mtime_ns": 1787986645089832423,
+      "size": 38131901134
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt": {
+      "present": true,
+      "size": 776
+    },
+    "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/FINDINGS.md": {
+      "present": true,
+      "sha256": "bf9272b69c186ee757dca95641b8bcdf3795728ff55b618bf6e4c0a432cb23c8",
+      "size": 5922
+    },
+    "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/correctness_check_vs_daily_metrics.csv": {
+      "present": true,
+      "rows": 4,
+      "sha256": "d0d35afe5076306be423edbcdd0ba6edf17c18c03cf3193b49dbad507ad5a61f",
+      "size": 357
+    },
+    "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/offset_correlation.csv": {
+      "present": true,
+      "rows": 6,
+      "sha256": "e438335724d838c9c89338302f9bad0a401e22796b3042316505632b46dce31b",
+      "size": 751
+    },
+    "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/per_station_offsets.csv": {
+      "present": true,
+      "rows": 67,
+      "sha256": "283a5de942ac70bd585a08ea169bdb02957304be3ac588089cfa9bb971f806e2",
+      "size": 5958
+    },
+    "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/pooled_before_after.csv": {
+      "present": true,
+      "rows": 4,
+      "sha256": "eadd820f3263777fdaa26e322bbe0f73a268d971f149a17bc3c5378d7d364fd2",
+      "size": 683
+    },
+    "multiday_results/analyses/madrigal_method_offset_comparison/rebuilt/row_intersection_diagnostics.csv": {
+      "present": true,
+      "rows": 5,
+      "sha256": "4d50ac1777d63224fb54fec9332413f91268ddb364fb67788f75aa6aeb37c2df",
+      "size": 264
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-15T16:10:54.492111+00:00",
+  "stage": "madrigal_method_offset_comparison",
+  "supersedes": []
+}

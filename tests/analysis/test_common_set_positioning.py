@@ -1,0 +1,276 @@
+"""Tests for `stec.analysis.common_set_positioning` (R1.5 reviewer-response numbers, not a
+printed manuscript table - see `stec/pipeline/stages.py`'s `common_set_positioning` stage).
+
+Fixtures are written as small CSVs under `tmp_path` rather than depending on the live
+checkout's positioning trees - `build()` reads paths, so this exercises the real read
+path (`load_tree`, `load_pretrained_elev`) rather than only the in-memory aggregation.
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+import pytest
+
+from stec.analysis import common_set_positioning as csp
+
+
+def row(station: str, doy: int, method: str, error_3d: float) -> dict:
+    return {
+        "station": station,
+        "doy": doy,
+        "method": method,
+        "error_3d_rms": error_3d,
+        "error_2d_rms": error_3d / 2,
+        "u_rms": error_3d / 4,
+    }
+
+
+def write_csv(path, rows: list[dict]) -> None:
+    # An empty `rows` still needs the header row - `load_tree` reads with
+    # `usecols=lambda c: c in COLUMNS`, which fails on a headerless empty file.
+    frame = (
+        pd.DataFrame(rows, columns=csp.COLUMNS)
+        if rows
+        else pd.DataFrame(columns=csp.COLUMNS)
+    )
+    frame.to_csv(path, index=False)
+
+
+# ---------------------------------------------------------------------------
+# build(): intersection across arms, and the reported N
+# ---------------------------------------------------------------------------
+
+
+def test_build_restricts_to_the_station_days_solved_by_every_arm(tmp_path):
+    """STEC_iono is missing ZIMM/132 (present for gim_iono), so ZIMM/132 must be dropped
+    from the common set even though gim_iono solved it - the intersection, not the union."""
+    three_way = tmp_path / "three_way.csv"
+    write_csv(
+        three_way,
+        [
+            row("AMC4", 132, "STEC_iono", 2.0),
+            row("AMC4", 132, "gim_iono", 4.0),
+            row("ZIMM", 132, "gim_iono", 5.0),  # STEC_iono missing for ZIMM/132
+        ],
+    )
+    ablation = tmp_path / "ablation.csv"
+    write_csv(ablation, [])  # no additional arms in this fixture
+    empty_experiment = tmp_path / "no_such_experiment"
+
+    result = csp.build(three_way, ablation, empty_experiment)
+
+    assert (
+        result["arms"] == 2
+    )  # "Direct STEC / uncertainty", "IGS GIM + Mapping / uncertainty"
+    assert result["common_station_days"] == 1  # only AMC4/132 solved by both arms
+    summary = result["summary"]
+    assert summary.loc["Direct STEC / uncertainty", "station_days"] == 1
+    assert summary.loc["IGS GIM + Mapping / uncertainty", "station_days"] == 1
+    # gim_iono had 2 station-days before the intersection, 1 after.
+    assert summary.loc["IGS GIM + Mapping / uncertainty", "lost_to_intersection"] == 1
+    assert summary.loc["Direct STEC / uncertainty", "lost_to_intersection"] == 0
+
+
+def test_build_reports_gain_relative_to_the_uncertainty_weighted_gim_baseline(tmp_path):
+    three_way = tmp_path / "three_way.csv"
+    write_csv(
+        three_way,
+        [
+            row("AMC4", 132, "STEC_iono", 3.0),
+            row("AMC4", 132, "gim_iono", 6.0),
+            row("ZIMM", 133, "STEC_iono", 1.0),
+            row("ZIMM", 133, "gim_iono", 4.0),
+        ],
+    )
+    ablation = tmp_path / "ablation.csv"
+    write_csv(ablation, [])
+    empty_experiment = tmp_path / "no_such_experiment"
+
+    result = csp.build(three_way, ablation, empty_experiment)
+    summary = result["summary"]
+
+    # Direct STEC beats the GIM baseline on both station-days: 3 vs 6, 1 vs 4.
+    stec_row = summary.loc["Direct STEC / uncertainty"]
+    assert stec_row["win_rate_pct"] == pytest.approx(100.0)
+    assert stec_row["gain_paired_mean_pct"] > 0
+    # The baseline compared with itself must show zero gain and a 0% win rate.
+    gim_row = summary.loc["IGS GIM + Mapping / uncertainty"]
+    assert gim_row["gain_paired_mean_pct"] == pytest.approx(0.0)
+    assert gim_row["win_rate_pct"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Outlier rule: corrected to <= (matching positioning_summary/oracle_benchmark)
+# ---------------------------------------------------------------------------
+
+
+def test_outlier_boundary_at_exactly_10m_is_kept_not_dropped(tmp_path):
+    """The live checkout's version of this analysis used a strict `<` here while the
+    other two positioning analyses use `<=`; this port standardises on `<=` via
+    `pm.exclude_outlier_station_days`, so a station-day at exactly 10.0 m must survive."""
+    three_way = tmp_path / "three_way.csv"
+    write_csv(
+        three_way,
+        [
+            row("AMC4", 132, "STEC_iono", 10.0),  # exactly at the boundary
+            row("AMC4", 132, "gim_iono", 10.0),
+        ],
+    )
+    ablation = tmp_path / "ablation.csv"
+    write_csv(ablation, [])
+    empty_experiment = tmp_path / "no_such_experiment"
+
+    result = csp.build(three_way, ablation, empty_experiment)
+
+    assert result["common_station_days"] == 1
+
+
+# ---------------------------------------------------------------------------
+# load_pretrained_elev: the one arm read from per-day summaries, not a tree CSV
+# ---------------------------------------------------------------------------
+
+
+def test_load_pretrained_elev_reads_and_relabels_model_rows(tmp_path):
+    experiment = tmp_path / "Pretrain_STEC_example"
+    day_dir = experiment / "positioning" / "results" / "2024132"
+    day_dir.mkdir(parents=True)
+    write_csv(
+        day_dir / "daily_summary.csv",
+        [
+            row("AMC4", 132, "model", 3.0),  # the pretrained elevation run
+            row("AMC4", 132, "gim", 5.0),  # not the arm this function extracts
+        ],
+    )
+
+    frame = csp.load_pretrained_elev(experiment)
+
+    assert list(frame["method"]) == ["Pretrained_STEC_elev"]
+    assert frame.iloc[0]["error_3d_rms"] == pytest.approx(3.0)
+
+
+def test_load_pretrained_elev_returns_empty_frame_when_experiment_has_no_summaries(
+    tmp_path,
+):
+    frame = csp.load_pretrained_elev(tmp_path / "no_such_experiment")
+
+    assert frame.empty
+    assert list(frame.columns) == csp.COLUMNS
+
+
+# ---------------------------------------------------------------------------
+# build(): the solver-failure exclusion (owner decision 2026-09-18) must reach the
+# Pretrained_STEC_elev arm too, even though load_pretrained_elev reads a live
+# experiment tree's raw per-day files rather than positioning_coverage's own already-
+# filtered rebuilt summaries.
+# ---------------------------------------------------------------------------
+
+
+def test_build_drops_a_solver_failure_station_day_from_the_pretrained_elev_arm(
+    tmp_path, monkeypatch
+):
+    three_way = tmp_path / "three_way.csv"
+    write_csv(
+        three_way,
+        [row("AMC4", 132, "STEC_iono", 2.0), row("AMC4", 132, "gim_iono", 4.0)],
+    )
+    ablation = tmp_path / "ablation.csv"
+    write_csv(ablation, [])
+    experiment = tmp_path / "Pretrain_STEC_example"
+    day_dir = experiment / "positioning" / "results" / "2024132"
+    day_dir.mkdir(parents=True)
+    write_csv(day_dir / "daily_summary.csv", [row("URUM", 132, "model", 5900.0)])
+
+    coverage_dir = tmp_path / "positioning_coverage"
+    coverage_dir.mkdir()
+    pd.DataFrame([{"station": "URUM", "doy": 132}]).to_csv(
+        coverage_dir / csp.EXCLUDED_SOLVER_FAILURES_FILENAME, index=False
+    )
+    monkeypatch.setattr(csp, "POSITIONING_COVERAGE_DIR", coverage_dir)
+
+    result = csp.build(three_way, ablation, experiment)
+
+    # Without the fix, URUM/132 would surface as a one-station-day
+    # "Pretrained Direct STEC / elevation" arm even though it can never reach the
+    # actual common set (missing from every other arm already).
+    assert "Pretrained Direct STEC / elevation" not in result["summary"].index
+
+
+def test_build_keeps_pretrained_elev_rows_not_in_the_exclusion_file(
+    tmp_path, monkeypatch
+):
+    three_way = tmp_path / "three_way.csv"
+    write_csv(
+        three_way,
+        [row("AMC4", 132, "STEC_iono", 2.0), row("AMC4", 132, "gim_iono", 4.0)],
+    )
+    ablation = tmp_path / "ablation.csv"
+    write_csv(ablation, [])
+    experiment = tmp_path / "Pretrain_STEC_example"
+    day_dir = experiment / "positioning" / "results" / "2024132"
+    day_dir.mkdir(parents=True)
+    write_csv(day_dir / "daily_summary.csv", [row("AMC4", 132, "model", 3.0)])
+
+    # No excluded_solver_failures.csv under this tmp_path - solver_failure_station_day_
+    # set() must tolerate that (see its own docstring) rather than erroring or, worse,
+    # falling back to the real checkout's exclusion file.
+    monkeypatch.setattr(csp, "POSITIONING_COVERAGE_DIR", tmp_path / "no_such_dir")
+
+    result = csp.build(three_way, ablation, experiment)
+
+    assert "Pretrained Direct STEC / elevation" in result["summary"].index
+
+
+# ---------------------------------------------------------------------------
+# coverage_common_station_days: the shared Table 5 / weighting-ablation population
+# (owner instruction, 2026-09-14) - coverage-only, no 10 m outlier exclusion, unlike
+# build()'s own common set above.
+# ---------------------------------------------------------------------------
+
+
+def write_all_weightings_csv(path, rows: list[dict]) -> None:
+    pd.DataFrame(rows, columns=["station", "doy", "method", "error_3d_rms"]).to_csv(
+        path, index=False
+    )
+
+
+def all_eight_arms(station: str, doy: int, error_3d: float = 1.0) -> list[dict]:
+    return [
+        {"station": station, "doy": doy, "method": method, "error_3d_rms": error_3d}
+        for method in csp.COVERAGE_COMMON_SET_METHODS
+    ]
+
+
+def test_coverage_common_station_days_requires_every_one_of_the_eight_arms(tmp_path):
+    path = tmp_path / "all_weightings.csv"
+    rows = all_eight_arms("AMC4", 132)
+    # ZIMM/133 is missing its STEC_elev row - one arm short of the eight required.
+    rows += [r for r in all_eight_arms("ZIMM", 133) if r["method"] != "STEC_elev"]
+    write_all_weightings_csv(path, rows)
+
+    common = csp.coverage_common_station_days(path)
+
+    assert list(common) == [("AMC4", 132)]
+
+
+def test_coverage_common_station_days_applies_no_outlier_exclusion(tmp_path):
+    """Unlike build(), a station-day with an arm above 10 m must still count - the
+    whole point of this function is a coverage-only intersection."""
+    path = tmp_path / "all_weightings.csv"
+    rows = all_eight_arms("AMC4", 132, error_3d=1.0)
+    rows[0]["error_3d_rms"] = 5988.0  # a genuine PPPx solve failure, still present
+    write_all_weightings_csv(path, rows)
+
+    common = csp.coverage_common_station_days(path)
+
+    assert list(common) == [("AMC4", 132)]
+
+
+def test_coverage_common_station_days_counts_every_qualifying_station_day(tmp_path):
+    path = tmp_path / "all_weightings.csv"
+    rows = all_eight_arms("AMC4", 132) + all_eight_arms("ZIMM", 133)
+    write_all_weightings_csv(path, rows)
+
+    common = csp.coverage_common_station_days(path)
+
+    assert len(common) == 2
+    assert set(common) == {("AMC4", 132), ("ZIMM", 133)}

@@ -1,0 +1,37 @@
+{
+  "answers": "R2.1",
+  "canonical_for": "R2.1 interpolation/extrapolation temporal split",
+  "caveats": [
+    "Answers the R2.1 reviewer-response number (14.05 vs 7.65 TECU, 26.9% vs 31.0% normalised), not a printed manuscript table - the manuscript has 5 tables and no lettered appendix.",
+    "relative_error_metrics (above) already writes a same-named temporal_regime_comparison.csv into its own directory and already answers R2.1's numbers, but by parsing total_metrics_summary.txt files that src/inference_testset.py's live run wrote under experiments/ - a reader of src/'s output, not an independent computation, and it cannot run once src/ or that experiment directory is gone. This stage computes the same comparison directly from predictions/pretrained_stec/own, with no src/ dependency. relative_error_metrics's own Stage leaves canonical_for unset, so the two do not collide, but a human should eventually decide whether relative_error_metrics's regime half is worth keeping once src/ retires.",
+    "src/'s split_test_data_by_date builds year/doy from a truncating int() on a denormalised float, the same class of bug repair_gim_baseline exists to fix elsewhere - but it was never fixed at this site. This stage reads year/doy from the store's own directory partition instead (authoritative, never reconstructed from a float), which sidesteps the bug rather than reproducing it. Verified to reproduce the src/-produced CSV's RMSE to 4 decimal places and row counts exactly (4,400,934 / 5,599,066) - this particular boundary (2024-05-01) does not fall on one of the truncation-affected days, so the bug happens not to move this specific number, but that is a property of this boundary, not a guarantee of the original code."
+  ],
+  "code": {
+    "commit": "3a56d7fd56436927399fb5f2144ff6900c8d3a80",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.temporal_regime_split --output-dir multiday_results/analyses/temporal_regime_split/rebuilt",
+  "description": "interpolation vs extrapolation regime comparison, recomputed from the prediction store instead of src/'s temporal_analysis text files",
+  "duration_s": 3.0,
+  "fingerprint": "4192e4163e01e576fce8aa35a3575e2dd88bf101984f595a548444a8c84e1ec5",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/temporal_regime_split/rebuilt/temporal_regime_comparison.csv": {
+      "present": true,
+      "rows": 2,
+      "sha256": "c36d5048d594c6704750427ff7d1c975789973a51a29adfb1d1a3dfed90432e1",
+      "size": 353
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-24T15:44:15.956305+00:00",
+  "stage": "temporal_regime_split",
+  "supersedes": []
+}

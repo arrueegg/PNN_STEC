@@ -1,0 +1,21 @@
+{
+  "category": "superseded",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_20260212_1441",
+  "label": "positioning_20260212_1441",
+  "notes": "Matches CLAUDE.md's 'positioning_2026*' glob.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/multiday_results_positioning_20260212_1441.json": {
+      "present": true,
+      "sha256": "68985c641c0c19e6d0cd5bd4d2c102433dbc47151ba6b0a10015a408da550742",
+      "size": 555
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.604232+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_20260212_1441",
+  "stage": "migrate_multiday_results_positioning_20260212_1441"
+}

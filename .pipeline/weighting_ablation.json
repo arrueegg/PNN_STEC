@@ -1,0 +1,45 @@
+{
+  "answers": "R2.5",
+  "canonical_for": "Table 8",
+  "caveats": [
+    "common_set.csv (2026-09-14, owner instruction) restricts the elev-vs-iono comparison to positioning_distributions's own common set (coverage_common_station_days, N=10,673 - see that stage's caveats for the full history: N=10,387 pre-fix, N=10,674 after the GIM-arm fix, an overly conservative N=9,606 for a few hours after the ref_source fix's first, whole-file-granularity pass, restored to N=10,674 once that fix's per-station follow-up landed, and N=10,673 since the 2026-09-18 solver-failure exclusion of URUM, DOY 365) instead of paired.csv's per-correction pairing (10,366/10,640/10,733 as of 2026-09-14, not re-derived here), so the manuscript's weighting-ablation table and the positioning-distribution table share one N. No 10 m outlier exclusion is applied there, unlike paired.csv - but as of 2026-09-18 common_set.csv no longer carries the one genuine PPPx solve failure this used to leave in regardless (URUM, DOY 365, ~5,988 m under Direct STEC, both weightings): that row is now excluded upstream, by positioning_coverage's solver-failure rule, independent of this stage's own outlier-filtering choice.",
+    "common_set.csv's headline is gain_median_%, not gain_mean_% (2026-09-15, owner instruction - docs/revision/positioning_reporting.md's median-not-mean decision, 2026-08-28, had missed this table). Before 2026-09-18, the single PPPx solve failure above (URUM, DOY 365) moved the Direct STEC elevation-weighted mean by 25% on its own across three successive population sizes (2.283 m with it / 1.706 m without, as of 2026-09-14; then 2.249 m over N=10,674 after the GIM-arm fix; briefly 2.355 m over an artificially smaller N=9,606 mid-ref_source-fix). **2026-09-18: that row is now excluded upstream** by positioning_coverage's solver-failure rule, so it is gone from the population entirely rather than merely present-with-caveats - the current common set (N=10,673) reads a Direct STEC elevation-weighted mean of 1.688 m against a median of 0.913 m (common_set.csv). The mean remains the more outlier-sensitive statistic on whatever tail is left, which is why the median stays the headline. elev_mean/iono_mean/gain_mean_% are still written to the CSV, but only for the mean-vs-median sensitivity comparison that document argues from - they are not a second number for the manuscript to quote. common_set.csv also now carries a Pretrained Direct STEC row: Pretrained_STEC_elev/iono were already in multiday_summary_all_weightings.csv, this table just hadn't read them."
+  ],
+  "code": {
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
+    "dirty": false
+  },
+  "command": "-m stec.analysis.weighting_ablation --output-dir multiday_results/analyses/weighting_ablation/rebuilt",
+  "description": "elevation against predicted-uncertainty weighting, paired station-days",
+  "duration_s": 1.2,
+  "fingerprint": "a7e7b28c4d83df9474d46fc32f0e986ebb54ddc7285624aa0386825b9775b177",
+  "inputs": {
+    "experiments/Fixed_Variance_STEC/positioning/results": {
+      "files": 26950,
+      "kind": "tree",
+      "mtime_ns": 1786761397395579002,
+      "size": 4705684866
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "kind": "file",
+      "sha256": "51234d43dde2c13fe23bca535bda751ad8fab9c817a390380062a45fc0072500",
+      "size": 29262814
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/weighting_ablation/rebuilt": {
+      "present": true,
+      "size": 162
+    },
+    "multiday_results/analyses/weighting_ablation/rebuilt/common_set.csv": {
+      "present": true,
+      "rows": 4,
+      "sha256": "9a4572696e2f9dc220fcdc2fac0c6613551000e5f84f5eb4c19231c30d0e5914",
+      "size": 639
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-21T12:43:15.416647+00:00",
+  "stage": "weighting_ablation",
+  "supersedes": []
+}

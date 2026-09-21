@@ -1,0 +1,35 @@
+{
+  "answers": "R2.3",
+  "canonical_for": null,
+  "caveats": [
+    "Population: pretrained model, own test set, 2024 only (DOY 122-366) - predictions/pretrained_stec/own holds a fixed random subset of the test split (10,000,000 observations spanning 2014-2024, all 242 days of 2024 among them - see stec.analysis.pretrained_test_diagnostics's docstring), not the full test set the daily fine-tuned model is scored against.",
+    "Limited by n = 58 test stations (this stage's own per_station.csv row count), not by observation count. Adding days sharpens each point but does not sharpen the Spearman coefficient.",
+    "Strengthening this result needs a region-held-out retrain, not more data."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.station_independence --model-variant pretrained_stec --years 2024 --output-dir multiday_results/analyses/station_independence_pretrained/rebuilt",
+  "description": "test-station error against distance to the nearest training station, for the pretrained model on the same 2024 population as station_independence",
+  "duration_s": 2.5,
+  "fingerprint": "4192e4163e01e576fce8aa35a3575e2dd88bf101984f595a548444a8c84e1ec5",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/station_independence_pretrained/rebuilt": {
+      "present": true,
+      "size": 68
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-17T13:01:55.890884+00:00",
+  "stage": "station_independence_pretrained",
+  "supersedes": []
+}

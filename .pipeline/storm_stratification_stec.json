@@ -1,0 +1,59 @@
+{
+  "answers": "R1.4/R1.7",
+  "canonical_for": null,
+  "caveats": [
+    "Classifies a day as storm when its daily minimum Dst reaches -50 nT (STORM_DST_THRESHOLD_NT, imported from storm_stratification.py, not duplicated). This is a different, deliberately kept-separate threshold from the per-observation Kp>=37/Dst<=-33 rule in src/analysis/scenario_evaluation.py, which classifies individual hours rather than days and is dormant (evaluation.enable_scenarios defaults False). Do not port one rule's day count into the other's table.",
+    "Every method within a dataset is stratified over the same day set (inner join on doy against the shared per_day.csv), so the four methods are compared over identical populations, not each method's own count.",
+    "STEC-domain per-observation prediction accuracy, not positioning error - see storm_stratification.py (R2.7) for the positioning-domain counterpart, which uses the same daily Dst rule and threshold but a disjoint population (PPPx station-days, not test-set observations).",
+    "strongest_storm_days.csv uses a separate, fixed -300 nT threshold (EXTREME_STORM_DST_THRESHOLD_NT) to surface the two great storms of the 2024 test period individually, rather than folding them into the same storm bucket as a day that only just crossed -50 nT."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.storm_stratification_stec --output-dir multiday_results/analyses/storm_stratification_stec/rebuilt",
+  "description": "STEC prediction accuracy on storm against quiet days - the STEC-domain counterpart to storm_stratification.py's positioning-domain split",
+  "duration_s": 1.2,
+  "fingerprint": "ae69eb880bf0c31c24e620cfbf9c77ae1c0ef20c2ebe82a59fdab3831e4cf89e",
+  "inputs": {
+    "data/omni_hourly_2010-2025.h5": {
+      "kind": "file",
+      "sha256": "e9625d79287f7c7c840468417a437c6ef482636b629c3cc652ef0b380678a27a",
+      "size": 33024928
+    },
+    "multiday_results/analyses/daily_metrics/rebuilt": {
+      "files": 5,
+      "kind": "tree",
+      "mtime_ns": 1789480276881902155,
+      "size": 361273
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/storm_stratification_stec/rebuilt": {
+      "present": true,
+      "size": 118
+    },
+    "multiday_results/analyses/storm_stratification_stec/rebuilt/by_regime.csv": {
+      "present": true,
+      "rows": 16,
+      "sha256": "156f1f7978bacf12e1a6d1c62544739b53139eebfdf026f182b7acdeb4321d28",
+      "size": 2801
+    },
+    "multiday_results/analyses/storm_stratification_stec/rebuilt/day_classification.csv": {
+      "present": true,
+      "rows": 242,
+      "sha256": "0f70b7fcb4c2c8a963e2b1efbe3263b2b91596d12af165ae9d93a00b23ab536b",
+      "size": 7209
+    },
+    "multiday_results/analyses/storm_stratification_stec/rebuilt/strongest_storm_days.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "333fe3f9f104c56513f2b41c20afe71f322d977c02064b94c067d6be5d42210f",
+      "size": 978
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-17T15:17:04.568763+00:00",
+  "stage": "storm_stratification_stec",
+  "supersedes": []
+}

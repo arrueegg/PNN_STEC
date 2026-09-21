@@ -1,0 +1,78 @@
+{
+  "answers": "all",
+  "canonical_for": null,
+  "caveats": [
+    "All 14 code-generated manuscript figures (everything but the hand-drawn Figure 3) are wired into FIGURE_BUILDERS and run here. Figures 4-9 were the last gap - they read pretrained_test_diagnostics's cache rather than the store directly, so this stage's own output is only as current as that one's.",
+    "Figure 11's error bars need elevation_metrics_finetuned's per_day_by_elevation.csv, which now has its own Stage (declared just above this one) and must run first - without it this stage logs a warning and skips Figure 11 rather than failing.",
+    "Depends on stec.config.paths.SPLIT_LISTS (Figures 1-2) and on daily_metrics / pretrained_test_diagnostics (Figures 4-11) / positioning_distributions (Figures 12-15, common-set restricted since 2026-09-15 - see that stage's module docstring section 6) - a partial multiday_results tree produces a partial figure set with a logged warning per missing input, not a crash.",
+    "Figure 13's oracle variant (boxplot_3d_error_with_oracle, added 2026-09-17) additionally depends on oracle_benchmark and positioning_coverage - elevation weighting throughout, a different population from every other positioning figure in this stage (see stec.analysis.oracle_benchmark's module docstring for why) - and skips with a logged warning, not this stage's other figures, if either is missing."
+  ],
+  "code": {
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
+    "dirty": true
+  },
+  "command": "-m stec.viz.manuscript_figures",
+  "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
+  "duration_s": 58.1,
+  "fingerprint": "0784247c8fa17a3f21873588e67df5e411000101b7d08be444e4bcd0db213823",
+  "inputs": {
+    "multiday_results/analyses/daily_metrics/rebuilt": {
+      "files": 5,
+      "kind": "tree",
+      "mtime_ns": 1789480276881902155,
+      "size": 361273
+    },
+    "multiday_results/analyses/elevation_metrics_finetuned/rebuilt": {
+      "files": 3,
+      "kind": "tree",
+      "mtime_ns": 1787986815646191295,
+      "size": 2466393
+    },
+    "multiday_results/analyses/oracle_benchmark/rebuilt": {
+      "files": 5,
+      "kind": "tree",
+      "mtime_ns": 1789718483501475349,
+      "size": 426818
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt": {
+      "files": 18,
+      "kind": "tree",
+      "mtime_ns": 1789715374190527223,
+      "size": 59341842
+    },
+    "multiday_results/analyses/positioning_distributions/rebuilt": {
+      "files": 47,
+      "kind": "tree",
+      "mtime_ns": 1789994597121022389,
+      "size": 5725208
+    },
+    "multiday_results/analyses/pretrained_test_diagnostics/rebuilt": {
+      "files": 4,
+      "kind": "tree",
+      "mtime_ns": 1787563504147294473,
+      "size": 339796839
+    },
+    "stec/data/splits": {
+      "files": 7,
+      "kind": "tree",
+      "mtime_ns": 1787484696650298111,
+      "size": 126933
+    }
+  },
+  "outputs": {
+    "plots/manuscript": {
+      "present": true,
+      "size": 180
+    },
+    "plots/manuscript/dataset_construction/temp_split.csv": {
+      "present": true,
+      "rows": 132,
+      "sha256": "9314a802ebfae2f86874ae5a99f79810202f6edacd0621dee39b5ef8c4b6e002",
+      "size": 2112
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-21T12:46:18.766063+00:00",
+  "stage": "manuscript_figures",
+  "supersedes": []
+}

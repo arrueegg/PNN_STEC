@@ -1,0 +1,103 @@
+{
+  "answers": "-",
+  "canonical_for": null,
+  "caveats": [
+    "iono weighting only, same population as positioning_distributions/positioning_diagnostics - the elev arm is out of scope here.",
+    "Station coordinates come from IGSNetwork.csv (metres-level accuracy), not the SINEX ground truth the positioning error itself is measured against - deliberate, since reading per-day SINEX products would mean walking a tree an actively-running positioning chain can be writing to concurrently, for a precision gain that does not matter at this module's tens-of-degrees bin widths.",
+    "Geomagnetic latitude is computed once per station at a fixed 2024-07-01 reference epoch, not per observation - a station's SM latitude is time-invariant to <=0.01 deg (module docstring, tests/analysis/test_positioning_geography.py), so this is a station property, not an approximation that needs revisiting.",
+    "Shares its output directory with two further, undeclared modules (positioning_quality_gate.py, positioning_model_attribution.py) - only the files this stage's own command writes are declared as outputs above."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.positioning_geography --output-dir multiday_results/analyses/positioning_geography/rebuilt",
+  "description": "positioning error against geographic and geomagnetic station latitude, and recovered-population concentration by latitude",
+  "duration_s": 1.9,
+  "fingerprint": "4941f3df3d23dcef9553216d9a410a45718a0d137a1d8f1ee742082a2aaa3f38",
+  "inputs": {
+    "multiday_results/analyses/positioning_coverage/rebuilt": {
+      "files": 18,
+      "kind": "tree",
+      "mtime_ns": 1789715374190527223,
+      "size": 59341842
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "kind": "file",
+      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
+      "size": 13940046
+    },
+    "multiday_results/analyses/positioning_diagnostics/rebuilt": {
+      "files": 27,
+      "kind": "tree",
+      "mtime_ns": 1789715608219629633,
+      "size": 141360
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/positioning_geography/rebuilt/latitude_stratification_diff_geographic.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "b31a9a66c47d495e27efba05a34f6ebb8fe49f70d619aeeabb4dcc413edd74b3",
+      "size": 1490
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/latitude_stratification_diff_geomagnetic.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "0a73b9784eebc8823a26719f366cb537002b1d39859f799cbf1534e977b4189d",
+      "size": 1486
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/latitude_stratification_geographic.csv": {
+      "present": true,
+      "rows": 36,
+      "sha256": "52fcca181afed7f17c953c169778e5d2115b95a7ce154108ccb1ea531371defa",
+      "size": 2352
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/latitude_stratification_geomagnetic.csv": {
+      "present": true,
+      "rows": 36,
+      "sha256": "b05466bc460e95934f35d6cf47aa6dc685a6668628a31467749361cecf3ac532",
+      "size": 2333
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/population_concentration_by_latitude_geographic.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "905c65f981c6727dc6f460414b48408753efaf9ad8fe9ca4e4b0421a340c5735",
+      "size": 468
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/population_concentration_by_latitude_geomagnetic.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "886e61f47b1d070faf58a74609a23fd08e05514dae470ac0c9bb049621af855e",
+      "size": 455
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/population_latitude_diff_geographic.csv": {
+      "present": true,
+      "rows": 18,
+      "sha256": "a1fbb4d57a6c044e076b5789f7e785a3ef3f9f5794ced40b056d31720de2a704",
+      "size": 2974
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/population_latitude_diff_geomagnetic.csv": {
+      "present": true,
+      "rows": 18,
+      "sha256": "47f8f9f566e49d8caaad367d12af7bc43a9847317a7c60d5a285467ac2151fb7",
+      "size": 3000
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/station_map_diff.csv": {
+      "present": true,
+      "rows": 55,
+      "sha256": "9dd09c74d0666f5e8087aed0da3ca50c7c7c215995023207c7ca4a6b7b873c4b",
+      "size": 8097
+    },
+    "multiday_results/analyses/positioning_geography/rebuilt/station_map_direct_stec.csv": {
+      "present": true,
+      "rows": 55,
+      "sha256": "18d24cfa050afa8de138eb614e006f1981db6ddab770b558c3ddbb2e80d92e0a",
+      "size": 4237
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T07:13:44.991581+00:00",
+  "stage": "positioning_geography",
+  "supersedes": []
+}

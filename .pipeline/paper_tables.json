@@ -1,0 +1,46 @@
+{
+  "answers": "Tables 1, 2",
+  "canonical_for": "Tables 1 and 2",
+  "caveats": [
+    "Generated from a frozen, checked-in copy of the paper's own stored run config (config/paper/pretrain_stec_config.yaml), not from a hand-maintained template in config/ and not from the legacy experiments/ tree - this is what makes the stage runnable on a clean clone with no data mounted. The template disagreed with the real run on 7 of 8 fields - architecture, prior sigma, learning rate, batch size, scheduler, SH degree and KL weight - so the table it used to produce described a model that was never trained.",
+    "Both training stages are reported. The paper pretrains and then fine-tunes daily at a different learning rate, batch size and epoch count; a table carrying one of them describes half the training.",
+    "The CSV intentionally carries more rows than the manuscript prints - Architecture, Random seed, SH degree and the ReduceLROnPlateau scheduler's own patience (as opposed to early stopping's, a different mechanism) were judged not to need a printed row; see stec.analysis.paper_tables for the reasoning on each. paper_tables_manuscript_rows_are_backed only checks the other direction - every printed row resolves to a real CSV parameter - not that the two carry identical row sets."
+  ],
+  "code": {
+    "commit": "f71c2797a1cb9141c4e7d90d8cfc117b83a7e0bd",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.paper_tables --config config/paper/pretrain_stec_config.yaml --output-dir multiday_results/analyses/paper_tables/rebuilt",
+  "description": "input feature list and hyperparameters, generated from the model rather than maintained beside it",
+  "duration_s": 0.7,
+  "fingerprint": "636211099f4e837e3b85e827375819ad5705f16b02edeabd82fde9741bb7e79f",
+  "inputs": {
+    "config/paper/pretrain_stec_config.yaml": {
+      "kind": "file",
+      "sha256": "3c0a1e64d8efe61bcb47d9c3ad4901733792ad571a56df7509fd8926c83c2c36",
+      "size": 3822
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/paper_tables/rebuilt": {
+      "present": true,
+      "size": 204
+    },
+    "multiday_results/analyses/paper_tables/rebuilt/table1_features.csv": {
+      "present": true,
+      "rows": 24,
+      "sha256": "17abe689a285c18851481908406ffb1874a8827ef8cd8c24eb3b88c20cfb4f8b",
+      "size": 1392
+    },
+    "multiday_results/analyses/paper_tables/rebuilt/table2_hyperparameters.csv": {
+      "present": true,
+      "rows": 26,
+      "sha256": "dc885f91dabdc1b9256e39e631545cc6b010a3e50dae317b8294787fef04f20d",
+      "size": 982
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-15T09:51:25.553997+00:00",
+  "stage": "paper_tables",
+  "supersedes": []
+}

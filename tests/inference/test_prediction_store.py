@@ -1,0 +1,323 @@
+"""The store's contract: keep every column, stream by default, own the day identity."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from stec.inference import prediction_store as ps
+
+
+def frame(rows: int = 8) -> pd.DataFrame:
+    rng = np.random.default_rng(0)
+    return pd.DataFrame(
+        {
+            "station": ["amc4"] * rows,
+            "sat": ["G01"] * rows,
+            "sod": np.arange(rows, dtype=float),
+            "satele": rng.uniform(5, 90, rows),
+            "true_stec": rng.uniform(0, 60, rows),
+            "stec_pred": rng.uniform(0, 60, rows),
+            "pred_total_unc": rng.uniform(0.5, 5, rows),
+            "vtec_model_stec_total_unc": rng.uniform(0.5, 5, rows),
+            "gim_stec": rng.uniform(0, 60, rows),
+            # A column outside the schema: dropped, because the schema is the contract.
+            "scratch_debug_column": rng.uniform(0, 1, rows),
+        }
+    )
+
+
+def test_round_trip_keeps_the_uncertainty_columns(tmp_path):
+    """The whitelist that dropped these for weeks is the reason this store exists."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    out = ps.read_predictions("finetuned_stec", "own", doys=[132], root=tmp_path)
+    for column in ("pred_total_unc", "vtec_model_stec_total_unc"):
+        assert column in out.columns
+
+
+def test_day_identity_is_taken_from_the_arguments_not_the_frame(tmp_path):
+    """doy comes back from the model tensor just under the integer; the caller is right."""
+    df = frame()
+    df["doy"] = 188.99998  # what a float32 denormalisation actually returns for DOY 189
+    df["year"] = 2024.0
+    ps.write_predictions(df, "finetuned_stec", "own", 2024, 189, root=tmp_path)
+    out = ps.read_predictions("finetuned_stec", "own", doys=[189], root=tmp_path)
+    assert set(out["doy"].unique()) == {189}
+    assert set(out["year"].unique()) == {2024}
+
+
+def test_station_is_normalised_to_uppercase(tmp_path):
+    """The own set emits uppercase and Madrigal lowercase; a join needs one convention."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    out = ps.read_predictions("finetuned_stec", "own", doys=[132], root=tmp_path)
+    assert set(out["station"].astype(str)) == {"AMC4"}
+
+
+def test_sat_column_is_kept_for_madrigal_when_present(tmp_path):
+    """The schema does not narrow columns by dataset - `sat` was always part of
+    `STORE_COLUMNS` alongside `station`. Once `stec.data.madrigal_reader` started producing
+    it, nothing here needed to change to keep it; this pins that no dataset-conditional
+    narrowing exists to reintroduce."""
+    ps.write_predictions(
+        frame(), "finetuned_stec", "madrigal", 2024, 132, root=tmp_path
+    )
+    out = ps.read_predictions("finetuned_stec", "madrigal", doys=[132], root=tmp_path)
+    assert "sat" in out.columns
+    assert set(out["sat"].astype(str)) == {"G01"}
+
+
+def test_missing_required_column_refuses_to_write(tmp_path):
+    df = frame().drop(columns=["stec_pred"])
+    with pytest.raises(ValueError, match="missing required columns"):
+        ps.write_predictions(df, "finetuned_stec", "own", 2024, 132, root=tmp_path)
+
+
+def test_unbounded_read_is_refused(tmp_path):
+    """Reading the whole store OOM-killed the analysis driver once it was full."""
+    for doy in (132, 133):
+        ps.write_predictions(frame(), "finetuned_stec", "own", 2024, doy, root=tmp_path)
+    with pytest.raises(ValueError, match="would load all 2 stored day"):
+        ps.read_predictions("finetuned_stec", "own", root=tmp_path)
+
+
+def test_unbounded_read_is_allowed_when_asked_explicitly(tmp_path):
+    for doy in (132, 133):
+        ps.write_predictions(frame(), "finetuned_stec", "own", 2024, doy, root=tmp_path)
+    out = ps.read_predictions(
+        "finetuned_stec", "own", root=tmp_path, allow_full_scan=True
+    )
+    assert len(out) == 16
+
+
+def test_iter_days_streams_one_day_at_a_time(tmp_path):
+    for doy in (132, 133, 134):
+        ps.write_predictions(frame(), "finetuned_stec", "own", 2024, doy, root=tmp_path)
+    seen = [
+        (y, d, len(f))
+        for y, d, f in ps.iter_days("finetuned_stec", "own", root=tmp_path)
+    ]
+    assert seen == [(2024, 132, 8), (2024, 133, 8), (2024, 134, 8)]
+
+
+def test_iter_days_respects_column_selection(tmp_path):
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    _, _, day = next(
+        ps.iter_days(
+            "finetuned_stec", "own", columns=["true_stec", "stec_pred"], root=tmp_path
+        )
+    )
+    assert list(day.columns) == ["true_stec", "stec_pred"]
+
+
+def test_day_paths_raises_on_doy_only_filter_against_a_multi_year_partition(tmp_path):
+    """`pretrained_stec/own` holds 2014-2024; a bare doys=[...] with no years= matches
+    one file per year and silently pools or duplicates them (Figure 11's per-elevation
+    table read the earlier year twice and the later year never, from exactly this
+    shape). day_paths must refuse rather than let that happen quietly."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        ps.day_paths("pretrained_stec", "own", doys=[132], root=tmp_path)
+
+
+def test_day_paths_is_unaffected_on_a_single_year_partition(tmp_path):
+    """The same doys-only call must keep working where it always has: a partition that
+    only ever holds one year is not ambiguous."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 133, root=tmp_path)
+
+    found = ps.day_paths("finetuned_stec", "own", doys=[132], root=tmp_path)
+    assert len(found) == 1
+
+
+def test_day_paths_explicit_years_avoids_the_guard(tmp_path):
+    """A caller that already knows which year it wants is never ambiguous, even
+    against a multi-year partition."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    found = ps.day_paths(
+        "pretrained_stec", "own", years=[2024], doys=[132], root=tmp_path
+    )
+    assert len(found) == 1
+    assert found[0].parent.name == "year=2024"
+
+
+def test_day_paths_allow_multi_year_opts_in_explicitly(tmp_path):
+    """A caller that genuinely wants a doy across every year must have a clear way to
+    say so, per the module's own escape hatch for `read_predictions`'s full-scan guard."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    found = ps.day_paths(
+        "pretrained_stec", "own", doys=[132], root=tmp_path, allow_multi_year=True
+    )
+    assert len(found) == 2
+
+
+def test_iter_days_propagates_the_multi_year_guard(tmp_path):
+    """`iter_days` is the API analyses are told to use, so the guard must reach it too,
+    not just the lower-level `day_paths`."""
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        list(ps.iter_days("pretrained_stec", "own", doys=[132], root=tmp_path))
+
+
+def test_read_predictions_propagates_the_multi_year_guard(tmp_path):
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2020, 132, root=tmp_path)
+    ps.write_predictions(frame(), "pretrained_stec", "own", 2024, 132, root=tmp_path)
+
+    with pytest.raises(ValueError, match="matched 2 years"):
+        ps.read_predictions("pretrained_stec", "own", doys=[132], root=tmp_path)
+
+    # allow_multi_year=True still gets both years back in one frame.
+    out = ps.read_predictions(
+        "pretrained_stec", "own", doys=[132], root=tmp_path, allow_multi_year=True
+    )
+    assert set(out["year"].unique()) == {2020, 2024}
+
+
+def test_write_leaves_no_temp_file_behind(tmp_path):
+    """A successful write's temp file must not survive the `os.replace`."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    assert [p.name for p in day_dir.iterdir()] == ["doy=132.parquet"]
+
+
+def test_in_progress_temp_file_is_invisible_to_every_reader(tmp_path):
+    """A reader hitting the partition mid-write (a real concern: the Madrigal local-time
+    re-inference job rewrites day files while other analyses read siblings) must never
+    see the temp name through any of the store's own glob-based readers."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    (day_dir / ".doy=133.parquet.tmp").write_bytes(b"not yet a complete parquet file")
+
+    assert ps.available_days("finetuned_stec", "own", root=tmp_path) == [(2024, 132)]
+    assert len(ps.day_paths("finetuned_stec", "own", root=tmp_path)) == 1
+
+
+def test_failed_write_leaves_no_final_file_and_no_stale_temp(tmp_path, monkeypatch):
+    """A write that dies partway through `to_parquet` (disk full, killed process) must
+    not leave a torn final file or an orphaned temp file behind.
+
+    The mock writes partial bytes to the temp path it was given *before* raising, so a
+    temp file genuinely exists on disk at the moment of failure - a mock that raises
+    immediately would make this test pass even if `_write_parquet_atomically`'s cleanup
+    were deleted, since there would be nothing on disk to clean up either way.
+    """
+
+    def raise_after_partial_write(self, path, *args, **kwargs):
+        Path(path).write_bytes(b"not a complete parquet file")
+        raise OSError("simulated disk-full failure mid-write")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", raise_after_partial_write)
+
+    with pytest.raises(OSError, match="simulated disk-full failure"):
+        ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    assert list(day_dir.iterdir()) == []
+
+
+def test_available_days_supports_resume(tmp_path):
+    for doy in (132, 200):
+        ps.write_predictions(frame(), "finetuned_stec", "own", 2024, doy, root=tmp_path)
+    assert ps.available_days("finetuned_stec", "own", root=tmp_path) == [
+        (2024, 132),
+        (2024, 200),
+    ]
+
+
+def _written_columns(tmp_path: Path, doy: int = 132) -> set[str]:
+    path = tmp_path / "finetuned_stec" / "own" / "year=2024" / f"doy={doy:03d}.parquet"
+    return set(pd.read_parquet(path).columns)
+
+
+def test_first_write_for_a_day_never_triggers_the_guard(tmp_path):
+    """No existing file yet, so there is nothing to compare against - any column set is
+    fine, including one that would look like a "narrower" write against some other day's
+    schema."""
+    ps.write_predictions(
+        frame().drop(columns=["gim_stec"]),
+        "finetuned_stec",
+        "own",
+        2024,
+        132,
+        root=tmp_path,
+    )
+    assert "gim_stec" not in _written_columns(tmp_path)
+
+
+def test_overwrite_with_a_superset_of_columns_succeeds(tmp_path):
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    wider = frame()
+    wider["pretrained_stec_pred"] = wider["stec_pred"] + 1.0
+    ps.write_predictions(wider, "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    written = _written_columns(tmp_path)
+    assert {"gim_stec", "pretrained_stec_pred"} <= written
+
+
+def test_overwrite_with_the_same_columns_succeeds(tmp_path):
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    assert "gim_stec" in _written_columns(tmp_path)
+
+
+def test_overwrite_with_fewer_columns_is_refused_and_leaves_the_original_file_intact(
+    tmp_path,
+):
+    """Reproduces the 2026-08-25 regression directly: a second write for the same day
+    that drops a column the first write already had - here `gim_stec` stands in for
+    `pretrained_stec_pred`, which three real day-files lost this way - must be refused,
+    not silently accepted, and the original file must survive untouched."""
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    path = tmp_path / "finetuned_stec" / "own" / "year=2024" / "doy=132.parquet"
+    before = path.read_bytes()
+
+    narrower = frame().drop(columns=["gim_stec"])
+    with pytest.raises(ValueError, match="gim_stec"):
+        ps.write_predictions(
+            narrower, "finetuned_stec", "own", 2024, 132, root=tmp_path
+        )
+
+    assert path.read_bytes() == before
+
+
+def test_allow_column_loss_opts_out_of_the_guard(tmp_path):
+    ps.write_predictions(frame(), "finetuned_stec", "own", 2024, 132, root=tmp_path)
+    narrower = frame().drop(columns=["gim_stec"])
+    ps.write_predictions(
+        narrower,
+        "finetuned_stec",
+        "own",
+        2024,
+        132,
+        root=tmp_path,
+        allow_column_loss=True,
+    )
+    assert "gim_stec" not in _written_columns(tmp_path)
+
+
+def test_corrupt_existing_file_does_not_block_a_narrower_write(tmp_path):
+    """A torn or zero-byte file left by an earlier killed write (CLAUDE.md documents
+    real cases of this from a killed recovery sweep) has nothing worth preserving, so
+    the guard must not block writing over it."""
+    day_dir = tmp_path / "finetuned_stec" / "own" / "year=2024"
+    day_dir.mkdir(parents=True)
+    (day_dir / "doy=132.parquet").write_bytes(b"not a parquet file at all")
+
+    ps.write_predictions(
+        frame().drop(columns=["gim_stec"]),
+        "finetuned_stec",
+        "own",
+        2024,
+        132,
+        root=tmp_path,
+    )
+    assert "gim_stec" not in _written_columns(tmp_path)

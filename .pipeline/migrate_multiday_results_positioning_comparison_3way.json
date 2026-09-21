@@ -1,0 +1,21 @@
+{
+  "category": "canonical",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_comparison_3way",
+  "label": "Positioning, Figs 12/13/A1/A2 + Table 5",
+  "notes": "iono weighting, SINEX ground truth, 4 methods, 2024-05-01 to 12-31.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/multiday_results_positioning_comparison_3way.json": {
+      "present": true,
+      "sha256": "63ac097dac90ad07229e0bfb4a5b3b9e0198efa5f56030da2798be5b34c3e9d4",
+      "size": 596
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.571277+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_comparison_3way",
+  "stage": "migrate_multiday_results_positioning_comparison_3way"
+}

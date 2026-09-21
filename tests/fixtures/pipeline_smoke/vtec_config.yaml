@@ -1,0 +1,18 @@
+# Tiny VTEC baseline config for the `baselines_smoke` pipeline stage.
+#
+# Deliberately a different, minimal feature set from config.yaml (the STEC smoke config) -
+# the real VTEC baseline (Mao et al. replication, SH 15) and the real STEC model (SH 5) are
+# genuinely different feature sets too (CLAUDE.md: "The VTEC baseline is not the obvious
+# one"), so two independent tiny configs here is realistic, not a shortcut. n_in=3 (one
+# cyclical feature only) is what tests/inference/test_run_baselines.py's own fixtures use.
+#
+# Pairs with vtec_model/finetune_MLP_LaplacianNLL_seed42.pth, built by
+# tests/fixtures/make_baseline_fixtures.py's build_vtec_checkpoint(n_in=3, hidden_dim=6,
+# num_layers=2, seed=0).
+target: vtec
+feature_control:
+  sod: true
+data:
+  SH_degree: 0
+training:
+  loss_function: LaplacianNLLLoss

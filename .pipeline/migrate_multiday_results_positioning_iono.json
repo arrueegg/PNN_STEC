@@ -1,0 +1,21 @@
+{
+  "category": "superseded",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_iono",
+  "label": "positioning_iono",
+  "notes": "Named superseded in CLAUDE.md's canonical-results table; kept rather than deleted, as the only record of an earlier configuration.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/multiday_results_positioning_iono.json": {
+      "present": true,
+      "sha256": "cdf0dc201a3056eb819ba8ca086004c27507bdb3908df05a119c3d50827f99f9",
+      "size": 615
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.603123+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_iono",
+  "stage": "migrate_multiday_results_positioning_iono"
+}

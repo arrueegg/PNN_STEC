@@ -183,7 +183,8 @@ def plot_overview(df: pd.DataFrame, out_path: Path):
     delay_orig_ns = df["delay_orig"].values * PS_TO_NS
     delay_pnn_ns = df["delay_pnn"].values * PS_TO_NS
     resid_ns = df["residual"].values * PS_TO_NS
-    unc_ns = df["unc_pnn"].values * PS_TO_NS
+    # No absolute uncertainty band here: this figure reports uncertainty through
+    # the z-score coverage panel below. plot_per_session_grid draws the band.
     z = df["z"].values
 
     fig = plt.figure(figsize=(12, 10), constrained_layout=True)

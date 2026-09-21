@@ -1,0 +1,343 @@
+"""Storm/quiet stratification of the GNSS positioning results (R2.7).
+
+Ported from ``src/analysis/storm_stratification.py`` in the live PNN_STEC checkout, which
+answers reviewer comment R2.7: "A method that improves average RMS but fails during
+disturbed periods may not be operationally reliable." Table 5 pools the whole 2024 test
+period, so it cannot show what happens during the two great storms of that year (DOY
+131-133, Dst_min = -406 nT; DOY 282-285, Dst_min = -333 nT). No re-inference or PPP
+re-run is needed: the per-station-day position solutions already exist, and the storm
+classification comes from the hourly OMNI indices already in the repo.
+
+**Storm threshold: a daily minimum Dst of -50 nT** (``STORM_DST_THRESHOLD_NT``).
+
+Two storm definitions exist in this project, for two different questions, and confusing
+them changes a reviewer-facing number. This module answers the *positioning* question
+(R2.7), which is about whole days, so it uses the daily rule - the conventional threshold,
+and the one that produced the published +31.9% / +26.3% quiet-storm improvements.
+
+The other is per-observation: ``Kp >= 37 or Dst <= -33``, in
+``src/analysis/scenario_evaluation.py``, classifying individual hours rather than days.
+Kp is stored scaled by 10 in the OMNI archive, so 37 means a Kp of 3.7 and is not a typo.
+That module is gated behind ``evaluation.enable_scenarios``, which defaults to ``False``,
+so it silently never ran.
+
+They are not variants of one test. Applied to days, the per-observation rule marks 132 of
+the archive's 2024 days as storms against 52, and moves the published figures to
++32.2% / +29.1% - the same conclusion, a different published number.
+``stec/analysis/positioning_summary.py`` computes a storm/quiet split for R1.7 from
+the same daily Dst rule and the same threshold (-50 nT), so the two modules agree by
+construction rather than by coincidence.
+
+Unlike ``evaluation.enable_scenarios`` in the pre-rebuild config - which defaults to
+``False`` and so silently skips the equivalent per-observation stratification even though
+it is fully implemented - this module takes no flag that disables the regime split. It
+always classifies and reports both regimes when invoked; there is nothing to silently
+leave off.
+
+**Headline statistic: median, not mean (owner decision 2026-08-28, applied here
+2026-09-15).** ``docs/revision/positioning_reporting.md`` decided that positioning
+results are reported as medians and distributions, never means, once the 10 m
+outcome-based exclusion was recognised as non-neutral between methods
+(``positioning_distributions.py``, Tables 5-7). This module was the one case that
+decision missed. Under the pre-fix mean headline, Direct STEC read **+5.2% over IGS GIM
+in quiet conditions and -2.7% in storm conditions** - worse than the baseline it is meant
+to beat, which reads as exactly the operational failure R1.7 warns about. The same
+station-days, read as a median (already sitting unused in the pre-fix ``by_regime.csv``'s
+``3D_median_m`` column), gave +18.9% quiet / +13.6% storm: the advantage narrows under
+storms, it does not invert. The sign flip is a mean-statistic artifact, not a real
+regime-dependent failure - the storm regime has roughly a fifth as many station-days as
+quiet, which is exactly where a mean is least robust to a handful of large residuals.
+Both figures above are the pre-fix numbers, quoted only to show why the fix was needed -
+read the current numbers from ``improvement_over_gim.csv`` itself, never from here.
+
+**Population: the same 4-method x 2-weighting common set Tables 5-7 use** (N=10,387,
+``common_set_positioning.coverage_common_station_days``), not each method's own count.
+Before this pass, ``stratify()`` read the iono-weighted tree unrestricted, so a
+station-day missing from one method's coverage stayed in every other method's regime
+statistics - Direct STEC and IGS GIM were compared over different populations by
+construction (10,647 against 10,837 station-days overall), the same unmatched-population
+problem ``common_set_positioning.py`` documents for Table 5's predecessor. This is a
+population fix, independent of the median-over-mean fix above, and both are applied
+together here.
+
+**The 10 m outcome-based station-day exclusion (``pm.exclude_outlier_station_days``) is
+dropped, matching Tables 5-7** (``docs/revision/positioning_reporting.md``): filtering on
+the outcome being measured is not neutral between methods, and every other positioning
+table in this codebase has already dropped it. ``improvement_over_gim.csv`` now carries
+both statistics, named explicitly so neither can be mistaken for the other:
+``improvement_over_gim_{quiet,storm}_median_%`` is the headline; the parallel
+``_mean_%`` columns are kept only for the sensitivity comparison the decision record
+argues from, not as a second number to quote. ``degradation.csv`` gained the same split
+(``3D_median`` alongside the pre-existing mean-based ``quiet``/``storm``/
+``storm_vs_quiet_%`` columns).
+
+Usage::
+
+    python -m stec.analysis.storm_stratification
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
+
+import h5py
+import numpy as np
+import pandas as pd
+
+from ..config import paths
+from ..positioning import metrics as pm
+from .common_set_positioning import coverage_common_station_days
+
+logger = logging.getLogger(__name__)
+
+# Two different storm definitions exist in this project, for two different questions, and
+# confusing them changes a reviewer-facing number. This module answers the *positioning*
+# question (R2.7), which is about whole days, so it uses the daily rule.
+#
+#   DAILY (here, and in the published R2.7 table): a day is a storm when its minimum Dst
+#   reaches -50 nT. That is the conventional threshold for a geomagnetic storm and it is
+#   what produced the published +31.9% / +26.3% quiet/storm improvements.
+#
+#   PER-OBSERVATION (scenario_evaluation.py, not this module): Kp >= 37 or Dst <= -33,
+#   classifying individual hours rather than days. Kp there is stored scaled by 10 in the
+#   OMNI archive, so 37 means Kp 3.7 and is not a typo.
+#
+# The pre-rebuild source says so explicitly at its own threshold: "deliberately not the
+# same as the per-observation threshold in scenario_evaluation.py". Applying the
+# per-observation rule to days is not a stricter version of the same test - it marks 102
+# of the 242 test days as storms against 39, and moves the reported improvement to
+# +32.2% / +29.1%. The conclusion survives either way, but the number is not the
+# published one.
+STORM_DST_THRESHOLD_NT = -50.0
+
+# The per-observation rule, available for the scenario analysis but deliberately not the
+# default here. Selecting it is a behaviour-changing divergence and must be recorded as one.
+SCENARIO_KP_THRESHOLD = 37.0
+SCENARIO_DST_THRESHOLD_NT = -33.0
+
+METHOD_LABELS = {
+    "STEC_iono": "Direct STEC",
+    "Pretrained_STEC_iono": "Pretrained Direct STEC",
+    "VTEC_iono": "VTEC + Mapping",
+    "gim_iono": "IGS GIM + Mapping",
+}
+METHOD_ORDER = [
+    "Direct STEC",
+    "Pretrained Direct STEC",
+    "VTEC + Mapping",
+    "IGS GIM + Mapping",
+]
+GIM_LABEL = "IGS GIM + Mapping"
+
+# The two positioning trees this module resolves between, mirroring
+# `stec.analysis.positioning_summary.canonical_positioning_summary`. Duplicated rather
+# than imported - `stec/analysis/positioning_summary.py` (written independently during
+# this same rebuild) already carries an identical local copy of this same resolution and
+# notes there is no shared `stec/analysis/paths.py` yet to centralise it in.
+#
+# 2026-08-24: repointed from `positioning_runs/full_coverage/multiday_summary.csv` to
+# `positioning_coverage`'s own rebuilt output. That tree was what the pre-rebuild
+# `src/analysis/positioning_coverage.py` wrote directly; once the results-layout
+# restructure moved this analysis's default output to `analyses/<name>/rebuilt/` without
+# updating what `canonical_positioning_summary` reads, nothing regenerated
+# `full_coverage/` any more, so it silently stopped tracking new positioning runs
+# (including the 2026-08-24 station-recovery sweep) while looking as current as ever. See
+# `stec/analysis/positioning_summary.py`'s module docstring for the full account.
+FULL_COVERAGE_SUMMARY = (
+    paths.analysis_result_dir("positioning_coverage", rebuilt=True)
+    / "multiday_summary.csv"
+)
+# Frozen - nothing regenerates this any more; kept as the record of what the submitted
+# paper reported.
+PUBLISHED_SUMMARY = (
+    paths.LEGACY_MULTIDAY
+    / "positioning_runs"
+    / "comparison_3way"
+    / "multiday_summary.csv"
+)
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("storm_stratification", rebuilt=True)
+
+
+def canonical_positioning_summary(prefer: Path | None = None) -> Path:
+    """The per-station-day positioning table this analysis should read."""
+    if prefer is not None:
+        return prefer
+    if FULL_COVERAGE_SUMMARY.exists():
+        logger.info(f"positioning input: {FULL_COVERAGE_SUMMARY} (full coverage)")
+        return FULL_COVERAGE_SUMMARY
+    logger.warning(
+        f"{FULL_COVERAGE_SUMMARY} not found - falling back to {PUBLISHED_SUMMARY}, "
+        "which omits the station-days recovered from RINEX."
+    )
+    return PUBLISHED_SUMMARY
+
+
+def load_daily_geomagnetic_indices(
+    year: int, swi_path: Path = paths.OMNI_INDICES
+) -> pd.DataFrame:
+    """Return per-day minimum Dst and maximum Kp for `year`.
+
+    The OMNI store is hourly, laid out as /<YYYY>/<DDD> -> [24 hours x 25 columns] with
+    the column names in the group attributes. The daily extremes (not the daily mean) are
+    what the storm threshold is applied to, so one disturbed hour is enough to mark the
+    whole day as storm.
+    """
+    with h5py.File(swi_path, "r") as handle:
+        group = handle[str(year)]
+        doys = sorted(group.keys(), key=int)
+        columns = [
+            c.decode() if isinstance(c, bytes) else c
+            for c in group[doys[0]].attrs["columns"]
+        ]
+        dst_col = columns.index("Dst-index,_nT")
+        kp_col = columns.index("Kp_index")
+
+        records = []
+        for doy in doys:
+            hourly = np.asarray(group[doy])
+            records.append(
+                {
+                    "doy": int(doy),
+                    "dst_min": float(np.nanmin(hourly[:, dst_col])),
+                    "kp_max": float(np.nanmax(hourly[:, kp_col])),
+                }
+            )
+    return pd.DataFrame(records)
+
+
+def stratify(
+    summary_path: Path,
+    year: int,
+    swi_path: Path = paths.OMNI_INDICES,
+    common_station_days: pd.MultiIndex | None = None,
+) -> pd.DataFrame:
+    """Join the positioning summary with the daily storm classification.
+
+    A day is "storm" when its daily minimum Dst reaches `STORM_DST_THRESHOLD_NT`. That is
+    the daily rule the published R2.7 table used; see the constants for why the
+    per-observation rule in scenario_evaluation.py is a different test, not a variant of
+    this one.
+
+    `common_station_days` restricts to the 4-method x 2-weighting common set Tables 5-7
+    use (`common_set_positioning.coverage_common_station_days`) rather than each method's
+    own count - see the module docstring. Computed from the live checkout's own tree by
+    default (`None`); tests pass a synthetic index directly rather than depending on that
+    production path, the same parameter-injection pattern `weighting_ablation.py` and
+    `positioning_distributions.py` use for the identical restriction. No outcome-based
+    (10 m) exclusion is applied; that rule was dropped here for the same reason Tables 5-7
+    dropped it.
+    """
+    positions = pd.read_csv(summary_path)
+    indices = load_daily_geomagnetic_indices(year, swi_path)
+
+    merged = positions.merge(indices, on="doy", how="left")
+    if merged["dst_min"].isna().any():
+        missing = sorted(merged.loc[merged["dst_min"].isna(), "doy"].unique())
+        logger.warning(
+            f"no geomagnetic indices for DOY {missing} - excluded from stratification"
+        )
+        merged = merged.dropna(subset=["dst_min"])
+
+    if common_station_days is None:
+        common_station_days = coverage_common_station_days()
+    n_before = len(merged)
+    merged = merged.set_index(["station", "doy"])
+    merged = merged[merged.index.isin(common_station_days)].reset_index()
+    logger.info(
+        f"restricted to the common set solved by all methods under both weightings: "
+        f"{len(merged):,} of {n_before:,} station-day rows kept"
+    )
+
+    merged["Method"] = merged["method"].map(METHOD_LABELS).fillna(merged["method"])
+    is_storm = merged["dst_min"] <= STORM_DST_THRESHOLD_NT
+    merged["regime"] = np.where(is_storm, "storm", "quiet")
+    return merged
+
+
+def build_tables(stratified: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Produce the storm/quiet tables that go into the revised Table 5.
+
+    `by_regime` reuses `stec.positioning.metrics.summarise` rather than reimplementing the
+    station-day aggregation, so its convention (mean/median of per-station-day RMSE, not
+    an epoch-pooled statistic) matches Table 5 exactly.
+
+    **Median is the headline statistic** (owner decision, see the module docstring);
+    mean columns are kept alongside, explicitly suffixed, only for the sensitivity
+    comparison that decision argues from.
+    """
+    order = [m for m in METHOD_ORDER if m in set(stratified["Method"])]
+
+    by_regime = pm.summarise(stratified, ["Method", "regime"])
+
+    medians = by_regime["3D_median_m"].unstack("regime").reindex(order)
+    means = by_regime["3D_mean_m"].unstack("regime").reindex(order)
+
+    degradation = pd.DataFrame(index=order)
+    degradation["quiet_median"] = medians["quiet"]
+    degradation["storm_median"] = medians["storm"]
+    degradation["storm_vs_quiet_median_%"] = (
+        100 * (medians["storm"] - medians["quiet"]) / medians["quiet"]
+    )
+    degradation["quiet_mean"] = means["quiet"]
+    degradation["storm_mean"] = means["storm"]
+    degradation["storm_vs_quiet_mean_%"] = (
+        100 * (means["storm"] - means["quiet"]) / means["quiet"]
+    )
+
+    improvement = pd.DataFrame(index=order)
+    for regime in ("quiet", "storm"):
+        median_baseline = medians.loc[GIM_LABEL, regime]
+        improvement[f"improvement_over_gim_{regime}_median_%"] = (
+            100 * (median_baseline - medians[regime]) / median_baseline
+        )
+        mean_baseline = means.loc[GIM_LABEL, regime]
+        improvement[f"improvement_over_gim_{regime}_mean_%"] = (
+            100 * (mean_baseline - means[regime]) / mean_baseline
+        )
+
+    return {
+        "by_regime": by_regime,
+        "degradation": degradation,
+        "improvement_over_gim": improvement,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=canonical_positioning_summary(),
+        help="Multi-day positioning summary CSV",
+    )
+    parser.add_argument("--year", type=int, default=2024)
+    parser.add_argument("--swi-path", type=Path, default=paths.OMNI_INDICES)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    stratified = stratify(args.summary, args.year, args.swi_path)
+    tables = build_tables(stratified)
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    for name, table in tables.items():
+        path = args.output_dir / f"{name}.csv"
+        table.to_csv(path)
+        logger.info(f"wrote {path}")
+        print(f"\n=== {name} ===")
+        print(table.round(3).to_string())
+
+    storm_days = sorted(stratified.loc[stratified.regime == "storm", "doy"].unique())
+    logger.info(
+        f"storm days (Dst_min <= {STORM_DST_THRESHOLD_NT:.0f} nT): {len(storm_days)} of "
+        f"{stratified['doy'].nunique()} in the test period"
+    )
+
+
+if __name__ == "__main__":
+    main()

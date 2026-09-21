@@ -1,0 +1,34 @@
+{
+  "answers": "R2.5, R2.8b",
+  "canonical_for": null,
+  "caveats": [
+    "Stays unported for a data reason, not a code one: the script itself is self-contained (only glob/yaml/json/pandas over local wandb/run-*/files/{config.yaml,wandb-summary.json} pairs, no W&B API call and no network access) and never depended on the rest of src/, so porting it would be mechanical. It has not been ported because its input is not reachable here: wandb/ is untracked (.gitignore'd, ~606 MB, ~1,526 run directories in the live checkout) and does not exist in this worktree or in any fresh clone.",
+    "Cannot run at all without a populated local wandb/ directory from the training host."
+  ],
+  "code": {
+    "commit": "f7f3c9527cf697b3f29b51c9cce3eeaf41d24200",
+    "dirty": true
+  },
+  "command": "stec/frozen/analysis/hyperparameter_search_summary.py --wandb_dir /scratch2/arrueegg/WP4/PNN_STEC/wandb --output_dir multiday_results/analyses/hyperparameter_search/pre_rebuild",
+  "description": "architecture comparison and hyperparameter sweep from the W&B history",
+  "duration_s": 6.0,
+  "fingerprint": "ff97570c3ac23a07b486cd5ed1ec4a0739e651f66e209d70cd138c3b92038274",
+  "inputs": {
+    "wandb": {
+      "files": 13688,
+      "kind": "tree",
+      "mtime_ns": 1787642755711234876,
+      "size": 665869192
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/hyperparameter_search/pre_rebuild": {
+      "present": true,
+      "size": 300
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-25T14:03:53.286247+00:00",
+  "stage": "hyperparameter_search",
+  "supersedes": []
+}

@@ -1,0 +1,134 @@
+# R2.6 epistemic-calibration arm B: KL weight, lower bracket point (global target).
+#
+# See config_BayesianResNetSTEC_ps0.466.yaml's header for the shared background. This arm
+# varies the OTHER lever: the annealed KL weight (training.loss_weight, mirrored into
+# training.kl_annealing.end_weight - the two must agree, see stec/training/loss.py's
+# docstring on why a mismatch trains a genuinely different model), leaving prior_sigma at
+# the paper's 0.1.
+#
+# Derivation: BKLLoss uses reduction="mean" (stec/training/loss.py, src/utils/loss_function.py
+# get_criterion), so the KL penalty is averaged over the output layer's 2050 parameters
+# (2 x 1024 weights + 2 biases) rather than summed - kl_weight=0.1 therefore applies an
+# effective per-weight pull of only ~0.1/2050 ~= 4.9e-5, tiny next to any plausible
+# per-weight data-term stiffness. That is consistent with the severe measured collapse and
+# predicts training is data-dominated, not prior-pull-dominated: solving the per-weight
+# balance (data term ~ c*sigma^2, KL term ~ kl_weight*(-1/sigma + sigma/prior_sigma^2)) in
+# that regime gives sigma_posterior ~ sqrt(kl_weight / 2c), i.e. posterior std - and, since
+# this is a linear last layer, predictive epistemic std too - scales with sqrt(kl_weight),
+# not sqrt(prior_sigma). To move epistemic std by the diagnostic's global factor 4.66x needs
+# kl_weight larger by 4.66^2 ~= 21.7x: 0.1 * 21.7 ~= 2.17.
+#
+# This is the arm the data-dominated-regime argument favours (see arm A's header for the
+# competing, prior_sigma-ceiling hypothesis); arm C (config_BayesianResNetSTEC_klw4.21.yaml)
+# is the second bracket point, anchored to the paper's actual test year's steeper need
+# (6.49x for 2024 specifically) rather than the global average.
+#
+# evaluation.store_variant is mandatory - see arm A's header for the trap this avoids.
+#
+# Run via: python cli.py train --config config/config_BayesianResNetSTEC_klw2.17.yaml
+# Then:    python src/inference_testset.py --config_path experiments/<exp_name>/config.yaml
+cluster: false
+data:
+  GNSS_data_path: /home/space/data/iono/STEC_DB_CASDCB
+  SH_degree: 5
+  SWI_data_path: /home/space/data/iono/SWI/
+  every_x_doy: 1
+  max_elevation: 90.0
+  min_elevation: 5.0
+  move_to_scratch: true
+  scratch_dir: /scratch2/arrueegg/WP4/PNN_STEC/data/
+  shuffle: true
+  test_size: 10000000
+  train_subset_size: 500000
+  use_SWI: true
+  use_agg_h5: true
+  val_size: 1000000
+debug: false
+debug_single_batch: false
+doy: '183'
+evaluation:
+  enable_scenarios: false
+  store_variant: pretrained_stec_klw2.17
+feature_control:
+  AE-index,_nT: true
+  Dst-index,_nT: true
+  Kp_index: true
+  R_Sunspot_No: true
+  ap_index,_nT: true
+  doy: true
+  f107_index: true
+  lat_ipp: true
+  lat_sta: true
+  local_time_hours: true
+  lon_ipp: true
+  lon_sta: true
+  satazi: true
+  satele: true
+  sm_lat_ipp: true
+  sm_lat_sta: true
+  sm_lon_ipp: true
+  sm_lon_sta: true
+  sod: true
+  year: true
+finetune:
+  batchsize: 512
+  early_stopping: true
+  epochs: 50
+  freeze_body: false
+  learning_rate: 0.0002
+  num_workers: 12
+  patience: 15
+  save_model_every_epoch: false
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 100
+mode: pretrain
+model:
+  activation: relu
+  dropout_rate: 0.0
+  ensemble_size: 5
+  geom_hidden: 32
+  geom_layers: 2
+  hidden_dim: 1024
+  model_type: BayesianResNetSTEC
+  num_heads: 4
+  num_layers: 4
+  output_size: 1
+  prior_sigma: 0.1
+  vtec_hidden: 128
+  vtec_layers: 4
+output_dir: experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w2.17_lw2e+0_SWI
+pretrain:
+  batchsize: 1024
+  early_stopping: true
+  epochs: 150
+  learning_rate: 0.001
+  num_workers: 12
+  patience: 20
+  prefetch_factor: 4
+  save_model_every_epoch: false
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 150
+pretrain_folder: experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w2.17_lw2e+0_SWI
+project_name: PNN_STEC
+random_seed: 42
+target: stec
+training:
+  crps_num_samples: 16
+  kl_annealing:
+    enabled: true
+    end_weight: 2.17
+    start_weight: 0.0
+    warmup_epochs: 5
+  log_space_point: mean
+  log_target: false
+  loss_function: GaussianNLLLoss
+  loss_weight: 2.17
+  optimizer: Adam
+  standardize_targets: false
+  target_weighting:
+    enabled: false
+    weight_function: linear
+  weight_decay: 0.0
+wandb:
+  offline: false
+year: '2024'

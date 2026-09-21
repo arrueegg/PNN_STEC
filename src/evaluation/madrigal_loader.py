@@ -24,8 +24,7 @@ Functions:
 """
 
 from pathlib import Path
-import os
-from typing import List, Tuple, Optional
+from typing import Tuple, Optional
 import logging
 import h5py
 import numpy as np
@@ -84,6 +83,7 @@ def find_madrigal_file(madrigal_path: str, date_obj) -> Optional[Path]:
     logger.debug("No madrigal file found for %s in %s", str(date_obj), madrigal_path)
     return None
 
+
 def extract_stec_for_date(h5path: Path, obs_df) -> Tuple[np.ndarray, np.ndarray]:
     """
     Extract STEC values for observations contained in obs_df from the HDF5 file.
@@ -101,40 +101,50 @@ def extract_stec_for_date(h5path: Path, obs_df) -> Tuple[np.ndarray, np.ndarray]
         table_data = h5f["Data"]["Table Layout"][:]
 
     # --- Convert Madrigal dataset to Polars ---
-    df_mad = pl.DataFrame({
-        "lat_sta": table_data["gdlatr"],
-        "lon_sta": table_data["gdlonr"],
-        "sod": table_data["sod"],
-        "satele": table_data["elm"],
-        "satazi": table_data["azm"],
-        "los_tec": table_data["los_tec"],
-        "gnss_type": table_data["gnss_type"],
-    })
+    df_mad = pl.DataFrame(
+        {
+            "lat_sta": table_data["gdlatr"],
+            "lon_sta": table_data["gdlonr"],
+            "sod": table_data["sod"],
+            "satele": table_data["elm"],
+            "satazi": table_data["azm"],
+            "los_tec": table_data["los_tec"],
+            "gnss_type": table_data["gnss_type"],
+        }
+    )
 
     # --- Define integer rounding/encoding (matches your tolerances) ---
     # Multiply lat/lon by 1e3 -> 0.001° bins; round sod to nearest second.
-    df_mad = df_mad.with_columns([
-        (pl.col("lat_sta") * 1_000).round(0).cast(pl.Int32).alias("lat_i"),
-        (pl.col("lon_sta") * 1_000).round(0).cast(pl.Int32).alias("lon_i"),
-        pl.col("sod").round(0).cast(pl.Int32).alias("sod_i"),
-        pl.col("satele").round(1).cast(pl.Int16).alias("satele_i"),
-        pl.col("satazi").round(1).cast(pl.Int16).alias("satazi_i"),
-    ])
+    df_mad = df_mad.with_columns(
+        [
+            (pl.col("lat_sta") * 1_000).round(0).cast(pl.Int32).alias("lat_i"),
+            (pl.col("lon_sta") * 1_000).round(0).cast(pl.Int32).alias("lon_i"),
+            pl.col("sod").round(0).cast(pl.Int32).alias("sod_i"),
+            pl.col("satele").round(1).cast(pl.Int16).alias("satele_i"),
+            pl.col("satazi").round(1).cast(pl.Int16).alias("satazi_i"),
+        ]
+    )
 
-    obs_df = obs_df.with_columns([
-        (pl.col("lat_sta") * 1_000).round(0).cast(pl.Int32).alias("lat_i"),
-        (pl.col("lon_sta") * 1_000).round(0).cast(pl.Int32).alias("lon_i"),
-        pl.col("sod").round(0).cast(pl.Int32).alias("sod_i"),
-    ])
+    obs_df = obs_df.with_columns(
+        [
+            (pl.col("lat_sta") * 1_000).round(0).cast(pl.Int32).alias("lat_i"),
+            (pl.col("lon_sta") * 1_000).round(0).cast(pl.Int32).alias("lon_i"),
+            pl.col("sod").round(0).cast(pl.Int32).alias("sod_i"),
+        ]
+    )
 
     # Add optional integer rounding if available
     if "satele" in obs_df.columns:
-        obs_df = obs_df.with_columns(pl.col("satele").round(1).cast(pl.Int16).alias("satele_i"))
+        obs_df = obs_df.with_columns(
+            pl.col("satele").round(1).cast(pl.Int16).alias("satele_i")
+        )
     else:
         obs_df = obs_df.with_columns(pl.lit(None).cast(pl.Int16).alias("satele_i"))
 
     if "satazi" in obs_df.columns:
-        obs_df = obs_df.with_columns(pl.col("satazi").round(1).cast(pl.Int16).alias("satazi_i"))
+        obs_df = obs_df.with_columns(
+            pl.col("satazi").round(1).cast(pl.Int16).alias("satazi_i")
+        )
     else:
         obs_df = obs_df.with_columns(pl.lit(None).cast(pl.Int16).alias("satazi_i"))
 
@@ -148,11 +158,16 @@ def extract_stec_for_date(h5path: Path, obs_df) -> Tuple[np.ndarray, np.ndarray]
     stec_out = joined["los_tec"].to_numpy()
     success = ~np.isnan(stec_out)
 
-    print(f"Extracted STEC for {np.sum(success)}/{len(obs_df)} observations from {h5path.name}")
+    print(
+        f"Extracted STEC for {np.sum(success)}/{len(obs_df)} observations from {h5path.name}"
+    )
 
     return stec_out, success
 
-def build_madrigal_stec_for_testset(madrigal_path: str, test_df: pd.DataFrame, logger) -> pd.DataFrame:
+
+def build_madrigal_stec_for_testset(
+    madrigal_path: str, test_df: pd.DataFrame, logger
+) -> pd.DataFrame:
     """Main helper to add madrigal STEC to `test_df`.
 
     Filters `test_df` to test stations and months specified in split lists and
@@ -189,9 +204,19 @@ def build_madrigal_stec_for_testset(madrigal_path: str, test_df: pd.DataFrame, l
 
     # Group by date (year,doy) if available
     if "year" in df.columns and "doy" in df.columns:
+
         def _date_from_row(r):
             from datetime import datetime
-            return (datetime(int(r["year"]), 1, 1) + pd.Timedelta(days=int(r["doy"]) - 1)).date()
+
+            # `year`/`doy` are denormalised model inputs: `doy` round-trips through
+            # (doy-1)/365 and a float32 inverse, landing 26 days of the year just under
+            # the integer (DOY 189 -> 188.99998). A truncating int() shifts those into
+            # the previous day - the same defect repair_gim_baseline.py fixes for the
+            # IGS GIM baseline (see CLAUDE.md's Gotchas). round() is required here.
+            return (
+                datetime(round(r["year"]), 1, 1)
+                + pd.Timedelta(days=round(r["doy"]) - 1)
+            ).date()
 
         df_sub = df.loc[filtered_idx]
         grouped = df_sub.groupby(df_sub.apply(_date_from_row, axis=1))
@@ -199,8 +224,10 @@ def build_madrigal_stec_for_testset(madrigal_path: str, test_df: pd.DataFrame, l
         grouped = df.loc[filtered_idx].groupby(df.loc[filtered_idx]["date"].dt.date)
     else:
         # fallback: try grouping by year and doy if present
-        grouped = { }
-        logger.warning("test_df lacks 'date' or 'year'/'doy' columns; Madrigal matching might fail")
+        grouped = {}
+        logger.warning(
+            "test_df lacks 'date' or 'year'/'doy' columns; Madrigal matching might fail"
+        )
         return df
 
     for date_obj, group in grouped:
@@ -217,10 +244,9 @@ def build_madrigal_stec_for_testset(madrigal_path: str, test_df: pd.DataFrame, l
     return df
 
 
-def sample_madrigal_observations(madrigal_path: str,
-                                 n_samples: int = 1000,
-                                 seed: int = 42,
-                                 max_files: int = 200) -> pd.DataFrame:
+def sample_madrigal_observations(
+    madrigal_path: str, n_samples: int = 1000, seed: int = 42, max_files: int = 200
+) -> pd.DataFrame:
     """Randomly sample up to `n_samples` observations from Madrigal HDF5 files.
 
     This reads Madrigal .h5 files under `madrigal_path`, extracts the

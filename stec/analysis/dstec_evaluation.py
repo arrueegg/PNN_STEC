@@ -1,0 +1,561 @@
+"""Differential STEC (dSTEC): does the model reproduce the TEC *gradient* along a pass?
+
+dSTEC differences every observation in a satellite pass against that pass's own
+maximum-elevation epoch. Any constant per-arc offset - a receiver DCB, a satellite DCB,
+a phase-ambiguity leveling constant, whatever a different processing chain calibrates
+differently - cancels by construction. This is the evidence for the reviewer criticism
+that the Madrigal comparison (`stec.analysis.madrigal_reference_offset`) confounds an
+out-of-distribution model with a reference from a different processing chain: dSTEC
+removes that confound by construction rather than by estimating and subtracting an
+offset, which is what `madrigal_reference_offset` has to do instead.
+
+**What this does not show.** dSTEC tests the TEC gradient along a pass, not the
+absolute level - and absolute STEC is what positioning actually consumes (it is not
+invariant to a per-arc constant the way dSTEC is). A low dSTEC error is evidence the
+model gets the *shape* of a pass right; it is not evidence about the absolute
+calibration Table 3/4 report, and does not stand in for it. Every summary this module
+writes reports the absolute-STEC RMSE on the same masked observations alongside the
+dSTEC RMSE for exactly this reason - the two must be read together, not as
+substitutes.
+
+Ported from `positioning/scripts/evaluate_dstec.py` (pre-rebuild, never gate-verified)
+with two changes, both fixes:
+
+1. That script reconstructs `year`/`doy` from the model's inverse-transformed input
+   tensor and truncates with `.astype(int)`. That is the exact bug
+   `stec.inference.prediction_store.write_predictions` documents and fixes at the write
+   site: `doy` is normalised to `(doy-1)/365` and inverted in float32, which lands 26
+   days of the year just under the integer (2024-189 -> 188.99998), so truncating
+   silently shifts the reconstructed day back by one - the same defect that loaded the
+   wrong IONEX map on 12 days of 2024 in `compare_stec_vtec_gim.py` before it was fixed
+   there. Reading from the prediction store instead of re-running inference sidesteps
+   the bug entirely: the store's `year`/`doy` are the caller's authoritative values,
+   overwritten at write time, not reconstructed floats.
+2. GIM values come from the store's precomputed `gim_stec` (mapped per observation at
+   write time) rather than a fresh `GIMMapper.load_gim_data` call per pass. That
+   removes the second and third site of the same date-truncation bug in the original
+   script (`compute_dstec_for_pass`'s per-pass datetime construction and `main()`'s
+   initial GIM load, both of which also truncate a reconstructed `doy`), and the
+   redundant per-pass IONEX reload.
+
+Arc definition, reference epoch and threshold are otherwise unchanged from the
+original script. The arc definition was checked against real data before reuse: over
+2024 DOY 150, `slipc` increments both on a genuine cycle slip and on any
+loss-then-reacquisition of lock (checked directly against `(station, sat)` pairs with
+a data gap of more than 30 minutes - `slipc` differed on the two sides in every case
+examined), so grouping by `(station, sat, slipc)` within one day isolates
+phase-continuous arcs without needing an explicit time-gap check of its own.
+
+**Madrigal has no cycle-slip counter and no phase observable in the store**: `slipc`
+and `gfphase` are absent by design (`stec/data/madrigal_reader.py`'s docstring), not
+placeholdered as zero or NaN. `compute_arc_dstec` falls back, column by column, when
+either is missing: arcs are inferred from a `sod` gap on `(station, sat)` in place of
+`slipc` (the exact 30-minute threshold validated above), and the truth series falls
+back to the noisier code-derived `true_stec` in place of the near-noise-free
+`gfphase`. Both fallbacks are recorded per arc, in `arc_method` and `truth_source`,
+never substituted silently - a gap-inferred arc only proves a reacquisition happened
+somewhere inside the gap, not exactly where, so it is weaker evidence than a real
+slip flag, and a code-derived truth series carries more noise than a phase-derived
+one even after differencing.
+
+Reads the per-observation prediction store, streamed one day at a time via
+`prediction_store.iter_days` - the per-arc summary this module returns is orders of
+magnitude smaller than a day's raw rows, so days accumulate cheaply.
+
+Usage::
+
+    python -m stec.analysis.dstec_evaluation
+    python -m stec.analysis.dstec_evaluation --doys 132 150 200
+
+Bare invocation covers the full 2024 test period (DEFAULT_TEST_DOYS); pass --doys
+explicitly for a subset.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+from collections.abc import Sequence
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
+
+from ..config import paths
+from ..inference import prediction_store as ps
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_STORE_ROOT = paths.LEGACY_PREDICTIONS
+DEFAULT_OUTPUT_DIR = paths.analysis_result_dir("dstec_evaluation", rebuilt=True)
+
+# Matches positioning/scripts/evaluate_dstec.py's EVALUATION_CONFIG["dstec"] defaults.
+DEFAULT_ELEVATION_DIFF_THRESHOLD_DEG = 20.0
+DEFAULT_MIN_SAMPLES_PER_PASS = 10
+
+# The 2024 test period every daily fine-tune covers (CLAUDE.md's "Which results are
+# canonical" table; confirmed directly against the store by
+# stec.analysis.temporal_regime_split - every predictions/pretrained_stec/own file with
+# year=2024 has doy in this range). DOY 303, 338 and 348 have no store partition on this
+# host (see CLAUDE.md's positioning-products gotcha) - `prediction_store.day_paths` skips
+# whatever glob finds nothing for, so listing the full nominal range here is equivalent to
+# listing exactly the 242 present days without hardcoding which three are absent. This
+# used to be a required `--doys` argument with no canonical default, which is why every
+# run before 2026-08-25 only ever covered 18 of 242 days.
+DEFAULT_TEST_DOYS = list(range(122, 367))
+
+# Always needed regardless of which arc-detection/truth-source fallback applies.
+BASE_REQUIRED_COLUMNS = ["station", "sat", "satele", "sod", "true_stec", "stec_pred"]
+# Present together on `own` (finetuned_stec, pretrained_stec); absent together on
+# Madrigal. Requested opportunistically - `compute_arc_dstec` falls back column by
+# column when either is missing, so a day is never skipped just because one dataset's
+# store partition doesn't carry them (see the module docstring).
+ARC_FALLBACK_COLUMNS = ["slipc", "gfphase"]
+REQUIRED_COLUMNS = BASE_REQUIRED_COLUMNS
+# Every baseline the store already carries per observation, keyed by the prefix its
+# per-arc columns get. `stec_pred` (Direct STEC) is deliberately absent: it is required
+# rather than optional, and its columns keep the `model_*` names the first version of
+# this module used when it only ever compared the model against IGS GIM.
+COMPARISON_METHODS = {
+    "gim": "gim_stec",
+    "vtec": "vtec_model_stec",
+    "pretrained": "pretrained_stec_pred",
+}
+OPTIONAL_COLUMNS = list(COMPARISON_METHODS.values())
+
+# Matches the module docstring's own validation (2024 DOY 150): a `(station, sat)` gap
+# longer than this had `slipc` differing on the two sides in every case examined, so it
+# is used as the arc-boundary rule when `slipc` itself is not in the store.
+TIME_GAP_ARC_THRESHOLD_SEC = 30 * 60
+
+ARC_METHOD_SLIPC = "slipc"  # authoritative: a real cycle-slip/reacquisition flag
+ARC_METHOD_TIME_GAP = "time_gap"  # fallback: inferred from an observation gap on `sod`
+TRUTH_SOURCE_PHASE = (
+    "gfphase"  # near-noise-free; the ambiguity offset cancels in a diff
+)
+TRUTH_SOURCE_CODE = "true_stec"  # fallback: code-derived, noisier
+
+
+def _available_columns(path: Path, wanted: Sequence[str]) -> list[str]:
+    """Restrict a read to columns this day's file actually has.
+
+    Not every stored day carries `gim_stec` (a GIM load can fail for a specific day),
+    so ask only for what is present rather than requesting a fixed list that would
+    raise on some days.
+    """
+    present = set(pq.ParquetFile(path).schema.names)
+    return [column for column in wanted if column in present]
+
+
+def _infer_arc_ids_from_time_gaps(
+    frame: pd.DataFrame, gap_threshold_sec: float
+) -> pd.DataFrame:
+    """Fallback arc boundaries for a store partition with no `slipc` (Madrigal).
+
+    Sorts by `(station, sat, sod)` and starts a new arc wherever the gap to the
+    previous observation of the same `(station, sat)` exceeds `gap_threshold_sec`
+    (including the very first observation of each). Returns `frame` with an added
+    `_arc_id` column, a 0-based counter per `(station, sat)` - weaker than `slipc`
+    because a gap only proves a reacquisition happened somewhere inside it, not
+    exactly where, and a real slip shorter than the threshold would be missed.
+    """
+    frame = frame.sort_values(["station", "sat", "sod"]).reset_index(drop=True)
+    gap = frame.groupby(["station", "sat"], observed=True)["sod"].diff()
+    starts_new_arc = gap.isna() | (gap > gap_threshold_sec)
+    # cumsum() is 1 at the first row of each group (its own start-of-arc flag); the
+    # "- 1" makes the first arc of every (station, sat) 0, matching the docstring.
+    frame["_arc_id"] = (
+        starts_new_arc.groupby([frame["station"], frame["sat"]], observed=True)
+        .cumsum()
+        .astype(int)
+        - 1
+    )
+    return frame
+
+
+def compute_arc_dstec(
+    frame: pd.DataFrame,
+    elevation_diff_threshold: float = DEFAULT_ELEVATION_DIFF_THRESHOLD_DEG,
+    min_samples_per_pass: int = DEFAULT_MIN_SAMPLES_PER_PASS,
+    time_gap_threshold_sec: float = TIME_GAP_ARC_THRESHOLD_SEC,
+) -> pd.DataFrame:
+    """One day's per-arc dSTEC statistics.
+
+    For each arc: sort by time of day, take the max-elevation epoch as the
+    reference, keep only observations at least `elevation_diff_threshold` degrees
+    below that reference (the independence mask), and difference the model
+    (`stec_pred`) and truth against that reference. Every baseline present in
+    `COMPARISON_METHODS` - currently `gim_stec`, `vtec_model_stec`,
+    `pretrained_stec_pred` - is differenced the same way, one at a time, each
+    keyed by its own column prefix: `{prefix}_dstec_rmse`/`_dstec_mae`/`_dstec_re`
+    for the differential numbers and `{prefix}_abs_rmse`/`_abs_mae` for the
+    absolute ones (e.g. `vtec_dstec_rmse`, `pretrained_abs_rmse`), with
+    `n_{prefix}_valid` recording the observation count both are computed over.
+    The Direct STEC model is required rather than optional and keeps the
+    original `model_*` prefix from before other baselines were added.
+
+    Arc boundaries come from `(station, sat, slipc)` when `slipc` is in `frame`
+    (the authoritative case - `own`), or from a `sod` gap on `(station, sat)`
+    when it is not (Madrigal - see `_infer_arc_ids_from_time_gaps` and the module
+    docstring). The truth series is `gfphase` when present (phase noise is far
+    below code noise, and the ambiguity offset that makes phase unusable as an
+    absolute quantity cancels in the difference - see the module docstring of
+    `positioning/scripts/evaluate_dstec.py`), or the noisier code-derived
+    `true_stec` when it is not. Both choices are recorded per arc in `arc_method`
+    and `truth_source` rather than substituted silently.
+
+    Also reports the *absolute*-STEC RMSE (the model's and each baseline's
+    predictions vs `true_stec`, not differenced) on the exact same masked
+    observations, so a caller can read the differential and absolute pictures
+    side by side rather than one standing in for the other. A baseline missing
+    its value at the reference epoch cannot produce a differential number for
+    that arc - but the absolute numbers do not depend on the reference epoch and
+    are still reported (see the per-baseline loop below).
+    """
+    present_comparisons = {
+        prefix: column
+        for prefix, column in COMPARISON_METHODS.items()
+        if column in frame.columns
+    }
+    has_slipc = "slipc" in frame.columns
+    has_gfphase = "gfphase" in frame.columns
+    year = int(frame["year"].iloc[0]) if "year" in frame.columns else None
+    doy = int(frame["doy"].iloc[0]) if "doy" in frame.columns else None
+
+    if has_slipc:
+        arc_group_columns = ["station", "sat", "slipc"]
+        arc_method = ARC_METHOD_SLIPC
+    else:
+        frame = _infer_arc_ids_from_time_gaps(frame, time_gap_threshold_sec)
+        arc_group_columns = ["station", "sat", "_arc_id"]
+        arc_method = ARC_METHOD_TIME_GAP
+
+    truth_column = "gfphase" if has_gfphase else "true_stec"
+    truth_source = TRUTH_SOURCE_PHASE if has_gfphase else TRUTH_SOURCE_CODE
+
+    rows: list[dict] = []
+    for (station, sat, arc_key), group in frame.groupby(
+        arc_group_columns, observed=True
+    ):
+        if len(group) < min_samples_per_pass:
+            continue
+
+        group = group.sort_values("sod")
+        satele = group["satele"].to_numpy()
+        idx_max = int(np.argmax(satele))
+
+        elev_diff = satele - satele[idx_max]
+        mask = elev_diff < -elevation_diff_threshold
+        n_masked = int(mask.sum())
+        if n_masked == 0:
+            continue
+
+        truth = group[truth_column].to_numpy()
+        stec_pred = group["stec_pred"].to_numpy()
+        true_stec = group["true_stec"].to_numpy()
+
+        dstec_truth = truth - truth[idx_max]
+        dstec_model = stec_pred - stec_pred[idx_max]
+        model_dstec_error = (dstec_model - dstec_truth)[mask]
+        model_abs_error = (stec_pred - true_stec)[mask]
+
+        dstec_rms = float(np.sqrt(np.mean(dstec_truth[mask] ** 2)))
+        row = {
+            "year": year,
+            "doy": doy,
+            "station": station,
+            "sat": sat,
+            "n_samples": len(group),
+            "n_masked": n_masked,
+            "satele_max": float(satele[idx_max]),
+            "dstec_rms": dstec_rms,
+            "model_dstec_rmse": float(np.sqrt(np.mean(model_dstec_error**2))),
+            "model_dstec_mae": float(np.mean(np.abs(model_dstec_error))),
+            "model_abs_rmse": float(np.sqrt(np.mean(model_abs_error**2))),
+            "model_abs_mae": float(np.mean(np.abs(model_abs_error))),
+            "arc_method": arc_method,
+            "truth_source": truth_source,
+        }
+        if arc_method == ARC_METHOD_SLIPC:
+            row["slipc"] = int(arc_key)
+        else:
+            row["arc_id"] = int(arc_key)
+        row["model_dstec_re"] = (
+            row["model_dstec_rmse"] / dstec_rms if dstec_rms > 0 else np.nan
+        )
+
+        for prefix, column in present_comparisons.items():
+            values = group[column].to_numpy()
+            valid = np.isfinite(values)
+            method_mask = mask & valid
+            if method_mask.sum() == 0:
+                continue
+
+            # The absolute error never touches the reference epoch - it only needs
+            # `values` at the masked points themselves - so it is computed
+            # unconditionally here, over the same method_mask the differential
+            # fields below use.
+            abs_error = (values - true_stec)[method_mask]
+            row[f"n_{prefix}_valid"] = int(method_mask.sum())
+            row[f"{prefix}_abs_rmse"] = float(np.sqrt(np.mean(abs_error**2)))
+            row[f"{prefix}_abs_mae"] = float(np.mean(np.abs(abs_error)))
+
+            # The differential fields DO need the reference epoch's own value, since
+            # every dSTEC point is a difference against it. A baseline with no value
+            # *there* cannot produce a differential number for this arc - but that
+            # must not suppress the absolute statistics just computed above, which
+            # do not depend on the reference epoch at all.
+            if np.isfinite(values[idx_max]):
+                dstec_method = values - values[idx_max]
+                dstec_error = (dstec_method - dstec_truth)[method_mask]
+                row[f"{prefix}_dstec_rmse"] = float(np.sqrt(np.mean(dstec_error**2)))
+                row[f"{prefix}_dstec_mae"] = float(np.mean(np.abs(dstec_error)))
+                row[f"{prefix}_dstec_re"] = (
+                    row[f"{prefix}_dstec_rmse"] / dstec_rms if dstec_rms > 0 else np.nan
+                )
+
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def collect(
+    doys: Sequence[int],
+    model_variant: str = "finetuned_stec",
+    dataset: str = "own",
+    store_root: Path = DEFAULT_STORE_ROOT,
+    elevation_diff_threshold: float = DEFAULT_ELEVATION_DIFF_THRESHOLD_DEG,
+    min_samples_per_pass: int = DEFAULT_MIN_SAMPLES_PER_PASS,
+    years: Sequence[int] | None = None,
+) -> pd.DataFrame:
+    """Per-arc dSTEC statistics across the requested days, one day at a time.
+
+    `years=None` (the default) matches every year that has the requested `doys` -
+    harmless for `finetuned_stec`/`own`, which only ever has 2024, but
+    `pretrained_stec`/`own` spans 2014-2024, so the same DOY number exists up to 11
+    times over. Pass `years` explicitly whenever the day list is meant to identify
+    one specific year, or "the same days as run X" silently becomes 2-6x as many
+    days as run X actually had.
+    """
+    day_frames: list[pd.DataFrame] = []
+    for path in ps.day_paths(
+        model_variant, dataset, years=years, doys=doys, root=store_root
+    ):
+        year = int(path.parent.name.split("=")[1])
+        doy = int(path.stem.split("=")[1])
+        wanted = _available_columns(
+            path,
+            [
+                "year",
+                "doy",
+                *REQUIRED_COLUMNS,
+                *ARC_FALLBACK_COLUMNS,
+                *OPTIONAL_COLUMNS,
+            ],
+        )
+        missing = [c for c in REQUIRED_COLUMNS if c not in wanted]
+        if missing:
+            logger.warning(f"{year}-{doy:03d}: missing {missing}, skipping")
+            continue
+
+        _, _, frame = next(
+            ps.iter_days(
+                model_variant,
+                dataset,
+                years=[year],
+                doys=[doy],
+                columns=wanted,
+                root=store_root,
+            )
+        )
+        arcs = compute_arc_dstec(frame, elevation_diff_threshold, min_samples_per_pass)
+        # Candidate-arc grouping mirrors whatever compute_arc_dstec fell back to
+        # (see its docstring): slipc where present, else a synthetic count that
+        # would need the same time-gap pass this logging line is not worth
+        # duplicating, so it reports station/satellite pairs instead.
+        candidate_columns = (
+            ["station", "sat", "slipc"]
+            if "slipc" in frame.columns
+            else ["station", "sat"]
+        )
+        logger.info(
+            f"{year}-{doy:03d}: {len(arcs):,} arcs pass the sample/threshold cut "
+            f"out of {frame.groupby(candidate_columns, observed=True).ngroups:,} "
+            f"candidate {'arcs' if 'slipc' in frame.columns else 'station/satellite pairs'} "
+            f"({len(frame):,} rows)"
+        )
+        if not arcs.empty:
+            day_frames.append(arcs)
+
+    return pd.concat(day_frames, ignore_index=True) if day_frames else pd.DataFrame()
+
+
+def _pooled_rmse(arcs: pd.DataFrame, rmse_col: str, weight_col: str) -> float:
+    """Recombine per-arc RMSE and count into the observation-weighted RMSE.
+
+    `RMSE**2 * n` recovers each arc's sum of squared error, so this is exact - the same
+    recombination `stec.analysis.daily_metrics.summarise` uses for pooled_RMSE.
+    """
+    valid = arcs[rmse_col].notna() & arcs[weight_col].notna()
+    weights = arcs.loc[valid, weight_col]
+    if weights.sum() == 0:
+        return float("nan")
+    return float(
+        np.sqrt((weights * arcs.loc[valid, rmse_col] ** 2).sum() / weights.sum())
+    )
+
+
+def _single_value_or_mixed(arcs: pd.DataFrame, column: str) -> str:
+    """The one value every arc agrees on, or "mixed" if a run somehow combined both.
+
+    A single `collect()` call only ever sees one arc-detection/truth-source pair in
+    practice - it comes from whether the requested store partition has `slipc`/
+    `gfphase`, which does not change mid-run - but the summary should say so
+    explicitly rather than silently reporting just the first arc's value.
+    """
+    values = arcs[column].unique()
+    return str(values[0]) if len(values) == 1 else "mixed"
+
+
+def summarise(arcs: pd.DataFrame) -> pd.Series:
+    """Headline numbers: per-arc means and pooled (observation-weighted) RMSE, for
+    dSTEC and for absolute STEC on the same masked observations, for the Direct STEC
+    model and for every baseline in COMPARISON_METHODS the store actually carries.
+
+    `arc_method`/`truth_source` surface which fallback (if any) produced the arcs
+    below - see `compute_arc_dstec`'s docstring - so a reader of just this file,
+    not the per-arc CSV, still sees whether the numbers rest on a slip flag or a
+    weaker gap inference.
+    """
+    summary = {
+        "n_days": int(arcs[["year", "doy"]].drop_duplicates().shape[0]),
+        "n_arcs": int(len(arcs)),
+        "n_masked_obs": int(arcs["n_masked"].sum()),
+        "arc_method": _single_value_or_mixed(arcs, "arc_method"),
+        "truth_source": _single_value_or_mixed(arcs, "truth_source"),
+        "model_dstec_rmse_mean_of_arcs": float(arcs["model_dstec_rmse"].mean()),
+        "model_dstec_rmse_pooled": _pooled_rmse(arcs, "model_dstec_rmse", "n_masked"),
+        "model_abs_rmse_pooled": _pooled_rmse(arcs, "model_abs_rmse", "n_masked"),
+        # The arc is the reporting unit and the across-arc distribution is right-skewed,
+        # so the median is the headline and the mean is kept beside it - the same
+        # decision, for the same reason, as Tables 3/4 and Table 5. Pooled is
+        # observation-weighted and is kept too: arc lengths run 1 to 1,395 masked
+        # observations, so it answers a different question (per observation, not per
+        # pass) rather than a better or worse version of the same one.
+        "model_dstec_rmse_median_of_arcs": float(arcs["model_dstec_rmse"].median()),
+        "model_dstec_rmse_q1_of_arcs": float(arcs["model_dstec_rmse"].quantile(0.25)),
+        "model_dstec_rmse_q3_of_arcs": float(arcs["model_dstec_rmse"].quantile(0.75)),
+    }
+    for prefix in COMPARISON_METHODS:
+        if f"{prefix}_dstec_rmse" not in arcs.columns:
+            continue
+        # Each baseline is weighted by its own valid-observation count: a day where GIM
+        # is missing and VTEC is not must not weight both by the same n_masked.
+        weighted_arcs = arcs.assign(_w=arcs.get(f"n_{prefix}_valid", arcs["n_masked"]))
+        summary[f"{prefix}_dstec_rmse_mean_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].mean()
+        )
+        summary[f"{prefix}_dstec_rmse_median_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].median()
+        )
+        summary[f"{prefix}_dstec_rmse_q1_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].quantile(0.25)
+        )
+        summary[f"{prefix}_dstec_rmse_q3_of_arcs"] = float(
+            arcs[f"{prefix}_dstec_rmse"].quantile(0.75)
+        )
+        summary[f"{prefix}_dstec_rmse_pooled"] = _pooled_rmse(
+            weighted_arcs, f"{prefix}_dstec_rmse", "_w"
+        )
+        summary[f"{prefix}_abs_rmse_pooled"] = _pooled_rmse(
+            weighted_arcs, f"{prefix}_abs_rmse", "_w"
+        )
+    return pd.Series(summary)
+
+
+def default_output_dir(model_variant: str, dataset: str) -> Path:
+    """Where one `(model_variant, dataset)` run writes its output.
+
+    The original, still-canonical combination (`finetuned_stec`/`own`) keeps writing
+    directly to `DEFAULT_OUTPUT_DIR` unchanged, so a bare `--doys ...` invocation and
+    everything that already reads that path (revision_figures.py, tests) are
+    unaffected. Every other combination gets its own subdirectory nested under it, so
+    e.g. running the pretrained arm cannot silently overwrite the fine-tuned arm's
+    `pass_statistics.csv`/`summary.csv`.
+    """
+    if model_variant == "finetuned_stec" and dataset == "own":
+        return DEFAULT_OUTPUT_DIR
+    return DEFAULT_OUTPUT_DIR / f"{model_variant}_{dataset}"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--doys",
+        type=int,
+        nargs="+",
+        default=DEFAULT_TEST_DOYS,
+        help="Defaults to the full 2024 test period (DOY 122-366, see "
+        "DEFAULT_TEST_DOYS) - pass explicitly to run a subset.",
+    )
+    parser.add_argument(
+        "--years",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Restrict to these years. Required for a store partition spanning "
+        "more than one (e.g. pretrained_stec/own, 2014-2024) unless matching every "
+        "year that has the requested --doys is actually intended - see collect().",
+    )
+    parser.add_argument("--model-variant", type=str, default="finetuned_stec")
+    parser.add_argument("--dataset", type=str, default="own")
+    parser.add_argument("--store-root", type=Path, default=DEFAULT_STORE_ROOT)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Defaults to a directory keyed by --model-variant/--dataset - see "
+        "default_output_dir().",
+    )
+    parser.add_argument(
+        "--elevation-diff-threshold",
+        type=float,
+        default=DEFAULT_ELEVATION_DIFF_THRESHOLD_DEG,
+    )
+    parser.add_argument(
+        "--min-samples-per-pass", type=int, default=DEFAULT_MIN_SAMPLES_PER_PASS
+    )
+    args = parser.parse_args()
+    if args.output_dir is None:
+        args.output_dir = default_output_dir(args.model_variant, args.dataset)
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    arcs = collect(
+        args.doys,
+        args.model_variant,
+        args.dataset,
+        args.store_root,
+        args.elevation_diff_threshold,
+        args.min_samples_per_pass,
+        args.years,
+    )
+    if arcs.empty:
+        raise RuntimeError("no arcs met the sample/threshold cut on the requested days")
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    arcs.to_csv(args.output_dir / "pass_statistics.csv", index=False)
+    summary = summarise(arcs)
+    summary.to_csv(args.output_dir / "summary.csv", header=["value"])
+
+    print("=== dSTEC vs absolute STEC, on the same masked observations ===")
+    print(summary.round(4).to_string())
+
+    logger.info(f"wrote pass_statistics.csv and summary.csv to {args.output_dir}")
+
+
+if __name__ == "__main__":
+    main()

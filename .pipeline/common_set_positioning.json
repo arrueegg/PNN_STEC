@@ -1,0 +1,37 @@
+{
+  "answers": "R1.5",
+  "canonical_for": null,
+  "caveats": [
+    "A different station-day population from the positioning-distribution table, by design: requiring both weightings costs the IGS GIM ~3,000 station-days. State the N of each table."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.common_set_positioning --output-dir multiday_results/analyses/common_set_positioning/rebuilt",
+  "description": "positioning recomputed on the station-days every method solved",
+  "duration_s": 0.5,
+  "fingerprint": "b0d62127a126622392cdbcbb1a20c1fcb71a7db3d9d012fc85815a7272466d5f",
+  "inputs": {
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "kind": "file",
+      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
+      "size": 13940046
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "kind": "file",
+      "sha256": "51234d43dde2c13fe23bca535bda751ad8fab9c817a390380062a45fc0072500",
+      "size": 29262814
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/common_set_positioning/rebuilt": {
+      "present": true,
+      "size": 66
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T07:11:24.338747+00:00",
+  "stage": "common_set_positioning",
+  "supersedes": []
+}

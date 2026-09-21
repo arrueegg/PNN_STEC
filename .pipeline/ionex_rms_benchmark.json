@@ -1,0 +1,31 @@
+{
+  "answers": "R1.6b",
+  "canonical_for": null,
+  "caveats": [],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.ionex_rms_benchmark --output_dir multiday_results/analyses/ionex_rms_benchmark/rebuilt",
+  "description": "model uncertainty against the IGS GIM RMS map",
+  "duration_s": 546.8,
+  "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
+  "inputs": {
+    "predictions/finetuned_stec/own": {
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787738860783434182,
+      "size": 40389608015
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/ionex_rms_benchmark/rebuilt": {
+      "present": true,
+      "size": 546
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T07:59:38.985752+00:00",
+  "stage": "ionex_rms_benchmark",
+  "supersedes": []
+}

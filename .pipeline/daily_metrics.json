@@ -1,0 +1,67 @@
+{
+  "answers": "Tables 3, 4",
+  "canonical_for": "Tables 3 and 4",
+  "caveats": [
+    "The published RMSE is RMSE_mean - the mean of per-day RMSEs - which is what the manuscript states. pooled_RMSE in the same file is over observations and is consistently higher; the two are not interchangeable.",
+    "Madrigal rows carry the madrigal_reference_offset caveat.",
+    "Tables 3/4 report RMSE/MAE/R2 with across-day median and quartiles (RMSE_median/RMSE_q1/RMSE_q3), not mean +/- std - the day distribution is skewed and mean +/- std implies a symmetry it does not have. The _mean/_std columns are kept so nothing already published moves. AbsErr_p95_median/AbsErr_p99_median are the across-day median of each day's own absolute-error percentile, not a pooled percentile over all observations."
+  ],
+  "code": {
+    "commit": "51e089bd2a2521633fea7cd7f9a1e4820f450be4",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.daily_metrics --output-dir multiday_results/analyses/daily_metrics/rebuilt",
+  "description": "per-day and pooled STEC metrics recomputed from the prediction store",
+  "duration_s": 120.9,
+  "fingerprint": "00f6dbd70d712f6097de38a207247e3c1e05d2e40e09b030201dc68594591140",
+  "inputs": {
+    "multiday_results/analyses/repair_gim_baseline/pre_rebuild": {
+      "files": 2,
+      "kind": "tree",
+      "mtime_ns": 1787740591952076918,
+      "size": 71852
+    },
+    "predictions/finetuned_stec/madrigal": {
+      "files": 238,
+      "kind": "tree",
+      "mtime_ns": 1787986645089832423,
+      "size": 38131901134
+    },
+    "predictions/finetuned_stec/own": {
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787738860783434182,
+      "size": 40389608015
+    },
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/daily_metrics/rebuilt": {
+      "present": true,
+      "size": 164
+    },
+    "multiday_results/analyses/daily_metrics/rebuilt/per_day.csv": {
+      "present": true,
+      "rows": 1920,
+      "sha256": "1d4d7e1261d75d93005da1a97c2d6a8bcd5ea8f518d253f97aa95d192f42e247",
+      "size": 355485
+    },
+    "multiday_results/analyses/daily_metrics/rebuilt/summary.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "58527adb6102fc5a873cfadf1322b16fc11be913fa95865851445a692a5374f5",
+      "size": 3106
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-15T13:51:16.914437+00:00",
+  "stage": "daily_metrics",
+  "supersedes": [
+    "multiday_results/stec_evaluation/with_pretrained_baseline/summary/summary_statistics.csv"
+  ]
+}

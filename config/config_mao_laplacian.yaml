@@ -146,8 +146,8 @@ training:
 pretrain:
   epochs: 150
   batchsize: 2048
-  num_workers: 4
-  prefetch_factor: 4
+  num_workers: 4  # capped for peak RSS: each worker forks a copy of the in-RAM day (30 GB host)
+  prefetch_factor: 2
   learning_rate: 0.001
   scheduler: ReduceLROnPlateau
   scheduler_step_size: 100
@@ -159,8 +159,8 @@ pretrain:
 finetune:
   epochs: 50
   batchsize: 2048
-  num_workers: 8
-  prefetch_factor: 4
+  num_workers: 4
+  prefetch_factor: 2
   freeze_body: false
   learning_rate: 0.001
   scheduler: ReduceLROnPlateau

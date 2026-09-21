@@ -1,0 +1,69 @@
+{
+  "answers": "R1.5",
+  "canonical_for": "positioning station-day coverage",
+  "caveats": [
+    "Canonical variant selection is explicit: it matches the canonical directory name directly rather than de-duplicating multiple Finetune_STEC_2024_<DOY>_* matches by sort order. Sort-order dedup let lr1e-4_bs2048/lr1e-4_bs10000 win over the paper's lr2e-4_bs512 for 31 DOYs once the station-recovery sweep created a second directory per day.",
+    "Coverage as of the last regenerated coverage.csv (2026-09-17, this stage's own .pipeline record), iono weighting: 10,793 / 9 / 35 of 10,837 station-days solved by all methods / all ML methods missing (station absent from STEC DB) / some ML methods missing (per-method PPPx failure). **Moved twice more the same day, both by the same underlying fix landing in two steps**: the ref_source mean->ground_truth repair first operated at whole-file granularity, so any file with even one unrelated genuine missing-SINEX station (LICC/MAR7/UCLU/KIR8/BRMG/NAUS) STOPped entirely and left 1,928 contaminated model_iono rows on disk for `collect()`'s new ref_source filter to exclude - moving 'solved by all' to 9,715 and 'some ML missing' to 1,111, a correct but overly conservative intermediate state (see the 2026-09-18 coordinator follow-up). `verification/repair_overwritten_summaries.py` was then extended to handle missing SINEX per station rather than per file (`find_missing_sinex_drops`): a station with SINEX is rebuilt against ground truth, a station without it is dropped from just its own row rather than blocking the whole file. Applied: 1,765 more rows upgraded to ground_truth and 163 correctly dropped for missing SINEX (1,765+163, plus the 66 already fixed earlier the same day = 1,994 - the original contaminated-row count, exactly), restoring coverage to essentially the same level as the earlier GIM-arm fix (10,793/9/34 of 10,836) rather than leaving the population artificially gutted - this is what pulled the 10-11 May 2024 superstorm (DOY 131-132) back into the common set. Quoted here as a read of coverage.csv's own 'cause' column counts, not re-derived from first principles. This has moved four times since the number this caveat originally quoted: pre-sweep 8,003 / 2,311 / 510 of 10,824, then post-station-recovery-sweep (2026-08-24) 8,195 / 1,591 / 1,067 of 10,853, then the second recovery sweep (2026-08-27) 10,598 / 26 / 229 of 10,853 - the 'all ML missing' population fell from 1,591 to 26 across that move, which the session recording it did not investigate the mechanism of. The 2026-09-14 move (10,598->10,712 solved / 229->115 some-missing, 'all ML missing' unchanged at 26) closed roughly half the remaining 'some ML missing' bucket: the STEC arm's correction-generation step had simply never been pointed at data/recovered_stec_db (the existing geometry-recovery sweep's own output) for DOY 122-153, even though VTEC/Pretrained_STEC already read it there - generating STEC corrections against that root and re-solving PPPx for the dozen affected DOYs closed 114 station-days with no new geometry work at all. **The 2026-09-17 move (10,712->10,793 solved, 115->34 some-missing, 26->9 all-missing) is a different fix, not another round of the same recovery work**: `daily_summary_iono.csv` had been carrying elevation-weighted 'gim' rows as a per-station fallback wherever no genuine 'gim_iono' solution existed, and both `verification/repair_overwritten_summaries.py` (the rebuild) and this module's own `collect()` (`GENUINE_GIM_METHOD`) now drop those rows instead of folding them into the iono GIM arm - see this module's own top-of-file comment. That changed which station-days count as GIM-solved at all for this weighting (10,853 -> 10,836 total), not only the solved/missing split within them, so the station-list breakdown below (the specific ~101/24 counts and the named stations) is keyed to the pre-2026-09-17 115-row 'some ML missing' population and has not been re-derived against the new 34-row one - treat the named stations as a pre-fix sample of the mechanism, not a current enumeration. The pre-fix 115 split two ways, both confirmed rather than assumed at the time: ~101 station-days (a recurring handful of stations - BRMG, LICC, KIR8, MAR7, UCLU, NAUS, NKLG, WUH2, UNSA, YKRO) had a .pos file but no daily_summary_iono.csv row for any method, model or GIM alike, because the day's own SINEX ground truth genuinely has no entry for that station (confirmed by grepping the SINEX file directly, e.g. DOY 122's has zero LICC occurrences); the other ~14 had no correction because the underlying station observations were absent from both the primary STEC database and data/recovered_stec_db. **The 'second finding' this caveat used to flag here is now the 2026-09-17 fix, not an open item**: for at least LICC/DOY122, the 'GIM solved this station-day' signal that put it into 'some ML missing' rather than 'all ML missing' traced to exactly the stale, pre-iono/elev-split 'gim' row inside the non-per-DOY Pretrained_STEC tree's daily_summary_iono.csv that GENUINE_GIM_METHOD now drops - dropping it removes LICC/DOY122 (and the rest of that mechanism's station-days) from the GIM-solved population entirely, which is the 10,853->10,836 total drop noted above, rather than reclassifying them into a different 'missing' bucket. State which vintage backs a given number, and treat the common-set population (common_set_positioning) as still meaningfully smaller than the full-recovered-set population (positioning_summary) unless re-checked against the current coverage.csv.",
+    "Three individual per-day source files were found truncated on disk, all with recovery-sweep mtimes (2026-08-23/24), independent of this stage: DOY 166 and 176 dropped from ~43 stations to 2 in all three ML methods' own trees plus the GIM arm simultaneously (identical mtimes across the independent STEC/VTEC/Pretrained experiment directories, so this is a PPPx-level failure for those two days, not a positioning_coverage aggregation bug); DOY 323 dropped from ~41 to 4 stations in the STEC tree only (VTEC and Pretrained trees for that day are intact, 89 lines each). These three days are included in the aggregate as genuinely-small samples, not dropped or backfilled - no PPPx re-run was in scope to fix them. They are 3 of 242 days and do not materially move the per-station-day-mean tables, but a per-day breakdown that weights days unevenly should exclude or flag them.",
+    "Solver-failure exclusion, owner decision 2026-09-18 (docs/revision/positioning_reporting.md): a station-day is dropped from every output of this stage - and so from every downstream population that reads them (weighting_ablation, storm_stratification, positioning_summary, oracle_benchmark, positioning_diagnostics, positioning_activity, constellation_coverage, positioning_robustness, positioning_geography, common_set_positioning) - when *every one* of the eight arms (all four methods, both weightings) reports a 3D RMS position error above `positioning_coverage.SOLVER_FAILURE_THRESHOLD_M` (100 m). This is a data-quality rule about station/solver failures independent of which correction method was used, not an outcome-based filter between methods - the owner's standing rule against those stays in force, so a station-day where only *some* arms exceed 100 m (e.g. CHPG/248, POVE/124) is left in untouched. On the data as of 2026-09-18 this removes exactly one station-day, URUM/DOY 365 (all eight solutions 5,880-5,990 m), recorded with every arm's error in this stage's own `excluded_solver_failures.csv`. `common_set_positioning.build()`'s `load_pretrained_elev` arm is read from a live experiment tree's raw per-day files rather than this stage's rebuilt summaries, so it applies this same exclusion list explicitly rather than inheriting it for free."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.positioning_coverage --output-dir multiday_results/analyses/positioning_coverage/rebuilt",
+  "description": "which station-days each method solved, and why the rest are missing",
+  "duration_s": 13.7,
+  "fingerprint": "7d247929050a29164b0185121c47915473c0f845368c8d98eacec6225e5ac30b",
+  "inputs": {
+    "experiments": {
+      "files": 566995,
+      "kind": "tree",
+      "mtime_ns": 1789665291798240689,
+      "size": 483628161325
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/positioning_coverage/rebuilt": {
+      "present": true,
+      "size": 846
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/coverage_elev.csv": {
+      "present": true,
+      "rows": 12134,
+      "sha256": "ce9a41160fa016df451e88af0a7fd4559f45631bc0b38596e1f775255ed865eb",
+      "size": 418749
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/excluded_solver_failures.csv": {
+      "present": true,
+      "rows": 1,
+      "sha256": "712a0717550ccd4ebe5151388700d78bdc524fa1e5309146465c82c0f6b0ac07",
+      "size": 201
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "present": true,
+      "rows": 43287,
+      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
+      "size": 13940046
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "present": true,
+      "rows": 90618,
+      "sha256": "51234d43dde2c13fe23bca535bda751ad8fab9c817a390380062a45fc0072500",
+      "size": 29262814
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_elev.csv": {
+      "present": true,
+      "rows": 47331,
+      "sha256": "f709964d6f0adf152e38c731eaef28c21c90a2696299179fe2b479c7a39a097d",
+      "size": 15323003
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T07:09:40.011215+00:00",
+  "stage": "positioning_coverage",
+  "supersedes": [
+    "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_runs/full_coverage",
+    "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_runs/comparison_3way/multiday_summary.csv"
+  ]
+}

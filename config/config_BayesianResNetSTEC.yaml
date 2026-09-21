@@ -43,7 +43,7 @@ model:
   
 training:
   loss_function: "GaussianNLLLoss"  # Loss function for uncertainty estimation
-  loss_weight: 1.0                  # Weight for the loss function
+  loss_weight: 0.1                  # KL weight; must equal kl_annealing.end_weight below
   
   # KL annealing for BNN training (gradually increase KL weight)
   kl_annealing:
@@ -66,8 +66,8 @@ training:
 pretrain:
   epochs: 150
   batchsize: 1024
-  num_workers: 12 
-  prefetch_factor: 4
+  num_workers: 4  # capped for peak RSS: each worker forks a copy of the in-RAM day (30 GB host) 
+  prefetch_factor: 2
   learning_rate: 0.01
   scheduler: ReduceLROnPlateau            # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 150       # Step size for scheduler
@@ -77,7 +77,7 @@ pretrain:
 
 finetune:
   epochs: 100
-  num_workers: 12
+  num_workers: 4
   learning_rate: 0.001
   scheduler: ReduceLROnPlateau             # none, StepLR, CosineAnnealingLR
   scheduler_step_size: 100       # Step size for scheduler

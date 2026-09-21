@@ -1,0 +1,127 @@
+# R2.6 epistemic-calibration arm C: KL weight, upper bracket point (2024-specific target).
+#
+# See config_BayesianResNetSTEC_klw2.17.yaml's header for the shared derivation (sigma_posterior
+# ~ sqrt(kl_weight) in the data-dominated regime BKLLoss's reduction="mean" puts this model
+# in). That arm targets the diagnostic's *global* calibrating scale (4.66x, averaged over all
+# 11 years in the store). The diagnostic also found the scale requirement is not year-uniform
+# (calibrating_scale_by_year.csv: seven of eleven years need none at all - aleatoric alone
+# already over-covers them - while 2024, the paper's own test year, needs 6.49x). Since a
+# single global kl_weight can only buy one operating point, not a per-year one, this arm
+# brackets the *upper* end of the plausible target using the number that actually matters for
+# the paper: kl_weight = 0.1 * 6.49^2 ~= 4.21.
+#
+# Two points on the same lever (this arm and klw2.17) let the observed
+# multiplier-vs-kl_weight trend be checked against the predicted sqrt(kl_weight) law, rather
+# than trusting a single point estimate - and give a real bracket around the range the paper
+# needs (4.66x global to 6.49x for 2024), rather than a blind sweep.
+#
+# evaluation.store_variant is mandatory - see the ps0.466 arm's header for the trap this
+# avoids.
+#
+# Run via: python cli.py train --config config/config_BayesianResNetSTEC_klw4.21.yaml
+# Then:    python src/inference_testset.py --config_path experiments/<exp_name>/config.yaml
+cluster: false
+data:
+  GNSS_data_path: /home/space/data/iono/STEC_DB_CASDCB
+  SH_degree: 5
+  SWI_data_path: /home/space/data/iono/SWI/
+  every_x_doy: 1
+  max_elevation: 90.0
+  min_elevation: 5.0
+  move_to_scratch: true
+  scratch_dir: /scratch2/arrueegg/WP4/PNN_STEC/data/
+  shuffle: true
+  test_size: 10000000
+  train_subset_size: 500000
+  use_SWI: true
+  use_agg_h5: true
+  val_size: 1000000
+debug: false
+debug_single_batch: false
+doy: '183'
+evaluation:
+  enable_scenarios: false
+  store_variant: pretrained_stec_klw4.21
+feature_control:
+  AE-index,_nT: true
+  Dst-index,_nT: true
+  Kp_index: true
+  R_Sunspot_No: true
+  ap_index,_nT: true
+  doy: true
+  f107_index: true
+  lat_ipp: true
+  lat_sta: true
+  local_time_hours: true
+  lon_ipp: true
+  lon_sta: true
+  satazi: true
+  satele: true
+  sm_lat_ipp: true
+  sm_lat_sta: true
+  sm_lon_ipp: true
+  sm_lon_sta: true
+  sod: true
+  year: true
+finetune:
+  batchsize: 512
+  early_stopping: true
+  epochs: 50
+  freeze_body: false
+  learning_rate: 0.0002
+  num_workers: 12
+  patience: 15
+  save_model_every_epoch: false
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 100
+mode: pretrain
+model:
+  activation: relu
+  dropout_rate: 0.0
+  ensemble_size: 5
+  geom_hidden: 32
+  geom_layers: 2
+  hidden_dim: 1024
+  model_type: BayesianResNetSTEC
+  num_heads: 4
+  num_layers: 4
+  output_size: 1
+  prior_sigma: 0.1
+  vtec_hidden: 128
+  vtec_layers: 4
+output_dir: experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w4.21_lw4e+0_SWI
+pretrain:
+  batchsize: 1024
+  early_stopping: true
+  epochs: 150
+  learning_rate: 0.001
+  num_workers: 12
+  patience: 20
+  prefetch_factor: 4
+  save_model_every_epoch: false
+  scheduler: ReduceLROnPlateau
+  scheduler_step_size: 150
+pretrain_folder: experiments/Pretrain_STEC_BayesianResNetSTEC_h1024_l4_nh4_v128x4_g32x2_lr1e-3_bs1024_GNLL_Adam_ReduceLROnPlateau_sub500K_SH5_ps0.1_kl5w4.21_lw4e+0_SWI
+project_name: PNN_STEC
+random_seed: 42
+target: stec
+training:
+  crps_num_samples: 16
+  kl_annealing:
+    enabled: true
+    end_weight: 4.21
+    start_weight: 0.0
+    warmup_epochs: 5
+  log_space_point: mean
+  log_target: false
+  loss_function: GaussianNLLLoss
+  loss_weight: 4.21
+  optimizer: Adam
+  standardize_targets: false
+  target_weighting:
+    enabled: false
+    weight_function: linear
+  weight_decay: 0.0
+wandb:
+  offline: false
+year: '2024'

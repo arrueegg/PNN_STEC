@@ -1,0 +1,21 @@
+{
+  "category": "canonical",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/predictions",
+  "label": "Per-observation predictions",
+  "notes": "Partitioned parquet store; authoritative going forward.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/predictions.json": {
+      "present": true,
+      "sha256": "b24e68cb7fd5d8085355c662103827db5b175fbc46c3896b0f7c62d8a8fa2fff",
+      "size": 511
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.577144+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/predictions",
+  "stage": "migrate_predictions"
+}

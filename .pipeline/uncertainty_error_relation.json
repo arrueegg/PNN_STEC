@@ -1,0 +1,46 @@
+{
+  "answers": "R2.6, R1.2",
+  "canonical_for": null,
+  "caveats": [
+    "Bins are now fixed TECU intervals (0-1-2-3-4-5-7-10-15-20-30-inf), not the previous first-day sigma deciles. Those deciles were computed from DOY 122's pred_total_unc distribution alone and reused unchanged for the other 241 days, so a bin labelled 'top decile' held 6.88%-18.80% of the full-year population rather than 10% - a 'decile' meant something different on every day but the first.",
+    "calibrating_factor.csv states the single scalar that would calibrate the predicted uncertainty AND its spread across elevation bands. The spread is the load-bearing number: a uniform factor is a scale error, a varying one would be a broken uncertainty model, and only the former is safe to report as a post-hoc recalibration."
+  ],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.uncertainty_error_relation --output-dir multiday_results/analyses/uncertainty_error_relation/rebuilt",
+  "description": "predicted uncertainty against realised error, pooled over the test period",
+  "duration_s": 244.9,
+  "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
+  "inputs": {
+    "predictions/finetuned_stec/own": {
+      "files": 242,
+      "kind": "tree",
+      "mtime_ns": 1787738860783434182,
+      "size": 40389608015
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/uncertainty_error_relation/rebuilt": {
+      "present": true,
+      "size": 264
+    },
+    "multiday_results/analyses/uncertainty_error_relation/rebuilt/by_elevation.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "0bb521967790bf6c2080dd812710559f8cb7298b6012063b02cabcccc1546287",
+      "size": 1805
+    },
+    "multiday_results/analyses/uncertainty_error_relation/rebuilt/calibrating_factor.csv": {
+      "present": true,
+      "rows": 9,
+      "sha256": "fb360f9ece525f66f83c17f5f34f020d2e32733f82639f09fa400062c2d2f55b",
+      "size": 309
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T07:50:03.266647+00:00",
+  "stage": "uncertainty_error_relation",
+  "supersedes": []
+}

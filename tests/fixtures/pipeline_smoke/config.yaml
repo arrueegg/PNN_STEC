@@ -1,0 +1,60 @@
+# A tiny, self-contained run config for the `training`/`inference` pipeline stages.
+#
+# This is NOT a stand-in for the paper's real training config - hidden_dim, epochs and the
+# feature set are all cut down so the two stages that use it (stec.pipeline.stages:
+# `training_smoke`, `inference_smoke`) finish in well under a second on CPU. It exists so
+# those stages are genuinely runnable, unattended, without ever touching the GPU or the real
+# 640 GB data tree - the paper's real checkpoints are still produced by the pre-rebuild
+# src/main.py driver (see CLAUDE.md's canonical-results table), exactly as before.
+#
+# Reads tests/fixtures/pipeline_smoke/{external_data,repo_data}, built by
+# tests/fixtures/make_fixtures.py's build_stec_database_day/build_space_weather (year 2024,
+# doy 132, 200 synthetic observations, seed 20260821).
+mode: finetune
+year: 2024
+doy: 132
+random_seed: 42
+target: stec
+finetune_from_scratch: true
+output_dir: artifacts/models/pipeline_smoke_finetune
+
+feature_control:
+  year: true
+  doy: true
+  sod: true
+  local_time_hours: true
+  lat_sta: true
+  lon_sta: true
+  satazi: true
+  satele: true
+  lat_ipp: true
+  lon_ipp: true
+
+data:
+  SH_degree: 1
+
+model:
+  model_type: BayesianResNetSTEC
+  hidden_dim: 8
+  num_layers: 1
+  prior_sigma: 0.1
+  dropout_rate: 0.0
+
+training:
+  loss_function: GaussianNLLLoss
+  loss_weight: 0.1
+  optimizer: Adam
+  weight_decay: 0.0
+  log_target: false
+  kl_annealing:
+    enabled: true
+    start_weight: 0.0
+    end_weight: 0.1
+    warmup_epochs: 1
+
+finetune:
+  epochs: 1
+  batchsize: 32
+  learning_rate: 0.001
+  scheduler: none
+  freeze_body: false

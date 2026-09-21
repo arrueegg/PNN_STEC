@@ -1,0 +1,43 @@
+{
+  "answers": "R2.7",
+  "canonical_for": null,
+  "caveats": [
+    "Classifies a day as storm when its daily minimum Dst reaches -50 nT. This is a different, deliberately kept-separate threshold from the STEC-domain scenario_evaluation.py, which classifies individual hours as storm at Kp>=37 or Dst<=-33: the daily rule finds 39 storm days over the 242-day positioning test period against 102 under the per-observation rule applied at the day level. Do not port one rule's day count into the other's table.",
+    "Headline changed from mean to median and restricted to the same 4-method x 2-weighting common set the positioning tables use (N=10,673 - see positioning_coverage's caveats for the full 10,387 -> 10,674 -> briefly 9,606 -> 10,674 -> 10,673 (solver-failure exclusion) history; owner decision applied 2026-09-15 - see the module docstring). improvement_over_gim.csv's headline columns are now _median_% (matching the other positioning tables); the previous mean-only, per-method-population version is what response_to_reviewers.md and evidence_summary.md quoted as +25.4%/+19.6% (itself already a stale restatement of the published +31.9%/+26.3%) - all three numbers are superseded by this stage's current output, not by each other."
+  ],
+  "code": {
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.storm_stratification --output-dir multiday_results/analyses/storm_stratification/rebuilt",
+  "description": "positioning accuracy on storm against quiet days",
+  "duration_s": 0.5,
+  "fingerprint": "537a83b5b48c2ee75e6b656b38513660d8dc3860ab552293fdbc5a9eb261fe48",
+  "inputs": {
+    "data/omni_hourly_2010-2025.h5": {
+      "kind": "file",
+      "sha256": "e9625d79287f7c7c840468417a437c6ef482636b629c3cc652ef0b380678a27a",
+      "size": 33024928
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
+      "kind": "file",
+      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
+      "size": 13940046
+    },
+    "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
+      "kind": "file",
+      "sha256": "51234d43dde2c13fe23bca535bda751ad8fab9c817a390380062a45fc0072500",
+      "size": 29262814
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/storm_stratification/rebuilt": {
+      "present": true,
+      "size": 128
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-21T12:43:15.938057+00:00",
+  "stage": "storm_stratification",
+  "supersedes": []
+}

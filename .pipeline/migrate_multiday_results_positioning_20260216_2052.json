@@ -1,0 +1,21 @@
+{
+  "category": "canonical",
+  "code": {
+    "commit": "95baa5675f02f3c19c37e4f60c80c5e0c40980b1",
+    "dirty": true
+  },
+  "imported_from": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_20260216_2052",
+  "label": "Weighting ablation (elev vs iono)",
+  "notes": "All six arms: STEC_elev/iono, VTEC_elev/iono, gim_elev/iono.",
+  "outputs": {
+    "/scratch2/arrueegg/WP4/PNN_STEC_rebuild/artifacts/runs/migration_links/multiday_results_positioning_20260216_2052.json": {
+      "present": true,
+      "sha256": "a1db63435e5bd5241dfa15ffbd2a622942a2a3854ca574e49b36af5360c3e41e",
+      "size": 579
+    }
+  },
+  "predates_rebuild": true,
+  "recorded_at": "2026-08-21T09:09:09.571703+00:00",
+  "source_path": "/scratch2/arrueegg/WP4/PNN_STEC/multiday_results/positioning_20260216_2052",
+  "stage": "migrate_multiday_results_positioning_20260216_2052"
+}

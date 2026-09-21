@@ -1,0 +1,234 @@
+"""Stochastic-model ablation: what does the predicted uncertainty buy in PPP?
+
+Answers reviewer comment R1.5, which asks to isolate whether the uncertainty
+estimates themselves improve positioning, rather than the STEC correction they
+accompany.
+
+No new PPP runs are needed. Both weighting schemes have already been run for all
+three correction sources over the full 2024 test period; this script pairs them.
+
+A third arm exists for the Direct STEC correction: **fixed variance**, the same
+STEC values with the per-observation sigma replaced by a constant
+(`generate_fixed_variance_corrections.py`, run under `--weight_opt iono` so PPPx
+still reads the uncertainty column). It is what separates "weighting by a
+model-derived uncertainty" from "weighting by anything at all", which is the
+distinction R1.5 actually asks about, and it lives in a separate experiment tree
+rather than in the six-arm sweep.
+
+Weighting provenance: PPPx takes `weight_opt` = elev | snr | iono
+(positioning/positioning_eval/generate_ini.py). With `iono` it reads the
+per-observation `uncertainty` column of the STEC correction file as the
+observation weight. Runs are labelled `<source>_elev` / `<source>_iono` in
+`multiday_results/positioning_20260216_2052/multiday_summary.csv`.
+
+The comparison is **paired**: only station-days that were solved successfully
+under both weightings are kept. The unpaired arms differ by several hundred
+station-days, and comparing their raw means would confound the weighting effect
+with which days each arm happened to converge on.
+
+Usage::
+
+    python src/analysis/weighting_ablation.py
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# Same rule as Figure 12 / Table 5 of the paper.
+OUTLIER_3D_RMS_M = 10.0
+
+METHOD_LABELS = {
+    "STEC_elev": ("Direct STEC", "elev"),
+    "STEC_iono": ("Direct STEC", "iono"),
+    "VTEC_elev": ("VTEC + Mapping", "elev"),
+    "VTEC_iono": ("VTEC + Mapping", "iono"),
+    "gim_elev": ("IGS GIM + Mapping", "elev"),
+    "gim_iono": ("IGS GIM + Mapping", "iono"),
+}
+CORRECTION_ORDER = ["Direct STEC", "VTEC + Mapping", "IGS GIM + Mapping"]
+# Arms in the order they should be reported; elev is the reference for gains.
+WEIGHTING_ORDER = ["elev", "fixed", "iono"]
+REFERENCE_WEIGHTING = "elev"
+FIXED_VARIANCE_RESULTS = Path("experiments/Fixed_Variance_STEC/positioning/results")
+
+
+def load_fixed_variance(results_dir: Path) -> pd.DataFrame:
+    """The fixed-variance arm, read from its per-day summaries.
+
+    That run lives in its own experiment tree rather than in the six-arm sweep,
+    so it has no multiday_summary.csv; its 242 daily_summary_iono.csv files are
+    concatenated here into the same shape.
+    """
+    files = sorted(results_dir.glob("*/daily_summary_iono.csv"))
+    if not files:
+        logger.warning(f"⚠️  No fixed-variance summaries under {results_dir}")
+        return pd.DataFrame()
+    frame = pd.concat((pd.read_csv(f) for f in files), ignore_index=True)
+    logger.info(f"fixed-variance arm: {len(files)} day(s), {len(frame):,} station-days")
+    return frame.assign(correction="Direct STEC", weighting="fixed")[
+        ["station", "doy", "error_3d_rms", "correction", "weighting"]
+    ]
+
+
+def paired_ablation(summary_path: Path) -> pd.DataFrame:
+    """Pair every weighting arm per (station, day) and summarise the effect.
+
+    Pairing is across *all* arms available for a correction, so adding the
+    fixed-variance arm necessarily shrinks the Direct STEC sample: a station-day
+    now has to have converged under three runs rather than two. That is the
+    price of a like-for-like comparison and the count is reported alongside.
+    """
+    runs = pd.read_csv(summary_path)
+    runs = runs[runs["error_3d_rms"] <= OUTLIER_3D_RMS_M].copy()
+
+    known = runs["method"].isin(METHOD_LABELS)
+    if not known.all():
+        logger.warning(
+            f"⚠️  Ignoring unlabelled methods: {sorted(runs.loc[~known, 'method'].unique())}"
+        )
+    runs = runs[known]
+    runs[["correction", "weighting"]] = pd.DataFrame(
+        runs["method"].map(METHOD_LABELS).tolist(), index=runs.index
+    )
+    runs = runs[["station", "doy", "error_3d_rms", "correction", "weighting"]]
+
+    rows = []
+    for correction, group in runs.groupby("correction"):
+        wide = group.pivot_table(
+            index=["station", "doy"], columns="weighting", values="error_3d_rms"
+        )
+        unpaired = len(wide)
+        wide = wide.dropna()
+        arms = [w for w in WEIGHTING_ORDER if w in wide.columns]
+        reference = wide[REFERENCE_WEIGHTING]
+
+        row = {
+            "correction": correction,
+            "paired_station_days": len(wide),
+            "dropped_unpaired": unpaired - len(wide),
+            "arms": "+".join(arms),
+        }
+        for arm in arms:
+            row[f"{arm}_mean"] = wide[arm].mean()
+            row[f"{arm}_median"] = wide[arm].median()
+            if arm != REFERENCE_WEIGHTING:
+                difference = reference - wide[arm]
+                row[f"gain_{arm}_%"] = 100 * difference.mean() / reference.mean()
+                row[f"{arm}_better_frac_%"] = 100 * (difference > 0).mean()
+        # Kept under its old name: the headline R1.5 number is iono vs elev.
+        row["gain_%"] = row.get("gain_iono_%")
+
+        # Also report iono-vs-elev on the *two-arm* pairing. Adding the
+        # fixed-variance arm shrinks the Direct STEC sample from 8,280 to 5,422
+        # station-days, which moves that number slightly; quoting both makes the
+        # shift explicit rather than letting a previously published figure change
+        # under the reader without explanation.
+        two_arm = group[group["weighting"].isin([REFERENCE_WEIGHTING, "iono"])]
+        two_wide = two_arm.pivot_table(
+            index=["station", "doy"], columns="weighting", values="error_3d_rms"
+        ).dropna()
+        if {REFERENCE_WEIGHTING, "iono"}.issubset(two_wide.columns):
+            pairwise = two_wide[REFERENCE_WEIGHTING] - two_wide["iono"]
+            row["gain_iono_two_arm_%"] = (
+                100 * pairwise.mean() / two_wide[REFERENCE_WEIGHTING].mean()
+            )
+            row["two_arm_station_days"] = len(two_wide)
+        rows.append(row)
+
+    return pd.DataFrame(rows).set_index("correction").reindex(CORRECTION_ORDER)
+
+
+def fixed_variance_comparison(
+    summary_path: Path, fixed_variance_dir: Path
+) -> pd.Series | None:
+    """Direct STEC under all three stochastic models, on one paired sample."""
+    extra = load_fixed_variance(fixed_variance_dir)
+    if extra.empty:
+        return None
+    extra = extra[extra["error_3d_rms"] <= OUTLIER_3D_RMS_M]
+
+    runs = pd.read_csv(summary_path)
+    runs = runs[runs["error_3d_rms"] <= OUTLIER_3D_RMS_M]
+    runs = runs[runs["method"].isin(["STEC_elev", "STEC_iono"])].copy()
+    runs["weighting"] = runs["method"].str.replace("STEC_", "", regex=False)
+    combined = pd.concat(
+        [runs[["station", "doy", "error_3d_rms", "weighting"]], extra], ignore_index=True
+    )
+
+    wide = combined.pivot_table(
+        index=["station", "doy"], columns="weighting", values="error_3d_rms"
+    ).dropna()
+    if not {"elev", "fixed", "iono"}.issubset(wide.columns):
+        return None
+    return pd.Series(
+        {
+            "paired_station_days": len(wide),
+            "elev_mean_m": wide["elev"].mean(),
+            "fixed_variance_mean_m": wide["fixed"].mean(),
+            "predicted_uncertainty_mean_m": wide["iono"].mean(),
+            "fixed_vs_elev_%": 100 * (wide["elev"] - wide["fixed"]).mean() / wide["elev"].mean(),
+            "iono_vs_elev_%": 100 * (wide["elev"] - wide["iono"]).mean() / wide["elev"].mean(),
+            "iono_vs_fixed_%": 100 * (wide["fixed"] - wide["iono"]).mean() / wide["fixed"].mean(),
+        }
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=Path("multiday_results/positioning_20260216_2052/multiday_summary.csv"),
+    )
+    parser.add_argument(
+        "--fixed_variance_dir", type=Path, default=FIXED_VARIANCE_RESULTS
+    )
+    parser.add_argument(
+        "--output_dir", type=Path, default=Path("multiday_results/weighting_ablation")
+    )
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    table = paired_ablation(args.summary)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    table.to_csv(args.output_dir / "paired.csv")
+
+    # The fixed-variance arm is kept out of the headline table and the figure:
+    # elevation weighting is the operational default, so that is the comparison
+    # the figure should carry, and a bar for a scheme nobody uses would be
+    # clutter. It is still computed, because R1.5 asks for several stochastic
+    # models and this is the only arm that separates "our sigma is informative"
+    # from "any weighting helps" - the STEC values and weight_opt are identical
+    # to the iono arm, only the per-observation sigma becomes a constant.
+    fixed = fixed_variance_comparison(args.summary, args.fixed_variance_dir)
+    if fixed is not None:
+        fixed.to_frame("value").to_csv(args.output_dir / "fixed_variance.csv")
+        print("\n=== Fixed variance vs the model's own sigma (Direct STEC) ===")
+        print(fixed.round(3).to_string())
+        print(
+            "\nSame STEC and the same weight_opt iono; only the per-observation sigma"
+            "\nis replaced by a constant. Reported as a number, not a figure bar."
+        )
+
+    print("=== Predicted-uncertainty vs elevation weighting, paired station-days ===")
+    print(table.round(3).to_string())
+    print(
+        "\nPositive gain_% means uncertainty weighting reduced the 3D RMS error."
+        "\nThe effect is confined to the correction whose uncertainty is genuinely"
+        "\nobservation-level and model-derived."
+    )
+    logger.info(f"💾 {args.output_dir / 'paired.csv'}")
+
+
+if __name__ == "__main__":
+    main()

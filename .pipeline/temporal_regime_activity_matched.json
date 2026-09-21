@@ -1,0 +1,43 @@
+{
+  "answers": "R2.1",
+  "canonical_for": "R2.1 interpolation/extrapolation temporal split, activity-matched correction",
+  "caveats": [
+    "Does not supersede temporal_regime_split - that stage reproduces the published R2.1 headline number faithfully and is kept for provenance. This stage is the corrected interpretation: two of the four fixed F10.7 bands (below 100 sfu, at or above 200 sfu) are structurally unmatched - one regime holds every day in that band and the other holds none - and those two bands alone cover 55% of all observations. Only the middle two bands contain both regimes, and the arms there are unbalanced (7 extrapolation days against 70 interpolation days in the lower one).",
+    "Where a matched comparison is possible at all, extrapolation's normalised error runs slightly lower than interpolation's, the same direction as the unmatched headline - this does not mean the confound is resolved in the model's favour, only that matching does not reverse the naive result either. The 7-day extrapolation arm in the lower matched band is too thin to draw a conclusion from on its own.",
+    "The defensible reading, and the one this stage's output supports: this test set cannot cleanly isolate a temporal-extrapolation effect from the solar-cycle confound, because the only out-of-training-window year is also the only high-activity year in the test period. That is a limitation of the test set, not a result about the model, and should be reported to reviewers as such rather than as a positive finding either way."
+  ],
+  "code": {
+    "commit": "3a56d7fd56436927399fb5f2144ff6900c8d3a80",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.temporal_regime_activity_matched --output-dir multiday_results/analyses/temporal_regime_activity_matched/rebuilt",
+  "description": "corrects the R2.1 interpolation/extrapolation comparison for its solar-cycle confound by stratifying on F10.7 before comparing regimes",
+  "duration_s": 4.5,
+  "fingerprint": "4192e4163e01e576fce8aa35a3575e2dd88bf101984f595a548444a8c84e1ec5",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/temporal_regime_activity_matched/rebuilt/activity_matched_comparison.csv": {
+      "present": true,
+      "rows": 6,
+      "sha256": "033df50ea29849378d8f7745a2e9d0f32b432794a7465bf04fd07811ee3d71a7",
+      "size": 725
+    },
+    "multiday_results/analyses/temporal_regime_activity_matched/rebuilt/yearly_magnitude.csv": {
+      "present": true,
+      "rows": 11,
+      "sha256": "58bd95eae8642f3053c466dbe790f86f27fa5a55fcdde499cdfd0f75b39d1035",
+      "size": 1442
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-08-24T16:05:46.840573+00:00",
+  "stage": "temporal_regime_activity_matched",
+  "supersedes": []
+}

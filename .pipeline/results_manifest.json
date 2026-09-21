@@ -1,0 +1,30 @@
+{
+  "answers": "-",
+  "canonical_for": "provenance index",
+  "caveats": [],
+  "code": {
+    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.results_manifest",
+  "description": "which result trees are canonical and which are superseded",
+  "duration_s": 1.1,
+  "fingerprint": "4831f36232222ee465f98432aae80ea4dc259129ec2a69dc340a703f1e63c1f7",
+  "inputs": {},
+  "outputs": {
+    "multiday_results/analyses/results_manifest/rebuilt": {
+      "present": true,
+      "size": 196
+    },
+    "multiday_results/analyses/results_manifest/rebuilt/manifest.csv": {
+      "present": true,
+      "rows": 52,
+      "sha256": "9ecb657797570b972e5fad518c16507a69ec1d5d5d7a2380918680bf1790c186",
+      "size": 82805
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-18T07:15:23.705117+00:00",
+  "stage": "results_manifest",
+  "supersedes": []
+}

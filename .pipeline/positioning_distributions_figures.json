@@ -1,0 +1,64 @@
+{
+  "answers": "Table 6 (tab:pos_summary)",
+  "canonical_for": null,
+  "caveats": [
+    "Reads positioning_distributions's CSVs, not the per-station-day table directly - must run after that stage, and is only as current as its output.",
+    "Not a manuscript or revision-response figure set yet - lives in its own plots/positioning_distributions/ tree, exclusively (no other module writes there), the same convention positioning_diagnostics_figures uses."
+  ],
+  "code": {
+    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
+    "dirty": true
+  },
+  "command": "-m stec.viz.positioning_distributions --output_dir plots/positioning_distributions",
+  "description": "box/CDF/percentile-exceedance figures for positioning_distributions's CSVs",
+  "duration_s": 5.6,
+  "fingerprint": "3bb6a60c0e3cec49604e2ade7caca9fb3385cd03a839febb653bcc3175ba402d",
+  "inputs": {
+    "multiday_results/analyses/positioning_distributions/rebuilt": {
+      "files": 47,
+      "kind": "tree",
+      "mtime_ns": 1789994597121022389,
+      "size": 5725208
+    }
+  },
+  "outputs": {
+    "plots/positioning_distributions": {
+      "present": true,
+      "size": 56
+    },
+    "plots/positioning_distributions/positioning_2024/boxplot_3d_error.csv": {
+      "present": true,
+      "rows": 3253,
+      "sha256": "e5bfdecc3ef70131e239de7b325c5335be1540730a496783ccc1193b33aae7f2",
+      "size": 95520
+    },
+    "plots/positioning_distributions/positioning_2024/cdf_unfiltered.csv": {
+      "present": true,
+      "rows": 42692,
+      "sha256": "cf39547712f04f961453d1ff6a3a636732328e100238969dfddf523c9e386fa9",
+      "size": 1791546
+    },
+    "plots/positioning_distributions/positioning_2024/percentile_exceedance_table.csv": {
+      "present": true,
+      "rows": 20,
+      "sha256": "aea3b44b6647a30aaf99bff2e5d297f99709ea4f01ab4f63cbfea436c0292c20",
+      "size": 1942
+    },
+    "plots/positioning_distributions/positioning_2024/population_split_boxplot.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "ea185cc00b369558f91472195c858302fa9de8598396c4600181a0dcf1f273ac",
+      "size": 588
+    },
+    "plots/positioning_distributions/positioning_2024/storm_quiet_boxplot.csv": {
+      "present": true,
+      "rows": 8,
+      "sha256": "aa3d2398cfdad975b7b5cb42e036bebcfd110c2173b7087499d347f1d9aff761",
+      "size": 555
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-21T12:44:54.992543+00:00",
+  "stage": "positioning_distributions_figures",
+  "supersedes": []
+}

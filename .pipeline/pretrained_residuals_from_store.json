@@ -1,0 +1,59 @@
+{
+  "answers": "Figures 5-8 independent verification (results_register.md Item I)",
+  "canonical_for": null,
+  "caveats": [
+    "Verification only. These CSVs are the independent side of a comparison - the manuscript's numbers come from pretrained_test_diagnostics and the figures built on it, never from here. Quoting this stage's output as a result would defeat the purpose of computing it separately."
+  ],
+  "code": {
+    "commit": "e5b5b8cc3a13649de62abb59c3ad37c16b35b8f9",
+    "dirty": true
+  },
+  "command": "-m stec.analysis.pretrained_residuals_from_store --output-dir multiday_results/analyses/pretrained_residuals_from_store/rebuilt",
+  "description": "per-bin MAE/RMSE by elevation, latitude, local time and year-month, streamed from predictions/pretrained_stec/own rather than from the figures' own cache",
+  "duration_s": 4.4,
+  "fingerprint": "4192e4163e01e576fce8aa35a3575e2dd88bf101984f595a548444a8c84e1ec5",
+  "inputs": {
+    "predictions/pretrained_stec/own": {
+      "files": 544,
+      "kind": "tree",
+      "mtime_ns": 1787551458470898287,
+      "size": 703905993
+    }
+  },
+  "outputs": {
+    "multiday_results/analyses/pretrained_residuals_from_store/rebuilt/manifest.csv": {
+      "present": true,
+      "rows": 4,
+      "sha256": "3e35c8761b30ec7352653e898891670e2b7f26e4364f2820e2e6baec3cfc94c0",
+      "size": 125
+    },
+    "multiday_results/analyses/pretrained_residuals_from_store/rebuilt/residuals_elev.csv": {
+      "present": true,
+      "rows": 17,
+      "sha256": "2a9e53cd6cf8768d7dd5d406c4a842951eec010e717d3781e8be8042e14e1f3c",
+      "size": 931
+    },
+    "multiday_results/analyses/pretrained_residuals_from_store/rebuilt/residuals_lat.csv": {
+      "present": true,
+      "rows": 18,
+      "sha256": "a8675e62fafb05621f296bcc94dce148ef58b17a37093f48d7a8899f66697d64",
+      "size": 901
+    },
+    "multiday_results/analyses/pretrained_residuals_from_store/rebuilt/residuals_localtime.csv": {
+      "present": true,
+      "rows": 24,
+      "sha256": "182b5570e5efa3ec7b31a5fe0f3814f294460896e7c09083fe73479f398574f8",
+      "size": 1124
+    },
+    "multiday_results/analyses/pretrained_residuals_from_store/rebuilt/residuals_year_month.csv": {
+      "present": true,
+      "rows": 18,
+      "sha256": "8fe8d61aa3c477573e6059e19c0956779adca15d4906e78beeac6001ea5db4e1",
+      "size": 954
+    }
+  },
+  "params": {},
+  "recorded_at": "2026-09-15T12:14:14.168530+00:00",
+  "stage": "pretrained_residuals_from_store",
+  "supersedes": []
+}

@@ -1,0 +1,1035 @@
+"""Gate F(figures): does each figure plot the values its declared source actually holds?
+
+The audit that produced `docs/revision/independent_audit.md` recorded a gap (finding F3):
+every figure generator in `stec/viz/` has been ported and runs, but nothing checks that any
+of them plots the *right* numbers. A generator can read the wrong column, join on the wrong
+key, apply a stale filter, or silently drop rows - and still produce a plausible-looking PNG.
+This gate closes that gap for a defensible subset of figures, the same way
+`gate_f_analysis_equivalence.py` closes it for the analyses one layer upstream.
+
+**What this gate compares, and why not pixels.** Every figure's `_save()` helper
+(`stec/viz/manuscript_figures.py`, `stec/viz/revision_figures.py`,
+`stec/viz/diagnostic_figures.py`) writes the plotted data as `<name>.csv` alongside the PNG -
+"the CSV holds what the figure actually draws... so the number a reader checks is the number
+they see" (`revision_figures._save`'s own docstring). This gate reads that CSV and compares it
+against an **independent recomputation of the same quantity from the upstream artifact** -
+plain pandas/numpy, never by calling the `stec.viz` function under test, which would be
+self-comparison and prove nothing. A pixel diff was considered and rejected for three
+reasons, each sufficient on its own: rendered PNGs differ by matplotlib version, backend and
+installed fonts, none of which bears on correctness; the port deliberately changed some
+styling (seaborn's `colorblind` palette -> `APPROACH_COLORS`, documented in
+`manuscript_figures.py`'s own docstring), so a pixel diff would fail on an intentional
+cosmetic change exactly as loudly as on a real defect; and the manuscript's embedded PNGs are
+Aug-18 artifacts with no recorded provenance, so there is no trustworthy pixel ground truth to
+diff against even in principle.
+
+**What a MATCH here does and does not prove**, restated for this gate specifically because
+`docs/ARCHITECTURE.md` section 5 makes the same point about Gate F generally: a MATCH proves
+the figure plots what its declared upstream source contains. It does not prove the upstream
+source is scientifically right - `daily_metrics`, `positioning_coverage`, `stratified_
+comparison` and `pretrained_test_diagnostics` have their own correctness questions, and this
+gate is downstream of all of them. It also does not check styling, layout, colour choices, or
+that the *right* figure was drawn for the *right* table - only that the numbers on the axes
+are the numbers the source data says they should be.
+
+**Scope.** Covering all ~40 figure kinds across three modules was explicitly out of scope for
+this pass; the declared subset below prioritises figures that back a specific paper number
+(Table 3/4 daily improvement, Table 5's positioning figures) and the one revision family
+(`stratified_comparison`) that was silently broken until the day this gate was written - the
+exact situation a check like this exists to catch before it reaches a table. Figure 11 is
+declared with `skip=` rather than omitted, matching how the sibling gate handles its two
+structural skips: an analysis reader should see that this figure was considered and found
+not-yet-checkable, not conclude nobody thought about it.
+
+**Design difference from the sibling gate.** `gate_f_analysis_equivalence.compare_frames`
+compares two frames column-by-column *by position*, which is valid there because both sides
+are two implementations of the same script producing rows in the same order. Here the two
+sides are unrelated code paths - a `stec.viz` figure builder and this gate's own
+recomputation - with no guarantee of matching row order or even row count, so `compare_on_keys`
+below merges on each check's declared `join_keys` before comparing, and a merge that drops
+rows (either side has a row the other does not) is folded into the difference map as its own
+`_row_count` entry rather than silently comparing a smaller, matched-only slice. Tolerance
+otherwise follows the sibling exactly: relative difference against a floor of 1.0 (`np.
+maximum(abs(expected), 1.0)`), so a quantity near zero does not fail on floating-point noise.
+
+    python verification/gate_f_figures.py
+    python verification/gate_f_figures.py --only fig10_improvement_rmse fig12_positioning_trend
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from stec.config import paths  # noqa: E402
+
+RELATIVE_TOLERANCE = 1e-6
+
+MANUSCRIPT_PLOTS = paths.REPO_ROOT / "plots" / "manuscript"
+REVISION_PLOTS = paths.REPO_ROOT / "plots" / "revision"
+
+DAILY_METRICS_DIR = paths.analysis_result_dir("daily_metrics", rebuilt=True)
+if not (DAILY_METRICS_DIR / "per_day.csv").exists():
+    DAILY_METRICS_DIR = paths.analysis_result_dir("daily_metrics", rebuilt=False)
+
+POSITIONING_COVERAGE_DIR = paths.analysis_result_dir(
+    "positioning_coverage", rebuilt=True
+)
+if not (POSITIONING_COVERAGE_DIR / "multiday_summary.csv").exists():
+    POSITIONING_COVERAGE_DIR = paths.analysis_result_dir(
+        "positioning_coverage", rebuilt=False
+    )
+
+STRATIFIED_COMPARISON_DIR = paths.analysis_result_dir(
+    "stratified_comparison", rebuilt=True
+)
+if not (STRATIFIED_COMPARISON_DIR / "by_elevation.csv").exists():
+    STRATIFIED_COMPARISON_DIR = paths.analysis_result_dir(
+        "stratified_comparison", rebuilt=False
+    )
+
+PRETRAINED_DIAGNOSTICS_CACHE = (
+    paths.analysis_result_dir("pretrained_test_diagnostics", rebuilt=True)
+    / "observations.parquet"
+)
+
+# `stec.analysis.pretrained_residuals_from_store` - the independent re-derivation of
+# Figures 5-8 straight from `predictions/pretrained_stec/own`, never from the cache
+# above. Its own module docstring is the design rationale; the fig5_*/fig6_*/fig7_*/
+# fig8_* checks below are what closes `docs/revision/results_register.md` Item I.
+PRETRAINED_RESIDUALS_FROM_STORE_DIR = paths.analysis_result_dir(
+    "pretrained_residuals_from_store", rebuilt=True
+)
+
+# Table 5 and Figures 12-15 used to share a >10 m station-day outlier rule
+# (`stec.positioning.metrics.OUTLIER_3D_RMS_M`). Dropped everywhere per the owner's
+# 2026-08-28 decision (`docs/revision/positioning_reporting.md`): no positioning figure
+# applies an outcome-based (>10 m) filter, so this gate's recomputation does not apply
+# one either - matching the figure it checks, not the retired rule.
+#
+# 2026-09-15 (owner instruction, `docs/revision/results_register.md` consistency item A):
+# Figures 12-15 moved from the full per-method population onto the same coverage-only
+# common set Tables 5-7 already use (station-days solved by all four methods under both
+# weighting schemes, N=10,387) - `_load_positioning` below now applies that restriction
+# too, via its own independent recomputation of the intersection
+# (`_common_set_station_days`) rather than importing
+# `stec.analysis.common_set_positioning.coverage_common_station_days`, for the same
+# reason the rest of this gate never calls the code it is checking (module docstring
+# above): a MATCH must prove the figure honours the common-set methodology, not merely
+# that it re-reads this gate's own import of it.
+
+POSITIONING_METHOD_LABELS = {
+    "STEC_iono": "Direct STEC",
+    "Pretrained_STEC_iono": "Pretrained Direct STEC",
+    "VTEC_iono": "VTEC + Mapping",
+    "gim_iono": "IGS GIM + Mapping",
+}
+
+# Mirrors `common_set_positioning.COVERAGE_COMMON_SET_METHODS` - duplicated, not
+# imported, for the independence reason above.
+_COMMON_SET_METHODS = (
+    "STEC_iono",
+    "STEC_elev",
+    "Pretrained_STEC_iono",
+    "Pretrained_STEC_elev",
+    "VTEC_iono",
+    "VTEC_elev",
+    "gim_iono",
+    "gim_elev",
+)
+
+DAILY_METRICS_MODEL_LABELS = {
+    "Direct STEC Model": "Direct STEC",
+    "Pretrained STEC": "Pretrained Direct STEC",
+    "VTEC + Mapping": "VTEC + Mapping",
+    "IGS GIM": "IGS GIM + Mapping",
+}
+
+
+@dataclass(frozen=True)
+class FigureCheck:
+    """One figure, the CSV it wrote, and how to independently recompute what it should say."""
+
+    name: str
+    figure: str
+    plotted_csv: Path
+    upstream: tuple[Path, ...]
+    join_keys: tuple[str, ...]
+    value_columns: tuple[str, ...]
+    # Returns the independently recomputed frame - `join_keys + value_columns`, at minimum.
+    recompute: Callable[[], pd.DataFrame]
+    # Overridable because a couple of checks compare an aggregate of the plotted CSV (e.g.
+    # per-method mean/count) rather than the raw rows it holds - see fig13/fig15 below.
+    load_plotted: Callable[[Path], pd.DataFrame] = pd.read_csv
+    # Same semantics as gate_f_analysis_equivalence.Comparison.expected_divergence: a column
+    # named here is allowed to exceed tolerance, and the value is why. Empty for every check
+    # declared below - no known, intended divergence exists yet - kept so a future check that
+    # does have one does not need a different mechanism.
+    expected_divergence: dict[str, str] = field(default_factory=dict)
+    skip: str | None = None
+
+
+def _relative_difference(actual: np.ndarray, expected: np.ndarray) -> np.ndarray:
+    scale = np.maximum(np.abs(expected), 1.0)
+    return np.abs(actual - expected) / scale
+
+
+def compare_on_keys(
+    plotted: pd.DataFrame,
+    recomputed: pd.DataFrame,
+    join_keys: tuple[str, ...],
+    value_columns: tuple[str, ...],
+) -> tuple[dict[str, float], tuple[int, int, int]]:
+    """Merge on `join_keys` and return the max relative difference per value column.
+
+    Unlike `gate_f_analysis_equivalence.compare_frames`, this does not assume the two sides
+    share row order or row count - see the module docstring's "design difference" section.
+    A merge that drops rows on either side is recorded as its own `_row_count` entry (set to
+    infinity, the same sentinel `compare_frames` uses for a length mismatch) so it flows
+    through `verdict_for` exactly like any other unexplained difference, rather than being
+    silently absorbed into a smaller matched-only comparison.
+    """
+    merged = plotted.merge(
+        recomputed,
+        on=list(join_keys),
+        how="inner",
+        suffixes=("_plotted", "_recomputed"),
+    )
+    differences: dict[str, float] = {}
+    if len(merged) != len(plotted) or len(merged) != len(recomputed):
+        differences["_row_count"] = float("inf")
+    for column in value_columns:
+        left = merged[f"{column}_plotted"].to_numpy(dtype=float)
+        right = merged[f"{column}_recomputed"].to_numpy(dtype=float)
+        if len(merged) == 0:
+            # np.nanmax of an empty array never runs; falling through to a bare 0.0 here is
+            # exactly the vacuous-MATCH trap gate_f_analysis_equivalence's own history warns
+            # about (see its module docstring, "0-row guard"). Infinity forces this into
+            # FAIL/DIVERGED rather than letting an empty merge read as agreement.
+            differences[column] = float("inf")
+            continue
+        differences[column] = float(np.nanmax(_relative_difference(left, right)))
+    return differences, (len(plotted), len(recomputed), len(merged))
+
+
+def verdict_for(
+    check: FigureCheck, differences: dict[str, float], row_counts: tuple[int, int, int]
+) -> tuple[str, list[str]]:
+    """MATCH / DIVERGED / FAIL, plus the evidence - mirrors `gate_f_analysis_equivalence.
+    verdict_for`'s three-way split and its 0-row guard, adapted for a merge-based comparison.
+    """
+    n_plotted, n_recomputed, _n_matched = row_counts
+    if n_plotted == 0 or n_recomputed == 0:
+        return "FAIL", [
+            f"{n_plotted} plotted rows vs {n_recomputed} recomputed rows - "
+            "nothing was actually compared"
+        ]
+    if not differences:
+        return "FAIL", [
+            "no value column produced a difference - nothing was actually compared"
+        ]
+
+    unexplained = [
+        column
+        for column, delta in differences.items()
+        if delta > RELATIVE_TOLERANCE and column not in check.expected_divergence
+    ]
+    explained = [
+        column
+        for column, delta in differences.items()
+        if delta > RELATIVE_TOLERANCE and column in check.expected_divergence
+    ]
+    if unexplained:
+        return "FAIL", [f"{c}={differences[c]:.3g}" for c in unexplained]
+    if explained:
+        return "DIVERGED", [check.expected_divergence[c] for c in explained]
+    return "MATCH", []
+
+
+def run_check(check: FigureCheck) -> str:
+    if check.skip:
+        print(f"  {check.name:<32} SKIPPED  {check.skip}")
+        return "SKIPPED"
+
+    missing = [p for p in (check.plotted_csv, *check.upstream) if not p.exists()]
+    if missing:
+        print(
+            f"  {check.name:<32} SKIPPED  missing on disk: "
+            + ", ".join(str(p) for p in missing)
+        )
+        return "SKIPPED"
+
+    plotted = check.load_plotted(check.plotted_csv)
+    recomputed = check.recompute()
+    differences, row_counts = compare_on_keys(
+        plotted, recomputed, check.join_keys, check.value_columns
+    )
+    verdict, notes = verdict_for(check, differences, row_counts)
+
+    n_plotted, n_recomputed, n_matched = row_counts
+    counts = f"rows plotted={n_plotted} recomputed={n_recomputed} matched={n_matched}"
+    detail = f" - {notes[0]}" if notes else ""
+    print(f"  {check.name:<32} {verdict:<8} {counts}{detail}")
+    return verdict
+
+
+# --------------------------------------------------------------------------
+# Figure 10 - daily RMSE/MAE improvement, own dataset
+# (`stec.viz.manuscript_figures.fig_improvement_by_date`, from `daily_metrics.per_day.csv`)
+# --------------------------------------------------------------------------
+
+
+def _recompute_improvement_by_date(metric: str) -> pd.DataFrame:
+    """`fig_improvement_by_date`'s formula, reimplemented from the per_day.csv it reads.
+
+    `_build_improvement_by_date_figures` loops `table.groupby("dataset")` and writes every
+    dataset's figure to the same filename (`improvements_{metric}.csv` under
+    `stec_finetuned_2024/`, keyed only by `source="finetuned"` in `SOURCE_DIRS`) - the last
+    group alphabetically, `own_vtec_gim`, is therefore what survives on disk (`madrigal_vtec_
+    gim` sorts first and gets overwritten). This recomputation targets `own_vtec_gim`
+    specifically to match what is actually there; see this module's own report for why that
+    filename collision is itself worth flagging.
+    """
+    table = pd.read_csv(DAILY_METRICS_DIR / "per_day.csv")
+    table = table[table["dataset"] == "own_vtec_gim"].copy()
+    table["Model"] = table["Model"].map(DAILY_METRICS_MODEL_LABELS)
+    table["date"] = pd.to_datetime(table["year"], format="%Y") + pd.to_timedelta(
+        table["doy"] - 1, unit="D"
+    )
+    pivot = table.pivot(index="date", columns="Model", values=metric).sort_index()
+    stec = pivot["Direct STEC"]
+
+    rows = []
+    for baseline in ("VTEC + Mapping", "IGS GIM + Mapping"):
+        baseline_values = pivot[baseline].replace(0, np.nan)
+        improvement = (1 - stec / baseline_values) * 100
+        rows.append(
+            pd.DataFrame(
+                {
+                    "date": improvement.index,
+                    "baseline": baseline,
+                    "improvement_pct": improvement.to_numpy(),
+                }
+            )
+        )
+    return pd.concat(rows, ignore_index=True)
+
+
+def _load_improvement_plotted(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    frame["date"] = pd.to_datetime(frame["date"])
+    return frame
+
+
+def _figure10_check(metric: str) -> FigureCheck:
+    return FigureCheck(
+        name=f"fig10_improvement_{metric.lower()}",
+        figure=f"Figure 10 ({metric}, own dataset)",
+        plotted_csv=MANUSCRIPT_PLOTS
+        / "stec_finetuned_2024"
+        / f"improvements_{metric.lower()}.csv",
+        upstream=(DAILY_METRICS_DIR / "per_day.csv",),
+        join_keys=("date", "baseline"),
+        value_columns=("improvement_pct",),
+        load_plotted=_load_improvement_plotted,
+        recompute=lambda metric=metric: _recompute_improvement_by_date(metric),
+    )
+
+
+# --------------------------------------------------------------------------
+# Figures 12-15 - positioning, from positioning_coverage's multiday_summary.csv
+# (`stec.viz.manuscript_figures._build_positioning_figures` and its four `fig_*` callees)
+# --------------------------------------------------------------------------
+
+
+def _common_set_station_days() -> pd.MultiIndex:
+    """Independently recomputes `common_set_positioning.coverage_common_station_days`'s
+    intersection - (station, doy) pairs where all four methods solved under both
+    weighting schemes - directly from `multiday_summary_all_weightings.csv` with plain
+    pandas, never by importing that function (see the module-level comment above)."""
+    frame = pd.read_csv(
+        POSITIONING_COVERAGE_DIR / "multiday_summary_all_weightings.csv",
+        usecols=["station", "doy", "method", "error_3d_rms"],
+    )
+    wide = frame.pivot_table(
+        index=["station", "doy"],
+        columns="method",
+        values="error_3d_rms",
+        aggfunc="first",
+    )
+    for method in _COMMON_SET_METHODS:
+        if method not in wide.columns:
+            wide[method] = pd.NA
+    is_common = wide[list(_COMMON_SET_METHODS)].notna().all(axis=1)
+    return wide.index[is_common]
+
+
+def _load_positioning() -> pd.DataFrame:
+    """No outcome-based filter, restricted to the common set - matches
+    `stec.viz.manuscript_figures._load_positioning_frame` (via `stec.analysis.
+    positioning_distributions`'s `common_set_daily_rows.csv`) since the 2026-08-28
+    decision (`docs/revision/positioning_reporting.md`) dropped the old >10 m
+    station-day exclusion, and the 2026-09-15 one (results_register.md item A) moved
+    Figures 12-15 onto the same common set Tables 5-7 use."""
+    frame = pd.read_csv(
+        POSITIONING_COVERAGE_DIR / "multiday_summary.csv",
+        usecols=["station", "doy", "date", "method", "error_3d_rms"],
+    )
+    common_station_days = _common_set_station_days()
+    frame = frame.set_index(["station", "doy"])
+    frame = frame[frame.index.isin(common_station_days)].reset_index()
+    frame["method"] = frame["method"].map(POSITIONING_METHOD_LABELS)
+    frame = frame.dropna(subset=["method"])
+    frame["date"] = pd.to_datetime(frame["date"])
+    return frame
+
+
+def _recompute_positioning_trend() -> pd.DataFrame:
+    """`fig_positioning_trend`'s per-day statistic since 2026-08-28: median with a
+    Q1-Q3 band, not mean with a SEM band - the mean is not a robust summary of this
+    comparison (docs/revision/positioning_reporting.md Sec 1)."""
+    frame = _load_positioning()
+    daily = (
+        frame.groupby(["date", "method"])["error_3d_rms"]
+        .agg(
+            median="median",
+            q1=lambda s: s.quantile(0.25),
+            q3=lambda s: s.quantile(0.75),
+            count="count",
+        )
+        .reset_index()
+    )
+    return daily
+
+
+def _recompute_positioning_improvement_timeseries() -> pd.DataFrame:
+    """`fig_positioning_improvement_timeseries`'s per-day statistic since 2026-08-28:
+    each day's median 3D error, not its mean - see `_recompute_positioning_trend`."""
+    frame = _load_positioning()
+    daily_median = frame.groupby(["date", "method"])["error_3d_rms"].median()
+    pivot = daily_median.unstack("method").sort_index()
+    gim = pivot["IGS GIM + Mapping"]
+    rows = []
+    for method in [c for c in pivot.columns if c != "IGS GIM + Mapping"]:
+        improvement = (gim - pivot[method]) / gim * 100
+        rows.append(
+            pd.DataFrame(
+                {
+                    "date": improvement.index,
+                    "method": method,
+                    "improvement_pct": improvement.to_numpy(),
+                }
+            )
+        )
+    return pd.concat(rows, ignore_index=True)
+
+
+_CDF_QUANTILE_LEVELS = (0.50, 0.95, 0.99)
+
+
+# For an odd-sized group, the two ranks straddling the 50th percentile are exactly
+# equidistant from it (rank (n-1)/2 and (n+1)/2, zero-indexed, both |n-fold| away from the
+# centre by construction) - a genuine floating-point tie, not a near-tie. A CSV round-trip
+# perturbs a value like this by ~1e-14 (text -> float64 is not perfectly lossless at the
+# last bit), which is enough to flip `argmin` to the other side of an exact tie: found via
+# Figure 15's Pretrained Direct STEC series (n=10,819), where the untouched in-memory
+# computation and the same arithmetic re-read from `cdf_unfiltered.csv` picked adjacent
+# ranks (1.7620 m vs 1.7628 m - a 0.045% difference, immaterial on its own, but enough to
+# exceed RELATIVE_TOLERANCE and misreport a real figure as wrong). Rounding to 9 decimal
+# places - eight orders of magnitude coarser than the tie itself and utterly immaterial to
+# which *real* rank is nearest - removes the round-trip noise without weakening the check
+# for any genuine disagreement, which would need to move a value by far more than 1e-9 to
+# change which rank is closest.
+_CUMULATIVE_PCT_TIE_BREAK_DECIMALS = 9
+
+
+def _empirical_quantile(values: np.ndarray, level: float) -> float:
+    """The nearest-rank definition `stec.analysis.positioning_distributions.cdf_points`
+    itself uses for its ECDF (`percentile = np.arange(1, n + 1) / n * 100`, one step per
+    sorted value, drawn by `stec.viz.positioning_distributions.fig_cdf_unfiltered`),
+    picking whichever rank's own cumulative percentage is closest to `level * 100` - the
+    same rule
+    whichever rank's own cumulative percentage is closest to `level * 100` - the same rule
+    `_reduce_plotted_cdf_quantiles` applies when reading a level off the plotted CSV. Using
+    `np.quantile`'s interpolation here instead was tried first and produced small
+    (~0.1-0.2%) but real disagreements at the 95th/99th percentile purely from the two
+    sides picking adjacent ranks under two different definitions of "quantile" - not a
+    figure defect, an artefact of comparing under mismatched statistics. Unifying on one
+    rank-selection rule, applied independently to two different data reads, is what makes
+    this a fair comparison.
+    """
+    sorted_values = np.sort(values)
+    n = len(sorted_values)
+    cumulative_pct = np.round(
+        np.arange(1, n + 1) / n * 100, _CUMULATIVE_PCT_TIE_BREAK_DECIMALS
+    )
+    index = int(np.argmin(np.abs(cumulative_pct - level * 100)))
+    return float(sorted_values[index])
+
+
+def _recompute_positioning_cdf_quantiles() -> pd.DataFrame:
+    frame = _load_positioning()
+    rows = []
+    for method, group in frame.groupby("method"):
+        values = group["error_3d_rms"].to_numpy(dtype=float)
+        for level in _CDF_QUANTILE_LEVELS:
+            rows.append(
+                {
+                    "method": method,
+                    "percentile": round(level * 100),
+                    "error_3d_rms": _empirical_quantile(values, level),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _reduce_plotted_cdf_quantiles(path: Path) -> pd.DataFrame:
+    """Figure 15's plotted CSV (`stec.viz.positioning_distributions.fig_cdf_unfiltered`)
+    is (Method, error_3d_rms, cumulative_pct) - the full sorted per-station-day
+    population and its empirical CDF value, one row per station-day, capitalised
+    `Method` since it comes from `stec.analysis.positioning_distributions` rather than
+    this gate's own `POSITIONING_METHOD_LABELS` mapping. The quantile at a fixed
+    percentile is read off that same population directly (nearest cumulative_pct per
+    method) rather than by re-deriving the CDF, giving an independent cross-check of the
+    values embedded in the plotted curve without needing the two sides to agree on exact
+    `cumulative_pct` floats to join on."""
+    raw = pd.read_csv(path)
+    rows = []
+    for method, group in raw.groupby("Method"):
+        group = group.sort_values("cumulative_pct")
+        rounded_pct = group["cumulative_pct"].round(_CUMULATIVE_PCT_TIE_BREAK_DECIMALS)
+        for level in _CDF_QUANTILE_LEVELS:
+            target_pct = level * 100
+            idx = (rounded_pct - target_pct).abs().idxmin()
+            rows.append(
+                {
+                    "method": method,
+                    "percentile": round(level * 100),
+                    "error_3d_rms": float(group.loc[idx, "error_3d_rms"]),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+# --------------------------------------------------------------------------
+# Figure 13 - overall 3D RMS distribution boxplot, since 2026-08-28 reused directly from
+# `stec.viz.positioning_distributions.fig_boxplot_3d_error`
+# (`stec.analysis.positioning_distributions.boxplot_stats`'s Tukey convention: whiskers
+# reach the most extreme data point within 1.5xIQR of the box edges, everything further
+# out is an individual "flier", never dropped).
+# --------------------------------------------------------------------------
+
+_BOXPLOT_STAT_NAMES = ("median", "q1", "q3", "whislo", "whishi", "n", "n_fliers")
+
+
+def _tukey_box_stats(values: np.ndarray) -> dict[str, float]:
+    """Matches `positioning_distributions.boxplot_stats`'s own rounding (`round(x, 4)`)
+    on the five geometry statistics - that CSV is written pre-rounded by design, and
+    `RELATIVE_TOLERANCE` (1e-6) is tight enough that comparing an unrounded recomputation
+    against it would FAIL on rounding alone, not on a real defect."""
+    q1, median, q3 = np.quantile(values, [0.25, 0.5, 0.75])
+    iqr = q3 - q1
+    lo_fence, hi_fence = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    within_fences = values[(values >= lo_fence) & (values <= hi_fence)]
+    whislo = float(within_fences.min()) if within_fences.size else float(q1)
+    whishi = float(within_fences.max()) if within_fences.size else float(q3)
+    n_fliers = int(((values < whislo) | (values > whishi)).sum())
+    return {
+        "median": round(float(median), 4),
+        "q1": round(float(q1), 4),
+        "q3": round(float(q3), 4),
+        "whislo": round(whislo, 4),
+        "whishi": round(whishi, 4),
+        "n": float(len(values)),
+        "n_fliers": float(n_fliers),
+    }
+
+
+def _recompute_positioning_boxplot_stats() -> pd.DataFrame:
+    frame = _load_positioning()
+    rows = []
+    for method, group in frame.groupby("method"):
+        stats = _tukey_box_stats(group["error_3d_rms"].to_numpy(dtype=float))
+        for stat_name in _BOXPLOT_STAT_NAMES:
+            rows.append(
+                {"method": method, "stat": stat_name, "value": stats[stat_name]}
+            )
+    return pd.DataFrame(rows)
+
+
+# `positioning_distributions.boxplot_stats`'s CSV column names for the five geometry
+# statistics this gate also computes - `n`/`n_fliers` need no suffix stripped.
+_PLOTTED_BOXPLOT_STAT_NAMES = {
+    "median_m": "median",
+    "q1_m": "q1",
+    "q3_m": "q3",
+    "whislo_m": "whislo",
+    "whishi_m": "whishi",
+    "n": "n",
+    "n_fliers": "n_fliers",
+}
+
+
+def _reduce_plotted_boxplot_stats(path: Path) -> pd.DataFrame:
+    """Figure 13's plotted CSV (`positioning_distributions._tidy_box_data`) is long
+    format: one row per (Method, stat, value), `stat` covering every box-geometry field
+    plus one row per individual flier point. Narrowed here to the box-geometry stats this
+    gate independently recomputes - the flier rows themselves are exactly `n_fliers`
+    individual values, already covered in aggregate by the `n_fliers` count."""
+    raw = pd.read_csv(path)
+    raw = raw[raw["stat"].isin(_PLOTTED_BOXPLOT_STAT_NAMES)].copy()
+    raw["stat"] = raw["stat"].map(_PLOTTED_BOXPLOT_STAT_NAMES)
+    return raw.rename(columns={"Method": "method"})[["method", "stat", "value"]]
+
+
+_POSITIONING_UPSTREAM = (
+    POSITIONING_COVERAGE_DIR / "multiday_summary.csv",
+    POSITIONING_COVERAGE_DIR / "multiday_summary_all_weightings.csv",
+)
+
+FIGURE12_CHECK = FigureCheck(
+    name="fig12_positioning_trend",
+    figure="Figure 12 (daily 3D RMS, median with Q1-Q3 band, common set, unfiltered)",
+    plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "pos_trend.csv",
+    upstream=_POSITIONING_UPSTREAM,
+    join_keys=("date", "method"),
+    value_columns=("median", "q1", "q3", "count"),
+    load_plotted=lambda p: pd.read_csv(p, parse_dates=["date"]),
+    recompute=_recompute_positioning_trend,
+)
+
+FIGURE13_CHECK = FigureCheck(
+    name="fig13_positioning_distribution",
+    figure="Figure 13 (overall 3D RMS distribution, common set, unfiltered Tukey box statistics)",
+    plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "boxplot_3d_error.csv",
+    upstream=_POSITIONING_UPSTREAM,
+    join_keys=("method", "stat"),
+    value_columns=("value",),
+    load_plotted=_reduce_plotted_boxplot_stats,
+    recompute=_recompute_positioning_boxplot_stats,
+)
+
+FIGURE14_CHECK = FigureCheck(
+    name="fig14_positioning_improvement_timeseries",
+    figure="Figure 14 (daily % improvement over IGS GIM + Mapping, median, common set, unfiltered)",
+    plotted_csv=MANUSCRIPT_PLOTS
+    / "positioning_2024"
+    / "pos_improvement_timeseries.csv",
+    upstream=_POSITIONING_UPSTREAM,
+    join_keys=("date", "method"),
+    value_columns=("improvement_pct",),
+    load_plotted=lambda p: pd.read_csv(p, parse_dates=["date"]),
+    recompute=_recompute_positioning_improvement_timeseries,
+)
+
+FIGURE15_CHECK = FigureCheck(
+    name="fig15_positioning_cdf",
+    figure="Figure 15 (3D RMS CDF, median/p95/p99 per method, common set, unfiltered)",
+    plotted_csv=MANUSCRIPT_PLOTS / "positioning_2024" / "cdf_unfiltered.csv",
+    upstream=_POSITIONING_UPSTREAM,
+    join_keys=("method", "percentile"),
+    value_columns=("error_3d_rms",),
+    load_plotted=_reduce_plotted_cdf_quantiles,
+    recompute=_recompute_positioning_cdf_quantiles,
+)
+
+
+# --------------------------------------------------------------------------
+# Two of Figures 4-9 - single-model residual/uncertainty diagnostics, from the
+# pretrained_test_diagnostics cache (`stec.viz.manuscript_figures.fig_residuals_elev`,
+# `fig_uncertainty`)
+# --------------------------------------------------------------------------
+
+_ELEVATION_BIN_EDGES = np.linspace(5.0, 90.0, 18)  # 17 bins, 5-degree width
+
+
+def _recompute_residuals_elev() -> pd.DataFrame:
+    observations = pd.read_parquet(
+        PRETRAINED_DIAGNOSTICS_CACHE, columns=["true_stec", "stec_pred", "satele"]
+    )
+    residual = observations["true_stec"] - observations["stec_pred"]
+    elevation_bin = pd.cut(
+        observations["satele"], bins=_ELEVATION_BIN_EDGES, include_lowest=True
+    )
+    grouped = pd.DataFrame(
+        {"elevation_bin": elevation_bin, "residual": residual}
+    ).groupby("elevation_bin", observed=True)
+    rows = []
+    for interval, group in grouped:
+        values = group["residual"].to_numpy(dtype=float)
+        rows.append(
+            {
+                "bin_left": round(float(interval.left)),
+                "bin_right": round(float(interval.right)),
+                "mae": float(np.abs(values).mean()),
+                "rmse": float(np.sqrt(np.mean(values**2))),
+                "n": len(values),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _reduce_plotted_residuals_elev(path: Path) -> pd.DataFrame:
+    """Parses the plotted CSV's en-dash bin label ("5–10") into (bin_left, bin_right)
+    independently of `fig_residuals_elev`'s own label-building code, so the join key does
+    not depend on reproducing its exact string formatting."""
+    raw = pd.read_csv(path)
+    left, right = zip(
+        *(tuple(float(x) for x in label.split("–")) for label in raw["elevation_bin"])
+    )
+    return raw.assign(
+        bin_left=[round(v) for v in left], bin_right=[round(v) for v in right]
+    )
+
+
+FIGURE5_CHECK = FigureCheck(
+    name="fig5_residuals_elev",
+    figure="Figure 5 (residual MAE/RMSE by elevation bin, pretrained test set)",
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_pretrained_testset" / "residuals_elev.csv",
+    upstream=(PRETRAINED_DIAGNOSTICS_CACHE,),
+    join_keys=("bin_left", "bin_right"),
+    value_columns=("mae", "rmse", "n"),
+    load_plotted=_reduce_plotted_residuals_elev,
+    recompute=_recompute_residuals_elev,
+)
+
+
+def _recompute_uncertainty() -> pd.DataFrame:
+    observations = pd.read_parquet(
+        PRETRAINED_DIAGNOSTICS_CACHE,
+        columns=[
+            "true_stec",
+            "stec_pred",
+            "pred_total_unc",
+            "pred_epistemic_unc",
+            "pred_aleatoric_unc",
+        ],
+    )
+    abs_error = (observations["true_stec"] - observations["stec_pred"]).abs().to_numpy()
+    total_unc = observations["pred_total_unc"].to_numpy(dtype=float)
+    epistemic = observations["pred_epistemic_unc"].to_numpy(dtype=float)
+    aleatoric = observations["pred_aleatoric_unc"].to_numpy(dtype=float)
+
+    max_unc = float(np.quantile(total_unc, 0.95))
+    bin_width = 1.0
+    bin_edges = np.arange(0, max(np.ceil(max_unc), 1.0) + bin_width, bin_width)
+    unc_bin = pd.cut(total_unc, bins=bin_edges, include_lowest=True, labels=False)
+
+    rows = []
+    for bin_index in range(len(bin_edges) - 1):
+        in_bin = unc_bin == bin_index
+        if in_bin.sum() < 5:
+            continue
+        rows.append(
+            {
+                "unc_bin_center": round(
+                    (bin_edges[bin_index] + bin_edges[bin_index + 1]) / 2, 3
+                ),
+                "mean_abs_error": float(abs_error[in_bin].mean()),
+                "mean_total_unc": float(total_unc[in_bin].mean()),
+                "mean_epistemic_unc": float(epistemic[in_bin].mean()),
+                "mean_aleatoric_unc": float(aleatoric[in_bin].mean()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _load_uncertainty_plotted(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    frame["unc_bin_center"] = frame["unc_bin_center"].round(3)
+    return frame
+
+
+FIGURE9_CHECK = FigureCheck(
+    name="fig9_uncertainty",
+    figure="Figure 9 (absolute error vs. predicted-sigma bin, 4 curves)",
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_pretrained_testset" / "uncertainty.csv",
+    upstream=(PRETRAINED_DIAGNOSTICS_CACHE,),
+    join_keys=("unc_bin_center",),
+    value_columns=(
+        "mean_abs_error",
+        "mean_total_unc",
+        "mean_epistemic_unc",
+        "mean_aleatoric_unc",
+    ),
+    load_plotted=_load_uncertainty_plotted,
+    recompute=_recompute_uncertainty,
+)
+
+
+# --------------------------------------------------------------------------
+# Figures 5-8, independently from the raw store - not from the
+# pretrained_test_diagnostics cache fig5_residuals_elev/fig9_uncertainty above read.
+#
+# `docs/revision/results_register.md` Item I: agreement between a figure and the cache
+# it reads proves the figure aggregates the cache correctly; it does not prove the cache
+# itself matches predictions/pretrained_stec/own, the 544-day-file store the cache is
+# built from. `stec.analysis.pretrained_residuals_from_store` closes that gap - it
+# streams the store directly, one day at a time, with its own from-scratch bin
+# definitions and running accumulators, never touching the cache and never importing
+# `stec.viz.manuscript_figures`'s binning code. That streaming pass (544 files, two
+# passes for the data-dependent local-time bins) is slow enough to not belong inside the
+# default gate run, so it is a separate entry point
+# (`python -m stec.analysis.pretrained_residuals_from_store`), and these four checks
+# simply load its output and compare - `run_check`'s existing "missing on disk" path
+# already makes them SKIP, not fail or hang, if that entry point has not been run yet.
+# --------------------------------------------------------------------------
+
+
+def _recompute_residuals_elev_from_store() -> pd.DataFrame:
+    return pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_elev.csv")
+
+
+FIGURE5_FROM_STORE_CHECK = FigureCheck(
+    name="fig5_residuals_elev_from_store",
+    figure="Figure 5 (residual MAE/RMSE by elevation bin) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_pretrained_testset" / "residuals_elev.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_elev.csv",),
+    join_keys=("bin_left", "bin_right"),
+    value_columns=("mae", "rmse", "n"),
+    load_plotted=_reduce_plotted_residuals_elev,
+    recompute=_recompute_residuals_elev_from_store,
+)
+
+
+def _recompute_residuals_lat_from_store() -> pd.DataFrame:
+    frame = pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_lat.csv")
+    frame["lat_bin_center"] = frame["lat_bin_center"].round(6)
+    return frame
+
+
+def _load_residuals_lat_plotted(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    frame["lat_bin_center"] = frame["lat_bin_center"].round(6)
+    return frame
+
+
+FIGURE6_FROM_STORE_CHECK = FigureCheck(
+    name="fig6_residuals_lat_from_store",
+    figure="Figure 6 (residual MAE/RMSE by sm-latitude bin) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_pretrained_testset" / "residuals_lat.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_lat.csv",),
+    join_keys=("lat_bin_center",),
+    value_columns=("mae", "rmse"),
+    load_plotted=_load_residuals_lat_plotted,
+    recompute=_recompute_residuals_lat_from_store,
+)
+
+
+def _recompute_residuals_localtime_from_store() -> pd.DataFrame:
+    return pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_localtime.csv")
+
+
+FIGURE7_FROM_STORE_CHECK = FigureCheck(
+    name="fig7_residuals_localtime_from_store",
+    figure="Figure 7 (residual MAE/RMSE by local-time hour) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS
+    / "stec_pretrained_testset"
+    / "residuals_localtime.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_localtime.csv",),
+    join_keys=("hour",),
+    value_columns=("mae", "rmse"),
+    recompute=_recompute_residuals_localtime_from_store,
+)
+
+
+def _recompute_residuals_year_month_from_store() -> pd.DataFrame:
+    return pd.read_csv(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_year_month.csv")
+
+
+FIGURE8_FROM_STORE_CHECK = FigureCheck(
+    name="fig8_residuals_year_month_from_store",
+    figure="Figure 8 (monthly residual MAE/RMSE) vs. the raw store directly",
+    plotted_csv=MANUSCRIPT_PLOTS
+    / "stec_pretrained_testset"
+    / "residuals_year_month.csv",
+    upstream=(PRETRAINED_RESIDUALS_FROM_STORE_DIR / "residuals_year_month.csv",),
+    join_keys=("year_month",),
+    value_columns=("mae", "rmse"),
+    recompute=_recompute_residuals_year_month_from_store,
+)
+
+
+# --------------------------------------------------------------------------
+# Stratified revision family - the one that was silently broken until the
+# `positioning_coverage` fix landed (see CLAUDE.md's canonical-results table). Elevation
+# axis only, both to keep this gate's scope bounded and because it is the same axis
+# `fig5_residuals_elev` above checks for the pretrained model, so a reader can compare the
+# two model families on the same bins.
+# --------------------------------------------------------------------------
+
+
+def _interval_label(text: str) -> str:
+    """Reimplements `revision_figures._interval_label`'s label independently: parses a
+    pandas interval string, rounds an edge within 0.01 of an integer (the `include_lowest`
+    padding, e.g. "4.999" for a true 5), and joins with an en dash. Not imported from
+    `revision_figures` on purpose - see the module docstring on why the recompute side must
+    not call into the code under test.
+    """
+    left, right = text.strip("()[]").split(", ")
+    lo, hi = float(left), float(right)
+    lo = round(lo) if abs(lo - round(lo)) < 0.01 else lo
+    hi = round(hi) if abs(hi - round(hi)) < 0.01 else hi
+
+    def fmt(value: float) -> str:
+        return f"{value:g}"
+
+    return f"{fmt(lo)}–{fmt(hi)}"
+
+
+def _recompute_stratified_elevation_absolute() -> pd.DataFrame:
+    table = pd.read_csv(STRATIFIED_COMPARISON_DIR / "by_elevation.csv")
+    return pd.DataFrame(
+        {
+            "group": table["bin"].map(_interval_label),
+            "series": table["Method"],
+            "value": table["RMSE"],
+        }
+    )
+
+
+FIGURE_STRATIFIED_ELEVATION_CHECK = FigureCheck(
+    name="fig_stratified_elevation_absolute",
+    figure="Stratified-by-elevation STEC RMSE (R1.4 revision figure family)",
+    plotted_csv=REVISION_PLOTS
+    / "stec_finetuned_2024"
+    / "stratified_elevation_absolute.csv",
+    upstream=(STRATIFIED_COMPARISON_DIR / "by_elevation.csv",),
+    join_keys=("group", "series"),
+    value_columns=("value",),
+    recompute=_recompute_stratified_elevation_absolute,
+)
+
+
+# --------------------------------------------------------------------------
+# Figure 11 - RMSE/MAE vs. 5-degree elevation bin, own test set, daily fine-tuned models
+# (`stec.viz.manuscript_figures.fig_mae_rmse_finetuned`, from `stec.analysis.
+# elevation_metrics_finetuned`'s per-(doy, elevation_bin, Method) table).
+#
+# Used to be a declared `skip=` here: the stale reason was that the input analysis "has
+# never been run at full coverage", pinned to a Madrigal re-inference this figure does not
+# actually depend on - `_build_mae_rmse_finetuned_figure` reads only the `own` dataset
+# rows (see that function's own comment), and `finetuned_stec/own` has all 242 days.
+# `elevation_metrics_finetuned` has since run (`multiday_results/analyses/
+# elevation_metrics_finetuned/rebuilt/per_day_by_elevation.csv` on disk) and Figure 11 is
+# built (`plots/manuscript/stec_finetuned_2024/mae_rmse_finetuned.csv`), so the skip was a
+# vacuous check reporting a considered-and-blocked state that no longer held.
+# --------------------------------------------------------------------------
+
+ELEVATION_METRICS_FINETUNED_DIR = paths.analysis_result_dir(
+    "elevation_metrics_finetuned", rebuilt=True
+)
+if not (ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv").exists():
+    ELEVATION_METRICS_FINETUNED_DIR = paths.analysis_result_dir(
+        "elevation_metrics_finetuned", rebuilt=False
+    )
+
+
+def _recompute_mae_rmse_finetuned() -> pd.DataFrame:
+    """`fig_mae_rmse_finetuned`'s across-day aggregation, reimplemented from the per-day
+    table it reads: mean/std of RMSE and MAE per (elevation_bin, Method), restricted to
+    the own test set the same way `_build_mae_rmse_finetuned_figure` filters it. This is
+    the same groupby the figure itself runs (a plain across-day mean/std has no second,
+    unrelated way to compute it), applied here to an independent `pd.read_csv` of the
+    upstream artifact rather than by calling into `stec.viz` - so a wrong join column, a
+    dropped elevation bin, or a filter applied to the wrong dataset in the figure code
+    would still show up as a mismatch here, even though the aggregation formula itself is
+    shared.
+    """
+    table = pd.read_csv(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv")
+    own = table[table["dataset"] == "own"]
+    return (
+        own.groupby(["elevation_bin", "Method"])
+        .agg(
+            RMSE_mean=("RMSE", "mean"),
+            RMSE_std=("RMSE", "std"),
+            MAE_mean=("MAE", "mean"),
+            MAE_std=("MAE", "std"),
+            days=("doy", "nunique"),
+            observations=("n", "sum"),
+        )
+        .reset_index()
+    )
+
+
+FIGURE11_CHECK = FigureCheck(
+    name="fig11_mae_rmse_finetuned",
+    figure="Figure 11 (RMSE/MAE vs. elevation, mean +/- across-day std)",
+    plotted_csv=MANUSCRIPT_PLOTS / "stec_finetuned_2024" / "mae_rmse_finetuned.csv",
+    upstream=(ELEVATION_METRICS_FINETUNED_DIR / "per_day_by_elevation.csv",),
+    join_keys=("elevation_bin", "Method"),
+    value_columns=(
+        "RMSE_mean",
+        "RMSE_std",
+        "MAE_mean",
+        "MAE_std",
+        "days",
+        "observations",
+    ),
+    recompute=_recompute_mae_rmse_finetuned,
+)
+
+
+CHECKS: tuple[FigureCheck, ...] = (
+    _figure10_check("RMSE"),
+    _figure10_check("MAE"),
+    FIGURE11_CHECK,
+    FIGURE12_CHECK,
+    FIGURE13_CHECK,
+    FIGURE14_CHECK,
+    FIGURE15_CHECK,
+    FIGURE5_CHECK,
+    FIGURE9_CHECK,
+    FIGURE5_FROM_STORE_CHECK,
+    FIGURE6_FROM_STORE_CHECK,
+    FIGURE7_FROM_STORE_CHECK,
+    FIGURE8_FROM_STORE_CHECK,
+    FIGURE_STRATIFIED_ELEVATION_CHECK,
+)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--only", nargs="+", help="check names")
+    args = parser.parse_args()
+
+    selected = CHECKS
+    if args.only:
+        known = {c.name for c in CHECKS}
+        unknown = set(args.only) - known
+        if unknown:
+            raise SystemExit(f"unknown check: {sorted(unknown)}")
+        selected = tuple(c for c in CHECKS if c.name in set(args.only))
+
+    print(f"checking {len(selected)} figure(s)\n")
+    verdicts = [run_check(c) for c in selected]
+
+    print()
+    for label in ("MATCH", "DIVERGED", "SKIPPED", "FAIL"):
+        count = verdicts.count(label)
+        if count:
+            print(f"  {label}: {count}")
+    if "FAIL" in verdicts:
+        print("\n  FAIL  at least one figure disagrees with its declared source")
+        return 1
+
+    compared = [v for v in verdicts if v in ("MATCH", "DIVERGED")]
+    if not compared:
+        print("\n  INCONCLUSIVE  nothing was actually compared")
+        return 2
+    print(
+        f"\n  PASS  {len(compared)} figure(s) compared, every value matched its source"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
