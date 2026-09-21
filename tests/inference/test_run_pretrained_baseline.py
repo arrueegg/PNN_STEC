@@ -61,11 +61,15 @@ def synthetic_frame(n_rows: int = 20, seed: int = 0) -> pd.DataFrame:
 
 
 def write_finetuned_day(store_root: Path, frame: pd.DataFrame) -> None:
-    ps.write_predictions(frame, "finetuned_stec", "madrigal", YEAR, DOY, root=store_root)
+    ps.write_predictions(
+        frame, "finetuned_stec", "madrigal", YEAR, DOY, root=store_root
+    )
 
 
 def write_pretrained_day(store_root: Path, frame: pd.DataFrame) -> None:
-    ps.write_predictions(frame, "pretrained_stec", "madrigal", YEAR, DOY, root=store_root)
+    ps.write_predictions(
+        frame, "pretrained_stec", "madrigal", YEAR, DOY, root=store_root
+    )
 
 
 # --- merge_pretrained_baseline_for_day: the happy path, and what it must never drop ----
@@ -115,7 +119,9 @@ def test_merge_never_drops_an_existing_baseline_column(tmp_path):
     write_finetuned_day(tmp_path, existing)
     write_pretrained_day(tmp_path, source)
 
-    merge_pretrained_baseline_for_day(YEAR, DOY, dataset="madrigal", store_root=tmp_path)
+    merge_pretrained_baseline_for_day(
+        YEAR, DOY, dataset="madrigal", store_root=tmp_path
+    )
 
     out = ps.read_predictions("finetuned_stec", "madrigal", doys=[DOY], root=tmp_path)
     assert TARGET_COLUMN in out.columns
@@ -168,7 +174,9 @@ def test_missing_finetuned_target_raises(tmp_path):
     new, narrower finetuned_stec file out of only the pretrained columns."""
     write_pretrained_day(tmp_path, synthetic_frame(n_rows=5, seed=5))
     with pytest.raises(FileNotFoundError):
-        merge_pretrained_baseline_for_day(YEAR, DOY, dataset="madrigal", store_root=tmp_path)
+        merge_pretrained_baseline_for_day(
+            YEAR, DOY, dataset="madrigal", store_root=tmp_path
+        )
 
 
 # --- alignment: the guard against a silent wrong-row-pairing merge --------------------
@@ -227,7 +235,9 @@ def test_merge_raises_and_leaves_the_existing_file_untouched_when_misaligned(tmp
     write_pretrained_day(tmp_path, shuffled_source)
 
     with pytest.raises(RuntimeError, match="misaligned"):
-        merge_pretrained_baseline_for_day(YEAR, DOY, dataset="madrigal", store_root=tmp_path)
+        merge_pretrained_baseline_for_day(
+            YEAR, DOY, dataset="madrigal", store_root=tmp_path
+        )
 
     out = ps.read_predictions("finetuned_stec", "madrigal", doys=[DOY], root=tmp_path)
     assert TARGET_COLUMN not in out.columns
@@ -245,7 +255,9 @@ def test_already_merged_is_schema_only(tmp_path):
 
     with_column = without.copy()
     with_column[TARGET_COLUMN] = np.float32(1.0)
-    ps.write_predictions(with_column, "finetuned_stec", "madrigal", YEAR, DOY, root=tmp_path)
+    ps.write_predictions(
+        with_column, "finetuned_stec", "madrigal", YEAR, DOY, root=tmp_path
+    )
     assert already_merged(path) is True
 
 
@@ -258,12 +270,20 @@ def test_already_merged_false_for_a_missing_file(tmp_path):
 
 def test_merge_rejects_an_unknown_dataset(tmp_path):
     with pytest.raises(ValueError, match="unknown dataset"):
-        merge_pretrained_baseline_for_day(YEAR, DOY, dataset="bogus", store_root=tmp_path)
+        merge_pretrained_baseline_for_day(
+            YEAR, DOY, dataset="bogus", store_root=tmp_path
+        )
 
 
 def test_write_manifest_round_trips(tmp_path):
     rows = [
-        {"dataset": "madrigal", "year": YEAR, "doy": DOY, "rows": 10, "status": "merged"},
+        {
+            "dataset": "madrigal",
+            "year": YEAR,
+            "doy": DOY,
+            "rows": 10,
+            "status": "merged",
+        },
         {
             "dataset": "madrigal",
             "year": YEAR,
