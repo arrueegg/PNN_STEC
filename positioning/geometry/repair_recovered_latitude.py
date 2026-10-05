@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import shutil
 import sys
@@ -41,6 +42,9 @@ RECOVERED_ROOT = REPO / "data" / "recovered_stec_db"
 PRODUCTION_DB_ROOT = Path("/home/space/data/iono/STEC_DB_CASDCB")
 RECOVERY_WORK_ROOT = REPO / "data" / "recovery_work"
 LATITUDE_TOLERANCE_DEGREES = 0.01
+# A station's latitude never changes, so a found value is cached; stations absent from the
+# DB are rescanned each run (a full 245-day scan, about 25 minutes).
+LATITUDE_CACHE = REPO / "data" / "recovered_station_latitudes.json"
 YEAR = 2024
 FIRST_DOY, LAST_DOY = 122, 366
 
@@ -53,7 +57,8 @@ def _station_column(path: Path, year: int, doy: int) -> tuple[np.ndarray, np.nda
 
 def lookup_production_latitudes(stations: set[str]) -> dict[str, float]:
     """lat_sta from the production database, scanning days until every station is found."""
-    found: dict[str, float] = {}
+    cache = json.loads(LATITUDE_CACHE.read_text()) if LATITUDE_CACHE.exists() else {}
+    found = {name: cache[name] for name in stations if name in cache}
     for doy in range(FIRST_DOY, LAST_DOY + 1):
         pending = stations - found.keys()
         if not pending:
@@ -71,6 +76,7 @@ def lookup_production_latitudes(stations: set[str]) -> dict[str, float]:
             hits = np.flatnonzero(names == name.encode("ascii"))
             if len(hits):
                 found[name] = float(latitudes[hits[0]])
+    LATITUDE_CACHE.write_text(json.dumps({**cache, **found}, indent=1, sort_keys=True))
     return found
 
 
