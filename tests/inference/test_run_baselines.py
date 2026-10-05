@@ -199,13 +199,46 @@ def test_compute_vtec_baseline_total_unc_is_sqrt2_times_scale_mapped():
     with torch.no_grad():
         location, scale = model(inputs)
     expected_std = math.sqrt(2.0) * scale.squeeze(-1).numpy()
-    mapping_factor = MappingFunction("MSLM").get_mapping_factor(
+    # The VTEC baseline maps with SLM (450 km), the convention the database's vtec column
+    # was derived with; the GIM baseline stays on MSLM.
+    mapping_factor = MappingFunction("SLM").get_mapping_factor(
         np.radians(raw["satele"])
     )
     expected_mapped_std = expected_std * mapping_factor
 
     np.testing.assert_allclose(
         result["vtec_model_stec_total_unc"], expected_mapped_std, rtol=1e-5
+    )
+
+
+def test_mapping_conventions_are_pinned_per_baseline():
+    from stec.inference import run_baselines
+
+    assert run_baselines.VTEC_MAPPING_TYPE == "SLM"
+    assert run_baselines.GIM_MAPPING_TYPE == "MSLM"
+
+
+def test_compute_vtec_baseline_defaults_to_slm_not_mslm():
+    torch.manual_seed(2)
+    model = MLP_LaplacianNLL(n_in=VTEC_N_IN, hidden_dim=4, num_layers=1).eval()
+    raw = synthetic_raw(n_rows=10)
+    kwargs = dict(device=torch.device("cpu"), seed=7, samples=10, batch_size=1000)
+
+    default = compute_vtec_baseline(raw, vtec_config(), model, **kwargs)
+    explicit_mslm = compute_vtec_baseline(
+        raw, vtec_config(), model, mapping_type="MSLM", **kwargs
+    )
+
+    low = raw["satele"] < 60
+    assert not np.allclose(
+        default["vtec_model_stec"][low], explicit_mslm["vtec_model_stec"][low]
+    )
+    factor = MappingFunction("SLM").get_mapping_factor(np.radians(raw["satele"]))
+    mslm_factor = MappingFunction("MSLM").get_mapping_factor(np.radians(raw["satele"]))
+    np.testing.assert_allclose(
+        default["vtec_model_stec"] / explicit_mslm["vtec_model_stec"],
+        factor / mslm_factor,
+        rtol=1e-5,
     )
 
 
@@ -434,7 +467,8 @@ def test_build_arg_parser_defaults():
     )
     assert args.dataset == "own"
     assert args.split == "test"
-    assert args.mapping_function == "MSLM"
+    assert args.vtec_mapping_function == "SLM"
+    assert args.gim_mapping_function == "MSLM"
     assert args.samples == 100
 
 
