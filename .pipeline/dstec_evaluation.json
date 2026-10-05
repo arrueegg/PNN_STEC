@@ -8,19 +8,19 @@
     "The reporting unit is the arc and the headline statistic is the median across arcs; mean-of-arcs and pooled (observation-weighted) are kept beside it because they answer different questions and the improvement over IGS GIM differs materially between them (38.6% / 30.2% / 22.3% on own, 2026-09-15). No minimum arc length is applied."
   ],
   "code": {
-    "commit": "e6cc337ae745c6fb4bac93e8b9b6690ca7f02ef4",
+    "commit": "df592fb22a542f99ece417a7dc218d9041f09b33",
     "dirty": true
   },
   "command": "-m stec.analysis.dstec_evaluation --output-dir multiday_results/analyses/dstec_evaluation/rebuilt",
   "description": "differential STEC (gradient-only) RMSE vs IGS GIM, VTEC + Mapping and Pretrained - cancels per-arc DCB/levelling offsets by construction, isolating the comparability concern from the model's own accuracy",
-  "duration_s": 283.1,
-  "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
+  "duration_s": 312.5,
+  "fingerprint": "19075e9210de46c79f2ec72e2e174448a6a9311f45ef8f22c34315234bf1903f",
   "inputs": {
     "predictions/finetuned_stec/own": {
       "files": 242,
       "kind": "tree",
-      "mtime_ns": 1787738860783434182,
-      "size": 40389608015
+      "mtime_ns": 1791204153705319655,
+      "size": 40389476152
     }
   },
   "outputs": {
@@ -31,18 +31,18 @@
     "multiday_results/analyses/dstec_evaluation/rebuilt/pass_statistics.csv": {
       "present": true,
       "rows": 672542,
-      "sha256": "e89fc356d44b78e904ac30899d2be94df5f9e5d75617a61c631a64b8496fab31",
-      "size": 311176163
+      "sha256": "9478bdb72d5ec7ffa6d327b21beb694262681783b48cf828e0cb7dd1fca158e5",
+      "size": 311350230
     },
     "multiday_results/analyses/dstec_evaluation/rebuilt/summary.csv": {
       "present": true,
       "rows": 29,
-      "sha256": "a0087b933993a671a45d578e3c4547f0cb1d78030f754632797e7325c58b037a",
-      "size": 1201
+      "sha256": "1508e805657863d19718e109cfcff2d6eee6d37a3cb29282ae613c92c1381aa1",
+      "size": 1199
     }
   },
   "params": {},
-  "recorded_at": "2026-09-15T13:43:34.419116+00:00",
+  "recorded_at": "2026-10-05T13:54:20.306803+00:00",
   "stage": "dstec_evaluation",
   "supersedes": []
 }

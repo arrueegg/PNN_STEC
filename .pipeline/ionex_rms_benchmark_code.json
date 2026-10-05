@@ -8,49 +8,49 @@
     "A grid-cell uncertainty at 5 degrees / 2 hours, judged here by per-observation coverage - the comparison the paper needs, not a like-for-like test of what the RMS was designed to represent."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "df592fb22a542f99ece417a7dc218d9041f09b33",
     "dirty": true
   },
   "command": "-m stec.analysis.ionex_rms_benchmark --gim_type CODE --output_dir multiday_results/analyses/ionex_rms_benchmark/rebuilt",
   "description": "model uncertainty against the CODE GIM RMS map, the table's second arm",
-  "duration_s": 755.6,
-  "fingerprint": "97da964fadc73d3f15dd9c0c74055b468cfe9148e3e9ad05f7c3854286de2d1d",
+  "duration_s": 880.0,
+  "fingerprint": "19075e9210de46c79f2ec72e2e174448a6a9311f45ef8f22c34315234bf1903f",
   "inputs": {
     "predictions/finetuned_stec/own": {
       "files": 242,
       "kind": "tree",
-      "mtime_ns": 1787738860783434182,
-      "size": 40389608015
+      "mtime_ns": 1791204153705319655,
+      "size": 40389476152
     }
   },
   "outputs": {
     "multiday_results/analyses/ionex_rms_benchmark/rebuilt/by_elevation_CODE.csv": {
       "present": true,
       "rows": 12,
-      "sha256": "ba8f68fdb23a334924d7034393a4614a0086bd3fe893e9270f6b5df47ee5bed2",
-      "size": 4042
+      "sha256": "77bc9df2dd537bb510d843fae40c68e95ca1589b0ac6eaf48fed6708eb14481b",
+      "size": 4039
     },
     "multiday_results/analyses/ionex_rms_benchmark/rebuilt/by_regime_CODE.csv": {
       "present": true,
       "rows": 6,
-      "sha256": "e420f57c37357f60b1ce1a2925b93708a66dd182f3a64ce32287ea2f0101570a",
-      "size": 2102
+      "sha256": "5d70086c7dcc3a49f06951899bb8bf4d21522e16e982c523e6581a5cf093bec4",
+      "size": 2098
     },
     "multiday_results/analyses/ionex_rms_benchmark/rebuilt/overall_CODE.csv": {
       "present": true,
       "rows": 3,
-      "sha256": "f1451ca84951a76568037a86338ff560c908a9f115d49d89014acbe45cd2ae1e",
-      "size": 1122
+      "sha256": "54de95d4157fcd542a46d54ccccb7492e5ce15b9292faf257309b53eeec06ebf",
+      "size": 1125
     },
     "multiday_results/analyses/ionex_rms_benchmark/rebuilt/per_day_CODE.csv": {
       "present": true,
       "rows": 3630,
-      "sha256": "4fa2df4bd5beacd0cdbbbb8973484709df6de2bc3f637fbdd6ad1ad404708868",
-      "size": 901968
+      "sha256": "7d79d14e61bc4862ccd80b8e5a1fa1ff44fbb8d643b5e25653cacacb7162c86c",
+      "size": 901976
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T08:16:45.001762+00:00",
+  "recorded_at": "2026-10-05T13:37:55.439439+00:00",
   "stage": "ionex_rms_benchmark_code",
   "supersedes": []
 }
