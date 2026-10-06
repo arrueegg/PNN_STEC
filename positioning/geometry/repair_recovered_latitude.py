@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 import json
 import logging
 import shutil
@@ -117,10 +118,38 @@ def repair_station_rows(
     data[mask] = rows
 
 
+def repair_file(
+    doy: int, path: Path, latitudes: dict[str, float], backup_root: Path, dry_run: bool
+) -> int:
+    """Repair the given stations in one recovered file; returns the number of rows affected."""
+    with h5py.File(path, "r") as handle:
+        data = handle[str(YEAR)][f"{doy:03d}"]["all_data"][:]
+    rows = 0
+    for station, latitude in latitudes.items():
+        mask = data["station"] == station.encode("ascii")
+        rows += int(mask.sum())
+        if not dry_run:
+            repair_station_rows(data, mask, doy, latitude)
+    if dry_run:
+        return rows
+    backup = backup_root / path.relative_to(RECOVERED_ROOT)
+    if not backup.exists():
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, backup)
+    _write_recovered_day_atomically(data, path, YEAR, doy)
+    logger.info(
+        f"DOY {doy}: repaired {', '.join(latitudes)} ({rows:,} rows), backup {backup}"
+    )
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run", action="store_true", help="report only, write nothing"
+    )
+    parser.add_argument(
+        "--workers", type=int, default=1, help="files repaired in parallel"
     )
     parser.add_argument(
         "--only",
@@ -169,6 +198,10 @@ def main() -> None:
         fallback = latitude_from_recovery_work(station)
         if fallback is not None:
             correct[station] = fallback
+            cache = json.loads(LATITUDE_CACHE.read_text())
+            LATITUDE_CACHE.write_text(
+                json.dumps({**cache, station: fallback}, indent=1, sort_keys=True)
+            )
     unresolved = sorted(stations - correct.keys())
     if unresolved:
         logger.warning(f"no correct latitude found for: {', '.join(unresolved)}")
@@ -187,30 +220,21 @@ def main() -> None:
         f"{', '.join(repaired_stations)}"
     )
 
-    total_rows = 0
+    jobs = []
     for doy, path in files:
         day_stations = [station for d, station in to_repair if d == doy]
-        if not day_stations:
-            continue
-        with h5py.File(path, "r") as handle:
-            data = handle[str(YEAR)][f"{doy:03d}"]["all_data"][:]
-        day_rows = 0
-        for station in day_stations:
-            mask = data["station"] == station.encode("ascii")
-            day_rows += int(mask.sum())
-            if not args.dry_run:
-                repair_station_rows(data, mask, doy, correct[station])
-        total_rows += day_rows
-        if args.dry_run:
-            continue
-        backup = args.backup_root / path.relative_to(RECOVERED_ROOT)
-        if not backup.exists():
-            backup.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, backup)
-        _write_recovered_day_atomically(data, path, YEAR, doy)
-        logger.info(
-            f"DOY {doy}: repaired {', '.join(day_stations)} ({day_rows:,} rows), backup {backup}"
-        )
+        if day_stations:
+            jobs.append((doy, path, {s: correct[s] for s in day_stations}))
+    # Per-file work is independent and dominated by the spacepy conversion, so it
+    # parallelises across files.
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        futures = [
+            pool.submit(
+                repair_file, doy, path, latitudes, args.backup_root, args.dry_run
+            )
+            for doy, path, latitudes in jobs
+        ]
+        total_rows = sum(future.result() for future in futures)
 
     verb = "would change" if args.dry_run else "changed"
     logger.info(f"{verb} {total_rows:,} rows in {len({d for d, _ in to_repair})} files")
