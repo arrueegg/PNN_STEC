@@ -182,3 +182,23 @@ def test_light_time_correction_is_below_two_millidegrees_of_elevation():
     )
     elevation_b, _ = ig.elevation_azimuth_deg(station, without, latitude, longitude)
     assert np.abs(elevation_a - elevation_b).max() < 0.002
+
+
+def test_read_rinex3_handles_event_records_with_blank_time(tmp_path):
+    # Receivers such as HKSL write event records ("> <blank time> flag count") with no epoch
+    # fields; splitting on whitespace used to raise IndexError on them.
+    def field(value):
+        return f"{value:14.3f}  "
+
+    lines = [text.ljust(60) + label for text, label in RINEX_HEADER]
+    lines.append("> 2024 05 12 00 00 30.0000000  0  1")
+    lines.append("E04" + "".join(field(v) for v in (2.1e7, 1e5, 2.1e7, 1e5)))
+    lines.append(">" + " " * 30 + "4  2")
+    lines.append("COMMENT line one")
+    lines.append("COMMENT line two")
+    lines.append("> 2024 05 12 00 01  0.0000000  0  1")
+    lines.append("E04" + "".join(field(v) for v in (2.1e7, 1e5, 2.1e7, 1e5)))
+    path = tmp_path / "t.rnx"
+    path.write_text("\n".join(lines) + "\n")
+    table = ig.read_rinex3_observations(path).table
+    assert table.sod.tolist() == [30.0, 60.0]

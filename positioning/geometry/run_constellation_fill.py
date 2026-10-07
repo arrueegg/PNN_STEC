@@ -83,20 +83,11 @@ def qualifying_station_days() -> dict[int, list[str]]:
     return {int(doy): sorted(g.station) for doy, g in qualifying.groupby("doy")}
 
 
-def snapshot_before(
-    experiment: Path, doy: int, backup_dir: Path
-) -> dict[str, pd.DataFrame]:
-    """Summaries as they were before the fill: the backup if one exists (restart-safe)."""
-    snapshot = {}
-    for weighting, name in fill.SUMMARY_FILES.items():
-        for path in (
-            backup_dir / name,
-            experiment / "positioning/results" / f"{YEAR}{doy:03d}" / name,
-        ):
-            if path.exists():
-                snapshot[weighting] = pd.read_csv(path).set_index(["station", "method"])
-                break
-    return snapshot
+def snapshot_before(experiment: Path, doy: int) -> dict[str, pd.DataFrame]:
+    """Summaries as they are now. Using the current file (not the backup) is deliberate: other
+    stations of this day, or a pilot, may already have been rewritten by an earlier process, and
+    only changes made by *this* pass to non-target rows are errors."""
+    return fill.summary_snapshot(experiment, doy)
 
 
 def prepare_targets(
@@ -191,10 +182,7 @@ def process_day(doy: int, stations: list[str], parallel: int) -> None:
     )
 
     day_backup = fill.BACKUP_ROOT / tag
-    snapshots = {
-        arm: snapshot_before(exp, doy, day_backup / arm)
-        for arm, exp in experiments.items()
-    }
+    snapshots = {arm: snapshot_before(exp, doy) for arm, exp in experiments.items()}
     for arm, exp in experiments.items():
         results = exp / "positioning" / "results" / tag
         for name in fill.SUMMARY_FILES.values():
