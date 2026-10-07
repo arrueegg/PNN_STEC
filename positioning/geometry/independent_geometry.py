@@ -268,11 +268,14 @@ def read_rinex3_observations(path: Path, systems: str = "GE") -> RinexObservatio
         epoch_satellites_left = 0
         for line in handle:
             if line.startswith(">"):
-                fields = line[1:].split()
-                seconds_of_day = (
-                    int(fields[3]) * 3600 + int(fields[4]) * 60 + float(fields[5])
-                )
-                event_flag, count = int(fields[6]), int(fields[7])
+                # Fixed-width RINEX 3 epoch record; event records (flag > 1) may have a blank time.
+                event_flag, count = int(line[31:32] or 0), int(line[32:35])
+                if event_flag <= 1:
+                    seconds_of_day = (
+                        int(line[13:15]) * 3600
+                        + int(line[16:18]) * 60
+                        + float(line[19:30])
+                    )
                 epoch_satellites_left = count
                 skip_lines = event_flag > 1
                 continue
