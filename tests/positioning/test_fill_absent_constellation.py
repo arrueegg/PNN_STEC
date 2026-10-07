@@ -120,3 +120,47 @@ def test_compare_original_rows_detects_key_set_and_drift(tmp_path):
     assert result["original_rows_same_key_set"]
     assert result["constellations_new"] == "EG"
     assert result["stec_rms_diff"] == pytest.approx(0.5)
+
+
+def summary(rows: dict[tuple[str, str], float]) -> dict[str, pd.DataFrame]:
+    frame = pd.DataFrame(
+        [{"station": s, "method": m, "mean_nsat": v} for (s, m), v in rows.items()]
+    ).set_index(["station", "method"])
+    return {"iono": frame}
+
+
+def test_verify_summaries_allows_target_changes_and_new_rows_only():
+    from fill_absent_constellation import verify_summaries
+
+    before = summary(
+        {
+            ("AAAA", "model_iono"): 8.0,
+            ("AAAA", "gim_iono"): 16.0,
+            ("BBBB", "model_iono"): 9.0,
+        }
+    )
+    target_changed_and_new_row = summary(
+        {
+            ("AAAA", "model_iono"): 16.0,
+            ("AAAA", "gim_iono"): 16.0,
+            ("BBBB", "model_iono"): 9.0,
+            ("BBBB", "gim_iono"): 15.0,
+        }
+    )
+    assert verify_summaries(before, target_changed_and_new_row, ["AAAA"]) is None
+    other_changed = summary(
+        {
+            ("AAAA", "model_iono"): 16.0,
+            ("AAAA", "gim_iono"): 16.0,
+            ("BBBB", "model_iono"): 10.0,
+        }
+    )
+    assert "unexpected change" in verify_summaries(before, other_changed, ["AAAA"])
+    vanished = summary(
+        {
+            ("AAAA", "model_iono"): 16.0,
+            ("BBBB", "model_iono"): 9.0,
+            ("CCCC", "gim_iono"): 1.0,
+        }
+    )
+    assert "vanished" in verify_summaries(before, vanished, ["AAAA"])

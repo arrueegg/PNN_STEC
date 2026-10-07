@@ -155,8 +155,13 @@ def verify_summaries(
         for key in new.index:
             if key in allowed:
                 continue
-            if key not in old.index or not old.loc[key].equals(new.loc[key]):
+            # A row that did not exist before is fine (PPPx also solves GIM for stations that
+            # lacked a result); an existing row that differs is not.
+            if key in old.index and not old.loc[key].equals(new.loc[key]):
                 return f"{weighting} unexpected change at {key}"
+        vanished = old.index.difference(new.index)
+        if len(vanished):
+            return f"{weighting} rows vanished: {list(vanished[:3])}"
     return None
 
 
