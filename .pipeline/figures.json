@@ -6,13 +6,13 @@
     "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
   ],
   "code": {
-    "commit": "df592fb22a542f99ece417a7dc218d9041f09b33",
+    "commit": "50b0ffd037cabb8586d5893b8595974643cfffb3",
     "dirty": true
   },
   "command": "-m stec.viz.revision_figures",
   "description": "one PNG per revision figure, plus the _notitle manuscript variants",
-  "duration_s": 25.4,
-  "fingerprint": "0942d379249f91d257197af462aed51749cf2142a40612017b83b559310f033a",
+  "duration_s": 24.6,
+  "fingerprint": "8e67a13d8c346dd9093f45d0988fc87ca46d37fed2294a395d7e5dfc5b0ae76a",
   "inputs": {
     "multiday_results/analyses/activity_stratification/rebuilt": {
       "files": 3,
@@ -47,14 +47,14 @@
     "multiday_results/analyses/oracle_benchmark/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789718483501475349,
-      "size": 426818
+      "mtime_ns": 1791382737609342215,
+      "size": 474498
     },
     "multiday_results/analyses/positioning_robustness/rebuilt": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1789994596325018478,
-      "size": 2416
+      "mtime_ns": 1791382635600251188,
+      "size": 2448
     },
     "multiday_results/analyses/station_independence/rebuilt": {
       "files": 3,
@@ -71,8 +71,8 @@
     "multiday_results/analyses/storm_stratification/rebuilt": {
       "files": 4,
       "kind": "tree",
-      "mtime_ns": 1789994595893016356,
-      "size": 2816
+      "mtime_ns": 1791382583367697763,
+      "size": 2819
     },
     "multiday_results/analyses/stratified_comparison/rebuilt": {
       "files": 5,
@@ -95,8 +95,8 @@
     "multiday_results/analyses/weighting_ablation/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789994595057012250,
-      "size": 6965
+      "mtime_ns": 1791382582527688894,
+      "size": 6993
     },
     "multiday_results/relative_error_metrics.csv": {
       "kind": "file",
@@ -120,7 +120,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-10-05T14:01:26.403497+00:00",
+  "recorded_at": "2026-10-07T14:21:08.719869+00:00",
   "stage": "figures",
   "supersedes": []
 }

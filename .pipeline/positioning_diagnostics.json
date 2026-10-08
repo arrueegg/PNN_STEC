@@ -8,13 +8,13 @@
     "Restricted to the four iono-weighted PAPER_METHODS (positioning_summary.py's labels), the same population the positioning-distribution table uses - elev weighting is out of scope here, same as positioning_summary itself."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "50b0ffd037cabb8586d5893b8595974643cfffb3",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_diagnostics --output-dir multiday_results/analyses/positioning_diagnostics/rebuilt",
   "description": "outlier-threshold sensitivity, per-station losses and a recovered-vs-original population split for the post-recovery-sweep positioning result",
-  "duration_s": 15.5,
-  "fingerprint": "94b37e65e887f5185a3bc98402153d6ebb932eb0fa668af7026c72c9c14256b7",
+  "duration_s": 15.0,
+  "fingerprint": "a9c4e9ae03d05838ffb79cc03803a58e40fdcd05d1c2a1fa188e18811a071030",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -24,13 +24,13 @@
     "data/recovered_stec_db": {
       "files": 242,
       "kind": "tree",
-      "mtime_ns": 1787793747086874638,
-      "size": 3378598041
+      "mtime_ns": 1791208774479485524,
+      "size": 3378650309
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
-      "size": 13940046
+      "sha256": "ae11389461e9ae165163249480dc15b97c23f1650a7ff6a1c30bb10ead38d38c",
+      "size": 15194968
     }
   },
   "outputs": {
@@ -40,73 +40,73 @@
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/FINDINGS.md": {
       "present": true,
-      "sha256": "8b88aa47c053f13b58631efcadb4b99175964339c3ffca7a94e67b6ddc80d911",
-      "size": 10797
+      "sha256": "299e4aa32573c19b25c2b99f50e87d60ba1d38eaa71b2d3b3f9caee5f53cccf3",
+      "size": 10800
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/daily_timeseries.csv": {
       "present": true,
       "rows": 968,
-      "sha256": "a6af029cc63b79621eafa504636d600e922ed7073dcc1dd30a9293f67a8e50e9",
-      "size": 54676
+      "sha256": "6afbf22fe9184bba9d3bb4e0bb80fabaa7533bb03e95613984329dbcdf243988",
+      "size": 53216
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_by_day.csv": {
       "present": true,
-      "rows": 204,
-      "sha256": "767f3980d991e64563a75f877eadb1d0bfb30e1f712f5deb97b51225f11cd8cc",
-      "size": 4717
+      "rows": 103,
+      "sha256": "09f87d89c3b99c9614227b60c29d92a8d00a13158d0e56532e628adca00563d7",
+      "size": 2409
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_by_station.csv": {
       "present": true,
-      "rows": 67,
-      "sha256": "aeb1a701f16ae1699d0f86174343a9258a5a93b61e2dad4492d7eef6c9cda1dd",
-      "size": 1667
+      "rows": 31,
+      "sha256": "ca4012784cfaf2a4234d8a6e7025655b8b98d2b408e0949185062e868802d882",
+      "size": 802
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_concentration_summary.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "73af0063e21eaf5819a4ca7306df53bf083b4c1b37a5d27adf873e7e2cf92d9f",
-      "size": 229
+      "sha256": "f53bc79687de20269932031ccebb2327392418bb449c7b1baaabec5024096762",
+      "size": 204
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_counts_by_population.csv": {
       "present": true,
       "rows": 32,
-      "sha256": "c81c1ef3af31150eba464883147b8943736eafb853171bb5ec5e5350feb69beb",
-      "size": 2418
+      "sha256": "705eeb1eb681d658846d580cc177def1ddc1a2bddd3a500645db7f27620078e3",
+      "size": 2415
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_headline_sensitivity.csv": {
       "present": true,
       "rows": 5,
-      "sha256": "205f372173d2e0af4792a2ad842badc4eee4f650317513d722558137391a7500",
-      "size": 697
+      "sha256": "1a1904a29ec425b546feeee8087beac619064eae917d3db80e4eebf9376a1310",
+      "size": 721
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/outlier_threshold_counts.csv": {
       "present": true,
       "rows": 16,
-      "sha256": "24e2b110bdce06d6fe1f07a8ac79a367ac85b33383634bed883902a66e3ae7f7",
-      "size": 1200
+      "sha256": "cfe0c6e4cca4d32e3f1fa36d861aa19a3f9cdf5b23154d9f9e4b1973bd483ab3",
+      "size": 1201
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/overall_summary.csv": {
       "present": true,
       "rows": 4,
-      "sha256": "65ec2ea5f98fbc05569aa1b0dabc96d630067514f5471ed2d11d3eb59b2db8ce",
+      "sha256": "cd80a0ca57d1bca0a33dc2bc33977ebe26c7e411b1cd4c4cba72cc62bf3538f2",
       "size": 300
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/per_station_summary.csv": {
       "present": true,
       "rows": 55,
-      "sha256": "1bf3402e107d067d6c45bd48a978ab97ff8d3b2c30c6f2ca62a372faacfde711",
-      "size": 5880
+      "sha256": "7326dc1688c9a69e15424edd9cd7a628b76b627379334ed9f424995e5d40df6a",
+      "size": 5999
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/population_split_by_method.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "33607d6c200021304f804ded9989dc03ca9c7d5a6cf5e64208774fc0fb789797",
-      "size": 505
+      "sha256": "d8718880e4584af402083b89c00bfbda8584d26425574651870d1a7d66915cff",
+      "size": 529
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/population_split_stec_vs_gim.csv": {
       "present": true,
       "rows": 2,
-      "sha256": "188e1de02d1e21c0ffab5aa2f7440a0250d9db67c949d42ebcb6b40cbeef0142",
+      "sha256": "c756f7689151f8dfe9deb44edadfab00e96d9fe464e88623db907666ca3e58d6",
       "size": 336
     },
     "multiday_results/analyses/positioning_diagnostics/rebuilt/recovered_station_days.csv": {
@@ -117,7 +117,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T07:13:28.260377+00:00",
+  "recorded_at": "2026-10-08T06:57:24.408957+00:00",
   "stage": "positioning_diagnostics",
   "supersedes": []
 }

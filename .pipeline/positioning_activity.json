@@ -8,13 +8,13 @@
     "iono weighting only, matching the positioning distribution and component tables."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "50b0ffd037cabb8586d5893b8595974643cfffb3",
     "dirty": true
   },
   "command": "-m stec.analysis.positioning_activity --output-dir multiday_results/analyses/positioning_activity/rebuilt",
   "description": "positioning error stratified by local ionospheric activity - the axis that replaces the recovered/original population split, which was measured to be a proxy for activity rather than a property of the recovery pipeline",
-  "duration_s": 17.7,
-  "fingerprint": "ffd486b2eebd35456f079135e5feebe911812b9ab2a833046faab0a715a282db",
+  "duration_s": 41.3,
+  "fingerprint": "c220110a955ec049deda8eed84439b8e8e459c22cc0f589bf8693a2125a356fb",
   "inputs": {
     "/home/space/data/iono/GIM_IONEX": {
       "files": 55718,
@@ -29,8 +29,8 @@
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary.csv": {
       "kind": "file",
-      "sha256": "dfa36421e36b75b32cdf434294aa461ab2a6fe789e54961612fdc1e91ba1dd1f",
-      "size": 13940046
+      "sha256": "ae11389461e9ae165163249480dc15b97c23f1650a7ff6a1c30bb10ead38d38c",
+      "size": 15194968
     }
   },
   "outputs": {
@@ -41,18 +41,18 @@
     "multiday_results/analyses/positioning_activity/rebuilt/activity_stratification.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "257246b4372cf807cbf2e93a4871990e0a5d7dd17f469081a7d2f86056bcaeeb",
-      "size": 1046
+      "sha256": "667d3587c4b79b807ea4df0bdb3ab7fe66ff1911d5227549221074e5135d1ee7",
+      "size": 977
     },
     "multiday_results/analyses/positioning_activity/rebuilt/station_day_activity.csv": {
       "present": true,
-      "rows": 43287,
-      "sha256": "8beeed56724e21b12ab074002d085f2d9856770b67a00b4f0dd0c85e1de54cdf",
-      "size": 16416854
+      "rows": 47115,
+      "sha256": "f9f5985b3679f8c455aea55e10299ddedb2b84b9380d655950f197fa41951e2e",
+      "size": 17891663
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T07:11:19.937755+00:00",
+  "recorded_at": "2026-10-07T14:17:14.602982+00:00",
   "stage": "positioning_activity",
   "supersedes": []
 }

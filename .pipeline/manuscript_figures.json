@@ -8,13 +8,13 @@
     "Figure 13's oracle variant (boxplot_3d_error_with_oracle, added 2026-09-17) additionally depends on oracle_benchmark and positioning_coverage - elevation weighting throughout, a different population from every other positioning figure in this stage (see stec.analysis.oracle_benchmark's module docstring for why) - and skips with a logged warning, not this stage's other figures, if either is missing."
   ],
   "code": {
-    "commit": "df592fb22a542f99ece417a7dc218d9041f09b33",
+    "commit": "50b0ffd037cabb8586d5893b8595974643cfffb3",
     "dirty": true
   },
   "command": "-m stec.viz.manuscript_figures",
   "description": "manuscript-numbered figures (dataset split, error/uncertainty, positioning)",
-  "duration_s": 60.1,
-  "fingerprint": "82d604259a1362e8fc953540548a698aecdd33a51f5385bd4e90cf8713ebf7a8",
+  "duration_s": 62.1,
+  "fingerprint": "2994b58a80018cb7afd11689ff60aeb96539729ab195b151fd9b922a6a59a3bb",
   "inputs": {
     "multiday_results/analyses/daily_metrics/rebuilt": {
       "files": 5,
@@ -31,20 +31,20 @@
     "multiday_results/analyses/oracle_benchmark/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789718483501475349,
-      "size": 426818
+      "mtime_ns": 1791382737609342215,
+      "size": 474498
     },
     "multiday_results/analyses/positioning_coverage/rebuilt": {
       "files": 18,
       "kind": "tree",
-      "mtime_ns": 1789715374190527223,
-      "size": 59341842
+      "mtime_ns": 1791382575155611110,
+      "size": 61966759
     },
     "multiday_results/analyses/positioning_distributions/rebuilt": {
       "files": 47,
       "kind": "tree",
-      "mtime_ns": 1789994597121022389,
-      "size": 5725208
+      "mtime_ns": 1791382763913625495,
+      "size": 6216516
     },
     "multiday_results/analyses/pretrained_test_diagnostics/rebuilt": {
       "files": 4,
@@ -72,7 +72,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-10-05T14:01:01.014749+00:00",
+  "recorded_at": "2026-10-07T14:20:44.090898+00:00",
   "stage": "manuscript_figures",
   "supersedes": []
 }
