@@ -2552,7 +2552,9 @@ STAGES: list[Stage] = [
         min_rows={
             str(CONSTELLATION_COVERAGE_DIR / "population_summary.csv"): 3,
             str(CONSTELLATION_COVERAGE_DIR / "per_station.csv"): 40,
-            str(CONSTELLATION_COVERAGE_DIR / "within_station_penalty.csv"): 10,
+            # Lowered 2026-10-08: after the missing-constellation fill only a handful of stations
+            # still have enough single-constellation days for a within-station comparison.
+            str(CONSTELLATION_COVERAGE_DIR / "within_station_penalty.csv"): 3,
         },
         canonical_for="constellation-coverage limitation",
         caveats=[
@@ -2842,8 +2844,10 @@ STAGES: list[Stage] = [
             str(POSITIONING_DIAGNOSTICS_DIR / "daily_timeseries.csv"): 700,
             str(POSITIONING_DIAGNOSTICS_DIR / "per_station_summary.csv"): 40,
             str(POSITIONING_DIAGNOSTICS_DIR / "outlier_threshold_counts.csv"): 12,
-            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_station.csv"): 50,
-            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_day.csv"): 150,
+            # Lowered 2026-10-08: the latitude fix and constellation fill shrank the outlier
+            # population to about 30 stations.
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_station.csv"): 25,
+            str(POSITIONING_DIAGNOSTICS_DIR / "outlier_by_day.csv"): 80,
             str(POSITIONING_DIAGNOSTICS_DIR / "recovered_station_days.csv"): 1_500,
             str(POSITIONING_DIAGNOSTICS_DIR / "population_split_by_method.csv"): 4,
             str(POSITIONING_DIAGNOSTICS_DIR / "outlier_counts_by_population.csv"): 16,

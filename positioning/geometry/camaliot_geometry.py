@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import re
 import subprocess
 import tempfile
@@ -181,21 +182,48 @@ def parse_ion(path: Path) -> pd.DataFrame:
     return out
 
 
+WGS84_SEMI_MAJOR_AXIS_M = 6378137.0
+WGS84_FLATTENING = 1.0 / 298.257223563
+
+
+def ecef_to_geodetic(x: float, y: float, z: float) -> tuple[float, float]:
+    """Geodetic (longitude, latitude) in degrees from ECEF metres, WGS84."""
+    eccentricity_squared = WGS84_FLATTENING * (2.0 - WGS84_FLATTENING)
+    horizontal_distance = math.hypot(x, y)
+    latitude = math.atan2(z, horizontal_distance * (1.0 - eccentricity_squared))
+    for _ in range(10):
+        sin_latitude = math.sin(latitude)
+        prime_vertical_radius = WGS84_SEMI_MAJOR_AXIS_M / math.sqrt(
+            1.0 - eccentricity_squared * sin_latitude**2
+        )
+        latitude = math.atan2(
+            z + eccentricity_squared * prime_vertical_radius * sin_latitude,
+            horizontal_distance,
+        )
+    return math.degrees(math.atan2(y, x)), math.degrees(latitude)
+
+
 def parse_site(path: Path) -> dict:
-    """Station longitude/latitude from the +SITE/ID block."""
+    """Signed station longitude/latitude from the +SITE/COORDINATES ECEF position.
+
+    The +SITE/ID block prints latitude unsigned (a southern station such as CHPG
+    reads +22.68), so the sign is taken from the Z coordinate via a proper
+    ECEF-to-geodetic conversion instead.
+    """
     with open(path, errors="ignore") as handle:
         inside = False
         for line in handle:
-            if line.startswith("+SITE/ID"):
+            if line.startswith("+SITE/COORDINATES"):
                 inside = True
                 continue
-            if line.startswith("-SITE/ID"):
+            if line.startswith("-SITE/COORDINATES"):
                 break
             if inside and not line.startswith("*"):
                 parts = line.split()
-                # ... _LONGITUDE _LATITUDE_ _HGT_ELI_ _HGT_MSL_
-                lon, lat = float(parts[-4]), float(parts[-3])
-                return {"lon_sta": (lon + 180.0) % 360.0 - 180.0, "lat_sta": lat}
+                # ... __STA_X_____ __STA_Y_____ __STA_Z_____ SYSTEM REMRK
+                x, y, z = (float(value) for value in parts[-5:-2])
+                lon, lat = ecef_to_geodetic(x, y, z)
+                return {"lon_sta": lon, "lat_sta": lat}
     return {}
 
 

@@ -106,10 +106,14 @@ logger = logging.getLogger(__name__)
 
 Day = tuple[int, int]
 
-# src/compare_stec_vtec_gim.py's production default (--mapping_function, "default: MSLM")
-# is what produced the paper's "VTEC + Mapping" and "IGS GIM" numbers - MappingFunction's
-# own default ("SLM") is not. See stec/baselines/vtec_mapping.py's module docstring.
-MAPPING_TYPE = "MSLM"
+# The VTEC model is trained on the STEC database's `vtec` column, which CamaliotGnss derived
+# from STEC with the standard single-layer mapping at 450 km (SLM), so mapping its output
+# back to slant must use the same SLM. Using MSLM here left a -6.9% bias at 5-10 deg
+# elevation (decision 2026-10-05; the published numbers used MSLM).
+VTEC_MAPPING_TYPE = "SLM"
+# The IGS GIM baseline deliberately stays on MSLM, the convention the paper's GIM numbers
+# use. Do not unify the two constants.
+GIM_MAPPING_TYPE = "MSLM"
 
 # The paper's canonical VTEC fine-tune variant (CLAUDE.md, stec.analysis.
 # positioning_coverage.CANONICAL_VTEC_SUFFIX). Quoted rather than imported: that module
@@ -181,7 +185,7 @@ def compute_gim_baseline(
     doy: int,
     *,
     ionex_root: Path | None = None,
-    mapping_type: str = MAPPING_TYPE,
+    mapping_type: str = GIM_MAPPING_TYPE,
 ) -> dict[str, np.ndarray]:
     """IGS GIM VTEC, mapped to slant STEC. Deterministic - no model, no sampling."""
     mapper = GIMMapper(mapping_type=mapping_type, gim_type="IGS")
@@ -232,7 +236,7 @@ def compute_vtec_baseline(
     seed: int,
     samples: int,
     batch_size: int,
-    mapping_type: str = MAPPING_TYPE,
+    mapping_type: str = VTEC_MAPPING_TYPE,
 ) -> dict[str, np.ndarray]:
     """VTEC model forward pass, mapped to slant STEC with its Laplace spread carried
     through. See the module docstring's requirement 1 for why the std this function scales
@@ -348,7 +352,8 @@ def add_baselines_for_day(
     ionex_root: Path | None = None,
     split: str | None = "test",
     madrigal_elevation_threshold: float = DEFAULT_ELEVATION_THRESHOLD_DEG,
-    mapping_type: str = MAPPING_TYPE,
+    vtec_mapping_type: str = VTEC_MAPPING_TYPE,
+    gim_mapping_type: str = GIM_MAPPING_TYPE,
     seed: int = 42,
     samples: int = 100,
     batch_size: int = DEFAULT_INFERENCE_BATCH_SIZE,
@@ -400,7 +405,7 @@ def add_baselines_for_day(
     _verify_alignment(raw, existing, year, doy)
 
     gim_columns = compute_gim_baseline(
-        raw, year, doy, ionex_root=ionex_root, mapping_type=mapping_type
+        raw, year, doy, ionex_root=ionex_root, mapping_type=gim_mapping_type
     )
     vtec_columns = compute_vtec_baseline(
         raw,
@@ -410,7 +415,7 @@ def add_baselines_for_day(
         seed=seed,
         samples=samples,
         batch_size=batch_size,
-        mapping_type=mapping_type,
+        mapping_type=vtec_mapping_type,
     )
 
     # Start from every column already on disk - never a hand-picked subset (module
@@ -499,11 +504,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ionex-root", type=Path, default=None)
     parser.add_argument(
-        "--mapping-function",
+        "--vtec-mapping-function",
         choices=["SLM", "MSLM"],
-        default=MAPPING_TYPE,
-        help="thin-shell mapping type; MSLM (default) is what produced the paper's "
-        "numbers - see the module docstring",
+        default=VTEC_MAPPING_TYPE,
+        help="thin-shell mapping for the VTEC baseline; SLM (default) matches how the "
+        "database's vtec column was derived",
+    )
+    parser.add_argument(
+        "--gim-mapping-function",
+        choices=["SLM", "MSLM"],
+        default=GIM_MAPPING_TYPE,
+        help="thin-shell mapping for the IGS GIM baseline; MSLM (default) is the "
+        "convention of the paper's GIM numbers",
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--samples", type=int, default=100)
@@ -562,7 +574,8 @@ def main(argv: list[str] | None = None) -> int:
             ionex_root=args.ionex_root,
             split=args.split,
             madrigal_elevation_threshold=args.madrigal_elevation_threshold,
-            mapping_type=args.mapping_function,
+            vtec_mapping_type=args.vtec_mapping_function,
+            gim_mapping_type=args.gim_mapping_function,
             seed=args.seed,
             samples=args.samples,
             batch_size=args.batch_size,

@@ -8,13 +8,13 @@
     "strongest_storm_days.csv uses a separate, fixed -300 nT threshold (EXTREME_STORM_DST_THRESHOLD_NT) to surface the two great storms of the 2024 test period individually, rather than folding them into the same storm bucket as a day that only just crossed -50 nT."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "df592fb22a542f99ece417a7dc218d9041f09b33",
     "dirty": true
   },
   "command": "-m stec.analysis.storm_stratification_stec --output-dir multiday_results/analyses/storm_stratification_stec/rebuilt",
   "description": "STEC prediction accuracy on storm against quiet days - the STEC-domain counterpart to storm_stratification.py's positioning-domain split",
-  "duration_s": 1.2,
-  "fingerprint": "ae69eb880bf0c31c24e620cfbf9c77ae1c0ef20c2ebe82a59fdab3831e4cf89e",
+  "duration_s": 1.4,
+  "fingerprint": "d66e181483480298d1a4a30add91278bf3f80795ab255191d3af506782daf718",
   "inputs": {
     "data/omni_hourly_2010-2025.h5": {
       "kind": "file",
@@ -24,20 +24,20 @@
     "multiday_results/analyses/daily_metrics/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789480276881902155,
-      "size": 361273
+      "mtime_ns": 1791204900527979842,
+      "size": 361301
     }
   },
   "outputs": {
     "multiday_results/analyses/storm_stratification_stec/rebuilt": {
       "present": true,
-      "size": 118
+      "size": 338
     },
     "multiday_results/analyses/storm_stratification_stec/rebuilt/by_regime.csv": {
       "present": true,
       "rows": 16,
-      "sha256": "156f1f7978bacf12e1a6d1c62544739b53139eebfdf026f182b7acdeb4321d28",
-      "size": 2801
+      "sha256": "7e008683f676bfa0b9d3807037449600d29219191da5d0492cca8c6d1541babd",
+      "size": 2798
     },
     "multiday_results/analyses/storm_stratification_stec/rebuilt/day_classification.csv": {
       "present": true,
@@ -48,12 +48,12 @@
     "multiday_results/analyses/storm_stratification_stec/rebuilt/strongest_storm_days.csv": {
       "present": true,
       "rows": 8,
-      "sha256": "333fe3f9f104c56513f2b41c20afe71f322d977c02064b94c067d6be5d42210f",
-      "size": 978
+      "sha256": "4f8e557b821681b83c2f15aa13a30c88a66ed1359f00206ac90d3781b1e39aa8",
+      "size": 976
     }
   },
   "params": {},
-  "recorded_at": "2026-09-17T15:17:04.568763+00:00",
+  "recorded_at": "2026-10-05T13:45:52.705697+00:00",
   "stage": "storm_stratification_stec",
   "supersedes": []
 }

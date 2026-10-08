@@ -1181,7 +1181,7 @@ def fig_improvement_by_date(
             marker="o",
             markersize=5,
             color=color,
-            label=f"Imp. by {baseline}",
+            label=f"Imp. over {baseline}",
         )
         rows.append(
             pd.DataFrame(

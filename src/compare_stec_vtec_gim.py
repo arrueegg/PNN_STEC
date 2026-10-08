@@ -214,6 +214,12 @@ def run_inference(
     return test_df
 
 
+# The VTEC model is trained on the database's vtec column (derived with SLM at 450 km), so
+# its slant mapping is fixed to SLM regardless of --mapping_function, which now governs only
+# the IGS GIM baseline (decision 2026-10-05; mirrors stec.inference.run_baselines).
+VTEC_MAPPING_FUNCTION = "SLM"
+
+
 def apply_mapping_function(
     vtec_df: pd.DataFrame, mapping_type: str, column_prefix: str, logger
 ) -> pd.DataFrame:
@@ -500,7 +506,8 @@ def save_results(metrics: Dict, test_df: pd.DataFrame, output_dir: Path, args, l
         f.write(f"STEC Experiment: {args.stec_experiment}\n")
         if args.vtec_experiment:
             f.write(f"VTEC Experiment: {args.vtec_experiment}\n")
-        f.write(f"Mapping Function: {args.mapping_function}\n")
+        f.write(f"GIM Mapping Function: {args.mapping_function}\n")
+        f.write(f"VTEC Mapping Function: {VTEC_MAPPING_FUNCTION}\n")
         if not args.no_gim:
             f.write(f"GIM Path: {args.gim_path}\n")
         f.write(f"Test Samples: {len(test_df):,}\n\n")
@@ -755,7 +762,8 @@ def main(args=None):
             type=str,
             default="MSLM",
             choices=["SLM", "MSLM"],
-            help="Mapping function for VTEC→STEC conversion (default: MSLM)",
+            help="Mapping function for the IGS GIM baseline (default: MSLM); the VTEC "
+            "model is always mapped with SLM",
         )
         parser.add_argument(
             "--output_dir",
@@ -1337,7 +1345,7 @@ def main(args=None):
             # Elevation should now be available in vtec_df from metadata
             # Apply mapping function
             vtec_df = apply_mapping_function(
-                vtec_df, args.mapping_function, "vtec_model", logger
+                vtec_df, VTEC_MAPPING_FUNCTION, "vtec_model", logger
             )
 
             # Verify same number of observations for fair comparison

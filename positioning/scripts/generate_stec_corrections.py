@@ -44,6 +44,7 @@ from stec.data.feature_registry import initialize_feature_registry, FeatureType 
 from stec.data.collation import CollateWithSH  # noqa: E402
 from torch.utils.data import Dataset, DataLoader  # noqa: E402
 from stec.baselines.gim import MappingFunction  # noqa: E402  (VTEC -> STEC conversion)
+from stec.inference.run_baselines import VTEC_MAPPING_TYPE  # noqa: E402
 
 
 def initialize_output_indices_for_registry(registry, config):
@@ -477,9 +478,9 @@ def run_inference_for_day(
             "ℹ️  Detected VTEC model target - applying mapping function to STEC..."
         )
 
-        # Initialize mapper (defaults to MSLM)
-        # Note: mapping_function arg is not passed, assuming default MSLM which is standard
-        mapper = MappingFunction(mapping_type="MSLM")
+        # The VTEC model is trained on the database's vtec, which CamaliotGnss derived
+        # with SLM at 450 km, so mapping back must use the same convention (not MSLM).
+        mapper = MappingFunction(mapping_type=VTEC_MAPPING_TYPE)
 
         # Calculate mapping factor
         # satele is in degrees, convert to radians

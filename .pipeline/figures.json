@@ -6,25 +6,25 @@
     "Approach colours are fixed: blue Direct STEC, orange VTEC + Mapping, green IGS GIM + Mapping, purple Pretrained. An approach colour must never mean anything else."
   ],
   "code": {
-    "commit": "6e27d23fd4b14057a5c06efb138de361ef70e026",
+    "commit": "50b0ffd037cabb8586d5893b8595974643cfffb3",
     "dirty": true
   },
   "command": "-m stec.viz.revision_figures",
   "description": "one PNG per revision figure, plus the _notitle manuscript variants",
-  "duration_s": 25.6,
-  "fingerprint": "b327dcd40abe0b0c093055b690e27236cd49c093c3854a880354229b88ca439e",
+  "duration_s": 24.6,
+  "fingerprint": "8e67a13d8c346dd9093f45d0988fc87ca46d37fed2294a395d7e5dfc5b0ae76a",
   "inputs": {
     "multiday_results/analyses/activity_stratification/rebuilt": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1789488563303683709,
-      "size": 4332
+      "mtime_ns": 1791205917041027862,
+      "size": 4337
     },
     "multiday_results/analyses/dstec_evaluation/rebuilt": {
       "files": 10,
       "kind": "tree",
-      "mtime_ns": 1789479814407581213,
-      "size": 571198999
+      "mtime_ns": 1791208460296557153,
+      "size": 571373064
     },
     "multiday_results/analyses/hyperparameter_search/pre_rebuild": {
       "files": 9,
@@ -35,31 +35,31 @@
     "multiday_results/analyses/ionex_rms_benchmark/rebuilt": {
       "files": 13,
       "kind": "tree",
-      "mtime_ns": 1789719404977853213,
-      "size": 1824183
+      "mtime_ns": 1791207475426893449,
+      "size": 1824191
     },
     "multiday_results/analyses/madrigal_reference_offset/rebuilt": {
       "files": 8,
       "kind": "tree",
-      "mtime_ns": 1789367526526651410,
+      "mtime_ns": 1791207850494699457,
       "size": 7282
     },
     "multiday_results/analyses/oracle_benchmark/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789718483501475349,
-      "size": 426818
+      "mtime_ns": 1791382737609342215,
+      "size": 474498
     },
     "multiday_results/analyses/positioning_robustness/rebuilt": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1789994596325018478,
-      "size": 2416
+      "mtime_ns": 1791382635600251188,
+      "size": 2448
     },
     "multiday_results/analyses/station_independence/rebuilt": {
       "files": 3,
       "kind": "tree",
-      "mtime_ns": 1789646777900679268,
+      "mtime_ns": 1791204926680212755,
       "size": 10088
     },
     "multiday_results/analyses/station_independence_pretrained/rebuilt": {
@@ -71,32 +71,32 @@
     "multiday_results/analyses/storm_stratification/rebuilt": {
       "files": 4,
       "kind": "tree",
-      "mtime_ns": 1789994595893016356,
-      "size": 2816
+      "mtime_ns": 1791382583367697763,
+      "size": 2819
     },
     "multiday_results/analyses/stratified_comparison/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1787741608849713579,
+      "mtime_ns": 1791205915673015689,
       "size": 12596
     },
     "multiday_results/analyses/uncertainty_calibration/rebuilt": {
       "files": 46,
       "kind": "tree",
-      "mtime_ns": 1789720098113183464,
-      "size": 56724
+      "mtime_ns": 1791207730685496672,
+      "size": 56744
     },
     "multiday_results/analyses/uncertainty_error_relation/rebuilt": {
       "files": 6,
       "kind": "tree",
-      "mtime_ns": 1789717803254181654,
+      "mtime_ns": 1791205200682652428,
       "size": 6679
     },
     "multiday_results/analyses/weighting_ablation/rebuilt": {
       "files": 5,
       "kind": "tree",
-      "mtime_ns": 1789994595057012250,
-      "size": 6965
+      "mtime_ns": 1791382582527688894,
+      "size": 6993
     },
     "multiday_results/relative_error_metrics.csv": {
       "kind": "file",
@@ -120,7 +120,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-21T12:45:20.615379+00:00",
+  "recorded_at": "2026-10-07T14:21:08.719869+00:00",
   "stage": "figures",
   "supersedes": []
 }

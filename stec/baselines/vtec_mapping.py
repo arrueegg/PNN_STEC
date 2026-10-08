@@ -162,7 +162,9 @@ def map_vtec_to_stec(
         mapping_type: `"SLM"` or `"MSLM"`, passed straight to
             `MappingFunction`. Required, with no default: see the module
             docstring - `MappingFunction`'s own default (`"SLM"`) is not what
-            produced the paper's "VTEC + Mapping" numbers (`"MSLM"`).
+            produced the paper's published "VTEC + Mapping" numbers (`"MSLM"`). The
+            current VTEC baseline uses `"SLM"` (see `stec.inference.run_baselines.
+            VTEC_MAPPING_TYPE`).
         vtec_std: Predicted standard deviation of the VTEC model's Laplace
             predictive (TECU), if the caller has one to propagate. `None`
             skips uncertainty propagation and leaves `MappedVtec.stec_std`

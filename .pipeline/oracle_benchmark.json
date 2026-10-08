@@ -8,13 +8,13 @@
     "Station coverage: 54 of the common set's 55 stations appear. PARC is absent because it has no reference-STEC corrections generated at all - an upstream data-generation gap, not a solving gap. The 2026-09-16 recovery solved 4,354 of 4,493 missing station-days (96.9%), taking the paired population from 5,442 to 8,223 and the top-15-station share from 60% to 41%, with per-station coverage median rising from ~113 to 188 days. station_median_check.csv's pooled-versus-per-station-median agreement tightened from 5-8% to 3.6-4.9%, so the headline is not an artifact of the well-covered stations. Eight stations remain under 20 station-days, contributing 0.8% between them, but seven of those are FULLY solved against their available corrections - their thinness comes from the common-set intersection being sparse for them across all four methods, which no further oracle solving can fix. Only GLSV is an oracle-side failure: PPPx SIGSEGVs on it (missing Galileo PRN16 antenna calibration, 'no E16'), costing 95 of the 139 unrecovered station-days."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "50b0ffd037cabb8586d5893b8595974643cfffb3",
     "dirty": true
   },
   "command": "-m stec.analysis.oracle_benchmark --output-dir multiday_results/analyses/oracle_benchmark/rebuilt",
   "description": "positioning floor from reference STEC, on its own restricted set",
-  "duration_s": 99.7,
-  "fingerprint": "b2011eed9795cf0d6d3af3af876a79b7e8e14cda2c3e6b7e4f75973111ca6202",
+  "duration_s": 100.9,
+  "fingerprint": "0aec5792bd5a03e9c327db79c931809388b2645d63036ce0dd1c42e0f66a6707",
   "inputs": {
     "experiments/Reference_STEC_Oracle": {
       "files": 58688,
@@ -24,8 +24,8 @@
     },
     "multiday_results/analyses/positioning_coverage/rebuilt/multiday_summary_all_weightings.csv": {
       "kind": "file",
-      "sha256": "51234d43dde2c13fe23bca535bda751ad8fab9c817a390380062a45fc0072500",
-      "size": 29262814
+      "sha256": "7b0ccbb2623223c778a41fbb93ca275f00e88a629ee7a853db896be1e21a4c96",
+      "size": 30561578
     }
   },
   "outputs": {
@@ -35,7 +35,7 @@
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T08:01:24.216052+00:00",
+  "recorded_at": "2026-10-07T14:18:58.234508+00:00",
   "stage": "oracle_benchmark",
   "supersedes": []
 }

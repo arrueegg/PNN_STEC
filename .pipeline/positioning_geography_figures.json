@@ -6,18 +6,18 @@
     "Writes only plots/positioning_geography/positioning_2024/ - the quality_gate/ and model_accuracy_vs_positioning/ subtrees under the same parent belong to two further, undeclared viz modules."
   ],
   "code": {
-    "commit": "932749d9cf939c87a49efc62759a3875eacbb9d6",
+    "commit": "50b0ffd037cabb8586d5893b8595974643cfffb3",
     "dirty": true
   },
   "command": "-m stec.viz.positioning_geography --output_dir plots/positioning_geography",
   "description": "station maps and latitude-stratification figures for positioning_geography's CSVs",
-  "duration_s": 9.9,
-  "fingerprint": "f29b0618741c6fe0099191d0e716836f1f2f2dd51f06c84901dba035457814d5",
+  "duration_s": 10.1,
+  "fingerprint": "e7dec5d67b524204950ef99953d3036c2664f438622eaf8c57f5044007e6a7fb",
   "inputs": {
     "multiday_results/analyses/positioning_geography/rebuilt/station_map_direct_stec.csv": {
       "kind": "file",
-      "sha256": "18d24cfa050afa8de138eb614e006f1981db6ddab770b558c3ddbb2e80d92e0a",
-      "size": 4237
+      "sha256": "24ba38bfa25e12afac3aa823f4c7cc77b366a661b1ee32320c72dc26e112357c",
+      "size": 4317
     }
   },
   "outputs": {
@@ -28,54 +28,54 @@
     "plots/positioning_geography/positioning_2024/latitude_stratification_geographic.csv": {
       "present": true,
       "rows": 36,
-      "sha256": "df102bc179fec5f8432e22737693d46bd35e1a37ed2f97e6d8dac1d864c350a7",
-      "size": 2312
+      "sha256": "01eef028fc0bb65b5f8c2065e3c25bed9d183d0936a8be6853adc8b1794165cd",
+      "size": 2326
     },
     "plots/positioning_geography/positioning_2024/latitude_stratification_geomagnetic.csv": {
       "present": true,
       "rows": 36,
-      "sha256": "143b4c8367ccc51b1355db047791eec375d56b6a509f4a7d0068e2c416d06394",
-      "size": 2301
+      "sha256": "1d00defae57077e0d331bd78e5245c157db81a8d6827a6116f802c1ba90e2b3e",
+      "size": 2357
     },
     "plots/positioning_geography/positioning_2024/population_by_latitude_geographic.csv": {
       "present": true,
       "rows": 9,
-      "sha256": "905c65f981c6727dc6f460414b48408753efaf9ad8fe9ca4e4b0421a340c5735",
-      "size": 468
+      "sha256": "3ea09b248bed7bf8be7051a81ff1593be5a42526ccad65abf9f8186e7666f66e",
+      "size": 460
     },
     "plots/positioning_geography/positioning_2024/population_by_latitude_geomagnetic.csv": {
       "present": true,
       "rows": 9,
-      "sha256": "46c73232a690e0113016eb0f18ee8da6797dbe5728f3248f5126f71583a493bf",
+      "sha256": "90b49c89afe8015aec358c9f8e281fc6beb4349f55dd9d301ec6f1f5146b736a",
       "size": 455
     },
     "plots/positioning_geography/positioning_2024/population_latitude_cross_geographic.csv": {
       "present": true,
       "rows": 36,
-      "sha256": "7e23785c714730007a6672de98b81eb434e0db87202e38f6b5fd5731f38b1bfd",
-      "size": 1786
+      "sha256": "f2726c4beef6a1a8d219c2426861bb883c9ff78ee50d4b54a5286506c49e6154",
+      "size": 1796
     },
     "plots/positioning_geography/positioning_2024/population_latitude_cross_geomagnetic.csv": {
       "present": true,
       "rows": 36,
-      "sha256": "300a4c7a87b1888107138f924255019d9375a924cb45d1582d76ad5c0ed4b8dd",
-      "size": 1768
+      "sha256": "edcd87f79cd0a3731e96e6330196186edf47ba51f1020a0a46dab8b61dcc88f2",
+      "size": 1789
     },
     "plots/positioning_geography/positioning_2024/station_map_diff.csv": {
       "present": true,
       "rows": 55,
-      "sha256": "920d81ce3363085290beb00d586d8a61d0235f3bf623b7acffb9a0abb11c2a5f",
-      "size": 6793
+      "sha256": "0ec727643729b96bcd4f93f0feba1a8b2c5bcbabd3caf1e8f18b0cd45e314873",
+      "size": 6855
     },
     "plots/positioning_geography/positioning_2024/station_map_direct_stec.csv": {
       "present": true,
       "rows": 55,
-      "sha256": "6687c694e7157cae9b6a54989492b53ece4af71b390a3fa3f1122b2dede2ace5",
-      "size": 4133
+      "sha256": "2771837b9c8411c28b5bc8bb44f4980c52794ded9a22c3c74e5b3a412b574b9e",
+      "size": 4190
     }
   },
   "params": {},
-  "recorded_at": "2026-09-18T07:13:55.809604+00:00",
+  "recorded_at": "2026-10-07T14:19:41.997950+00:00",
   "stage": "positioning_geography_figures",
   "supersedes": []
 }
