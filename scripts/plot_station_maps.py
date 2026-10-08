@@ -97,105 +97,162 @@ def base_axes(fig: plt.Figure, position: int = 111) -> plt.Axes:
     return ax
 
 
+# Thresholds that decide which reason a flagged station is attributed to, checked in order.
+FAR_FROM_TRAINING_KM = 500.0
+SMALL_IMPROVEMENT_PCT = 10.0
+REASONS = [
+    ("isolated", "#d62728", "Far from training stations (> 500 km)"),
+    ("geometry", "#6a3d9a", "Weak geometry (median < 9 satellites)"),
+    ("hard_days", "#ff7f0e", "Few extreme days, otherwise clear gain"),
+    ("unclear", "#7f7f7f", "Small gain, no clear single cause"),
+]
+
+
+def attribute_reason(row: pd.Series) -> str | None:
+    """Return the most likely reason a station is difficult, or None if it is not flagged."""
+    flagged = (
+        row["improvement_pct"] < SMALL_IMPROVEMENT_PCT
+        or row["stec_tail"] > 0
+        or row["gim_tail"] > 0
+        or row["median_satellites"] < LOW_SATELLITE_THRESHOLD
+    )
+    if not flagged:
+        return None
+    if row["distance_km"] > FAR_FROM_TRAINING_KM:
+        return "isolated"
+    if row["median_satellites"] < LOW_SATELLITE_THRESHOLD:
+        return "geometry"
+    if row["stec_tail"] > 0 or row["gim_tail"] > 0:
+        return "hard_days"
+    return "unclear"
+
+
 def plot_problem_stations(stations: pd.DataFrame) -> Path:
-    fig = plt.figure(figsize=(14, 7.5))
-    ax = base_axes(fig)
-    located = stations.dropna(subset=["lat", "lon"])
+    distances = pd.read_csv(ANALYSES / "station_independence/rebuilt/per_station.csv")[
+        ["station", "distance_km", "nearest_train_station"]
+    ]
+    located = stations.merge(distances, on="station", how="left").dropna(
+        subset=["lat", "lon"]
+    )
+    located["reason"] = located.apply(attribute_reason, axis=1)
+    flagged = located.dropna(subset=["reason"]).copy()
+    reason_order = {key: i for i, (key, _, _) in enumerate(REASONS)}
+    flagged["order"] = flagged["reason"].map(reason_order)
+    flagged = flagged.sort_values(["order", "improvement_pct"]).reset_index(drop=True)
+    flagged["number"] = np.arange(1, len(flagged) + 1)
+
+    fig = plt.figure(figsize=(14, 13))
+    grid = fig.add_gridspec(2, 1, height_ratios=[1.35, 1], hspace=0.22)
+    ax = fig.add_subplot(grid[0], projection=ccrs.Robinson())
+    ax.set_global()
+    ax.add_feature(cfeature.LAND, facecolor="#f2f2f2")
+    ax.add_feature(cfeature.COASTLINE, linewidth=0.4, color="#888888")
     transform = ccrs.PlateCarree()
 
+    others = located[located["reason"].isna()]
     ax.scatter(
-        located["lon"],
-        located["lat"],
-        s=18,
-        color="#bbbbbb",
+        others["lon"],
+        others["lat"],
+        s=25,
+        color="#c8c8c8",
+        edgecolors="white",
+        linewidths=0.5,
         transform=transform,
-        label="Test station (no flag)",
         zorder=2,
+        label="Other test stations (no problem)",
     )
-    categories = [
-        (
-            located["median_satellites"] < LOW_SATELLITE_THRESHOLD,
-            dict(
-                marker="s", s=170, facecolors="none", edgecolors="#6a3d9a", linewidths=2
-            ),
-            f"Weak geometry (median < {LOW_SATELLITE_THRESHOLD:.0f} satellites)",
-        ),
-        (
-            located["single_constellation_days"] >= MIN_SINGLE_CONSTELLATION_DAYS,
-            dict(
-                marker="D",
-                s=120,
-                facecolors="none",
-                edgecolors="#1f78b4",
-                linewidths=1.8,
-            ),
-            f"Corrections cover fewer satellites than GIM on >= {MIN_SINGLE_CONSTELLATION_DAYS} days",
-        ),
-        (
-            located["missing_solution_days"] >= MIN_MISSING_SOLUTION_DAYS,
-            dict(
-                marker="^",
-                s=150,
-                facecolors="none",
-                edgecolors="#ff7f00",
-                linewidths=1.8,
-            ),
-            f"No solution for some methods on >= {MIN_MISSING_SOLUTION_DAYS} days",
-        ),
-    ]
-    for mask, style, label in categories:
-        subset = located[mask]
+    colors = {key: color for key, color, _ in REASONS}
+    for key, color, label in REASONS:
+        subset = flagged[flagged["reason"] == key]
         ax.scatter(
             subset["lon"],
             subset["lat"],
+            s=260,
+            color=color,
+            edgecolors="black",
+            linewidths=0.8,
             transform=transform,
-            label=label,
             zorder=4,
-            **style,
+            label=label,
         )
-
-    tail = located[located["stec_tail"] > 0]
-    ax.scatter(
-        tail["lon"],
-        tail["lat"],
-        s=40 + 40 * tail["stec_tail"],
-        color="#e31a1c",
-        alpha=0.6,
-        transform=transform,
-        zorder=3,
-        label=f"Direct STEC days > {TAIL_THRESHOLD_M:.0f} m (size = count)",
-    )
-    gim_tail = located[located["gim_tail"] > 0]
-    ax.scatter(
-        gim_tail["lon"],
-        gim_tail["lat"],
-        s=40 + 40 * gim_tail["gim_tail"],
-        facecolors="none",
-        edgecolors="black",
-        linewidths=1.2,
-        linestyle="--",
-        transform=transform,
-        zorder=5,
-        label=f"IGS GIM days > {TAIL_THRESHOLD_M:.0f} m (size = count)",
-    )
-
-    # Label only the stations that explain the tail or underperform, to keep the map legible.
-    flagged = located[
-        (located["stec_tail"] > 0)
-        | (located["gim_tail"] > 0)
-        | (located["median_satellites"] < LOW_SATELLITE_THRESHOLD)
-        | (located["improvement_pct"] < 0)
-    ]
     for _, row in flagged.iterrows():
-        text = (
-            f"{row['station']}: {row['stec_tail']:.0f}/{row['gim_tail']:.0f} >10 m, "
-            f"{row['median_satellites']:.1f} sats, {row['improvement_pct']:+.0f}%"
+        ax.text(
+            row["lon"],
+            row["lat"],
+            str(row["number"]),
+            fontsize=8,
+            fontweight="bold",
+            color="white",
+            ha="center",
+            va="center",
+            transform=transform,
+            zorder=5,
         )
-        ax.text(row["lon"] + 3, row["lat"] + 2, text, fontsize=7, transform=transform,
-                zorder=6, bbox=dict(facecolor="white", alpha=0.7, linewidth=0, pad=1))
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.0),
+        ncol=3,
+        fontsize=9,
+        title="Most likely reason (number = row in table)",
+        title_fontsize=9,
+    )
+    ax.set_title(
+        "Test stations where Direct STEC positioning gains little or has extreme days"
+    )
 
-    ax.legend(loc="lower left", fontsize=8, framealpha=0.9)
-    ax.set_title("Positioning test stations with problematic station-days")
+    table_ax = fig.add_subplot(grid[1])
+    table_ax.axis("off")
+    header = [
+        "#",
+        "Station",
+        "Station-days",
+        "Gain over\nGIM [%]",
+        "Days > 10 m\nDirect / GIM",
+        "Median\nsatellites",
+        "Nearest training\nstation [km]",
+        "Most likely reason",
+    ]
+    cells = [
+        [
+            row["number"],
+            row["station"],
+            int(row["station_days"]),
+            f"{row['improvement_pct'] + 0.0:+.0f}".replace("-0", "0"),
+            f"{row['stec_tail']:.0f} / {row['gim_tail']:.0f}",
+            f"{row['median_satellites']:.1f}",
+            f"{row['distance_km']:.0f} ({row['nearest_train_station']})",
+            dict((k, lab) for k, _, lab in REASONS)[row["reason"]],
+        ]
+        for _, row in flagged.iterrows()
+    ]
+    table = table_ax.table(
+        cellText=cells,
+        colLabels=header,
+        loc="upper center",
+        cellLoc="center",
+        colWidths=[0.04, 0.08, 0.09, 0.08, 0.11, 0.08, 0.14, 0.38],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.5)
+    for (row_index, col_index), cell in table.get_celld().items():
+        if row_index == 0:
+            cell.set_text_props(fontweight="bold")
+            cell.set_height(cell.get_height() * 1.6)
+        elif col_index == 0:
+            cell.set_facecolor(colors[flagged.loc[row_index - 1, "reason"]])
+            cell.set_text_props(color="white", fontweight="bold")
+    table_ax.text(
+        0.0,
+        -0.02,
+        "Flagged: median gain over IGS GIM + Mapping below 10%, any day above 10 m, or fewer "
+        "than 9 satellites. Gain = median of the daily 3D RMSE ratio, uncertainty weighting, "
+        "common set.\nReasons are checked in the order of the legend; distance to the nearest "
+        "training station from the station-independence analysis.",
+        fontsize=8,
+        va="top",
+        transform=table_ax.transAxes,
+    )
     path = OUTPUT_DIR / "problem_stations.png"
     fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
